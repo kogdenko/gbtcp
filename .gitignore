@@ -1,0 +1,11 @@
+*.o
+*.d
+Makefile
+*.ko
+*.so
+*.core
+*.swp
+*.bak
+bin
+tags
+test/unittest.log

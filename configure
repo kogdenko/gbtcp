@@ -1,0 +1,155 @@
+#!/bin/sh
+
+CFLAGS="$CFLAGS -g -Wall -std=gnu99 -pipe -finline-functions -pthread -fPIC"
+CFLAGS="$CFLAGS -D_LIBC_REENTRANT"
+CFLAGS="$CFLAGS -falign-functions=16"
+CFLAGS="$CFLAGS -Wunused-variable"
+CFLAGS="$CFLAGS -fdiagnostics-color=always"
+LDFLAGS="$LDFLAGS -lm -rdynamic -L."
+
+LIB_OBJS="\
+subr.o \
+ip_addr.o \
+global.o \
+list.o \
+sys.o \
+timer.o \
+htable.o \
+log.o \
+dev.o \
+arp.o \
+route.o \
+route_$(uname).o \
+file.o \
+ctl.o \
+strbuf.o \
+lptree.o \
+mbuf.o \
+fd_event.o \
+poll.o \
+api.o \
+inet.o \
+service.o \
+preload.o \
+epoll.o \
+sockbuf.o \
+tcp.o \
+signal.o \
+"
+
+if [ "$(uname)" == "Linux" ]; then
+	LDFLAGS="$LDFLAGS -ldl"
+elif [ "$(uname)" == "FreeBSD" ]; then
+	LDFLAGS="$LDFLAGS -lexecinfo -lutil"
+else
+	echo "Unsupported platform"
+	exit 1
+fi
+
+if [ "$CC" = "gcc" ]; then
+	CFLAGS="$CFLAGS -Wno-format-truncation"
+elif `$CC -v 2>&1 | grep 'clang version' >/dev/null 2>&1`; then
+	CFLAGS="$CFLAGS"
+fi
+
+NETSTAT_OBJS="\
+netstat/netstat.o \
+"
+
+SYSCTL_OBJS="\
+sysctl/sysctl.o \
+"
+
+GBTCPD_OBJS="\
+gbtcpd.o \
+"
+
+OBJS="\
+$LIB_OBJS \
+$SYSCTL_OBJS \
+$NETSTAT_OBJS \
+"
+
+NETMAP_DIR=""
+WITH_DEBUG=false
+
+usage() 
+{
+	echo "  -h       print this message"
+	echo "  -n=PATH  set netmap pathname"
+	echo "  -d       debug version"
+	exit 0
+}
+
+while getopts ":hn:d" opt; do
+	case $opt in
+	h)
+		usage
+		;;
+	n)
+		NETMAP_DIR=$OPTARG
+		;;
+	d)
+		WITH_DEBUG=true
+		;;
+	esac
+done
+
+if ! [ -z "$NETMAP_DIR" ]
+then
+	echo "  netmap library: $NETMAP_DIR"
+	CFLAGS="$CFLAGS -I$NETMAP_DIR -DHAVE_NETMAP"
+fi
+
+if [ "$WITH_DEBUG" = true ]
+then
+	CFLAGS="$CFLAGS -O0"
+else
+	CFLAGS="$CFLAGS -O2 -DNDEBUG"
+fi
+
+cat > Makefile <<EOF
+.PHONY: mkdirs tests
+
+all: mkdirs tests ./bin/libgbtcp.so ./bin/sysctl ./bin/netstat ./bin/gbtcpd
+
+CFLAGS = $CFLAGS
+LDFLAGS = $LDFLAGS
+
+OBJS = $OBJS
+LIB_OBJS = $LIB_OBJS
+NETSTAT_OBJS = $NETSTAT_OBJS
+SYSCTL_OBJS = $SYSCTL_OBJS
+GBTCPD_OBJS = $GBTCPD_OBJS
+
+DEPS = \$(OBJS:.o=.d)
+
+-include \$(DEPS)
+
+%.o: %.c
+	\$(CC) -c \$(CFLAGS) -MP -MD -o \$@ \$<
+
+./bin/libgbtcp.so: \$(LIB_OBJS)
+	\$(CC) -o ./bin/libgbtcp.so -shared \$(CFLAGS) \$(LDFLAGS) \$(LIB_OBJS)
+
+./bin/netstat: \$(NETSTAT_OBJS) ./bin/libgbtcp.so
+	\$(CC) -o ./bin/netstat \$(CFLAGS) \$(LDFLAGS) -L./bin -lgbtcp \$(NETSTAT_OBJS)
+
+./bin/sysctl: \$(SYSCTL_OBJS) ./bin/libgbtcp.so
+	\$(CC) -o ./bin/sysctl \$(CFLAGS) \$(LDFLAGS) -L./bin -lgbtcp \$(SYSCTL_OBJS)
+
+./bin/gbtcpd: \$(GBTCPD_OBJS) ./bin/libgbtcp.so
+	\$(CC) -o ./bin/gbtcpd \$(CFLAGS) \$(LDFLAGS) -L./bin -lgbtcp \$(GBTCPD_OBJS)
+
+mkdirs:
+	mkdir -p bin
+
+tests:
+	make -C ./test
+
+clean:
+	make -C ./test clean
+	find . -name '*.o' | xargs rm -f
+	find . -name '*.d' | xargs rm -f
+	rm -rf *.so ./bin
+EOF
