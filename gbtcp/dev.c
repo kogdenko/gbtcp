@@ -6,7 +6,7 @@
 #include "strbuf.h"
 #include "fd_event.h"
 
-#define GT_DEV_BURST_SIZE 256
+#define GT_DEV_BURST_SIZE  256
 
 #define GT_DEV_LOG_NODE_FOREACH(x) \
 	x(mod_deinit) \

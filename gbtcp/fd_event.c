@@ -1,4 +1,5 @@
 #include "fd_event.h"
+#include "subr.h"
 #include "sys.h"
 #include "log.h"
 #include "timer.h"
@@ -316,10 +317,7 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 	gt_sock_tx_flush();
 	for (i = 0; i < gt_fd_event_nr_used; ++i) {
 		e = gt_fd_event_used[i];
-		if (e->fde_fd == -1) {
-			continue;
-		}
-		if (e->fde_events == 0) {
+		if (e->fde_fd == -1 || e->fde_events == 0) {
 			continue;
 		}
 		e->fde_ref_cnt++;
@@ -327,7 +325,7 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 		pfds[idx].fd = e->fde_fd;
 		pfds[idx].events = e->fde_events;
 		set->fdes_used[idx] = e;
-		set->fdes_nr_used = idx + 1;
+		set->fdes_nr_used++;
 	}
 	set->fdes_ts.tv_sec = 0;
 	if (set->fdes_to == 0) {
@@ -367,9 +365,7 @@ int
 gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 {
 	int i, n, rc;
-	short revents;
 	uint64_t dt;
-	struct pollfd *pfd;
 	struct gt_fd_event *e;
 
 	if (set->fdes_epoch != gt_global_epoch) {
@@ -388,13 +384,11 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 	gt_fd_event_in_cb = 1;
 	for (i = 0; i < set->fdes_nr_used; ++i) {
 		e = set->fdes_used[i];
-		pfd = pfds + i;
-		revents = pfd->revents;
-		if (revents) {
+		if (pfds[i].revents) {
 			n++;
 			if (e->fde_fd != -1) {
-				GT_ASSERT(pfd->fd == e->fde_fd);
-				rc = gt_fd_event_call(e, revents);
+				GT_ASSERT(pfds[i].fd == e->fde_fd);
+				rc = gt_fd_event_call(e, pfds[i].revents);
 				if (rc) {
 					GT_ASSERT(rc == -EAGAIN);
 					set->fdes_again = 1;

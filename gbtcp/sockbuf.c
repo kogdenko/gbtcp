@@ -392,7 +392,8 @@ void
 gt_sockbuf_mod_deinit(struct gt_log *log)
 {
 	log = GT_LOG_TRACE(log, mod_deinit);
-	GT_ASSERT(gt_mbuf_pool_is_empty(gt_sockbuf_chunk_pool));
+	// TODO:
+	//GT_ASSERT(gt_mbuf_pool_is_empty(gt_sockbuf_chunk_pool));
 	gt_mbuf_pool_del(gt_sockbuf_chunk_pool);
 	gt_log_scope_deinit(log, &this_log);
 }

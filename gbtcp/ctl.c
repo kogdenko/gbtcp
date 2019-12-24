@@ -21,7 +21,7 @@
 	x(accept) \
 	x(recv) \
 	x(send) \
-	x(send_req) \
+	x(req) \
 	x(in) \
 	x(in_req) \
 	x(in_rpl) \
@@ -303,26 +303,31 @@ gt_ctl_process_line(struct gt_log *log, char *s)
 
 
 int
-gt_ctl_read_file(struct gt_log *log)
+gt_ctl_read_file(struct gt_log *log, const char *path)
 {
 	int rc, line;
-	char *tmp;
-	char path[PATH_MAX];
+	const char *tmp;
+	char path_buf[PATH_MAX];
 	char str[2000];
 	FILE *file;
 
 	log = GT_LOG_TRACE(log, read_file);
-	tmp = getenv("GBTCP_CTL");
-	if (tmp != NULL) { 
-		rc = gt_sys_realpath(log, tmp, path);
-		if (rc) {
-			return rc;
+	if (path == NULL) {
+		tmp = getenv("GBTCP_CTL");
+		if (tmp != NULL) { 
+			rc = gt_sys_realpath(log, tmp, path_buf);
+			if (rc) {
+				return rc;
+			}
+		} else {
+			snprintf(path_buf, sizeof(path_buf), "%s/ctl/%s.conf",
+			         GT_PREFIX, gt_application_name);
 		}
+		tmp = path_buf;
 	} else {
-		snprintf(path, sizeof(path), "%s/ctl/%s.conf",
-		         GT_PREFIX, gt_application_name);
+		tmp = path;
 	}
-	rc = gt_sys_fopen(log, &file, path, "r");
+	rc = gt_sys_fopen(log, &file, tmp, "r");
 	if (rc) {
 		return rc;
 	}
@@ -1141,7 +1146,7 @@ gt_ctl_conn_req_timeout(struct gt_timer *timer)
 	struct gt_ctl_conn *cp;
 
 	cp = gt_container_of(timer, struct gt_ctl_conn, c_timer);
-	log = GT_LOG_TRACE(cp->c_log, send_req);
+	log = GT_LOG_TRACE(cp->c_log, req);
 	GT_LOGF(log, LOG_ERR, 0,
 	        "timedout; timer=%p, dt=%"PRIu64"us",
 	        &cp->c_timer, gt_nsec - cp->c_req_time);
@@ -1882,7 +1887,7 @@ gt_ctl_send_req(struct gt_log *log, struct gt_ctl_conn **cpp,
 	int rc, path_len, new_len;
 	struct gt_ctl_conn *cp;
 
-	log = GT_LOG_TRACE(log, send_req);
+	log = GT_LOG_TRACE(log, req);
 	GT_ASSERT3(0, gt_ctl_binded_pid(NULL) != pid, "pid=%d", pid);
 	GT_ASSERT(path != NULL);
 	path_len = strlen(path);

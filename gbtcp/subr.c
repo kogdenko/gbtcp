@@ -116,8 +116,8 @@ gt_application_name_init()
 		GT_ASSERT(rc);
 		return rc;
 	}
-	strzcpy(gt_application_name_buf, info->ki_comm,
-	        sizeof(gt_application_name_buf));
+	gt_strzcpy(gt_application_name_buf, info->ki_comm,
+	           sizeof(gt_application_name_buf));
 	free(info);
 	gt_application_name = gt_application_name_buf;
 	return 0;
@@ -505,15 +505,20 @@ gt_connect_timed(struct gt_log *log, int fd, const struct sockaddr *addr,
 			return rc;
 		}
 	}
-	rc = gt_sys_connect(log, fd, addr, addrlen);
-	eno = -rc;
+	do {
+		rc = gt_sys_connect(NULL, fd, addr, addrlen);
+		eno = -rc;
+	} while (addr->sa_family == AF_UNIX && eno == EAGAIN);
 	if (!(flags & O_NONBLOCK)) {
 		rc = gt_sys_fcntl(log, fd, F_SETFL, flags & ~O_NONBLOCK);
 		if (rc) {
 			return rc;
 		}
 	}
-	if (eno != EINPROGRESS) {
+	if (eno == 0) {
+		return 0;
+	} else if (eno != EINPROGRESS) {
+		gt_sys_log_connect_failed(log, eno, fd, addr, addrlen);
 		return -eno;
 	}
 	pfd.events = POLLOUT;
@@ -755,7 +760,7 @@ gt_sockopt_optname_str(int level, int optname)
 		case TCP_KEEPIDLE: return "TCP_KEEPIDLE";
 		case TCP_KEEPINTVL: return "TCP_KEEPINTVL";
 		case TCP_KEEPCNT: return "TCP_KEEPCNT";
-		case TCP_CORK: return "TCP_CORK";
+		case GT_TCP_CORK: return "TCP_CORK";
 		}
 		break;
 	case SOL_SOCKET:

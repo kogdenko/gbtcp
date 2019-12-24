@@ -155,16 +155,15 @@ gt_global_set_time()
 	}
 }
 
-// static
 static int
 gt_global_compute_HZ()
 {
 	int rc;
-	uint64_t t0, t1;
+	uint64_t t0, t1, HZ;
 	struct timespec ts, rem;
 
 	ts.tv_sec = 0;
-	ts.tv_nsec = 10000;
+	ts.tv_nsec = 10 * 1000 * 1000;
 	t0 = gt_rdtsc();
 restart:
 	rc = nanosleep(&ts, &rem);
@@ -177,6 +176,8 @@ restart:
 		}
 	}
 	t1 = gt_rdtsc();
-	gt_mHZ = (t1 - t0) / 10;
+	HZ = (t1 - t0) * 100;
+	gt_mHZ = HZ / 1000000;
+//	printf("HZ=%"PRIu64"(%"PRIu64")\n", HZ, gt_mHZ);
 	return 0;
 }

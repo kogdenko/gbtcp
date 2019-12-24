@@ -142,11 +142,11 @@
 	x(badaddr) \
 	x(badop)
 
-#ifdef __linux__
+//#ifdef __linux__
 typedef void (*gt_sighandler_t)(int);
-#else /* __linux__ */
-typedef __sighandler_t gt_sighandler_t;
-#endif /* __linux__ */
+//#else /* __linux__ */
+//typedef __sighandler_t gt_sighandler_t;
+//#endif /* __linux__ */
 
 extern __thread int gbtcp_errno;
 

@@ -56,7 +56,7 @@ int gt_ctl_mod_init();
 
 void gt_ctl_mod_deinit();
 
-int gt_ctl_read_file(struct gt_log *log);
+int gt_ctl_read_file(struct gt_log *log, const char *path);
 
 int gt_ctl(struct gt_log *log, int pid, const char *path,
 	char *old, int cnt, const char *new);

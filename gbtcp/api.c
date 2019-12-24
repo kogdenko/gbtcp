@@ -78,14 +78,27 @@ static ssize_t gt_api_send_gen(int fd, struct iovec *iov, int iovlen,
 		GT_GLOBAL_UNLOCK; \
 	} while (0)
 
+#ifdef __linux__
+static void
+gt_api_mod_init_os()
+{
+	GT_LOG_NODE(clone)->lgn_level = LOG_INFO;
+}
+#else /* __linux__ */
+static void
+gt_api_mod_init_os()
+{
+}
+#endif /* __linux__ */
+
 int
 gt_api_mod_init()
 {
 	gt_log_scope_init(&this_log, "api");
 	GT_API_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
 	GT_API_LOG_NODE_FOREACH_OS(GT_LOG_NODE_INIT);
-	GT_LOG_NODE(clone)->lgn_level = LOG_INFO;
 	GT_LOG_NODE(fork)->lgn_level = LOG_INFO;
+	gt_api_mod_init_os();
 	return 0;
 }
 
@@ -1024,7 +1037,7 @@ gbtcp_kqueue()
 	GT_API_LOCK;
 	log = GT_LOG_TRACE1(kqueue);
 	GT_LOGF(log, LOG_INFO, 0, "hit");
-	rc = (*sys_kqueue_fn)();
+	rc = (*gt_sys_kqueue_fn)();
 	if (rc == -1) {
 		rc = -errno;
 		GT_ASSERT(rc);
@@ -1032,7 +1045,7 @@ gbtcp_kqueue()
 		fd = rc;
 		rc = gt_epoll_create(fd);
 		if (rc < 0) {
-			(*sys_close_fn)(fd);
+			(*gt_sys_close_fn)(fd);
 		}
 	}
 	if (rc < 0) {
@@ -1083,7 +1096,7 @@ gt_api_lock()
 		rc = gt_global_init();
 		if (rc == 0) {
 			log = GT_LOG_TRACE1(mod_init);
-			gt_ctl_read_file(log);
+			gt_ctl_read_file(log, NULL);
 		} else {
 			GT_GLOBAL_UNLOCK;
 			GT_API_RETURN(ECANCELED);

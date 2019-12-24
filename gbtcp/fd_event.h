@@ -6,9 +6,9 @@
 
 #define GT_FD_EVENTS_MAX FD_SETSIZE
 
-// System should rx/tx devices every POLL_TIMEOUT_US
-// microseconds or packets would be lost
-#define GT_FD_EVENT_TIMEOUT 20000ull//50
+// System should RX netmap devices every 20 microseconds
+// or packets would be lost
+#define GT_FD_EVENT_TIMEOUT 20000ull
 
 typedef int (*gt_fd_event_f)(void *, short revents);
 

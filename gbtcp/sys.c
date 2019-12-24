@@ -265,6 +265,14 @@ gt_sys_socket(struct gt_log *log, int domain, int type, int protocol)
 	return rc;
 }
 
+void
+gt_sys_log_connect_failed(struct gt_log *log, int eno, int fd,
+	const struct sockaddr *addr, socklen_t addrlen)
+{
+	log = GT_LOG_TRACE(log, connect);
+	gt_sys_log_addrfn_failed(log, eno, fd, addr, addrlen);
+}
+
 int
 gt_sys_connect(struct gt_log *log, int fd, const struct sockaddr *addr,
 	socklen_t addrlen)
@@ -276,8 +284,7 @@ gt_sys_connect(struct gt_log *log, int fd, const struct sockaddr *addr,
 		rc = -errno;
 		GT_ASSERT(rc < 0);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, connect);
-			gt_sys_log_addrfn_failed(log, -rc, fd, addr, addrlen);
+			gt_sys_log_connect_failed(log, -rc, fd, addr, addrlen);
 		}
 		return rc;
 	} else {

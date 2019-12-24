@@ -46,7 +46,7 @@
 #define GT_PRELOAD_SEND send
 #define GT_PRELOAD_SENDTO sendto
 #define GT_PRELOAD_SENDMSG sendmsg
-#define GT_PRELOAD_SENDFILE sendfile
+#define GT_PRELOAD_SENDFILE sendfile___x
 #define GT_PRELOAD_FCNTL fcntl
 #define GT_PRELOAD_IOCTL ioctl
 #define GT_PRELOAD_GETSOCKOPT getsockopt
