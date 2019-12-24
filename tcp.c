@@ -79,9 +79,11 @@ GT_TCP_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
 static const char *gt_tcp_flags_str(struct gt_strbuf *sb, int proto,
 	uint8_t tcp_flags);
 
-static const char *gt_log_add_tcp_flags(int proto, uint8_t tcp_flags);
+static const char *gt_log_add_tcp_flags(int proto, uint8_t tcp_flags)
+	__attribute__((unused));
 
-static const char *gt_log_add_sock(struct gt_sock *so);
+static const char *gt_log_add_sock(struct gt_sock *so)
+	__attribute__((unused));
 
 int gt_calc_rss_q_id(struct gt_sock_tuple *so_tuple);
 

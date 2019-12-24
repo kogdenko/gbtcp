@@ -37,9 +37,9 @@ tcp.o \
 signal.o \
 "
 
-if [ "$(uname)" == "Linux" ]; then
+if [ "$(uname)" = "Linux" ]; then
 	LDFLAGS="$LDFLAGS -ldl"
-elif [ "$(uname)" == "FreeBSD" ]; then
+elif [ "$(uname)" = "FreeBSD" ]; then
 	LDFLAGS="$LDFLAGS -lexecinfo -lutil"
 else
 	echo "Unsupported platform"
@@ -130,16 +130,16 @@ DEPS = \$(OBJS:.o=.d)
 	\$(CC) -c \$(CFLAGS) -MP -MD -o \$@ \$<
 
 ./bin/libgbtcp.so: \$(LIB_OBJS)
-	\$(CC) -o ./bin/libgbtcp.so -shared \$(CFLAGS) \$(LDFLAGS) \$(LIB_OBJS)
+	\$(CC) -o ./bin/libgbtcp.so -shared \$(CFLAGS) \$(LIB_OBJS) \$(LDFLAGS)
 
 ./bin/netstat: \$(NETSTAT_OBJS) ./bin/libgbtcp.so
-	\$(CC) -o ./bin/netstat \$(CFLAGS) \$(LDFLAGS) -L./bin -lgbtcp \$(NETSTAT_OBJS)
+	\$(CC) -o ./bin/netstat \$(CFLAGS) -L./bin \$(NETSTAT_OBJS) \$(LDFLAGS) -lgbtcp
 
 ./bin/sysctl: \$(SYSCTL_OBJS) ./bin/libgbtcp.so
-	\$(CC) -o ./bin/sysctl \$(CFLAGS) \$(LDFLAGS) -L./bin -lgbtcp \$(SYSCTL_OBJS)
+	\$(CC) -o ./bin/sysctl \$(CFLAGS)  -L./bin \$(SYSCTL_OBJS) \$(LDFLAGS) -lgbtcp
 
 ./bin/gbtcpd: \$(GBTCPD_OBJS) ./bin/libgbtcp.so
-	\$(CC) -o ./bin/gbtcpd \$(CFLAGS) \$(LDFLAGS) -L./bin -lgbtcp \$(GBTCPD_OBJS)
+	\$(CC) -o ./bin/gbtcpd \$(CFLAGS) -L./bin \$(GBTCPD_OBJS) \$(LDFLAGS) -lgbtcp 
 
 mkdirs:
 	mkdir -p bin
