@@ -829,7 +829,7 @@ gt_service_in_child(struct gt_log *log)
 	gt_service_clean(log);
 	gt_global_deinit(log);
 	gt_global_init();
-	gt_ctl_read_file(log);
+	gt_ctl_read_file(log, NULL);
 	log = GT_LOG_TRACE1(in_child);
 	gt_service_open_listen_socks(log, &so_head);
 	gt_service_free_listen_socks(log, &so_head);

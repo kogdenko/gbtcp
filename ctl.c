@@ -303,26 +303,31 @@ gt_ctl_process_line(struct gt_log *log, char *s)
 
 
 int
-gt_ctl_read_file(struct gt_log *log)
+gt_ctl_read_file(struct gt_log *log, const char *path)
 {
 	int rc, line;
-	char *tmp;
-	char path[PATH_MAX];
+	const char *tmp;
+	char path_buf[PATH_MAX];
 	char str[2000];
 	FILE *file;
 
 	log = GT_LOG_TRACE(log, read_file);
-	tmp = getenv("GBTCP_CTL");
-	if (tmp != NULL) { 
-		rc = gt_sys_realpath(log, tmp, path);
-		if (rc) {
-			return rc;
+	if (path == NULL) {
+		tmp = getenv("GBTCP_CTL");
+		if (tmp != NULL) { 
+			rc = gt_sys_realpath(log, tmp, path_buf);
+			if (rc) {
+				return rc;
+			}
+		} else {
+			snprintf(path_buf, sizeof(path_buf), "%s/ctl/%s.conf",
+			         GT_PREFIX, gt_application_name);
 		}
+		tmp = path_buf;
 	} else {
-		snprintf(path, sizeof(path), "%s/ctl/%s.conf",
-		         GT_PREFIX, gt_application_name);
+		tmp = path;
 	}
-	rc = gt_sys_fopen(log, &file, path, "r");
+	rc = gt_sys_fopen(log, &file, tmp, "r");
 	if (rc) {
 		return rc;
 	}

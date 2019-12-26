@@ -1083,7 +1083,7 @@ gt_api_lock()
 		rc = gt_global_init();
 		if (rc == 0) {
 			log = GT_LOG_TRACE1(mod_init);
-			gt_ctl_read_file(log);
+			gt_ctl_read_file(log, NULL);
 		} else {
 			GT_GLOBAL_UNLOCK;
 			GT_API_RETURN(ECANCELED);

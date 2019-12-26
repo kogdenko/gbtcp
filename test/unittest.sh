@@ -6,11 +6,14 @@ TEST_PATH=
 BIN_DIR="bin"
 BIN_PATH=
 NETSTAT=
-SYSCTL_CONF=
+GBTCPD_CONF=
+TEST_CONF=
 LIBGBTCP=
+GBTCPD=
 TCPKT=
-
-set -x
+MODE_NATIVE="native"
+MODE_GBTCP="gbtcp"
+mflag=""
 
 die()
 {
@@ -18,7 +21,7 @@ die()
 	exit 1
 }
 
-ckf()
+check_file()
 {
 	t=
 	if [ ! -$2 $1 ]; then
@@ -37,40 +40,34 @@ ckf()
 	fi
 }
 
-scan()
+scan_tests()
 {	
-	for x in `find $BIN_PATH -name test_*`; do
+	for x in `find $BIN_PATH -name gbtcp_test_*`; do
 		if [ -x $x ]; then
 			echo `basename $x`
 		fi
 	done
 }
 
-exect_pkt()
+exec_test()
 {
-	echo "1"
-}
-
-exect()
-{
-	if [ $2 -eq 0 ]; then
-		e=""
-	else
-		e="GBTCP_SYSCTL=$SYSCTL_CONF LD_PRELOAD=$LIBGBTCP "
+	e=""
+	if [ $2 = $MODE_GBTCP ]; then
+		e+="GBTCP_CTL=$TEST_CONF LD_PRELOAD=$LIBGBTCP "
 	fi	
-	e+="$BIN_PATH/$1 > $LOG_PATH/$1.log 2>&1 &"
+	e+="$BIN_PATH/$1 > $LOG_PATH/$2/$1.log 2>&1 &"
 	eval $e
 	pid0="$!"
 	if [ ! -f $TEST_PATH/$1.pkt ]; then
 		wait $pid0
 		return $?
 	fi
-	rc=`(tail -f $LOG_PATH/$1.log 2>/dev/null &) | grep -m 1 '^Ready\|^Failed'`
+	rc=`(tail -f $LOG_PATH/$2/$1.log 2>/dev/null &) | grep -m 1 '^Ready\|^Failed'`
 	if [[ "$rc" == Failed* ]]; then
 		wait $pid0
 		return 10
 	fi
-	$TCPKT $TEST_PATH/$1.pkt #> $LOG_PATH/$1.pkt.log 2>&1
+	$TCPKT $TEST_PATH/$1.pkt > $LOG_PATH/$2/$1.pkt.log 2>&1
 	rc0="$?"
 	wait $pid0
 	rc1="$?"
@@ -83,32 +80,37 @@ exect()
 	fi
 }
 
-exect_wrap()
+exec_test_wrap()
 {
-	echo -n "$1"
-	for i in 0 1; do
-		exect $1 $i
-		rc="$?"
-		if [ $rc -eq 0 ]; then
-			echo -n " [Ok]"
-		else
-			echo -n " [Failed $rc]"
+	echo -n "$1 "
+	for i in $MODE_NATIVE $MODE_GBTCP; do
+		if [ "$mflag" = "" ] || [ "$mflag" = "$i" ]; then
+			exec_test $1 $i
+			rc="$?"
+			if [ $rc -eq 0 ]; then
+				echo -n " [Ok]"
+			else
+				echo -n "[Failed $rc]"
+			fi
 		fi
 	done
-	echo
+	echo # line feed
 }
 
 usage()
 {
-	echo "Usage: unittest.sh [-hl] [-r path] [-m mode]"
+	echo "Usage: unittest.sh [-hvxl] [-r path] [-m mode] [-t test]"
 }
 
 lflag=0
 tflag=
-while getopts "hr:lm:t:" opt; do
+while getopts "hvxr:lm:t:" opt; do
 	case $opt in
 	h)
 		usage
+		;;
+	x)
+		set -x
 		;;
 	r)
 		ROOT_PATH=$OPTARG
@@ -117,43 +119,55 @@ while getopts "hr:lm:t:" opt; do
 		lflag=1
 		;;
 	m)
+		if [ "$OPTARG" = "$MODE_NATIVE" ] ||
+		   [ "$OPTARG" == "$MODE_GBTCP" ]; then
+			mflag=$OPTARG
+		else
+			die "Invalid mode: $OPTARG"
+		fi
 		;;
 	t)
 		tflag=$OPTARG
 		;;
 	esac
 done
-ckf "$ROOT_PATH" "d"
+check_file "$ROOT_PATH" "d"
 TEST_PATH="$ROOT_PATH/$TEST_DIR"
-ckf $TEST_PATH "d"
+check_file $TEST_PATH "d"
 BIN_PATH="$ROOT_PATH/$BIN_DIR"
-ckf $BIN_PATH "d"
+check_file $BIN_PATH "d"
 NETSTAT="$ROOT_PATH/$BIN_DIR/netstat"
-ckf $NETSTAT "x"
-SYSCTL_CONF="$TEST_PATH/sysctl.conf"
-ckf $SYSCTL_CONF "f"
+check_file $NETSTAT "x"
+TEST_CONF="$TEST_PATH/test.conf"
+check_file $TEST_CONF "f"
+GBTCPD_CONF="$TEST_PATH/gbtcpd-test.conf"
+check_file $GBTCPD_CONF "f"
 LIBGBTCP="$ROOT_PATH/$BIN_DIR/libgbtcp.so"
-ckf $LIBGBTCP "x"
+check_file $LIBGBTCP "x"
+GBTCPD="$ROOT_PATH/$BIN_DIR/gbtcpd"
+check_file $GBTCPD "x"
 TCPKT="$TEST_PATH/tcpkt.sh"
-ckf $TCPKT "x"
-LOG_PATH=$TEST_PATH/"unittest.log/"
-mkdir -p $LOG_PATH
-TESTS=`scan`
+check_file $TCPKT "x"
+LOG_PATH=$TEST_PATH/"unit_test_logs"
+mkdir -p "$LOG_PATH/$MODE_NATIVE"
+mkdir -p "$LOG_PATH/$MODE_GBTCP"
+TESTS=`scan_tests`
 if [ $lflag -eq 1 ]; then
 	for x in $TESTS; do 
 		if [ -r "$TEST_PATH/$x.pkt" ]; then
-			echo "$x.pkt"
+			echo "$x (pkt)"
 		else
 			echo "$x"
 		fi
 	done
+	exit 0
 fi
-if [ -n "$tflag" ]; then
-	for x in $TESTS; do
-		if [ $x = $tflag ]; then
-			exect_wrap $x
-			exit 0
-		fi
-	done
-	echo "test $tflag not found"
-fi
+killall -9 gbtcpd > /dev/null 2>&1
+ps aux | grep '[g]btcp_test' | awk '{print $2}' | xargs -r kill -9
+eval "$GBTCPD -c $GBTCPD_CONF &"
+for x in $TESTS; do
+	if [ "$tflag" = "" ] || [ "$tflag" = "$x" ]; then
+		exec_test_wrap $x
+	fi
+done
+killall -9 gbtcpd

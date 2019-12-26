@@ -536,7 +536,8 @@ gtd_if_add(struct gt_log *log, struct gt_route_if *ifp)
 		        "invalid nr_rx_rings; if='%s', nr_rx_rings=%d, rss_q_cnt=%d",
 		        ifp->rif_name, nr_rx_rings, gt_route_rss_q_cnt);
 		return -EINVAL;
-	} else if (memcmp(gt_route_rss_key, rss_key, GT_RSS_KEY_SIZE)) {
+	} else if (gt_route_rss_q_cnt > 1 &&
+	           memcmp(gt_route_rss_key, rss_key, GT_RSS_KEY_SIZE)) {
 		GT_LOGF(log, LOG_ERR, 0,
 		        "invalid rss_key - all interfaces must have same rss_key; if=%s",
 		        ifp->rif_name);
@@ -770,9 +771,20 @@ gtd_ctl_service_list(void *udata, int id, const char *new,
 int
 main(int argc, char **argv)
 {
-	int rc;
+	int rc, opt;
+	const char *path;
 	struct gt_log *log;
 
+	path = NULL;
+	while ((opt = getopt(argc, argv, "hc:")) != -1) {
+		switch (opt) {
+		case 'h':
+			printf("Usage: gbtcpd [-h] [-c path]\n");
+		case 'c':
+			path = optarg;
+			break;
+		}
+	}
 	GT_GLOBAL_LOCK;
 	rc = gt_global_init();
 	if (rc) {
@@ -784,7 +796,7 @@ main(int argc, char **argv)
 	gt_log_scope_init(&this_log, "gbtcpd");
 	GTD_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
 	log = GT_LOG_TRACE1(main);
-	gt_ctl_read_file(log);
+	gt_ctl_read_file(log, path);
 	rc = gt_ctl_bind(log, 0);
 	if (rc) {
 		return 1;
