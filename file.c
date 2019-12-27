@@ -66,7 +66,7 @@ gt_file_mod_init()
 	               &gt_file_first_fd, 3, 1024 * 1024);
 	rc = gt_mbuf_pool_new(log, &gt_file_pool, sizeof(struct gt_sock));
 	if (rc) {
-		gt_ctl_del(log, "file.first_fd");
+		gt_ctl_del(log, GT_CTL_FILE_FIRST_FD);
 	}
 	return rc;
 }
@@ -76,6 +76,8 @@ gt_file_mod_deinit(struct gt_log *log)
 {
 	log = GT_LOG_TRACE(log, mod_deinit);
 	gt_ctl_del(log, GT_CTL_FILE_FIRST_FD);
+	// TODO:
+	//GT_ASSERT(gt_mbuf_pool_is_empty(gt_file_pool));
 	gt_mbuf_pool_del(gt_file_pool);
 	gt_log_scope_deinit(log, &this_log);
 }

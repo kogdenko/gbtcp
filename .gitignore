@@ -6,6 +6,10 @@ Makefile
 *.core
 *.swp
 *.bak
-bin
+*.log
 tags
-test/unittest.log
+bin/gbtcp_test_*
+bin/gbtcpd
+bin/netstat
+bin/sysctl
+

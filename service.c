@@ -73,6 +73,7 @@ static int (*gt_service_clone_fn)(void *);
 
 static int gt_service_ctl_status(struct gt_log *log, void *udata,
 	const char *new, struct gt_strbuf *out);
+
 static int gt_service_in(struct gt_route_if *ifp, uint8_t *data, int len);
 
 static void gt_service_if_in(struct gt_route_if *ifp, uint8_t *data, int len);
@@ -114,14 +115,7 @@ static void gt_service_unsub_handler();
 
 static void gt_service_in_parent();
 
-static void gt_service_alloc_listen_socks(struct gt_log *log,
-	struct gt_list_head *head);
-
-static void gt_service_free_listen_socks(struct gt_log *log,
-	struct gt_list_head *head);
-
-static void gt_service_open_listen_socks(struct gt_log *log,
-	struct gt_list_head *head);
+static void gt_service_listen(struct gt_log *log, struct gt_list_head *head);
 
 static void gt_service_in_child(struct gt_log *log);
 
@@ -229,6 +223,7 @@ gt_service_if_in(struct gt_route_if *ifp, uint8_t *data, int len)
 	rc = gt_service_in(ifp, data, len);
 	switch (rc) {
 	case GT_INET_OK:
+	case GT_INET_DROP:
 		break;
 	case GT_INET_BYPASS:
 	case GT_INET_BCAST:
@@ -750,39 +745,7 @@ gt_service_in_parent()
 }
 
 static void
-gt_service_alloc_listen_socks(struct gt_log *log, struct gt_list_head *head)
-{
-	int rc;
-	struct gt_sock *so;
-	struct gt_service_sock *sso;
-
-	GT_SOCK_FOREACH_BINDED(so) {
-		if (so->so_state != GT_TCP_S_LISTEN) {
-			continue;
-		}
-		rc = gt_sys_malloc(log, (void **)&sso, sizeof(*sso));
-		if (rc) {
-			break;
-		}
-		gt_sock_get_sockcb(so, &sso->ss_socb);
-		GT_LIST_INSERT_TAIL(head, sso, ss_list);
-	}
-}
-
-static void
-gt_service_free_listen_socks(struct gt_log *log, struct gt_list_head *head)
-{
-	struct gt_service_sock *sso;
-
-	while (!gt_list_empty(head)) {
-		sso = GT_LIST_FIRST(head, struct gt_service_sock, ss_list);
-		GT_LIST_REMOVE(sso, ss_list);
-		free(sso);
-	}
-}
-
-static void
-gt_service_open_listen_socks(struct gt_log *log, struct gt_list_head *head)
+gt_service_listen(struct gt_log *log, struct gt_list_head *head)
 {
 	int rc, fd, type;
 	struct sockaddr_in addr;
@@ -818,21 +781,38 @@ gt_service_open_listen_socks(struct gt_log *log, struct gt_list_head *head)
 static void
 gt_service_in_child(struct gt_log *log)
 {
+	int rc;
 	struct gt_list_head so_head;
+	struct gt_sock *so;
+	struct gt_service_sock *sso;
 
 	log = GT_LOG_TRACE(log, in_child);
 	gt_service_epoch = 0;
 	gt_list_init(&so_head);
 	if (!gt_service_ctl_child_close_listen_socks) {
-		gt_service_alloc_listen_socks(log, &so_head);
+		GT_SOCK_FOREACH_BINDED(so) {
+			if (so->so_state != GT_TCP_S_LISTEN) {
+				continue;
+			}
+			rc = gt_sys_malloc(log, (void **)&sso, sizeof(*sso));
+			if (rc) {
+				break;
+			}
+			gt_sock_get_sockcb(so, &sso->ss_socb);
+			GT_LIST_INSERT_TAIL(&so_head, sso, ss_list);
+		}
 	}
 	gt_service_clean(log);
 	gt_global_deinit(log);
 	gt_global_init();
 	gt_ctl_read_file(log, NULL);
 	log = GT_LOG_TRACE1(in_child);
-	gt_service_open_listen_socks(log, &so_head);
-	gt_service_free_listen_socks(log, &so_head);
+	gt_service_listen(log, &so_head);
+	while (!gt_list_empty(&so_head)) {
+		sso = GT_LIST_FIRST(&so_head, struct gt_service_sock, ss_list);
+		GT_LIST_REMOVE(sso, ss_list);
+		free(sso);
+	}
 }
 
 int

@@ -1,5 +1,6 @@
 #!/bin/sh
 
+PREFIX="/usr/local"
 CFLAGS="$CFLAGS -g -Wall -std=gnu99 -pipe -finline-functions -pthread -fPIC"
 CFLAGS="$CFLAGS -D_LIBC_REENTRANT"
 CFLAGS="$CFLAGS -falign-functions=16"
@@ -109,9 +110,9 @@ else
 fi
 
 cat > Makefile <<EOF
-.PHONY: mkdirs tests
+.PHONY: tests
 
-all: mkdirs tests ./bin/libgbtcp.so ./bin/sysctl ./bin/netstat ./bin/gbtcpd
+all: tests ./bin/libgbtcp.so ./bin/sysctl ./bin/netstat ./bin/gbtcpd
 
 CFLAGS = $CFLAGS
 LDFLAGS = $LDFLAGS
@@ -141,15 +142,25 @@ DEPS = \$(OBJS:.o=.d)
 ./bin/gbtcpd: \$(GBTCPD_OBJS) ./bin/libgbtcp.so
 	\$(CC) -o ./bin/gbtcpd \$(CFLAGS) -L./bin \$(GBTCPD_OBJS) \$(LDFLAGS) -lgbtcp 
 
-mkdirs:
-	mkdir -p bin
-
 tests:
 	make -C ./test
 
+install:
+	grep '^gbtcp:' /etc/group || groupadd gbtcp
+	mkdir -p $PREFIX/gbtcp/
+	mkdir -p $PREFIX/gbtcp/bin
+	mkdir -p $PREFIX/gbtcp/ctl
+	mkdir -p $PREFIX/gbtcp/log
+	mkdir -p $PREFIX/gbtcp/pid
+	mkdir -p $PREFIX/gbtcp/sock
+	chgrp -R gbtcp $PREFIX/gbtcp
+	chmod -R 775 $PREFIX/gbtcp
+	cp -f ./bin/libgbtcp.so $PREFIX/gbtcp/bin
+	cp -f ./bin/gbtcpd $PREFIX/gbtcp/bin
+
 clean:
 	make -C ./test clean
+	rm -f ./bin/libgbtcp.so ./bin/gbtcpd ./bin/netstat ./bin/sysctl
 	find . -name '*.o' | xargs rm -f
 	find . -name '*.d' | xargs rm -f
-	rm -rf *.so ./bin
 EOF

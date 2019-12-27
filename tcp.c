@@ -299,7 +299,13 @@ gt_tcp_mod_init()
 void
 gt_tcp_mod_deinit(struct gt_log *log)
 {
+//	struct gt_file *fp;
+
 	log = GT_LOG_TRACE(log, mod_deinit);
+	// TODO: delete all
+	//GT_FILE_FOREACH(fp) {
+	//	gt_file_close(fp, GT_SOCK_RESET);
+	//}
 	gt_ctl_del(log, "tcp.fin_timeout");
 	gt_htable_free(&gt_sock_htable);
 	gt_ctl_del(log, GT_CTL_SOCK_LIST);
@@ -2185,10 +2191,13 @@ gt_sock_str(struct gt_strbuf *sb, struct gt_sock *so)
 	int is_tcp;
 
 	is_tcp = so->so_proto == GT_SO_IPPROTO_TCP;
+	gt_strbuf_addf(sb, "{ proto=%s, fd=%d, tuple=",
+		is_tcp ? "tcp" : "udp", gt_sock_fd(so));
+	gt_strbuf_add_ip_addr(sb, AF_INET, &so->so_tuple.sot_laddr);
+	gt_strbuf_addf(sb, ".%hu>", GT_NTOH16(so->so_tuple.sot_lport));
+	gt_strbuf_add_ip_addr(sb, AF_INET, &so->so_tuple.sot_faddr);
 	gt_strbuf_addf(sb,
-		"proto=%s"
-		", fd=%d"
-		", tuple=%s.%hu>%s.%hu"
+		".%hu"
 		", in_txq=%u"
 		", error=%u"
 		", reuseaddr=%u"
@@ -2197,11 +2206,6 @@ gt_sock_str(struct gt_strbuf *sb, struct gt_sock *so)
 		", lmss=%u"
 		", rmss=%u"
 		,
-		is_tcp ? "tcp" : "udp",
-		gt_sock_fd(so),
-		gt_log_add_ip_addr(AF_INET, &so->so_tuple.sot_laddr),
-		GT_NTOH16(so->so_tuple.sot_lport),
-		gt_log_add_ip_addr(AF_INET, &so->so_tuple.sot_faddr),
 		GT_NTOH16(so->so_tuple.sot_fport),
 		gt_sock_in_txq(so),
 		so->so_err,
@@ -2287,6 +2291,7 @@ gt_sock_str(struct gt_strbuf *sb, struct gt_sock *so)
 			so->so_rcvbuf.sob_len,
 			so->so_msgbuf.sob_len);
 	}
+	gt_strbuf_add_ch(sb, '}');
 	return gt_strbuf_cstr(sb);
 }
 

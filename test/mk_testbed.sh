@@ -35,7 +35,9 @@ ethtool -K veth_g rx off tx off
 ethtool -K veth_t rx off tx off
 ip l s dev veth_g address 72:9c:29:36:5e:01
 ip l s dev veth_t address 72:9c:29:36:5e:02
-ifconfig veth_g 172.16.7.1/24 up
+ip l s dev veth_g up
+ip a a dev veth_g 172.16.7.1/32
+ip r a dev veth_g 72.16.7.1/24 initcwnd 1
 if [ $BENCH = 1 ]
 then
 	ifconfig veth_t up
