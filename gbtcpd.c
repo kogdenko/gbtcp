@@ -213,7 +213,7 @@ gtd_service_get_net_stat(struct gtd_service *s)
 		return 0;
 	}
 	s->s_ref_cnt++;
-	snprintf(path, sizeof(path), "net.stat.%s", s->s_req->nse_name);
+	snprintf(path, sizeof(path), "inet.stat.%s", s->s_req->nse_name);
 	rc = gt_ctl_r(log, s->s_pid, path,
 	              s, gtd_service_get_net_stat_cb, NULL);
 	if (rc) {

@@ -21,7 +21,7 @@
 	x(accept) \
 	x(recv) \
 	x(send) \
-	x(send_req) \
+	x(req) \
 	x(in) \
 	x(in_req) \
 	x(in_rpl) \
@@ -1146,7 +1146,7 @@ gt_ctl_conn_req_timeout(struct gt_timer *timer)
 	struct gt_ctl_conn *cp;
 
 	cp = gt_container_of(timer, struct gt_ctl_conn, c_timer);
-	log = GT_LOG_TRACE(cp->c_log, send_req);
+	log = GT_LOG_TRACE(cp->c_log, req);
 	GT_LOGF(log, LOG_ERR, 0,
 	        "timedout; timer=%p, dt=%"PRIu64"us",
 	        &cp->c_timer, gt_nsec - cp->c_req_time);
@@ -1887,7 +1887,7 @@ gt_ctl_send_req(struct gt_log *log, struct gt_ctl_conn **cpp,
 	int rc, path_len, new_len;
 	struct gt_ctl_conn *cp;
 
-	log = GT_LOG_TRACE(log, send_req);
+	log = GT_LOG_TRACE(log, req);
 	GT_ASSERT3(0, gt_ctl_binded_pid(NULL) != pid, "pid=%d", pid);
 	GT_ASSERT(path != NULL);
 	path_len = strlen(path);

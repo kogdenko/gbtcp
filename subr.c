@@ -505,15 +505,20 @@ gt_connect_timed(struct gt_log *log, int fd, const struct sockaddr *addr,
 			return rc;
 		}
 	}
-	rc = gt_sys_connect(log, fd, addr, addrlen);
-	eno = -rc;
+	do {
+		rc = gt_sys_connect(NULL, fd, addr, addrlen);
+		eno = -rc;
+	} while (addr->sa_family == AF_UNIX && eno == EAGAIN);
 	if (!(flags & O_NONBLOCK)) {
 		rc = gt_sys_fcntl(log, fd, F_SETFL, flags & ~O_NONBLOCK);
 		if (rc) {
 			return rc;
 		}
 	}
-	if (eno != EINPROGRESS) {
+	if (eno == 0) {
+		return 0;
+	} else if (eno != EINPROGRESS) {
+		gt_sys_log_connect_failed(log, eno, fd, addr, addrlen);
 		return -eno;
 	}
 	pfd.events = POLLOUT;

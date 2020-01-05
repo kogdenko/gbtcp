@@ -192,7 +192,7 @@ do { \
 	static uint64_t GT_UNIQV(last); \
 	static uint64_t GT_UNIQV(now); \
 	static int GT_UNIQV(cnt); \
-	GT_UNIQV(now) = rdtsc(); \
+	GT_UNIQV(now) = gt_rdtsc(); \
 	if (GT_UNIQV(now) - GT_UNIQV(last) >= period) { \
 		GT_UNIQV(last) = GT_UNIQV(now); \
 		if (GT_UNIQV(cnt)) { \

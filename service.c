@@ -482,6 +482,9 @@ gt_service_stop_polling(struct gt_log *log)
 	int rc, pid, status;
 
 	gt_service_done = 1;
+	if (gt_service_polling_stack == NULL) {
+		return 0;
+	}
 	pid = getpid();
 	if (pid == gt_service_pid) {
 		return 0;
@@ -802,6 +805,10 @@ gt_service_in_child(struct gt_log *log)
 			GT_LIST_INSERT_TAIL(&so_head, sso, ss_list);
 		}
 	}
+	// Free and zero stack to prevent waitpid --
+	// stop_polling do not wait polling if stack == NULL
+	free(gt_service_polling_stack);
+	gt_service_polling_stack = NULL;
 	gt_service_clean(log);
 	gt_global_deinit(log);
 	gt_global_init();
