@@ -1,13 +1,4 @@
-#include "subr.h"
-#include "log.h"
-#include "sys.h"
-#include "global.h"
-#include "ctl.h"
-#include "route.h"
-#include "strbuf.h"
-#include "fd_event.h"
-#include "inet.h"
-#include "service.h"
+#include <gbtcp/gbtcp_lib.h>
 
 struct gtd_net_stat_entry {
 	const char *nse_name;

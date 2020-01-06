@@ -11,7 +11,7 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include "../gbtcp.h"
+#include <gbtcp/gbtcp.h>
 
 typedef uint32_t be32_t;
 typedef uint16_t be16_t;

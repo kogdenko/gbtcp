@@ -6,7 +6,7 @@
 #include <err.h>
 #include <ctype.h>
 #include <limits.h>
-#include "../gbtcp.h"
+#include <gbtcp/gbtcp.h>
 
 static int aflag;
 static int nflag;

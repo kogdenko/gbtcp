@@ -1,6 +1,4 @@
-#include "route.h"
-#include "log.h"
-#include "sys.h"
+#include "../gbtcp_lib.h"
 
 #define GT_NETLINK_LOG_NODE_FOREACH(x) \
 	x(read) \

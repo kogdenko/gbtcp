@@ -1,5 +1,6 @@
 #!/bin/sh
 
+CC=${CC:-cc}
 PREFIX="/usr/local"
 CFLAGS="$CFLAGS -g -Wall -std=gnu99 -pipe -finline-functions -pthread -fPIC"
 CFLAGS="$CFLAGS -D_LIBC_REENTRANT"
@@ -8,35 +9,12 @@ CFLAGS="$CFLAGS -Wunused-variable"
 CFLAGS="$CFLAGS -fdiagnostics-color=always"
 LDFLAGS="$LDFLAGS -lm -rdynamic -L."
 
-LIB_OBJS="\
-subr.o \
-ip_addr.o \
-global.o \
-list.o \
-sys.o \
-timer.o \
-htable.o \
-log.o \
-dev.o \
-arp.o \
-route.o \
-route_$(uname).o \
-file.o \
-ctl.o \
-strbuf.o \
-lptree.o \
-mbuf.o \
-fd_event.o \
-poll.o \
-api.o \
-inet.o \
-service.o \
-preload.o \
-epoll.o \
-sockbuf.o \
-tcp.o \
-signal.o \
-"
+SUBDIRS="test ./tools/so_echo"
+SRCS="`find ./gbtcp -maxdepth 1 -name '*.c'`"
+SRCS="$SRCS `find ./gbtcp/$(uname) -maxdepth 1 -name '*.c'`"
+OBJS=`echo $SRCS | sed 's/\.c/.o/g'`
+BINS="gbtcpd sysctl netstat"
+TARGETS=`echo $BINS | sed 's/[^ ]* */.\/bin\/&/g'`
 
 if [ "$(uname)" = "Linux" ]; then
 	LDFLAGS="$LDFLAGS -ldl"
@@ -53,24 +31,6 @@ elif `$CC -v 2>&1 | grep 'clang version' >/dev/null 2>&1`; then
 	CFLAGS="$CFLAGS"
 fi
 
-NETSTAT_OBJS="\
-netstat/netstat.o \
-"
-
-SYSCTL_OBJS="\
-sysctl/sysctl.o \
-"
-
-GBTCPD_OBJS="\
-gbtcpd.o \
-"
-
-OBJS="\
-$LIB_OBJS \
-$SYSCTL_OBJS \
-$NETSTAT_OBJS \
-"
-
 NETMAP_DIR=""
 WITH_DEBUG=false
 
@@ -81,6 +41,7 @@ usage()
 	echo "  -d       debug version"
 	exit 0
 }
+
 
 while getopts ":hn:d" opt; do
 	case $opt in
@@ -109,42 +70,41 @@ else
 	CFLAGS="$CFLAGS -O2 -DNDEBUG"
 fi
 
-cat > Makefile <<EOF
-.PHONY: tests
+cat << END > Makefile
+.PHONY: $SUBDIRS
 
-all: tests ./bin/libgbtcp.so ./bin/sysctl ./bin/netstat ./bin/gbtcpd
+all: ./bin/libgbtcp.so $TARGETS $SUBDIRS
 
 CFLAGS = $CFLAGS
 LDFLAGS = $LDFLAGS
 
-OBJS = $OBJS
-LIB_OBJS = $LIB_OBJS
-NETSTAT_OBJS = $NETSTAT_OBJS
-SYSCTL_OBJS = $SYSCTL_OBJS
-GBTCPD_OBJS = $GBTCPD_OBJS
-
-DEPS = \$(OBJS:.o=.d)
-
--include \$(DEPS)
-
 %.o: %.c
-	\$(CC) -c \$(CFLAGS) -MP -MD -o \$@ \$<
+	\$(CC) -c \$(CFLAGS) -I. -o \$@ \$<
 
-./bin/libgbtcp.so: \$(LIB_OBJS)
-	\$(CC) -o ./bin/libgbtcp.so -shared \$(CFLAGS) \$(LIB_OBJS) \$(LDFLAGS)
+./bin/libgbtcp.so: $OBJS
+	\$(CC) -o ./bin/libgbtcp.so -shared \$(CFLAGS) $OBJS \$(LDFLAGS)
 
-./bin/netstat: \$(NETSTAT_OBJS) ./bin/libgbtcp.so
-	\$(CC) -o ./bin/netstat \$(CFLAGS) -L./bin \$(NETSTAT_OBJS) \$(LDFLAGS) -lgbtcp
+END
 
-./bin/sysctl: \$(SYSCTL_OBJS) ./bin/libgbtcp.so
-	\$(CC) -o ./bin/sysctl \$(CFLAGS)  -L./bin \$(SYSCTL_OBJS) \$(LDFLAGS) -lgbtcp
+for x in $BINS; do
+	srcs="`find $x -name '*.c'`"
+	objs=`echo $srcs | sed 's/\.c/.o/g'`
+	cat << END >> Makefile
+./bin/$x: $objs ./bin/libgbtcp.so
+	\$(CC) -o ./bin/$x -L./bin $objs \$(LDFLAGS) -lgbtcp
 
-./bin/gbtcpd: \$(GBTCPD_OBJS) ./bin/libgbtcp.so
-	\$(CC) -o ./bin/gbtcpd \$(CFLAGS) -L./bin \$(GBTCPD_OBJS) \$(LDFLAGS) -lgbtcp 
+END
+done
 
-tests:
-	make -C ./test
+for x in $SUBDIRS; do
+	cat << END >> Makefile
+$x:
+	make -C ./$x
 
+END
+done
+
+cat << END >> Makefile
 install:
 	grep '^gbtcp:' /etc/group || groupadd gbtcp
 	mkdir -p $PREFIX/gbtcp/
@@ -155,12 +115,15 @@ install:
 	mkdir -p $PREFIX/gbtcp/sock
 	chgrp -R gbtcp $PREFIX/gbtcp
 	chmod -R 775 $PREFIX/gbtcp
-	cp -f ./bin/libgbtcp.so $PREFIX/gbtcp/bin
-	cp -f ./bin/gbtcpd $PREFIX/gbtcp/bin
+	cp -f ./bin/* $PREFIX/gbtcp/bin/
 
 clean:
-	make -C ./test clean
-	rm -f ./bin/libgbtcp.so ./bin/gbtcpd ./bin/netstat ./bin/sysctl
+	rm -f ./bin/libgbtcp.so $TARGETS
 	find . -name '*.o' | xargs rm -f
-	find . -name '*.d' | xargs rm -f
-EOF
+END
+
+for x in $SUBDIRS; do
+	cat << END >> Makefile
+	make -C ./$x clean
+END
+done
