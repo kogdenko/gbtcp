@@ -38,7 +38,7 @@
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
 #include <syslog.h>
-//#include <pthread.h>
+#include <pthread.h>
 
 #ifdef __linux__
 #include <sched.h>

@@ -7,13 +7,13 @@ CFLAGS="$CFLAGS -D_LIBC_REENTRANT"
 CFLAGS="$CFLAGS -falign-functions=16"
 CFLAGS="$CFLAGS -Wunused-variable"
 CFLAGS="$CFLAGS -fdiagnostics-color=always"
-LDFLAGS="$LDFLAGS -lm -rdynamic -L."
+LDFLAGS="$LDFLAGS -pthread -lm -rdynamic -L."
 
 SUBDIRS="test ./tools/so_echo"
 SRCS="`find ./gbtcp -maxdepth 1 -name '*.c'`"
 SRCS="$SRCS `find ./gbtcp/$(uname) -maxdepth 1 -name '*.c'`"
 OBJS=`echo $SRCS | sed 's/\.c/.o/g'`
-BINS="gbtcpd sysctl netstat"
+BINS="gbtcpd sysctl netstat fwd"
 TARGETS=`echo $BINS | sed 's/[^ ]* */.\/bin\/&/g'`
 
 if [ "$(uname)" = "Linux" ]; then
@@ -87,7 +87,15 @@ LDFLAGS = $LDFLAGS
 END
 
 for x in $BINS; do
-	srcs="`find $x -name '*.c'`"
+	if [ -d $x ]; then
+		path=$x
+	elif [ -d ./tools/$x ]; then
+		path=./tools/$x
+	else
+		echo "Unresolved path for binary '$x'"
+		exit 2
+	fi
+	srcs="`find $path -name '*.c'`"
 	objs=`echo $srcs | sed 's/\.c/.o/g'`
 	cat << END >> Makefile
 ./bin/$x: $objs ./bin/libgbtcp.so
