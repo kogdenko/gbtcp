@@ -1,6 +1,5 @@
 *.o
 *.d
-Makefile
 *.ko
 *.so
 *.core
@@ -12,4 +11,5 @@ bin/gbtcp_test_*
 bin/gbtcpd
 bin/netstat
 bin/sysctl
-
+bin/so_echo
+bin/fwd
