@@ -100,7 +100,11 @@ print_usage()
 	printf("nm_echo [options] {if0} [if1]\n");
 }
 
-#define cpuset_t cpu_set_t
+#ifdef __linux__
+#define gt_cpu_set_t cpu_set_t
+#else /* __linux__ */
+#define gt_cpu_set_t cpuset_t
+#endif /* __linux__ */
 
 #define PEER(i) ((n - 1) - i)
 
@@ -389,7 +393,7 @@ static int
 set_affinity(int i)
 {
 	int rc;
-	cpuset_t m;
+	gt_cpu_set_t m;
 
 	if (i < 0 || i > 32) {
 		return -EINVAL;
@@ -409,9 +413,8 @@ invalid_arg(int opt, const char *val)
 int
 main(int argc, char **argv)
 {
-	int opt, i, n, rc, cpu, flags, more;
+	int opt, i, n, rc, cpu, more;
 	char ifname[IFNAMSIZ + 16];
-	char errmsg[MAXERRMSG];
 	struct dev devs[2];
 	struct pollfd pfds[2];
 	struct eth_addr mac;
@@ -432,7 +435,7 @@ main(int argc, char **argv)
 			}
 			snprintf(ifname, sizeof(ifname), "netmap:%s", optarg);
 			devs[n].nmd = nm_open(ifname, NULL, 0, NULL);
-			if (devs[i].nmd == NULL) {
+			if (devs[n].nmd == NULL) {
 				die(errno, "nm_open('%s') failed", ifname);
 			}
 			devs[n].cur_tx_ring = devs[n].nmd->first_tx_ring;

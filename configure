@@ -2,9 +2,8 @@
 
 CC=${CC:-cc}
 PREFIX="/usr/local"
-CFLAGS="$CFLAGS -g -Wall -std=gnu99 -pipe -finline-functions -pthread -fPIC"
+CFLAGS="$CFLAGS -g -Wall -I. -std=gnu99 -pipe -finline-functions -pthread -fPIC"
 CFLAGS="$CFLAGS -D_LIBC_REENTRANT"
-CFLAGS="$CFLAGS -falign-functions=16"
 CFLAGS="$CFLAGS -Wunused-variable"
 CFLAGS="$CFLAGS -fdiagnostics-color=always"
 LDFLAGS="$LDFLAGS -pthread -lm -rdynamic -L."
@@ -18,8 +17,10 @@ TARGETS=`echo $BINS | sed 's/[^ ]* */.\/bin\/&/g'`
 
 if [ "$(uname)" = "Linux" ]; then
 	LDFLAGS="$LDFLAGS -ldl"
+	GROUPADD="groupadd"
 elif [ "$(uname)" = "FreeBSD" ]; then
 	LDFLAGS="$LDFLAGS -lexecinfo -lutil"
+	GROUPADD="pw groupadd"
 else
 	echo "Unsupported platform"
 	exit 1
@@ -27,6 +28,7 @@ fi
 
 if [ "$CC" = "gcc" ]; then
 	CFLAGS="$CFLAGS -Wno-format-truncation"
+	CFLAGS="$CFLAGS -falign-functions=16"
 elif `$CC -v 2>&1 | grep 'clang version' >/dev/null 2>&1`; then
 	CFLAGS="$CFLAGS"
 fi
@@ -79,7 +81,7 @@ CFLAGS = $CFLAGS
 LDFLAGS = $LDFLAGS
 
 %.o: %.c
-	\$(CC) -c \$(CFLAGS) -I. -o \$@ \$<
+	\$(CC) -c \$(CFLAGS) -o \$@ \$<
 
 ./bin/libgbtcp.so: $OBJS
 	\$(CC) -o ./bin/libgbtcp.so -shared \$(CFLAGS) $OBJS \$(LDFLAGS)
@@ -114,7 +116,7 @@ done
 
 cat << END >> Makefile
 install:
-	grep '^gbtcp:' /etc/group || groupadd gbtcp
+	grep '^gbtcp:' /etc/group || $GROUPADD gbtcp
 	mkdir -p $PREFIX/gbtcp/
 	mkdir -p $PREFIX/gbtcp/bin
 	mkdir -p $PREFIX/gbtcp/ctl

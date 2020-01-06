@@ -1,7 +1,6 @@
 // TODO: logs
 
-#include "sys.h"
-#include "route.h"
+#include <gbtcp/gbtcp_lib.h>
 
 
 #define REQUIRE(type) \
@@ -10,7 +9,7 @@
 	} \
 
 static int
-ipaddr_from_sockaddr(ipaddr_t *dst, struct sockaddr *sa)
+ipaddr_from_sockaddr(struct gt_ip_addr *dst, struct sockaddr *sa)
 {
 	struct sockaddr_in *sa_in;
 	struct sockaddr_in6 *sa_in6;
@@ -18,11 +17,11 @@ ipaddr_from_sockaddr(ipaddr_t *dst, struct sockaddr *sa)
 	switch (sa->sa_family) {
 	case AF_INET:
 		sa_in = (struct sockaddr_in *)sa;
-		dst->ip4 = sa_in->sin_addr.s_addr;
+		dst->ipa_4 = sa_in->sin_addr.s_addr;
 		return 0;
 	case AF_INET6:
 		sa_in6 = (struct sockaddr_in6 *)sa;
-		memcpy(dst->ip6, sa_in6->sin6_addr.s6_addr, 16);
+		memcpy(dst->ipa_6, sa_in6->sin6_addr.s6_addr, 16);
 		return 0;
 	default:
 		return -EPROTO;
@@ -53,25 +52,25 @@ get_route_addrs(void *buf, size_t count, int flags, struct sockaddr **addrs)
 }
 
 static void
-ifa_dl(struct route_msg_link *link, struct ifaddrs *ifa)
+ifa_dl(struct gt_route_msg_link *link, struct ifaddrs *ifa)
 {
 	struct sockaddr_dl *addr;
 
 	addr = (struct sockaddr_dl *)ifa->ifa_addr;
-	memcpy(link->rtml_hwaddr.bytes, LLADDR(addr), 6);
+	memcpy(link->rtml_hwaddr.etha_bytes, LLADDR(addr), 6);
 	link->rtml_flags = ifa->ifa_flags;
 }
 
 static int
-handle_link(struct route_msg *msg, int ifindex)
+handle_link(struct gt_route_msg *msg, int ifindex)
 {
 	int rc;
 	char if_name[IFNAMSIZ];
 	struct ifaddrs *ifap, *ifa;
 
-	msg->rtm_type = ROUTE_MSG_LINK;
+	msg->rtm_type = GT_ROUTE_MSG_LINK;
 	msg->rtm_if_idx = ifindex;
-	rc = sys_if_indextoname(NULL, ifindex, if_name);
+	rc = gt_sys_if_indextoname(NULL, ifindex, if_name);
 	if (rc) {
 		return rc;
 	}
@@ -94,14 +93,14 @@ handle_link(struct route_msg *msg, int ifindex)
 }
 
 static int
-handle_addr(struct route_msg *msg, struct ifa_msghdr *ifam)
+handle_addr(struct gt_route_msg *msg, struct ifa_msghdr *ifam)
 {
 	int rc;
 	struct sockaddr *addrs[RTAX_MAX];
 	struct sockaddr *ifa, *ifp;
 	struct sockaddr_dl *ifp_dl;
 
-	msg->rtm_type = ROUTE_MSG_ADDR;
+	msg->rtm_type = GT_ROUTE_MSG_ADDR;
 	rc = get_route_addrs(ifam + 1,
 	                     ifam->ifam_msglen - sizeof(*ifam),
 	                     ifam->ifam_addrs, addrs);
@@ -131,17 +130,17 @@ handle_addr(struct route_msg *msg, struct ifa_msghdr *ifam)
 } 
 
 static int
-handle_route(struct route_msg *msg, struct rt_msghdr *rtm)
+handle_route(struct gt_route_msg *msg, struct rt_msghdr *rtm)
 {
 	int rc;
 	struct sockaddr *addrs[RTAX_MAX];
 	struct sockaddr *dst, *netmask, *gateway;
 	struct sockaddr_dl *gateway_dl;
-	ipaddr_t tmp;
+	struct gt_ip_addr tmp;
 
-	msg->rtm_type = ROUTE_MSG_ROUTE;
+	msg->rtm_type = GT_ROUTE_MSG_ROUTE;
 	rc = get_route_addrs(rtm + 1, rtm->rtm_msglen - sizeof(*rtm),
-	                    rtm->rtm_addrs, addrs);
+	                     rtm->rtm_addrs, addrs);
 	if (rc) {
 		return rc;
 	}
@@ -156,7 +155,7 @@ handle_route(struct route_msg *msg, struct rt_msghdr *rtm)
 	}
 	msg->rtm_af = dst->sa_family;
 	msg->rtm_if_idx = rtm->rtm_index;
-	msg->rtm_route.rtmr_via = ipaddr_zero;
+	msg->rtm_route.rtmr_via = gt_ip_addr_zero;
 	rc = ipaddr_from_sockaddr(&msg->rtm_route.rtmr_dst, dst);
 	if (rc) {
 		return rc;
@@ -181,22 +180,22 @@ handle_route(struct route_msg *msg, struct rt_msghdr *rtm)
 	if (rc) {
 		return rc;
 	}
-	msg->rtm_route.rtmr_pfx = ipaddr_prefix(msg->rtm_af, &tmp);
+	msg->rtm_route.rtmr_pfx = gt_ip_addr_pfx(msg->rtm_af, &tmp);
 	return 1;
 }
 
 static int
-handle_rtmsg(struct rt_msghdr *rtm, size_t msg_len, route_msg_f fn)
+handle_rtmsg(struct rt_msghdr *rtm, size_t msg_len, gt_route_msg_f fn)
 {
 	int rc;
 	struct if_msghdr *ifm;
 	struct ifa_msghdr *ifam;
-	struct route_msg msg;
+	struct gt_route_msg msg;
 
 	if (rtm->rtm_version != RTM_VERSION) {
 		return -EPROTO;
 	}
-	msg.rtm_cmd = ROUTE_MSG_DEL;
+	msg.rtm_cmd = GT_ROUTE_MSG_DEL;
 	switch (rtm->rtm_type) {
 	case RTM_IFINFO:
 		REQUIRE(struct if_msghdr);
@@ -208,7 +207,7 @@ handle_rtmsg(struct rt_msghdr *rtm, size_t msg_len, route_msg_f fn)
 		}
 		break;
 	case RTM_NEWADDR:
-		msg.rtm_cmd = ROUTE_MSG_ADD;
+		msg.rtm_cmd = GT_ROUTE_MSG_ADD;
 	case RTM_DELADDR:
 		REQUIRE(struct ifa_msghdr);
 		ifam = (struct ifa_msghdr *)rtm;
@@ -219,7 +218,7 @@ handle_rtmsg(struct rt_msghdr *rtm, size_t msg_len, route_msg_f fn)
 		}
 		break;
 	case RTM_ADD:
-		msg.rtm_cmd = ROUTE_MSG_ADD;
+		msg.rtm_cmd = GT_ROUTE_MSG_ADD;
 	case RTM_DELETE:
 		if (rtm->rtm_msglen > msg_len) {
 			rc = -EPROTO;
@@ -238,17 +237,17 @@ handle_rtmsg(struct rt_msghdr *rtm, size_t msg_len, route_msg_f fn)
 }
 
 static int
-route_dump_ifaddrs(route_msg_f fn)
+route_dump_ifaddrs(gt_route_msg_f fn)
 {
 	int rc, ifindex;
 	struct ifaddrs *ifap, *ifa;
-	struct route_msg msg;
+	struct gt_route_msg msg;
 
-	rc = sys_getifaddrs(NULL, &ifap);
+	rc = gt_sys_getifaddrs(NULL, &ifap);
 	if (rc) {
 		return rc;
 	}
-	msg.rtm_cmd = ROUTE_MSG_ADD;
+	msg.rtm_cmd = GT_ROUTE_MSG_ADD;
 	for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
 		ifindex = if_nametoindex(ifa->ifa_name);
 		if (ifindex == 0 && errno) {
@@ -256,14 +255,14 @@ route_dump_ifaddrs(route_msg_f fn)
 		}
 		switch (ifa->ifa_addr->sa_family) {
 		case AF_LINK:
-			msg.rtm_type = ROUTE_MSG_LINK;
+			msg.rtm_type = GT_ROUTE_MSG_LINK;
 			msg.rtm_if_idx = ifindex;
 			ifa_dl(&msg.rtm_link, ifa);			
 			(*fn)(&msg);
 			break;
 		case AF_INET:
 		case AF_INET6:
-			msg.rtm_type = ROUTE_MSG_ADDR;
+			msg.rtm_type = GT_ROUTE_MSG_ADDR;
 			msg.rtm_af = ifa->ifa_addr->sa_family;
 			msg.rtm_if_idx = ifindex;
 			rc = ipaddr_from_sockaddr(&msg.rtm_addr, ifa->ifa_addr);
@@ -279,7 +278,7 @@ route_dump_ifaddrs(route_msg_f fn)
 }
 
 int
-route_dump(route_msg_f fn)
+gt_route_dump(gt_route_msg_f fn)
 {
 	int rc, mib[7];
 	uint8_t *buf;
@@ -287,7 +286,7 @@ route_dump(route_msg_f fn)
 	uint net_fibs, net_my_fibnum;
 	size_t net_fibs_size, net_my_fib_num_size;
 	struct rt_msghdr *rtm;
-	struct route_msg msg;
+	struct gt_route_msg msg;
 
 	rc = route_dump_ifaddrs(fn);
 	if (rc) {
@@ -317,7 +316,7 @@ route_dump(route_msg_f fn)
 	if (rc == -1) {
 		return -errno;
 	}
-	rc = sys_malloc(NULL, (void **)&buf, len);
+	rc = gt_sys_malloc(NULL, (void **)&buf, len);
 	if (rc) {
 		return rc;
 	}
@@ -333,7 +332,7 @@ route_dump(route_msg_f fn)
 		if (rtm->rtm_type != RTM_GET) {
 			continue;
 		}
-		msg.rtm_cmd = ROUTE_MSG_ADD;
+		msg.rtm_cmd = GT_ROUTE_MSG_ADD;
 		rc = handle_route(&msg, rtm);
 		if (rc == 1) {
 			(*fn)(&msg);
@@ -344,21 +343,21 @@ route_dump(route_msg_f fn)
 }
 
 int
-route_open(struct gt_log *log)
+gt_route_open(struct gt_log *log)
 {
 	int rc;
 
-	rc = sys_socket(log, PF_ROUTE, SOCK_RAW, 0);
+	rc = gt_sys_socket(log, PF_ROUTE, SOCK_RAW, 0);
 	return rc;
 }
 
 int
-route_read(int fd, route_msg_f fn)
+gt_route_read(int fd, gt_route_msg_f fn)
 {
 	char msg[2048];
 	int rc;
 
-	rc = sys_read(NULL, fd, msg, sizeof(msg));
+	rc = gt_sys_read(NULL, fd, msg, sizeof(msg));
 	if (rc < 0) {
 		return rc;
 	}

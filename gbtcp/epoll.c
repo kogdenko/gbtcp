@@ -70,7 +70,7 @@ static int gt_epoll_get(int fd, struct gt_epoll **ep);
 static int gt_epoll_get_events(struct gt_epoll *ep,
 	gt_epoll_event_t *buf, int cnt);
 
-static int gt_epoll_wait_fd(int fd, struct epoll_event *buf, int cnt);
+static int gt_epoll_wait_fd(int fd, gt_epoll_event_t *buf, int cnt);
 
 #ifndef __linux__
 static int gt_epoll_kevent_mod(struct gt_epoll *ep, struct gt_file *fp,
@@ -305,8 +305,8 @@ gt_epoll_kevent(int kq, const struct kevent *changelist, int nchanges,
 		event = (struct kevent *)changelist + i;
 		rc = gt_sock_get(event->ident, &fp);
 		if (rc) {
-			rc = (*sys_kevent_fn)(ep->ep_fd, event, 1,
-			                      NULL, 0, NULL);
+			rc = (*gt_sys_kevent_fn)(ep->ep_fd, event, 1,
+			                         NULL, 0, NULL);
 			if (rc == -1) {
 				rc = -errno;
 				GT_ASSERT(rc);
@@ -331,7 +331,7 @@ gt_epoll_kevent(int kq, const struct kevent *changelist, int nchanges,
 		if (timeout == NULL) {
 			to = GT_NSEC_MAX;
 		} else {
-			to = GT_SEC * timeout->ts_sec + timeout->ts_nsec;
+			to = GT_SEC * timeout->tv_sec + timeout->tv_nsec;
 		}
 		rc = gt_epoll_pwait(kq, eventlist, nevents, to, NULL);
 	} else {
@@ -434,22 +434,22 @@ gt_epoll_entry_get_event(struct gt_epoll_entry *e,
 	if (x & POLLIN) {
 		GT_ASSERT((x & POLLOUT) == 0);
 		filter = EVFILT_READ;
-		f_ioctl(fp, FIONREAD, (uintptr_t)(&data));
+		gt_file_ioctl(fp, FIONREAD, (uintptr_t)(&data));
 	} else if (x & POLLOUT) {
 		filter = EVFILT_WRITE;
-		f_ioctl(fp, FIONSPACE, (uintptr_t)(&data));
+		gt_file_ioctl(fp, FIONSPACE, (uintptr_t)(&data));
 	}
 	if (x & POLLERR) {
 		flags |= EV_ERROR;
-		data = sock_get_eno((struct sock *)fp);
+		data = gt_sock_get_eno((struct gt_sock *)fp);
 	}
 	GT_ASSERT(filter || flags);
 	event->filter = filter;
 	event->flags = flags;
-	event->ident = e->fd;
+	event->ident = e->epe_fd;
 	event->fflags = 0;
 	event->data = data;
-	event->udata = e->udata_ptr;
+	event->udata = e->epe_udata_ptr;
 }
 #endif /* __linux__ */
 
@@ -570,7 +570,7 @@ gt_epoll_wait_fd(int fd, gt_epoll_event_t *buf, int cnt)
 
 	to.tv_sec = 0;
 	to.tv_nsec = 0;
-	rc = (*sys_kevent_fn)(fd, NULL, 0, buf, cnt, &to);
+	rc = (*gt_sys_kevent_fn)(fd, NULL, 0, buf, cnt, &to);
 	if (rc == -1) {
 		rc = -errno;
 		GT_ASSERT(rc); 
@@ -618,7 +618,7 @@ gt_epoll_kevent_mod(struct gt_epoll *ep, struct gt_file *fp,
 			return -ENOMEM;
 		}
 	}
-	e->udata_ptr = event->udata;
+	e->epe_udata_ptr = event->udata;
 	if (event->flags & EV_ENABLE) {
 		e->epe_flags |= GT_EPOLL_FLAG_ENABLED;
 	}

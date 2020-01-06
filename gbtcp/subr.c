@@ -116,8 +116,8 @@ gt_application_name_init()
 		GT_ASSERT(rc);
 		return rc;
 	}
-	strzcpy(gt_application_name_buf, info->ki_comm,
-	        sizeof(gt_application_name_buf));
+	gt_strzcpy(gt_application_name_buf, info->ki_comm,
+	           sizeof(gt_application_name_buf));
 	free(info);
 	gt_application_name = gt_application_name_buf;
 	return 0;
@@ -760,7 +760,7 @@ gt_sockopt_optname_str(int level, int optname)
 		case TCP_KEEPIDLE: return "TCP_KEEPIDLE";
 		case TCP_KEEPINTVL: return "TCP_KEEPINTVL";
 		case TCP_KEEPCNT: return "TCP_KEEPCNT";
-		case TCP_CORK: return "TCP_CORK";
+		case GT_TCP_CORK: return "TCP_CORK";
 		}
 		break;
 	case SOL_SOCKET:
