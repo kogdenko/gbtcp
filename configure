@@ -22,15 +22,18 @@ elif [ "$(uname)" = "FreeBSD" ]; then
 	LDFLAGS="$LDFLAGS -lexecinfo -lutil"
 	GROUPADD="pw groupadd"
 else
-	echo "Unsupported platform"
+	echo "Unsupported platform: $(uname)"
 	exit 1
 fi
 
-if [ "$CC" = "gcc" ]; then
+if `$CC -v 2>&1 | grep 'gcc version' >/dev/null 2>&1`; then
 	CFLAGS="$CFLAGS -Wno-format-truncation"
 	CFLAGS="$CFLAGS -falign-functions=16"
 elif `$CC -v 2>&1 | grep 'clang version' >/dev/null 2>&1`; then
 	CFLAGS="$CFLAGS"
+else
+	echo "Unsupported compiler: $CC"
+	exit 2
 fi
 
 NETMAP_DIR=""

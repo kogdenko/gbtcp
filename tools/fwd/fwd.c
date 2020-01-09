@@ -38,10 +38,10 @@ struct ip4_pseudo_hdr {
 } __attribute__((packed));
 
 struct udp_hdr {                                                                                                       
-	be16_t sport;                                                                                                  
-	be16_t dport;                                                                                                  
-	be16_t len;                                                                                                    
-	uint16_t cksum;                                                                                                
+	be16_t sport; 
+	be16_t dport;
+	be16_t len;
+	uint16_t cksum;
 } __attribute__((packed));
 
 struct dev {
@@ -49,34 +49,40 @@ struct dev {
 	int tx_full;
 	int cur_tx_ring_epoch;
 	int cur_tx_ring;
-	struct eth_addr mac;
 };
 
 struct pdu {
 	struct eth_hdr *eth_h;
 	struct ip4_hdr *ip4_h;
 	struct udp_hdr *udp_h;
+	void *payload;
+	int len;
 };
 
+static struct eth_addr eth_saddr;
+static struct eth_addr eth_daddr;
+static int Tflag;
+static int Mflag;
 static int burst_size;
 static int epoch;
 static int rx_cksum;
 static int tx_cksum;
 static int zero_copy;
 static int echo;
+static int sock_hash_size;
+static int sock_hash_mask;
+static struct gt_list_head txq;
+static int nr_socks;
+static int nr_socks_max;
+static struct gt_mbuf_pool *sock_pool;
+static struct gt_list_head free_socks;
+static struct gt_list_head used_socks;
+static struct gt_list_head *sock_hash;
 static unsigned long long cnt_not_an_UDP;
 static unsigned long long cnt_bad_cksum;
 
 static void die(int errnum, const char *fmt, ...)
 	__attribute__((format(printf, 2, 3)));
-
-#ifndef dbg
-#define dbg(fmt, ...) do { \
-	printf("%-20s %-5d %-20s: ", __FILE__, __LINE__, __func__); \
-	printf(fmt, ##__VA_ARGS__); \
-	printf("\n"); \
-} while (0)
-#endif /* dbg */
 
 static void
 die(int errnum, const char *fmt, ...)
@@ -97,7 +103,7 @@ die(int errnum, const char *fmt, ...)
 static void
 print_usage()
 {
-	printf("nm_echo [options] {if0} [if1]\n");
+	printf("fwd [options] {if0} [if1]\n");
 }
 
 #ifdef __linux__
@@ -106,7 +112,7 @@ print_usage()
 #define gt_cpu_set_t cpuset_t
 #endif /* __linux__ */
 
-#define PEER(i) ((n - 1) - i)
+#define PEER(i) ((nr_devs - 1) - i)
 
 #define UNIQV_CAT3(x, res) res
 #define UNIQV_CAT2(x, y, z) UNIQV_CAT3(~, x##y##z)
@@ -252,7 +258,7 @@ ip4_udp_cksum(struct ip4_hdr *ip4_h)
 static int
 parse(void *data, unsigned int len, struct pdu *pdu)
 {
-	static int ip4_h_len, total_len;
+	int ip4_h_len, total_len, udp_len;
 
 	if (len < sizeof(*pdu->eth_h) + sizeof(*pdu->ip4_h)) {
 		return -EINVAL;
@@ -277,6 +283,18 @@ parse(void *data, unsigned int len, struct pdu *pdu)
 		return -EINVAL;
 	}
 	pdu->udp_h = (struct udp_hdr *)(((uint8_t *)pdu->ip4_h) + ip4_h_len);
+	pdu->payload = pdu->udp_h + 1;
+	pdu->len = total_len - (ip4_h_len + sizeof(*pdu->udp_h));
+//	gt_dbg("rem=%d, udp_len=%d, udp_h_len=%d",
+//	       total_len - (ip4_h_len + (int)sizeof(*pdu->udp_h)),
+//	       GT_NTOH16(pdu->udp_h->len), (int)sizeof(*pdu->udp_h));
+	udp_len = GT_NTOH16(pdu->udp_h->len);
+	if (udp_len < sizeof(*pdu->udp_h)) {
+		return -EINVAL;
+	}
+	if (udp_len - sizeof(*pdu->udp_h) != pdu->len) {
+		return -EINVAL;
+	}
 	return 0;
 }
 
@@ -301,13 +319,102 @@ not_empty_txr(struct dev *dev)
 	return NULL;
 }
 
+static void
+so_del(struct gt_sock *so)
+{
+	GT_LIST_REMOVE(so, so_file.fl_mbuf.mb_list);
+	GT_LIST_REMOVE(so, so_bindl);
+	if (Mflag) {
+		gt_mbuf_free(&so->so_file.fl_mbuf);
+	} else {
+		GT_LIST_INSERT_HEAD(&free_socks, so, so_bindl);
+	}
+	nr_socks--;
+}
+
+static struct gt_sock *
+so_alloc(struct gt_list_head *bucket)
+{
+	struct gt_sock *so;
+
+	if (nr_socks == nr_socks_max) {
+		so = GT_LIST_LAST(&used_socks, struct gt_sock, so_bindl);
+		so_del(so);
+	}
+	if (Mflag) {
+		gt_mbuf_alloc(NULL, sock_pool, (struct gt_mbuf **)&so);
+	} else {
+		assert(gt_list_empty(&free_socks));
+		so = GT_LIST_LAST(&free_socks, struct gt_sock, so_bindl);
+		GT_LIST_REMOVE(so, so_bindl);
+	}
+	GT_LIST_INSERT_HEAD(&used_socks, so, so_bindl);
+	GT_LIST_INSERT_HEAD(bucket, so, so_file.fl_mbuf.mb_list);
+	so->so_flags = 0;
+	so->so_ssnt = 0;
+	nr_socks++;
+	return so;
+}
+
+static int
+so_process(struct gt_sock *so)
+{
+	so->so_flags++;
+	if (so->so_flags == 4) {
+		so_del(so);
+		return 0;
+	} else {
+		return 1;
+	}
+}
+
+static int
+so_fill(struct gt_sock *so, void *buf, int pay_len)
+{
+	int len;
+	struct eth_hdr *eth_h;
+	struct ip4_hdr *ip4_h;
+	struct udp_hdr *udp_h;
+
+	eth_h = buf;
+	ip4_h = (struct ip4_hdr *)(eth_h + 1);
+	udp_h = (struct udp_hdr *)(ip4_h + 1);
+	len = sizeof(*ip4_h) + sizeof(*udp_h) + pay_len;
+	eth_h->type = htons(ETH_TYPE_IP4);
+	eth_h->saddr = eth_saddr;
+	eth_h->daddr = eth_daddr;
+	ip4_h->ver_ihl = GT_IP4H_VER_IHL;
+	ip4_h->type_of_svc = 0;
+	ip4_h->total_len = htons(len);
+	ip4_h->id = 0;
+	ip4_h->frag_off =  0;
+	ip4_h->ttl = 64;
+	ip4_h->proto = IPPROTO_UDP;
+	ip4_h->cksum = 0;
+	ip4_h->saddr = so->so_tuple.sot_laddr;
+	ip4_h->daddr = so->so_tuple.sot_faddr;
+	udp_h->sport = so->so_tuple.sot_lport;
+	udp_h->dport = so->so_tuple.sot_fport;
+	udp_h->len = htons(sizeof(*udp_h) + pay_len);
+	udp_h->cksum = 0;
+	memset(udp_h + 1, '.', pay_len);
+	if (tx_cksum) {
+		ip4_h->cksum = ip4_cksum(ip4_h);
+		udp_h->cksum = ip4_udp_cksum(ip4_h);
+	}
+	return sizeof(*eth_h) + len;
+}
+
 static int
 fwd(struct dev *src, struct dev *dst)
 {
-	int i, n, rc, more;
-	uint32_t tmp;
+	int i, n, rc, more, found;
+	uint32_t tmp, hash;
 	struct netmap_slot *rx_slot, *tx_slot;
 	struct netmap_ring *rxr, *txr;
+	struct gt_list_head *bucket;
+	struct gt_sock_tuple tuple;
+	struct gt_sock *so;
 	struct pdu pdu;
 
 	more = 0;
@@ -358,32 +465,83 @@ fwd(struct dev *src, struct dev *dst)
 				txr->head = txr->cur = nm_ring_next(txr, txr->cur);
 				goto next;
 			}
-			pdu.eth_h->daddr = pdu.eth_h->saddr;
-			pdu.eth_h->saddr = dst->mac;
-			if (echo) {
-				tmp = pdu.ip4_h->saddr;
-				pdu.ip4_h->saddr = pdu.ip4_h->daddr;
-				pdu.ip4_h->daddr = tmp;
-				tmp = pdu.udp_h->sport;
-				pdu.udp_h->sport = pdu.udp_h->dport;
-				pdu.udp_h->dport = tmp;
-				if (tx_cksum) {
-					pdu.ip4_h->cksum = ip4_cksum(pdu.ip4_h);
-					pdu.udp_h->cksum = ip4_udp_cksum(pdu.ip4_h);
+			so = NULL;
+			if (sock_hash_size) {
+				tuple.sot_laddr = pdu.ip4_h->saddr;
+				tuple.sot_faddr = pdu.ip4_h->daddr;
+				tuple.sot_lport = pdu.udp_h->sport;
+				tuple.sot_fport = pdu.udp_h->dport;
+				hash = gt_custom_hash(&tuple, sizeof(tuple), 0);
+				bucket = sock_hash + (hash & sock_hash_mask);
+				found = 0;
+				GT_LIST_FOREACH(so, bucket, so_file.fl_mbuf.mb_list) {
+					if (!memcmp(&so->so_tuple, &tuple, sizeof(tuple))) {
+						found = so_process(so);
+						break;
+					}
 				}
+				if (found == 0) {
+					so = so_alloc(bucket);
+					so->so_tuple = tuple;
+				}
+				if (Tflag) {
+					if (so->so_ssnt == 0) {
+						GT_LIST_INSERT_HEAD(&txq, so, so_txl);
+					}
+					so->so_ssnt++;
+					so->so_lmss = pdu.len;
+				}
+			}
+			if (Tflag) {
+				goto next;
 			}
 			txr = not_empty_txr(dst);
 			if (txr == NULL) {
 				return 0;
 			}
 			tx_slot = txr->slot + txr->cur;
-			memcpy(NETMAP_BUF(txr, tx_slot->buf_idx),
-			       NETMAP_BUF(rxr, rx_slot->buf_idx),
-			       rx_slot->len);
-			tx_slot->len = rx_slot->len;
+			if (sock_hash_size) {
+				tx_slot->len = so_fill(so, NETMAP_BUF(txr, tx_slot->buf_idx), pdu.len);
+			} else {
+				if (echo) {
+					pdu.eth_h->daddr = eth_daddr;
+					pdu.eth_h->saddr = eth_saddr;
+					tmp = pdu.ip4_h->saddr;
+					pdu.ip4_h->saddr = pdu.ip4_h->daddr;
+					pdu.ip4_h->daddr = tmp;
+					tmp = pdu.udp_h->sport;
+					pdu.udp_h->sport = pdu.udp_h->dport;
+					pdu.udp_h->dport = tmp;
+					if (tx_cksum) {
+						pdu.ip4_h->cksum = ip4_cksum(pdu.ip4_h);
+						pdu.udp_h->cksum = ip4_udp_cksum(pdu.ip4_h);
+					}
+				}
+				memcpy(NETMAP_BUF(txr, tx_slot->buf_idx),
+				       NETMAP_BUF(rxr, rx_slot->buf_idx),
+				       rx_slot->len);
+				tx_slot->len = rx_slot->len;
+			}
 			txr->head = txr->cur = nm_ring_next(txr, txr->cur);
 next:
 			rxr->head = rxr->cur = nm_ring_next(rxr, rxr->cur);
+		}
+	}
+	if (Tflag) {
+		while (!gt_list_empty(&txq)) {
+			so = GT_LIST_FIRST(&txq, struct gt_sock, so_txl);
+			assert(so->so_ssnt);
+			txr = not_empty_txr(dst);
+			if (txr == NULL) {
+				break;
+			}
+			so->so_ssnt--;
+			if (so->so_ssnt == 0) {
+				GT_LIST_REMOVE(so, so_txl);
+			}
+			tx_slot = txr->slot + txr->cur;
+			tx_slot->len = so_fill(so, NETMAP_BUF(txr, tx_slot->buf_idx), so->so_lmss);
+			txr->head = txr->cur = nm_ring_next(txr, txr->cur);
 		}
 	}
 	return more;
@@ -413,41 +571,59 @@ invalid_arg(int opt, const char *val)
 int
 main(int argc, char **argv)
 {
-	int opt, i, n, rc, cpu, more;
+	int opt, i, rc, cpu, more, nr_devs;
 	char ifname[IFNAMSIZ + 16];
 	struct dev devs[2];
 	struct pollfd pfds[2];
-	struct eth_addr mac;
+	struct gt_sock *so_buf;
 
+	rc = gt_global_init();
+	if (rc) {
+		fprintf(stderr, "Initialization failed\n");
+		return 1;
+	}
+	gt_list_init(&txq);
 	burst_size = 512;
-	n = 0;
+	nr_devs = 0;
 	memset(devs, 0, sizeof(devs));
-	eth_aton(&mac, "ff:ff:ff:ff:f:ff");
-	while ((opt = getopt(argc, argv, "hi:M:rtzea:b:")) != -1) {
+	eth_aton(&eth_saddr, "ff:ff:ff:ff:f:ff");
+	eth_aton(&eth_daddr, "ff:ff:ff:ff:f:ff");
+	while ((opt = getopt(argc, argv, "hi:S:D:TMrtzea:b:c:")) != -1) {
 		switch (opt) {
 		case 'h':
 			print_usage();
 			break;
 		case 'i':
-			if (n == 2) {
+			if (nr_devs == 2) {
 				print_usage();
 				return 1;
 			}
 			snprintf(ifname, sizeof(ifname), "netmap:%s", optarg);
-			devs[n].nmd = nm_open(ifname, NULL, 0, NULL);
-			if (devs[n].nmd == NULL) {
+			devs[nr_devs].nmd = nm_open(ifname, NULL, 0, NULL);
+			if (devs[nr_devs].nmd == NULL) {
 				die(errno, "nm_open('%s') failed", ifname);
 			}
-			devs[n].cur_tx_ring = devs[n].nmd->first_tx_ring;
-			devs[n].mac = mac;
-			pfds[n].fd = devs[n].nmd->fd;
-			n++;
+			devs[nr_devs].cur_tx_ring = devs[nr_devs].nmd->first_tx_ring;
+			pfds[nr_devs].fd = devs[nr_devs].nmd->fd;
+			nr_devs++;
 			break;
-		case 'M':
-			rc = eth_aton(&mac, optarg);
+		case 'S':
+			rc = eth_aton(&eth_saddr, optarg);
 			if (rc) {
 				invalid_arg(opt, optarg);
 			}
+			break;
+		case 'D':
+			rc = eth_aton(&eth_daddr, optarg);
+			if (rc) {
+				invalid_arg(opt, optarg);
+			}
+			break;
+		case 'T':
+			Tflag = 1;
+			break;
+		case 'M':
+			Mflag = 1;
 			break;
 		case 'r':
 			rx_cksum = 1;
@@ -471,17 +647,39 @@ main(int argc, char **argv)
 		case 'b':
 			burst_size = strtoul(optarg, NULL, 10);
 			break;
+		case 'c':
+			nr_socks_max = strtoul(optarg, NULL, 10);			
+			break;
 		}
 	}
-	if (!n) {
+	if (!nr_devs) {
 		print_usage();
 		return 1;
+	}
+	if (nr_socks_max) {
+		if (Mflag) {
+			gt_mbuf_pool_new(NULL, &sock_pool, sizeof(struct gt_sock));
+		} else {
+			gt_list_init(&free_socks);
+			so_buf = malloc(nr_socks_max * sizeof(struct gt_sock));
+			for (i = 0; i < nr_socks_max; ++i) {
+				GT_LIST_INSERT_HEAD(&free_socks, so_buf + i, so_bindl);
+			}
+		}
+		gt_list_init(&used_socks);
+		sock_hash_size = gt_upper_pow_of_2_32(nr_socks_max * 3 / 2);
+		sock_hash = malloc(sock_hash_size *
+		                   sizeof(struct gt_list_head));
+		sock_hash_mask = sock_hash_size - 1;
+		for (i = 0; i < sock_hash_size; ++i) {
+			gt_list_init(sock_hash + i);
+		}
 	}
 	if (burst_size < 1 || burst_size > 4096) {
 		die(0, "invalid burst size: %d\n", burst_size);
 	}
 	while (1) {
-		for (i = 0; i < n; ++i) {
+		for (i = 0; i < nr_devs; ++i) {
 			pfds[i].events = 0;
 			pfds[i].revents = 0;
 			if (devs[i].tx_full) {
@@ -491,9 +689,9 @@ main(int argc, char **argv)
 				pfds[i].events |= POLLIN;
 			}
 		}
-		poll(pfds, n, -1);
+		poll(pfds, nr_devs, -1);
 		epoch++;
-		for (i = 0; i < n; ++i) {
+		for (i = 0; i < nr_devs; ++i) {
 			if (pfds[i].revents & POLLOUT) {
 				devs[i].tx_full = 0;
 			}
