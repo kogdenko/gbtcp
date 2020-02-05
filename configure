@@ -5,7 +5,7 @@ PREFIX="/usr/local"
 CFLAGS="$CFLAGS -g -Wall -I. -std=gnu99 -pipe -finline-functions -pthread -fPIC"
 CFLAGS="$CFLAGS -D_LIBC_REENTRANT"
 CFLAGS="$CFLAGS -Wunused-variable"
-CFLAGS="$CFLAGS -fdiagnostics-color=always"
+CFLAGS="$CFLAGS -fdiagnostics-color=never"
 LDFLAGS="$LDFLAGS -pthread -lm -rdynamic -L."
 
 SUBDIRS="test ./tools/so_echo"
