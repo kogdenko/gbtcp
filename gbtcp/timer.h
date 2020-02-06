@@ -11,7 +11,7 @@
 #define GT_TIMER_EXPIRE_MAX (5 * 60 * 60 * GT_SEC) // 5 Hours
 
 struct gt_timer {
-	struct gt_list_head tm_list;
+	struct dllist tm_list;
 	uintptr_t tm_data;
 };
 

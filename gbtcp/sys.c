@@ -187,14 +187,14 @@ gt_sys_log_addrfn_failed(struct gt_log *log, int eno, int fd,
 	case AF_INET:
 		GT_ASSERT(addrlen >= sizeof(*addr_in));
 		addr_in = (const struct sockaddr_in *)addr;
-		GT_UNUSED(addr_in);
+		UNUSED(addr_in);
 		GT_LOGF(log, LOG_ERR, eno, "failed; fd=%d, sockaddr_in=%s",
 		        fd, gt_log_add_sockaddr_in(addr_in));
 		break;
 	case AF_UNIX:
 		GT_ASSERT(addrlen >= sizeof(*addr_un));
 		addr_un = (const struct sockaddr_un *)addr;
-		GT_UNUSED(addr_un);
+		UNUSED(addr_un);
 		GT_LOGF(log, LOG_ERR, eno, "failed; fd=%d, sun_path='%s'",
 		        fd, addr_un->sun_path);
 		break;

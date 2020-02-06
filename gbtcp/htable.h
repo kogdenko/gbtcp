@@ -9,7 +9,7 @@ struct gt_htable_static {
 	int hts_size;
 	int hts_mask;
 	gt_htable_hash_f hts_hash_fn;
-	struct gt_list_head *hts_array;
+	struct dllist *hts_array;
 };
 
 struct gt_htable_dynamic {
@@ -42,34 +42,28 @@ typedef struct gt_htable_dynamic gt_htable_t;
 
 int gt_htable_mod_init();
 
-void gt_htable_mod_deinit(struct gt_log *log);
+void gt_htable_mod_deinit(struct gt_log *);
 
-int gt_htable_static_create(struct gt_log *log, struct gt_htable_static *t,
-	int size, gt_htable_hash_f hash_fn);
+int gt_htable_static_create(struct gt_log *, struct gt_htable_static *,
+	int, gt_htable_hash_f);
 
 void gt_htable_static_free(struct gt_htable_static *t);
 
-struct gt_list_head *gt_htable_static_bucket(struct gt_htable_static *t,
-	uint32_t h);
+struct dllist *gt_htable_static_bucket(struct gt_htable_static *, uint32_t);
 
-void gt_htable_static_add(struct gt_htable_static *t,
-	struct gt_list_head *elem);
+void gt_htable_static_add(struct gt_htable_static *, struct dllist *);
 
-void gt_htable_static_del(struct gt_htable_static *t,
-	struct gt_list_head *elem);
+void gt_htable_static_del(struct gt_htable_static *, struct dllist *);
 
-int gt_htable_dynamic_create(struct gt_log *log, struct gt_htable_dynamic *t,
-	int size, gt_htable_hash_f hash_fn);
+int gt_htable_dynamic_create(struct gt_log *, struct gt_htable_dynamic *,
+	int, gt_htable_hash_f);
 
 void gt_htable_dynamic_free(struct gt_htable_dynamic *t);
 
-struct gt_list_head * gt_htable_dynamic_bucket(struct gt_htable_dynamic *t,
-	uint32_t h);
+struct dllist *gt_htable_dynamic_bucket(struct gt_htable_dynamic *t, uint32_t);
 
-void gt_htable_dynamic_add(struct gt_htable_dynamic *t,
-	struct gt_list_head *elem);
+void gt_htable_dynamic_add(struct gt_htable_dynamic *, struct dllist *);
 
-void gt_htable_dynamic_del(struct gt_htable_dynamic *t,
-	struct gt_list_head *elem);
+void gt_htable_dynamic_del(struct gt_htable_dynamic *, struct dllist *);
 
 #endif /* GBTCP_HTABLE_H */

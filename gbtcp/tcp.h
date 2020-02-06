@@ -28,6 +28,7 @@ struct gt_sockcb {
 
 struct gt_sock {
 	struct gt_file so_file;
+#define so_list so_file.fl_mbuf.mb_list
 	union {
 		uint64_t so_flags;
 		struct {
@@ -63,7 +64,7 @@ struct gt_sock {
 			u_int so_nagle_acked : 1;
 		};
 	};
-	struct gt_list_head so_bindl;
+	struct dllist so_bindl;
 	struct gt_sock_tuple so_tuple;
 	be32_t so_next_hop;
 	uint16_t so_lmss;
@@ -79,13 +80,13 @@ struct gt_sock {
 			uint16_t so_rwnd;
 			uint16_t so_rwnd_max;
 			uint16_t so_ip_id;
-			struct gt_list_head so_acceptl;
-			struct gt_list_head so_txl;
+			struct dllist so_acceptl;
+			struct dllist so_txl;
 		};
 		struct {
 			// Listen
-			struct gt_list_head so_incompleteq;
-			struct gt_list_head so_completeq;
+			struct dllist so_incompleteq;
+			struct dllist so_completeq;
 			int so_backlog;
 			int so_acceptq_len;
 		};
@@ -100,13 +101,13 @@ struct gt_sock {
 
 extern void (*gt_sock_no_opened_fn)();
 extern int gt_sock_nr_opened;
-extern struct gt_list_head gt_sock_binded[65536];
+extern struct dllist gt_sock_binded[65536];
 
 #define GT_SOCK_FOREACH_BINDED(so) \
 	for (int GT_UNIQV(i) = 0; \
 	     GT_UNIQV(i) < GT_ARRAY_SIZE(gt_sock_binded); \
 	     GT_UNIQV(i)++) \
-		GT_LIST_FOREACH(so, gt_sock_binded + GT_UNIQV(i), so_bindl)
+		DLLIST_FOREACH(so, gt_sock_binded + GT_UNIQV(i), so_bindl)
 
 int gt_tcp_mod_init();
 

@@ -25,12 +25,12 @@ struct gt_epoll {
 	struct gt_file ep_file;
 	int ep_fd;
 	struct gt_mbuf_pool *ep_pool;
-	struct gt_list_head ep_head;
+	struct dllist ep_head;
 };
 
 struct gt_epoll_entry {
 	struct gt_file_cb epe_cb;
-	struct gt_list_head epe_list;
+	struct dllist epe_list;
 	struct gt_epoll *epe_ep;
 	int epe_fd;
 	short epe_revents;
@@ -120,7 +120,7 @@ gt_epoll_create(int ep_fd)
 		gt_file_free(fp);
 		return rc;
 	}
-	gt_list_init(&ep->ep_head);
+	dllist_init(&ep->ep_head);
 	fd = gt_file_get_fd(fp);
 	gt_epoll_cnt++;
 	return fd;
@@ -367,7 +367,7 @@ gt_epoll_entry_get(struct gt_epoll *ep, struct gt_file *fp)
 	struct gt_mbuf *mbuf;
 	struct gt_epoll_entry *e;
 
-	GT_LIST_FOREACH(mbuf, &fp->fl_cbq, mb_list) {
+	DLLIST_FOREACH(mbuf, &fp->fl_cbq, mb_list) {
 		if (mbuf->mb_pool_id == ep->ep_pool->mbp_id) {
 			e = (struct gt_epoll_entry *)mbuf;
 			return e;
@@ -380,7 +380,7 @@ static void
 gt_epoll_entry_remove(struct gt_epoll_entry *e)
 {
 	GT_ASSERT(e->epe_revents);
-	GT_LIST_REMOVE(e, epe_list);
+	DLLIST_REMOVE(e, epe_list);
 	e->epe_revents = 0;
 }
 
@@ -465,7 +465,7 @@ gt_epoll_entry_cb(struct gt_file_cb *cb, int fd, short revents)
 		GT_ASSERT(revents);
 		if (e->epe_revents == 0) {
 			e->epe_flags |= GT_EPOLL_FLAG_ADDED;
-			GT_LIST_INSERT_HEAD(&e->epe_ep->ep_head, e, epe_list);
+			DLLIST_INSERT_HEAD(&e->epe_ep->ep_head, e, epe_list);
 		}
 		e->epe_revents |= revents;
 	}
@@ -476,7 +476,7 @@ gt_epoll_entry_set(struct gt_epoll_entry *e, struct gt_file *fp, short filter)
 {
 	if (e->epe_cb.fcb_filter != filter) {
 		if (e->epe_revents) {
-			GT_LIST_REMOVE(e, epe_list);
+			DLLIST_REMOVE(e, epe_list);
 			e->epe_revents = 0;
 		}	
 		gt_file_cb_set(fp, &e->epe_cb, filter, gt_epoll_entry_cb);
@@ -513,13 +513,13 @@ gt_epoll_get_events(struct gt_epoll *ep, gt_epoll_event_t *buf, int cnt)
 		return 0;
 	}
 	n = 0;
-	GT_LIST_FOREACH_SAFE(e, &ep->ep_head, epe_list, tmp) {
+	DLLIST_FOREACH_SAFE(e, &ep->ep_head, epe_list, tmp) {
 		GT_ASSERT(e->epe_revents);
 		if ((e->epe_flags & GT_EPOLL_FLAG_ENABLED) == 0) {
 			continue;
 		}
 		rc = gt_sock_get(e->epe_fd, &fp);
-		GT_UNUSED(rc);
+		UNUSED(rc);
 		GT_ASSERT(rc == 0);
 		GT_ASSERT(fp->fl_type == GT_FILE_SOCK);
 		if ((e->epe_flags & GT_EPOLL_FLAG_ADDED) == 0) {

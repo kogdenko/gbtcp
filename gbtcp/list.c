@@ -1,95 +1,96 @@
+/* GPL2 license */
 #include "list.h"
 
 void
-gt_list_init(struct  gt_list_head *head)
+dllist_init(struct  dllist *head)
 {
-	head->ls_next = head->ls_prev = head;
+	head->dls_next = head->dls_prev = head;
 }
 
 int
-gt_list_size(struct gt_list_head *head)
+dllist_size(struct dllist *head)
 {
 	int size;
-	struct gt_list_head *cur;
+	struct dllist *cur;
 
 	size = 0;
-	gt_list_foreach(cur, head) {
+	dllist_foreach(cur, head) {
 		size++;
 	}
 	return size;
 }
 
 int
-gt_list_empty(struct gt_list_head *head)
+dllist_isempty(struct dllist *head)
 {
-	return head->ls_next == head;
+	return head->dls_next == head;
 }
 
-struct gt_list_head *
-gt_list_first(struct gt_list_head *head)
+struct dllist *
+dllist_first(struct dllist *head)
 {
-	return head->ls_next;
+	return head->dls_next;
 }
 
-struct gt_list_head *
-gt_list_last(struct gt_list_head *head)
+struct dllist *
+dllist_last(struct dllist *head)
 {
-	return head->ls_prev;
-}
-
-void
-gt_list_insert_head(struct gt_list_head *head, struct gt_list_head *l)
-{
-	l->ls_next = head->ls_next;
-	l->ls_prev = head;
-	head->ls_next->ls_prev = l;
-	head->ls_next = l;
+	return head->dls_prev;
 }
 
 void
-gt_list_insert_tail(struct gt_list_head *head, struct gt_list_head *l)
+dllist_insert_head(struct dllist *head, struct dllist *l)
 {
-	l->ls_next = head;
-	l->ls_prev = head->ls_prev;
-	head->ls_prev->ls_next = l;
-	head->ls_prev = l;
+	l->dls_next = head->dls_next;
+	l->dls_prev = head;
+	head->dls_next->dls_prev = l;
+	head->dls_next = l;
 }
 
 void
-gt_list_insert_before(struct gt_list_head *b, struct gt_list_head *l)
+dllist_insert_tail(struct dllist *head, struct dllist *l)
 {
-	l->ls_next = b;
-	l->ls_prev = b->ls_prev;
-	b->ls_prev = l;
+	l->dls_next = head;
+	l->dls_prev = head->dls_prev;
+	head->dls_prev->dls_next = l;
+	head->dls_prev = l;
 }
 
 void
-gt_list_insert_after(struct gt_list_head *a, struct gt_list_head *l)
+dllist_insert_before(struct dllist *b, struct dllist *l)
 {
-	l->ls_next = a->ls_next;
-	l->ls_prev = a;
-	a->ls_next = l;
+	l->dls_next = b;
+	l->dls_prev = b->dls_prev;
+	b->dls_prev = l;
 }
 
 void
-gt_list_remove(struct gt_list_head *list)
+dllist_insert_after(struct dllist *a, struct dllist *l)
 {
-	list->ls_next->ls_prev = list->ls_prev;
-	list->ls_prev->ls_next = list->ls_next;
+	l->dls_next = a->dls_next;
+	l->dls_prev = a;
+	a->dls_next = l;
 }
 
 void
-gt_list_replace(struct gt_list_head *old, struct gt_list_head *new)
+dllist_remove(struct dllist *list)
 {
-	new->ls_next = old->ls_next;
-	new->ls_next->ls_prev = new;
-	new->ls_prev = old->ls_prev;
-	new->ls_prev->ls_next = new;
+	list->dls_next->dls_prev = list->dls_prev;
+	list->dls_prev->dls_next = list->dls_next;
 }
 
 void
-gt_list_replace_init(struct gt_list_head *old, struct gt_list_head *new)
+dllist_replace(struct dllist *old, struct dllist *new)
 {
-	gt_list_replace(old, new);
-	gt_list_init(old);	
+	new->dls_next = old->dls_next;
+	new->dls_next->dls_prev = new;
+	new->dls_prev = old->dls_prev;
+	new->dls_prev->dls_next = new;
+}
+
+void
+dllist_replace_init(struct dllist *old, struct dllist *new)
+{
+	dllist_replace(old, new);
+	dllist_init(old);	
 }

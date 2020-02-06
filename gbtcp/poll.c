@@ -128,8 +128,8 @@ gt_poll(struct pollfd *pfds, int npfds, gt_time_t to, const sigset_t *sigmask)
 	struct gt_poll poll;
 	struct gt_fd_event_set set;
 
-	GT_UNUSED(b);
-	GT_UNUSED(a);
+	UNUSED(b);
+	UNUSED(a);
 	if (npfds > FD_SETSIZE) {
 		return -EINVAL;
 	}

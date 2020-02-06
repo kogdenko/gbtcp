@@ -2,11 +2,12 @@
 
 CC=${CC:-cc}
 PREFIX="/usr/local"
-CFLAGS="$CFLAGS -g -Wall -I. -std=gnu99 -pipe -finline-functions -pthread -fPIC"
+CFLAGS="$CFLAGS -g -Wall -Werror -I. -std=gnu99 -pipe"
+CFLAGS="$CFLAGS -finline-functions -pthread -fPIC"
 CFLAGS="$CFLAGS -D_LIBC_REENTRANT"
 CFLAGS="$CFLAGS -Wunused-variable"
 CFLAGS="$CFLAGS -fdiagnostics-color=never"
-LDFLAGS="$LDFLAGS -pthread -lm -rdynamic -L."
+LDFLAGS="$LDFLAGS -pthread -lm -L."
 
 SUBDIRS="test ./tools/so_echo"
 SRCS="`find ./gbtcp -maxdepth 1 -name '*.c'`"
@@ -87,7 +88,7 @@ LDFLAGS = $LDFLAGS
 	\$(CC) -c \$(CFLAGS) -o \$@ \$<
 
 ./bin/libgbtcp.so: $OBJS
-	\$(CC) -o ./bin/libgbtcp.so -shared \$(CFLAGS) $OBJS \$(LDFLAGS)
+	\$(CC) -rdynamic -o ./bin/libgbtcp.so -shared \$(CFLAGS) $OBJS \$(LDFLAGS)
 
 END
 
@@ -104,7 +105,7 @@ for x in $BINS; do
 	objs=`echo $srcs | sed 's/\.c/.o/g'`
 	cat << END >> Makefile
 ./bin/$x: $objs ./bin/libgbtcp.so
-	\$(CC) -o ./bin/$x -L./bin $objs \$(LDFLAGS) -lgbtcp
+	\$(CC) -rdynamic -o ./bin/$x -L./bin $objs \$(LDFLAGS) -lgbtcp
 
 END
 done

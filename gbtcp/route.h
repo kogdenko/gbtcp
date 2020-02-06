@@ -14,24 +14,24 @@
 #define GT_ROUTE_IF_NAME_OS 1 // pipe1
 
 struct gt_route_if_addr {
-	struct gt_list_head ria_list;
+	struct dllist ria_list;
 	struct gt_ip_addr ria_addr;
 	int ria_ref_cnt;
 	uint16_t ria_cur_ephemeral_port;
 };
 
 struct gt_route_if {
-	struct gt_list_head rif_list;
+	struct dllist rif_list;
 	int rif_idx;
 	int rif_flags;
 	int rif_is_pipe;
 	int rif_mtu;
 	int rif_nr_addrs;
 	int rif_name_len[2];
-	struct gt_list_head rif_txq;
+	struct dllist rif_txq;
 	struct gt_route_if_addr **rif_addrs;
 	struct gt_eth_addr rif_hwaddr;
-	struct gt_list_head rif_routes;
+	struct dllist rif_routes;
 	struct gt_dev rif_dev;
 	uint64_t rif_cnt_rx_pkts;
 	uint64_t rif_cnt_rx_bytes;
@@ -94,7 +94,7 @@ struct gt_route_msg {
 
 typedef void (*gt_route_msg_f)(struct gt_route_msg *msg);
 
-extern struct gt_list_head gt_route_if_head;
+extern struct dllist gt_route_if_head;
 extern int gt_route_rss_q_id;
 extern int gt_route_rss_q_cnt;
 extern int gt_route_port_pairity;
@@ -107,10 +107,10 @@ extern void (*gt_route_if_tx_fn)(struct gt_route_if *ifp,
 	struct gt_dev_pkt *pkt);
 
 #define GT_ROUTE_IF_FOREACH(ifp) \
-	GT_LIST_FOREACH(ifp, &gt_route_if_head, rif_list)
+	DLLIST_FOREACH(ifp, &gt_route_if_head, rif_list)
 
 #define GT_ROUTE_IF_FOREACH_SAFE(ifp, tmp) \
-	GT_LIST_FOREACH_SAFE(ifp, &gt_route_if_head, rif_list, tmp)
+	DLLIST_FOREACH_SAFE(ifp, &gt_route_if_head, rif_list, tmp)
 
 int gt_route_mod_init();
 

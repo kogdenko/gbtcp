@@ -48,7 +48,7 @@
 #endif /* __linux__ */
 
 struct gt_service_sock {
-	struct gt_list_head ss_list;
+	struct dllist ss_list;
 	struct gt_sockcb ss_socb;
 };
 
@@ -115,7 +115,7 @@ static void gt_service_unsub_handler();
 
 static void gt_service_in_parent();
 
-static void gt_service_listen(struct gt_log *log, struct gt_list_head *head);
+static void gt_service_listen(struct gt_log *log, struct dllist *head);
 
 static void gt_service_in_child(struct gt_log *log);
 
@@ -296,7 +296,7 @@ gt_service_rxtx(struct gt_dev *dev, short revents)
 	struct netmap_slot *slot;
 	struct gt_route_if *ifp;
 
-	ifp = gt_container_of(dev, struct gt_route_if, rif_dev);
+	ifp = container_of(dev, struct gt_route_if, rif_dev);
 	GT_DEV_FOREACH_RXRING(rxr, dev) {
 		n = gt_dev_rxr_space(dev, rxr);
 		for (i = 0; i < n; ++i) {
@@ -748,13 +748,13 @@ gt_service_in_parent()
 }
 
 static void
-gt_service_listen(struct gt_log *log, struct gt_list_head *head)
+gt_service_listen(struct gt_log *log, struct dllist *head)
 {
 	int rc, fd, type;
 	struct sockaddr_in addr;
 	struct gt_service_sock *sso;
 
-	GT_LIST_FOREACH(sso, head, ss_list) {
+	DLLIST_FOREACH(sso, head, ss_list) {
 		type = SOCK_STREAM;
 		if (sso->ss_socb.socb_flags & O_NONBLOCK) {
 			type |= SOCK_NONBLOCK;
@@ -785,13 +785,13 @@ static void
 gt_service_in_child(struct gt_log *log)
 {
 	int rc;
-	struct gt_list_head so_head;
+	struct dllist so_head;
 	struct gt_sock *so;
 	struct gt_service_sock *sso;
 
 	log = GT_LOG_TRACE(log, in_child);
 	gt_service_epoch = 0;
-	gt_list_init(&so_head);
+	dllist_init(&so_head);
 	if (!gt_service_ctl_child_close_listen_socks) {
 		GT_SOCK_FOREACH_BINDED(so) {
 			if (so->so_state != GT_TCP_S_LISTEN) {
@@ -802,11 +802,13 @@ gt_service_in_child(struct gt_log *log)
 				break;
 			}
 			gt_sock_get_sockcb(so, &sso->ss_socb);
-			GT_LIST_INSERT_TAIL(&so_head, sso, ss_list);
+			DLLIST_INSERT_TAIL(&so_head, sso, ss_list);
 		}
 	}
-	// Free and zero stack to prevent waitpid --
-	// stop_polling do not wait polling if stack == NULL
+	/*
+	 * Free and zero stack to prevent calling `waitpid`.
+	 * `stop_polling` do not wait process if stack == NULL
+	 */
 	free(gt_service_polling_stack);
 	gt_service_polling_stack = NULL;
 	gt_service_clean(log);
@@ -815,9 +817,9 @@ gt_service_in_child(struct gt_log *log)
 	gt_ctl_read_file(log, NULL);
 	log = GT_LOG_TRACE1(in_child);
 	gt_service_listen(log, &so_head);
-	while (!gt_list_empty(&so_head)) {
-		sso = GT_LIST_FIRST(&so_head, struct gt_service_sock, ss_list);
-		GT_LIST_REMOVE(sso, ss_list);
+	while (!dllist_isempty(&so_head)) {
+		sso = DLLIST_FIRST(&so_head, struct gt_service_sock, ss_list);
+		DLLIST_REMOVE(sso, ss_list);
 		free(sso);
 	}
 }

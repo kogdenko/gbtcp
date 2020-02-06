@@ -93,8 +93,8 @@ struct gt_ctl_wait {
 };
 
 struct gt_ctl_node {
-	struct gt_list_head n_list;
-	struct gt_list_head n_children;
+	struct dllist n_list;
+	struct dllist n_children;
 	struct gt_ctl_node *n_parent;
 	union {
 		uint32_t n_flags;
@@ -1145,7 +1145,7 @@ gt_ctl_conn_req_timeout(struct gt_timer *timer)
 	struct gt_log *log;
 	struct gt_ctl_conn *cp;
 
-	cp = gt_container_of(timer, struct gt_ctl_conn, c_timer);
+	cp = container_of(timer, struct gt_ctl_conn, c_timer);
 	log = GT_LOG_TRACE(cp->c_log, req);
 	GT_LOGF(log, LOG_ERR, 0,
 	        "timedout; timer=%p, dt=%"PRIu64"us",
@@ -1474,10 +1474,10 @@ gt_ctl_node_init(struct gt_ctl_node *node, struct gt_ctl_node *parent,
 	node->n_name_len = name_len;
 	memcpy(node->n_name, name, name_len);
 	node->n_name[name_len] = '\0';
-	gt_list_init(&node->n_children);
+	dllist_init(&node->n_children);
 	node->n_parent = parent;
 	if (parent != NULL) {
-		GT_LIST_INSERT_TAIL(&parent->n_children, node, n_list);
+		DLLIST_INSERT_TAIL(&parent->n_children, node, n_list);
 	}
 }
 
@@ -1533,7 +1533,7 @@ gt_ctl_node_find_child(struct gt_ctl_node *node,
 {
 	struct gt_ctl_node *child;
 
-	GT_LIST_FOREACH(child, &node->n_children, n_list) {
+	DLLIST_FOREACH(child, &node->n_children, n_list) {
 		if (child->n_name_len == name_len &&
 		    !memcmp(child->n_name, name, name_len)) {
 			return child;
@@ -1605,7 +1605,7 @@ gt_ctl_node_del(struct gt_log *log, struct gt_ctl_node *node)
 	GT_LOGF(log, LOG_INFO, 0, "hit; node='%s'",
 	        gt_ctl_log_add_node_path(node));
 	gt_ctl_node_del_children(log, node);
-	GT_LIST_REMOVE(node, n_list);
+	DLLIST_REMOVE(node, n_list);
 	if (node->n_free_fn != NULL) {
 		(*node->n_free_fn)(node->n_udata);
 	}
@@ -1617,9 +1617,9 @@ gt_ctl_node_del_children(struct gt_log *log, struct gt_ctl_node *node)
 {
 	struct gt_ctl_node *child;
 
-	while (!gt_list_empty(&node->n_children)) {
-		child = GT_LIST_FIRST(&node->n_children,
-		                      struct gt_ctl_node, n_list);
+	while (!dllist_isempty(&node->n_children)) {
+		child = DLLIST_FIRST(&node->n_children,
+		                     struct gt_ctl_node, n_list);
 		gt_ctl_node_del(log, child);
 	}
 }
@@ -1694,11 +1694,11 @@ gt_ctl_node_process_dir(struct gt_ctl_node *node,
 	int len;
 	struct gt_ctl_node *x, *first, *last;
 
-	if (gt_list_empty(&node->n_children)) {
+	if (dllist_isempty(&node->n_children)) {
 		return 0;
 	}
-	first = GT_LIST_FIRST(&node->n_children, struct gt_ctl_node, n_list);
-	last = GT_LIST_LAST(&node->n_children, struct gt_ctl_node, n_list);
+	first = DLLIST_FIRST(&node->n_children, struct gt_ctl_node, n_list);
+	last = DLLIST_LAST(&node->n_children, struct gt_ctl_node, n_list);
 	if (tail[0] == '\0') {
 		x = first;
 	} else {
@@ -1710,7 +1710,7 @@ gt_ctl_node_process_dir(struct gt_ctl_node *node,
 		if (x == NULL || x == last) {
 			return 0;
 		}
-		x = GT_LIST_NEXT(x, n_list);
+		x = DLLIST_NEXT(x, n_list);
 	}
 	gt_strbuf_addf(out, ",%s", x->n_name);
 	return 0;
@@ -1802,7 +1802,7 @@ gt_ctl_node_process_int(struct gt_log *log, void *udata,
 	old = 0;
 	data = udata;
 	log = GT_LOG_TRACE(log, process_int);
-	node = gt_container_of(data, struct gt_ctl_node, n_udata_buf.n_int_data);
+	node = container_of(data, struct gt_ctl_node, n_udata_buf.n_int_data);
 	if (new == NULL) {
 		switch (data->sid_int_sizeof) {
 		case 0:

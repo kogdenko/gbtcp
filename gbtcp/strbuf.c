@@ -39,7 +39,7 @@ gt_strbuf_cstr(struct gt_strbuf *sb)
 	if (sb->sb_cap == 0) {
 		return "";
 	} else {
-		sb->sb_buf[GT_MIN(sb->sb_len, sb->sb_cap - 1)] = '\0';
+		sb->sb_buf[MIN(sb->sb_len, sb->sb_cap - 1)] = '\0';
 		return sb->sb_buf;
 	}
 }
@@ -50,7 +50,7 @@ gt_strbuf_add(struct gt_strbuf *sb, const void *buf, int size)
 	int n;
 
 	if (sb->sb_cap > sb->sb_len) {
-		n = GT_MIN(size, sb->sb_cap - sb->sb_len);
+		n = MIN(size, sb->sb_cap - sb->sb_len);
 		memcpy(sb->sb_buf + sb->sb_len, buf, n);
 	}
 	sb->sb_len += size;

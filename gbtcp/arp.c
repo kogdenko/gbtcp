@@ -36,6 +36,7 @@ enum gt_arp_state {
 
 struct gt_arp_entry {
 	struct gt_mbuf ae_mbuf;
+#define ae_list ae_mbuf.mb_list
 	be32_t ae_next_hop;
 	short ae_state;
 	short ae_admin;
@@ -392,7 +393,7 @@ gt_arp_entry_alloc(struct gt_log *log, struct gt_arp_entry **ep,
 	e->ae_admin = 0;
 	gt_timer_init(&e->ae_timer);
 	e->ae_next_hop = next_hop;
-	gt_htable_add(&gt_arp_htable, (struct gt_list_head *)e);
+	gt_htable_add(&gt_arp_htable, (struct dllist *)e);
 	return 0;
 }
 
@@ -400,7 +401,7 @@ static void
 gt_arp_entry_del(struct gt_log *log,struct gt_arp_entry *e)
 {
 	log = GT_LOG_TRACE(log, del);
-	gt_htable_del(&gt_arp_htable, (struct gt_list_head *)e);
+	gt_htable_del(&gt_arp_htable, (struct dllist *)e);
 	gt_timer_del(&e->ae_timer);
 	gt_arp_set_state(log, e, GT_ARP_NONE);
 	gt_mbuf_free(&e->ae_incq->pkt_mbuf);
@@ -413,12 +414,12 @@ static struct gt_arp_entry *
 gt_arp_entry_get(be32_t next_hop)
 {
 	uint32_t hash;
-	struct gt_list_head *bucket;
+	struct dllist *bucket;
 	struct gt_arp_entry *e;
 
 	hash = gt_custom_hash32(next_hop, 0);
 	bucket = gt_htable_bucket(&gt_arp_htable, hash);
-	GT_LIST_FOREACH(e, bucket, ae_mbuf.mb_list) {
+	DLLIST_FOREACH(e, bucket, ae_list) {
 		if (e->ae_next_hop == next_hop) {
 			return e;
 		}
@@ -439,7 +440,7 @@ gt_arp_probe_timeout(struct gt_timer *timer)
 	struct gt_arp_entry *e;
 
 	gt_arps.arps_timeouts++;
-	e = gt_container_of(timer, struct gt_arp_entry, ae_timer);
+	e = container_of(timer, struct gt_arp_entry, ae_timer);
 	if (!gt_arp_is_probeing(e->ae_state)) {
 		return;
 	}
@@ -469,14 +470,14 @@ gt_arp_resolve(struct gt_route_if *ifp, be32_t next_hop,
 {
 	int rc;
 	uint32_t hash;
-	struct gt_list_head *bucket;
+	struct dllist *bucket;
 	struct gt_log *log;
 	struct gt_arp_entry *e, *tmp;
 
 	log = GT_LOG_TRACE1(resolve);
 	hash = gt_custom_hash32(next_hop, 0);
 	bucket = gt_htable_bucket(&gt_arp_htable, hash);
-	GT_LIST_FOREACH_SAFE(e, bucket, ae_mbuf.mb_list, tmp) {
+	DLLIST_FOREACH_SAFE(e, bucket, ae_list, tmp) {
 		if (gt_arp_entry_is_reachable_timeouted(e)) {
 			gt_arp_set_state(log, e, GT_ARP_STALE);
 		}

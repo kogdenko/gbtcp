@@ -26,7 +26,7 @@
 
 struct gt_route_entry_long {
 	struct lprule rtl_rule;
-	struct gt_list_head rtl_list;
+	struct dllist rtl_list;
 	int rtl_af;
 	struct gt_route_if *rtl_ifp;
 	struct gt_ip_addr rtl_via;
@@ -34,7 +34,7 @@ struct gt_route_entry_long {
 	struct gt_route_if_addr **rtl_saddrs;
 };
 
-struct gt_list_head gt_route_if_head;
+struct dllist gt_route_if_head;
 int gt_route_rss_q_id;
 int gt_route_rss_q_cnt;
 int gt_route_port_pairity;
@@ -50,7 +50,7 @@ static int gt_route_monitor_fd = -1;
 static struct lpnode gt_route_lptree;
 static struct gt_mbuf_pool *gt_route_pool;
 static struct gt_route_entry_long gt_route_default;
-static struct gt_list_head gt_route_addr_head;
+static struct dllist gt_route_addr_head;
 static struct gt_log_scope this_log;
 GT_ROUTE_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
 
@@ -133,7 +133,7 @@ gt_route_foreach_set_saddrs(struct gt_log *log, struct gt_route_if *ifp)
 {
 	struct gt_route_entry_long *route;
 
-	GT_LIST_FOREACH(route, &ifp->rif_routes, rtl_list) {
+	DLLIST_FOREACH(route, &ifp->rif_routes, rtl_list) {
 		gt_route_set_saddrs(log, route);
 	}
 }
@@ -162,8 +162,8 @@ gt_route_if_add(struct gt_log *log, const char *if_name,
 	}
 	memset(ifp, 0, sizeof(*ifp));
 	ifp->rif_idx = -1;
-	gt_list_init(&ifp->rif_txq);
-	gt_list_init(&ifp->rif_routes);
+	dllist_init(&ifp->rif_txq);
+	dllist_init(&ifp->rif_routes);
 	ifp->rif_name_len[GT_ROUTE_IF_NAME_NETMAP] = if_name_len;
 	for (i = 0; i < if_name_len; ++i) {
 		if (strchr("{}", if_name[i]) != NULL) {
@@ -181,7 +181,7 @@ gt_route_if_add(struct gt_log *log, const char *if_name,
 			return rc;
 		}
 	}
-	GT_LIST_INSERT_HEAD(&gt_route_if_head, ifp, rif_list);
+	DLLIST_INSERT_HEAD(&gt_route_if_head, ifp, rif_list);
 	if (gt_route_monitor_fd != -1) {
 		// TODO: DELETE OLD ROUTES...
 		gt_route_dump(gt_route_on_msg);
@@ -201,16 +201,16 @@ gt_route_if_del(struct gt_log *log, struct gt_route_if *ifp)
 
 	rc = 0;
 	log = GT_LOG_TRACE(log, if_del);
-	GT_LIST_REMOVE(ifp, rif_list);
+	DLLIST_REMOVE(ifp, rif_list);
 	if (gt_route_if_set_link_status_fn != NULL) {
 		(*gt_route_if_set_link_status_fn)(log, ifp, 0);
 	}
 	GT_LOGF(log, LOG_INFO, 0, "ok; if='%s'", ifp->rif_name);
-	ifp->rif_list.ls_next = NULL;
-	while (!gt_list_empty(&ifp->rif_routes)) {
-		route = GT_LIST_FIRST(&ifp->rif_routes,
-		                      struct gt_route_entry_long,
-		                      rtl_list);
+	ifp->rif_list.dls_next = NULL;
+	while (!dllist_isempty(&ifp->rif_routes)) {
+		route = DLLIST_FIRST(&ifp->rif_routes,
+		                     struct gt_route_entry_long,
+		                     rtl_list);
 		if (route == &gt_route_default) {
 			pfx = 0;
 			dst = 0;
@@ -247,7 +247,7 @@ gt_route_if_addr_add(struct gt_log *log, struct gt_route_if_addr **ifap,
 		ifa->ria_ref_cnt = 0;
 		i = gt_rand32() % GT_NR_EPHEMERAL_PORTS;
 		ifa->ria_cur_ephemeral_port = GT_EPHEMERAL_PORT_MIN + i;
-		GT_LIST_INSERT_HEAD(&gt_route_addr_head, ifa, ria_list);
+		DLLIST_INSERT_HEAD(&gt_route_addr_head, ifa, ria_list);
 	}
 	for (i = 0; i < ifp->rif_nr_addrs; ++i) {
 		tmp = ifp->rif_addrs[i];
@@ -261,7 +261,7 @@ gt_route_if_addr_add(struct gt_log *log, struct gt_route_if_addr **ifap,
 	rc = gt_sys_realloc(log, (void **)&ifp->rif_addrs,
 	                    (ifp->rif_nr_addrs + 1) * sizeof(ifa));
 	if (rc) {
-		GT_LIST_REMOVE(ifa, ria_list);
+		DLLIST_REMOVE(ifa, ria_list);
 		free(ifa);
 		return rc;
 	}
@@ -294,7 +294,7 @@ gt_route_if_addr_del(struct gt_log *log, struct gt_route_if *ifp,
 				ifa->ria_ref_cnt--;
 				gt_route_foreach_set_saddrs(log, ifp);
 				if (ifa->ria_ref_cnt == 0) {
-					GT_LIST_REMOVE(ifa, ria_list);
+					DLLIST_REMOVE(ifa, ria_list);
 					free(ifa);
 				}
 				rc = 0;
@@ -400,8 +400,8 @@ gt_route_add(struct gt_log *log, struct gt_route_entry *a)
 		route->rtl_via = a->rt_via;
 		route->rtl_nr_saddrs = 0;
 		route->rtl_saddrs = NULL;
-		GT_LIST_INSERT_HEAD(&route->rtl_ifp->rif_routes,
-		                    route, rtl_list);
+		DLLIST_INSERT_HEAD(&route->rtl_ifp->rif_routes,
+		                   route, rtl_list);
 		gt_route_set_saddrs(log, route);
 	}
 	GT_LOGF(log, rc ? LOG_ERR : LOG_INFO, -rc,
@@ -440,7 +440,7 @@ gt_route_del(struct gt_log *log, be32_t dst, int pfx)
 		}
 	}
 	if (rc == 0) {
-		GT_LIST_REMOVE(route, rtl_list);
+		DLLIST_REMOVE(route, rtl_list);
 	}
 	GT_LOGF(log, rc ? LOG_ERR : LOG_INFO, -rc, "%s; dst=%s/%d",
 	        rc ? "failed" : "ok",
@@ -928,8 +928,8 @@ gt_route_mod_init()
 	GT_ROUTE_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
 	log = GT_LOG_TRACE1(mod_init);
 	gt_route_default.rtl_af = AF_UNSPEC;
-	gt_list_init(&gt_route_if_head);
-	gt_list_init(&gt_route_addr_head);
+	dllist_init(&gt_route_if_head);
+	dllist_init(&gt_route_addr_head);
 	rc = gt_mbuf_pool_new(log, &gt_route_pool,
 	                      sizeof(struct gt_route_entry_long));
 	if (rc) {
@@ -1006,15 +1006,15 @@ gt_route_mod_clean(struct gt_log *log)
 	log = GT_LOG_TRACE(log, mod_clean);
 	gt_route_monitor_stop(log);
 	gt_route_default.rtl_af = AF_UNSPEC;
-	while (!gt_list_empty(&gt_route_if_head)) {
-		ifp = GT_LIST_FIRST(&gt_route_if_head,
-		                    struct gt_route_if, rif_list);
+	while (!dllist_isempty(&gt_route_if_head)) {
+		ifp = DLLIST_FIRST(&gt_route_if_head,
+		                   struct gt_route_if, rif_list);
 		gt_route_if_del(log, ifp);
 	}
-	while (!gt_list_empty(&gt_route_addr_head)) {
-		ifa = GT_LIST_FIRST(&gt_route_addr_head,
-		                    struct gt_route_if_addr, ria_list);
-		GT_LIST_REMOVE(ifa, ria_list);
+	while (!dllist_isempty(&gt_route_addr_head)) {
+		ifa = DLLIST_FIRST(&gt_route_addr_head,
+		                   struct gt_route_if_addr, ria_list);
+		DLLIST_REMOVE(ifa, ria_list);
 		free(ifa);
 	}
 	// TODO: clean routes
@@ -1039,7 +1039,7 @@ gt_route_if_get_by_name(const char *if_name, int if_name_len, int if_name_type)
 {
 	struct gt_route_if *ifp;
 
-	GT_LIST_FOREACH(ifp, &gt_route_if_head, rif_list) {
+	DLLIST_FOREACH(ifp, &gt_route_if_head, rif_list) {
 		if (ifp->rif_name_len[if_name_type] == if_name_len &&
 		    !memcmp(ifp->rif_name, if_name, if_name_len)) {
 			return ifp;
@@ -1053,7 +1053,7 @@ gt_route_if_addr_get(int af, const struct gt_ip_addr *addr)
 {
 	struct gt_route_if_addr *ifa;
 
-	GT_LIST_FOREACH(ifa, &gt_route_addr_head, ria_list) {
+	DLLIST_FOREACH(ifa, &gt_route_addr_head, ria_list) {
 		if (!gt_ip_addr_cmp(af, &ifa->ria_addr, addr)) {
 			return ifa;
 		}

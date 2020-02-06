@@ -15,7 +15,7 @@
 	x(init) \
 	x(deinit) \
 
-static struct gt_list_head gt_dev_head;
+static struct dllist gt_dev_head;
 static struct gt_log_scope this_log;
 GT_DEV_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
 
@@ -28,7 +28,7 @@ gt_dev_mod_init()
 {
 	gt_log_scope_init(&this_log, "dev");
 	GT_DEV_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
-	gt_list_init(&gt_dev_head);
+	dllist_init(&gt_dev_head);
 	return 0;
 }
 
@@ -38,8 +38,8 @@ gt_dev_mod_deinit(struct gt_log *log)
 	struct gt_dev *dev;
 
 	log = GT_LOG_TRACE(log, mod_deinit);
-	while (!gt_list_empty(&gt_dev_head)) {
-		dev = GT_LIST_FIRST(&gt_dev_head, struct gt_dev, dev_list);
+	while (!dllist_isempty(&gt_dev_head)) {
+		dev = DLLIST_FIRST(&gt_dev_head, struct gt_dev, dev_list);
 		gt_dev_deinit(dev);
 	}
 	gt_log_scope_deinit(log, &this_log);
@@ -50,7 +50,7 @@ gt_dev_get(const char *if_name)
 {
 	struct gt_dev *dev;
 
-	GT_LIST_FOREACH(dev, &gt_dev_head, dev_list) {
+	DLLIST_FOREACH(dev, &gt_dev_head, dev_list) {
 		if (!strcmp(dev->dev_name + GT_NETMAP_PFX_LEN, if_name)) {
 			return dev;
 		}
@@ -139,7 +139,7 @@ gt_dev_init(struct gt_log *log, struct gt_dev *dev, const char *if_name,
 //	fd_event_init_sysctl(dev->event);
 	dev->dev_fn = dev_fn;
 	gt_dev_rx_on(dev);
-	GT_LIST_INSERT_HEAD(&gt_dev_head, dev, dev_list);
+	DLLIST_INSERT_HEAD(&gt_dev_head, dev, dev_list);
 	return 0;
 }
 
@@ -154,7 +154,7 @@ gt_dev_deinit(struct gt_dev *dev)
 		gt_fd_event_del(dev->dev_event);
 		dev->dev_event = NULL;
 		gt_dev_nm_close(log, dev);
-		GT_LIST_REMOVE(dev, dev_list);
+		DLLIST_REMOVE(dev, dev_list);
 	}
 }
 

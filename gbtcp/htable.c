@@ -41,14 +41,14 @@ gt_htable_static_create(struct gt_log *log, struct gt_htable_static *t,
 	t->hts_mask = size - 1;
 	t->hts_hash_fn = hash_fn;
 	rc = gt_sys_malloc(log, (void **)&t->hts_array,
-	                   size * sizeof(struct gt_list_head));
+	                   size * sizeof(struct dllist));
 	if (rc) {
 		return rc;
 	}
 	t->hts_size = size;
 	t->hts_mask = size - 1;
 	for (i = 0; i < size; ++i) {
-		gt_list_init(t->hts_array + i);
+		dllist_init(t->hts_array + i);
 	}
 	return 0;
 }
@@ -60,27 +60,27 @@ gt_htable_static_free(struct gt_htable_static *t)
 	t->hts_array = NULL;
 }
 
-struct gt_list_head *
+struct dllist *
 gt_htable_static_bucket(struct gt_htable_static *t, uint32_t h) 
 {
 	return t->hts_array + ((h) & (t)->hts_mask);
 }
 
 void
-gt_htable_static_add(struct gt_htable_static *t, struct gt_list_head *elem)
+gt_htable_static_add(struct gt_htable_static *t, struct dllist *elem)
 {
 	uint32_t h;
-	struct gt_list_head *bucket;
+	struct dllist *bucket;
 
 	h = (*t->hts_hash_fn)(elem);
 	bucket = gt_htable_static_bucket(t, h);
-	gt_list_insert_tail(bucket, elem);
+	dllist_insert_tail(bucket, elem);
 }
 
 void
-gt_htable_static_del(struct gt_htable_static *t, struct gt_list_head *elem)
+gt_htable_static_del(struct gt_htable_static *t, struct dllist *elem)
 {
-	gt_list_remove(elem);
+	dllist_remove(elem);
 }
 
 int
@@ -109,11 +109,11 @@ gt_htable_dynamic_free(struct gt_htable_dynamic *t)
 	}
 }
 
-struct gt_list_head *
+struct dllist *
 gt_htable_dynamic_bucket(struct gt_htable_dynamic *t, uint32_t h) 
 {
 	int i;
-	struct gt_list_head *bucket;
+	struct dllist *bucket;
 	struct gt_htable_static *ts;
 
 	if (t->htd_old == NULL) {
@@ -131,23 +131,23 @@ gt_htable_dynamic_bucket(struct gt_htable_dynamic *t, uint32_t h)
 }
 
 void
-gt_htable_dynamic_add(struct gt_htable_dynamic *t, struct gt_list_head *elem)
+gt_htable_dynamic_add(struct gt_htable_dynamic *t, struct dllist *elem)
 {
 	uint32_t h;
-	struct gt_list_head *bucket;
+	struct dllist *bucket;
 
 	h = (*t->htd_new->hts_hash_fn)(elem);
 	bucket = gt_htable_dynamic_bucket(t, h);
-	gt_list_insert_tail(bucket, elem);
+	dllist_insert_tail(bucket, elem);
 	t->htd_nr_elems++;
 	gt_htable_dynamic_resize(t);
 }
 
 void
-gt_htable_dynamic_del(struct gt_htable_dynamic *t, struct gt_list_head *elem)
+gt_htable_dynamic_del(struct gt_htable_dynamic *t, struct dllist *elem)
 {
 	GT_ASSERT(t->htd_nr_elems > 0);
-	gt_list_remove(elem);
+	dllist_remove(elem);
 	t->htd_nr_elems--;
 	gt_htable_dynamic_resize(t);
 }
@@ -170,7 +170,7 @@ static void
 gt_htable_dynamic_resize(struct gt_htable_dynamic *t)
 {
 	int rc, size, new_size;
-	struct gt_list_head *elem, *bucket;
+	struct dllist *elem, *bucket;
 	struct gt_log *log;
 	struct gt_htable_static *tmp;
 
@@ -208,9 +208,9 @@ gt_htable_dynamic_resize(struct gt_htable_dynamic *t)
 	} else {
 		GT_ASSERT(t->htd_old->hts_size > t->htd_resize_progress);
 		bucket = t->htd_old->hts_array + t->htd_resize_progress;
-		while (!gt_list_empty(bucket)) {
-			elem = gt_list_first(bucket);
-			gt_list_remove(elem);
+		while (!dllist_isempty(bucket)) {
+			elem = dllist_first(bucket);
+			dllist_remove(elem);
 			gt_htable_static_add(t->htd_new, elem);
 		}
 		t->htd_resize_progress++;

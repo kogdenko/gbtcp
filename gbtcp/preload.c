@@ -373,7 +373,7 @@ GT_PRELOAD_PSELECT(int n, fd_set *rfds, fd_set *wfds, fd_set *efds,
 	struct pollfd *pfd, pfds[FD_SETSIZE];
 
 	npfds = 0;
-	for (fd = 0; fd < GT_MIN(n, FD_SETSIZE); ++fd) {
+	for (fd = 0; fd < MIN(n, FD_SETSIZE); ++fd) {
 		pfd = pfds + npfds;
 		pfd->fd = -1;
 		pfd->events = 0;

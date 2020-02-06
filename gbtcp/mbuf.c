@@ -16,8 +16,8 @@
 	x(chunk_alloc) \
 
 struct gt_mbuf_chunk {
-	struct gt_list_head c_list;
-	struct gt_list_head c_freeq;
+	struct dllist c_list;
+	struct dllist c_freeq;
 	int c_freeq_size;
 	short c_id;
 };
@@ -90,8 +90,8 @@ gt_mbuf_pool_new(struct gt_log *log, struct gt_mbuf_pool **pp, int mbuf_size)
 	p->mbp_id = id;
 	p->mbp_mbuf_size = mbuf_size;
 	p->mbp_mbufs_per_chunk = GT_MBUF_CHUNK_DATA_SIZE / mbuf_size;
-	gt_list_init(&p->mbp_avail_chunkq);
-	gt_list_init(&p->mbp_empty_chunkq);
+	dllist_init(&p->mbp_avail_chunkq);
+	dllist_init(&p->mbp_empty_chunkq);
 	p->mbp_nr_chunks = GT_ARRAY_SIZE(p->mbp_chunks);
 	gt_mbuf_pools[p->mbp_id] = p;
 out:
@@ -107,11 +107,11 @@ gt_mbuf_pool_is_empty(struct gt_mbuf_pool *p)
 	int rc;
 	struct gt_mbuf_chunk *chunk;
 
-	rc = gt_list_empty(&p->mbp_empty_chunkq);
+	rc = dllist_isempty(&p->mbp_empty_chunkq);
 	if (rc == 0) {
 		return 0;
 	}
-	GT_LIST_FOREACH(chunk, &p->mbp_avail_chunkq, c_list) {
+	DLLIST_FOREACH(chunk, &p->mbp_avail_chunkq, c_list) {
 		rc = gt_mbuf_chunk_is_empty(p, chunk);
 		if (rc == 0) {
 			return 0;
@@ -125,11 +125,11 @@ gt_mbuf_pool_del(struct gt_mbuf_pool *p)
 {
 	struct gt_mbuf_chunk *chunk;
 
-	GT_ASSERT(gt_list_empty(&p->mbp_empty_chunkq));
-	while (!gt_list_empty(&p->mbp_avail_chunkq)) {
-		chunk = GT_LIST_FIRST(&p->mbp_avail_chunkq,
-		                      struct gt_mbuf_chunk,
-		                      c_list);
+	GT_ASSERT(dllist_isempty(&p->mbp_empty_chunkq));
+	while (!dllist_isempty(&p->mbp_avail_chunkq)) {
+		chunk = DLLIST_FIRST(&p->mbp_avail_chunkq,
+		                     struct gt_mbuf_chunk,
+		                     c_list);
 		gt_mbuf_chunk_free(p, chunk);
 	}
 	gt_mbuf_pools[p->mbp_id] = NULL;
@@ -144,7 +144,7 @@ gt_mbuf_alloc(struct gt_log *log, struct gt_mbuf_pool *p, struct gt_mbuf **mp)
 	struct gt_mbuf_chunk *chunk;
 
 	*mp = NULL;
-	if (gt_list_empty(&p->mbp_avail_chunkq)) {
+	if (dllist_isempty(&p->mbp_avail_chunkq)) {
 		log = GT_LOG_TRACE(log, alloc);
 		rc = gt_mbuf_chunk_alloc(log, p, &chunk);
 		if (rc) {
@@ -159,11 +159,11 @@ gt_mbuf_alloc(struct gt_log *log, struct gt_mbuf_pool *p, struct gt_mbuf **mp)
 		}
 		GT_ASSERT(i < GT_ARRAY_SIZE(p->mbp_chunks));
 	}
-	GT_ASSERT(!gt_list_empty(&p->mbp_avail_chunkq));
-	chunk = GT_LIST_FIRST(&p->mbp_avail_chunkq,
+	GT_ASSERT(!dllist_isempty(&p->mbp_avail_chunkq));
+	chunk = DLLIST_FIRST(&p->mbp_avail_chunkq,
 	                      struct gt_mbuf_chunk, c_list);
 	GT_ASSERT(chunk->c_freeq_size);
-	m = GT_LIST_FIRST(&chunk->c_freeq, struct gt_mbuf, mb_list);
+	m = DLLIST_FIRST(&chunk->c_freeq, struct gt_mbuf, mb_list);
 	gt_mbuf_chunk_pop_freeq(p, chunk, m);
 	*mp = m;
 	return 0;
@@ -228,11 +228,11 @@ gt_mbuf_free(struct gt_mbuf *m)
 	p = gt_mbuf_pools[m->mb_pool_id];
 	m->mb_used = 0;
 	chunk = gt_mbuf_get_chunk(m);
-	GT_LIST_INSERT_HEAD(&chunk->c_freeq, m, mb_list);
+	DLLIST_INSERT_HEAD(&chunk->c_freeq, m, mb_list);
 	GT_ASSERT(chunk->c_freeq_size < p->mbp_mbufs_per_chunk);
 	if (chunk->c_freeq_size == 0) {
-		GT_LIST_REMOVE(chunk, c_list);
-		GT_LIST_INSERT_TAIL(&p->mbp_avail_chunkq, chunk, c_list);
+		DLLIST_REMOVE(chunk, c_list);
+		DLLIST_INSERT_TAIL(&p->mbp_avail_chunkq, chunk, c_list);
 	}
 	chunk->c_freeq_size++;
 }
@@ -312,11 +312,11 @@ gt_mbuf_chunk_pop_freeq(struct gt_mbuf_pool *p, struct gt_mbuf_chunk *chunk,
 	struct gt_mbuf *m)
 {
 	GT_ASSERT(m->mb_used == 0);
-	GT_LIST_REMOVE(m, mb_list);
+	DLLIST_REMOVE(m, mb_list);
 	chunk->c_freeq_size--;
 	if (chunk->c_freeq_size == 0) {
-		GT_LIST_REMOVE(chunk, c_list);
-		GT_LIST_INSERT_HEAD(&p->mbp_empty_chunkq, chunk, c_list);
+		DLLIST_REMOVE(chunk, c_list);
+		DLLIST_INSERT_HEAD(&p->mbp_empty_chunkq, chunk, c_list);
 	}
 	m->mb_used = 1;
 }
@@ -341,16 +341,16 @@ gt_mbuf_chunk_alloc(struct gt_log *log, struct gt_mbuf_pool *p,
 	}
 	p->mbp_nr_chunks--;
 	chunk = *pchunk;
-	gt_list_init(&chunk->c_freeq);
+	dllist_init(&chunk->c_freeq);
 	chunk->c_freeq_size = p->mbp_mbufs_per_chunk;
 	for (i = 0; i < chunk->c_freeq_size; ++i) {
 		m = GT_MBUF_GET(p, chunk, i);
 		m->mb_magic = GT_MBUF_MAGIC;
 		m->mb_used = 0;
 		m->mb_pool_id = p->mbp_id;
-		GT_LIST_INSERT_TAIL(&chunk->c_freeq, m, mb_list);
+		DLLIST_INSERT_TAIL(&chunk->c_freeq, m, mb_list);
 	}
-	GT_LIST_INSERT_TAIL(&p->mbp_avail_chunkq, chunk, c_list);
+	DLLIST_INSERT_TAIL(&p->mbp_avail_chunkq, chunk, c_list);
 	return 0;
 }
 
@@ -363,6 +363,6 @@ gt_mbuf_chunk_is_empty(struct gt_mbuf_pool *p, struct gt_mbuf_chunk *chunk)
 static void
 gt_mbuf_chunk_free(struct gt_mbuf_pool *p, struct gt_mbuf_chunk *chunk)
 {
-	GT_LIST_REMOVE(chunk, c_list);
+	DLLIST_REMOVE(chunk, c_list);
 	free(chunk);
 }

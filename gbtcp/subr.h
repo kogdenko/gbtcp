@@ -129,13 +129,22 @@ struct gt_profiler {
 	uint64_t prf_spended;
 };
 
-#define gt_field_off(type, field) ((intptr_t)&((type *)0)->field)
-#define gt_container_of(ptr, type, field) \
-	((type *)((intptr_t)(ptr) - gt_field_off(type, field)))
+#ifndef field_off
+#define field_off(type, field) ((intptr_t)&((type *)0)->field)
+#endif /* field_off */
 
-#define GT_UNUSED(x) (void)(x)
+#ifndef container_of
+#define container_of(ptr, type, field) \
+	((type *)((intptr_t)(ptr) - field_off(type, field)))
+#endif /* container_of */
 
-#define GT_MIN(a, b) ((a) < (b) ? (a) : (b))
+#ifndef UNUSED
+#define UNUSED(x) (void)(x)
+#endif /* UNUSED */
+
+#ifndef MIN
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif /* MIN */
 
 #define GT_MAX(a, b) ((a) > (b) ? (a) : (b))
 

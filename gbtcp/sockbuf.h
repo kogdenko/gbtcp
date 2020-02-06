@@ -6,7 +6,7 @@
 struct gt_sockbuf {
 	int sob_max;
 	int sob_len;
-	struct gt_list_head sob_head;
+	struct dllist sob_head;
 };
 
 int gt_sockbuf_mod_init();

@@ -7,7 +7,7 @@
 #define GT_MBUF_CHUNKS_MAX 2048
 
 struct gt_mbuf {
-	struct gt_list_head mb_list;
+	struct dllist mb_list;
 	union {
 		uint32_t mb_flags;
 		struct {
@@ -22,8 +22,8 @@ struct gt_mbuf_pool {
 	int mbp_mbuf_size;
 	int mbp_mbufs_per_chunk;
 	uint8_t mbp_id;
-	struct gt_list_head mbp_avail_chunkq;
-	struct gt_list_head mbp_empty_chunkq;
+	struct dllist mbp_avail_chunkq;
+	struct dllist mbp_empty_chunkq;
 	struct gt_mbuf_chunk *mbp_chunks[GT_MBUF_CHUNKS_MAX];
 	int mbp_nr_chunks;
 };

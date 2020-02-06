@@ -12,15 +12,15 @@
 	x(open) \
 	x(node_init) \
 
-int gt_log_stdout;
-int gt_log_debug;
+int log_stdout;
+int log_debug;
 
-static char gt_log_buf[LOG_BUFSIZ];
+static char logbuf[LOG_BUFSIZ];
 static char gt_log_pattern[PATH_MAX];
 static int gt_log_tid;
 static int gt_log_pid_tid_width;
 static int gt_log_level;
-static int gt_log_fd = -1;
+static int log_fd = -1;
 static int gt_log_stdout_fd = -1;
 static struct gt_strbuf gt_log_sb;
 static struct gt_log_scope this_log;
@@ -31,14 +31,7 @@ static int gt_log_ctl_out(struct gt_log *log, void *udata,
 
 static int gt_log_expand_pattern(struct gt_strbuf *path, const char *pattern);
 
-static int gt_log_open_file(struct gt_log *log, const char *pattern,
-	int add_flags);
-
-static void gt_log_close_file(struct gt_log *log);
-
-static int gt_log_node_get_level(struct gt_log_node *node);
-
-static void gt_log_fill_hdr(struct gt_strbuf *sb);
+static void log_fillhdr(struct gt_strbuf *sb);
 
 static void gt_log_fill_pfx(struct gt_log *bottom, int level,
 	struct gt_strbuf *sb);
@@ -47,10 +40,56 @@ static void gt_log_fill_sfx(struct gt_strbuf *sb, int eno);
 
 static void gt_log_write(struct gt_strbuf *sb, int force);
 
-#define gt_log_dbg(...) \
-	if (gt_log_debug) { \
+#define ldbg(...) \
+	if (log_debug) { \
 		dbg(__VA_ARGS__); \
 	}
+
+static void
+log_fclose(struct gt_log *log)
+{
+	if (log_fd != -1) {
+		gt_sys_close(log, log_fd);
+		log_fd = -1;
+	}
+}
+
+/*
+ * Log filename pattern:
+ * %p - application pid
+ * %e - application process name
+ */
+static int
+log_fopen(struct gt_log *log, const char *pattern, int add_flags)
+{
+	int rc;
+	char path_buf[PATH_MAX];
+	struct gt_strbuf path;
+
+	log = GT_LOG_TRACE(log, open);
+	gt_strbuf_init(&path, path_buf, sizeof(path_buf));
+	rc = gt_log_expand_pattern(&path, pattern);
+	if (rc) {
+		return rc;
+	}
+	if (path.sb_buf[0] != '/') {
+		// relative path
+		gt_strbuf_insert(&path, 0, GT_STRSZ(GT_PREFIX"/log/"));
+	}
+	if (gt_strbuf_space(&path) == 0) {
+		return -ENAMETOOLONG;
+	}
+	rc = gt_sys_open(log, gt_strbuf_cstr(&path),
+	                 O_RDWR|O_CLOEXEC|O_CREAT|add_flags,
+	                 S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH);
+	if (rc < 0) {
+		return rc;
+	}
+	log_fclose(log);
+	gt_strzcpy(gt_log_pattern, pattern, sizeof(gt_log_pattern));
+	log_fd = rc;
+	return 0;
+}
 
 static int
 gt_log_ctl_out(struct gt_log *log, void *udata, const char *new,
@@ -58,7 +97,7 @@ gt_log_ctl_out(struct gt_log *log, void *udata, const char *new,
 {
 	int rc;
 
-	if (gt_log_fd == -1) {
+	if (log_fd == -1) {
 		gt_strbuf_add(out, GT_STRSZ("/dev/null"));
 	} else {
 		gt_strbuf_add_str(out, gt_log_pattern);
@@ -67,10 +106,10 @@ gt_log_ctl_out(struct gt_log *log, void *udata, const char *new,
 		return 0;
 	}
 	if (!strcmp(new, "/dev/null")) {
-		gt_log_close_file(log);
+		log_fclose(log);
 		return 0;
 	}
-	rc = gt_log_open_file(log, new, O_TRUNC);
+	rc = log_fopen(log, new, O_TRUNC);
 	return rc;
 }
 
@@ -106,49 +145,6 @@ gt_log_expand_pattern(struct gt_strbuf *path, const char *pattern)
 	return 0;
 }
 
-// log filename pattern:
-// %p - application pid
-// %e - application process name
-static int
-gt_log_open_file(struct gt_log *log, const char *pattern, int add_flags)
-{
-	int rc;
-	char path_buf[PATH_MAX];
-	struct gt_strbuf path;
-
-	log = GT_LOG_TRACE(log, open);
-	gt_strbuf_init(&path, path_buf, sizeof(path_buf));
-	rc = gt_log_expand_pattern(&path, pattern);
-	if (rc) {
-		return rc;
-	}
-	if (path.sb_buf[0] != '/') {
-		// relative path
-		gt_strbuf_insert(&path, 0, GT_STRSZ(GT_PREFIX"/log/"));
-	}
-	if (gt_strbuf_space(&path) == 0) {
-		return -ENAMETOOLONG;
-	}
-	rc = gt_sys_open(log, gt_strbuf_cstr(&path),
-	                 O_RDWR|O_CLOEXEC|O_CREAT|add_flags,
-	                 S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH);
-	if (rc < 0) {
-		return rc;
-	}
-	gt_log_close_file(log);
-	gt_strzcpy(gt_log_pattern, pattern, sizeof(gt_log_pattern));
-	gt_log_fd = rc;
-	return 0;
-}
-
-static void
-gt_log_close_file(struct gt_log *log)
-{
-	if (gt_log_fd != -1) {
-		gt_sys_close(log, gt_log_fd);
-		gt_log_fd = -1;
-	}
-}
 
 int
 gt_log_mod_init()
@@ -165,10 +161,10 @@ gt_log_mod_init()
 	gt_log_scope_init(&this_log, "log");
 	GT_LOG_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
 	gt_log_level = LOG_ERR;
-	gt_log_fd = -1;
+	log_fd = -1;
 	log = GT_LOG_TRACE1(mod_init);
 	gt_ctl_add_int(log, "log.stdout", GT_CTL_WR,
-	               &gt_log_stdout, 0, 1);
+	               &log_stdout, 0, 1);
 	gt_ctl_add_int(log, "log.level", GT_CTL_WR,
 	               &gt_log_level, LOG_EMERG, LOG_DEBUG);
 	gt_ctl_add(log, "log.out", GT_CTL_WR, NULL, NULL, gt_log_ctl_out);
@@ -187,9 +183,9 @@ gt_log_mod_deinit(struct gt_log *log)
 		gt_sys_close(log, gt_log_stdout_fd);
 		gt_log_stdout_fd = -1;
 	}
-	if (gt_log_fd != -1) {
-		gt_sys_close(log, gt_log_fd);
-		gt_log_fd = -1;
+	if (log_fd != -1) {
+		gt_sys_close(log, log_fd);
+		log_fd = -1;
 	}
 }
 
@@ -198,8 +194,8 @@ gt_log_scope_init_early(struct gt_log_scope *scope, const char *name)
 {
 	memset(scope, 0, sizeof(*scope));
 	scope->lgs_name = name;
-	scope->lgs_name_len = strlen(name);
-	GT_ASSERT(scope->lgs_name_len);
+	scope->lgs_namelen = strlen(name);
+	GT_ASSERT(scope->lgs_namelen);
 }
 
 void
@@ -268,36 +264,30 @@ gt_log_copy(struct gt_log *dst, int cnt, struct gt_log *bottom)
 	return dst;
 }
 
-static int
-gt_log_node_get_level(struct gt_log_node *node)
-{
-	int level;
-
-	if (node->lgn_level) {
-		level = node->lgn_level;
-	} else if (node->lgn_scope != NULL &&
-	           node->lgn_scope->lgs_level) {
-		level = node->lgn_scope->lgs_level;
-	} else {
-		level = gt_log_level;
-	}
-	return level;
-}
-
 int
-gt_log_is_enabled(struct gt_log *bottom, int level)
+log_isenabled(struct gt_log *bottom, int level)
 {
 	int thresh;
+	struct gt_log_node *node;
 
-	if (gt_log_fd == -1 && gt_log_stdout == 0) {
+	if (log_fd == -1 && log_stdout == 0) {
+		/* Nowhere to write logs */
 		return 0;
 	}
-	thresh = gt_log_node_get_level(bottom->lg_node);
+	node = bottom->lg_node;
+	if (node->lgn_level) {
+		thresh = node->lgn_level;
+	} else if (node->lgn_scope != NULL &&
+	           node->lgn_scope->lgs_level) {
+		thresh = node->lgn_scope->lgs_level;
+	} else {
+		thresh = gt_log_level;
+	}
 	return level <= thresh;
 }
 
 static void
-gt_log_fill_hdr(struct gt_strbuf *sb)
+log_fillhdr(struct gt_strbuf *sb)
 {
 	int pid, tid, len, width;
 	time_t t;
@@ -371,7 +361,7 @@ gt_log_fill_pfx(struct gt_log *bottom, int level, struct gt_strbuf *sb)
 		if (scope != node->lgn_scope) {
 			scope = node->lgn_scope;
 			GT_ASSERT(scope != NULL);
-			gt_strbuf_add(sb, scope->lgs_name, scope->lgs_name_len);
+			gt_strbuf_add(sb, scope->lgs_name, scope->lgs_namelen);
 			gt_strbuf_add(sb, GT_STRSZ("::"));
 		}
 		gt_strbuf_add(sb, node->lgn_name, node->lgn_namelen);
@@ -393,11 +383,11 @@ gt_log_write(struct gt_strbuf *sb, int force)
 {
 	int len;
 
-	len = GT_MIN(sb->sb_len, sb->sb_cap);
-	if (gt_log_fd != -1) {
-		gt_write_all(NULL, gt_log_fd, sb->sb_buf, len);
+	len = MIN(sb->sb_len, sb->sb_cap);
+	if (log_fd != -1) {
+		gt_write_all(NULL, log_fd, sb->sb_buf, len);
 	}
-	if ((gt_log_stdout || force) && gt_log_stdout_fd != -1) {
+	if ((log_stdout || force) && gt_log_stdout_fd != -1) {
 		gt_write_all(NULL, gt_log_stdout_fd, sb->sb_buf, len);
 	}
 }
@@ -410,7 +400,7 @@ gt_log_vprintf(struct gt_log *bottom, int level, int eno, const char *fmt,
 	struct gt_strbuf sb;
 
 	gt_strbuf_init(&sb, buf, sizeof(buf));
-	gt_log_fill_hdr(&sb);
+	log_fillhdr(&sb);
 	gt_log_fill_pfx(bottom, level, &sb);
 	gt_strbuf_vaddf(&sb, fmt, ap);
 	gt_log_fill_sfx(&sb, eno);
@@ -428,7 +418,7 @@ gt_log_printf(struct gt_log *bottom, int level, int eno, const char *fmt, ...)
 }
 
 void
-gt_log_backtrace(int depth_off)
+log_backtrace(int depth_off)
 {
 	char buf[LOG_BUFSIZ];
 	struct gt_strbuf sb;
@@ -477,9 +467,9 @@ gt_log_abort(const char *filename, int line, int eno, const char *expr,
 	va_list ap;
 	struct gt_strbuf sb;
 
-	gt_log_buf_init();
+	log_bufinit();
 	gt_strbuf_init(&sb, buf, sizeof(buf));
-	gt_log_fill_hdr(&sb);
+	log_fillhdr(&sb);
 	if (expr != NULL) {
 		gt_strbuf_addf(&sb, "assertion '%s' failed ", expr);
 	} else {
@@ -494,15 +484,15 @@ gt_log_abort(const char *filename, int line, int eno, const char *expr,
 	}
 	gt_log_fill_sfx(&sb, eno);
 	gt_log_write(&sb, 1);
-	gt_log_backtrace(1);
+	log_backtrace(1);
 	abort();
 }
 #endif /* NDEBUG */
 
 void
-gt_log_buf_init()
+log_bufinit()
 {
-	gt_strbuf_init(&gt_log_sb, gt_log_buf, sizeof(gt_log_buf));
+	gt_strbuf_init(&gt_log_sb, logbuf, sizeof(logbuf));
 }
 
 struct gt_strbuf *

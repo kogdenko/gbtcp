@@ -21,7 +21,7 @@ struct gt_file {
 			unsigned int fl_blocked : 1;
 		};
 	};
-	struct gt_list_head fl_cbq;
+	struct dllist fl_cbq;
 };
 
 typedef void (*gt_file_cb_f)(struct gt_file_cb *cb, int fd, short revents);

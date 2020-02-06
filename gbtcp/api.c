@@ -865,7 +865,7 @@ gbtcp_sigaction(int signum, const struct sigaction *act,
 	} else {
 		fn = act->sa_handler;
 	}
-	GT_UNUSED(fn);
+	UNUSED(fn);
 	GT_DBG(sigaction, 0, "hit; signum=%d, handler=%s",
 	       signum, gt_log_add_sighandler(fn));
 	rc = gt_signal_sigaction(signum, act, oldact);

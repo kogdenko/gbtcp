@@ -71,13 +71,13 @@ static int zero_copy;
 static int echo;
 static int sock_hash_size;
 static int sock_hash_mask;
-static struct gt_list_head txq;
+static struct dllist txq;
 static int nr_socks;
 static int nr_socks_max;
 static struct gt_mbuf_pool *sock_pool;
-static struct gt_list_head free_socks;
-static struct gt_list_head used_socks;
-static struct gt_list_head *sock_hash;
+static struct dllist free_socks;
+static struct dllist used_socks;
+static struct dllist *sock_hash;
 static unsigned long long cnt_not_an_UDP;
 static unsigned long long cnt_bad_cksum;
 
@@ -322,34 +322,34 @@ not_empty_txr(struct dev *dev)
 static void
 so_del(struct gt_sock *so)
 {
-	GT_LIST_REMOVE(so, so_file.fl_mbuf.mb_list);
-	GT_LIST_REMOVE(so, so_bindl);
+	DLLIST_REMOVE(so, so_list);
+	DLLIST_REMOVE(so, so_bindl);
 	if (Mflag) {
 		gt_mbuf_free(&so->so_file.fl_mbuf);
 	} else {
-		GT_LIST_INSERT_HEAD(&free_socks, so, so_bindl);
+		DLLIST_INSERT_HEAD(&free_socks, so, so_bindl);
 	}
 	nr_socks--;
 }
 
 static struct gt_sock *
-so_alloc(struct gt_list_head *bucket)
+so_alloc(struct dllist *bucket)
 {
 	struct gt_sock *so;
 
 	if (nr_socks == nr_socks_max) {
-		so = GT_LIST_LAST(&used_socks, struct gt_sock, so_bindl);
+		so = DLLIST_LAST(&used_socks, struct gt_sock, so_bindl);
 		so_del(so);
 	}
 	if (Mflag) {
 		gt_mbuf_alloc(NULL, sock_pool, (struct gt_mbuf **)&so);
 	} else {
-		assert(gt_list_empty(&free_socks));
-		so = GT_LIST_LAST(&free_socks, struct gt_sock, so_bindl);
-		GT_LIST_REMOVE(so, so_bindl);
+		assert(dllist_isempty(&free_socks));
+		so = DLLIST_LAST(&free_socks, struct gt_sock, so_bindl);
+		DLLIST_REMOVE(so, so_bindl);
 	}
-	GT_LIST_INSERT_HEAD(&used_socks, so, so_bindl);
-	GT_LIST_INSERT_HEAD(bucket, so, so_file.fl_mbuf.mb_list);
+	DLLIST_INSERT_HEAD(&used_socks, so, so_bindl);
+	DLLIST_INSERT_HEAD(bucket, so, so_list);
 	so->so_flags = 0;
 	so->so_ssnt = 0;
 	nr_socks++;
@@ -412,7 +412,7 @@ fwd(struct dev *src, struct dev *dst)
 	uint32_t tmp, hash;
 	struct netmap_slot *rx_slot, *tx_slot;
 	struct netmap_ring *rxr, *txr;
-	struct gt_list_head *bucket;
+	struct dllist *bucket;
 	struct gt_sock_tuple tuple;
 	struct gt_sock *so;
 	struct pdu pdu;
@@ -474,7 +474,7 @@ fwd(struct dev *src, struct dev *dst)
 				hash = gt_custom_hash(&tuple, sizeof(tuple), 0);
 				bucket = sock_hash + (hash & sock_hash_mask);
 				found = 0;
-				GT_LIST_FOREACH(so, bucket, so_file.fl_mbuf.mb_list) {
+				DLLIST_FOREACH(so, bucket, so_list) {
 					if (!memcmp(&so->so_tuple, &tuple, sizeof(tuple))) {
 						found = so_process(so);
 						break;
@@ -486,7 +486,7 @@ fwd(struct dev *src, struct dev *dst)
 				}
 				if (Tflag) {
 					if (so->so_ssnt == 0) {
-						GT_LIST_INSERT_HEAD(&txq, so, so_txl);
+						DLLIST_INSERT_HEAD(&txq, so, so_txl);
 					}
 					so->so_ssnt++;
 					so->so_lmss = pdu.len;
@@ -528,8 +528,8 @@ next:
 		}
 	}
 	if (Tflag) {
-		while (!gt_list_empty(&txq)) {
-			so = GT_LIST_FIRST(&txq, struct gt_sock, so_txl);
+		while (!dllist_isempty(&txq)) {
+			so = DLLIST_FIRST(&txq, struct gt_sock, so_txl);
 			assert(so->so_ssnt);
 			txr = not_empty_txr(dst);
 			if (txr == NULL) {
@@ -537,7 +537,7 @@ next:
 			}
 			so->so_ssnt--;
 			if (so->so_ssnt == 0) {
-				GT_LIST_REMOVE(so, so_txl);
+				DLLIST_REMOVE(so, so_txl);
 			}
 			tx_slot = txr->slot + txr->cur;
 			tx_slot->len = so_fill(so, NETMAP_BUF(txr, tx_slot->buf_idx), so->so_lmss);
@@ -582,7 +582,7 @@ main(int argc, char **argv)
 		fprintf(stderr, "Initialization failed\n");
 		return 1;
 	}
-	gt_list_init(&txq);
+	dllist_init(&txq);
 	burst_size = 512;
 	nr_devs = 0;
 	memset(devs, 0, sizeof(devs));
@@ -660,19 +660,18 @@ main(int argc, char **argv)
 		if (Mflag) {
 			gt_mbuf_pool_new(NULL, &sock_pool, sizeof(struct gt_sock));
 		} else {
-			gt_list_init(&free_socks);
+			dllist_init(&free_socks);
 			so_buf = malloc(nr_socks_max * sizeof(struct gt_sock));
 			for (i = 0; i < nr_socks_max; ++i) {
-				GT_LIST_INSERT_HEAD(&free_socks, so_buf + i, so_bindl);
+				DLLIST_INSERT_HEAD(&free_socks, so_buf + i, so_bindl);
 			}
 		}
-		gt_list_init(&used_socks);
+		dllist_init(&used_socks);
 		sock_hash_size = gt_upper_pow_of_2_32(nr_socks_max * 3 / 2);
-		sock_hash = malloc(sock_hash_size *
-		                   sizeof(struct gt_list_head));
+		sock_hash = malloc(sock_hash_size * sizeof(struct dllist));
 		sock_hash_mask = sock_hash_size - 1;
 		for (i = 0; i < sock_hash_size; ++i) {
-			gt_list_init(sock_hash + i);
+			dllist_init(sock_hash + i);
 		}
 	}
 	if (burst_size < 1 || burst_size > 4096) {

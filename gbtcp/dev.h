@@ -17,7 +17,7 @@ struct gt_dev {
 	int dev_tx_full;
 	uint64_t dev_cur_tx_ring_epoch;
 	gt_dev_f dev_fn;
-	struct gt_list_head dev_list;
+	struct dllist dev_list;
 	char dev_name[GT_IFNAMSIZ];
 };
 

@@ -36,7 +36,7 @@ gt_file_init(struct gt_file *fp, int type)
 	fp->fl_flags = 0;
 	fp->fl_type = type;
 	fp->fl_blocked = 1;
-	gt_list_init(&fp->fl_cbq);
+	dllist_init(&fp->fl_cbq);
 }
 
 static void
@@ -272,7 +272,7 @@ gt_file_wakeup(struct gt_file *fp, short events)
 	GT_ASSERT(events);
 	GT_DBG(wakeup, 0, "hit; fd=%d, events=%s",
 	       gt_file_get_fd(fp), gt_log_add_poll_events(events));
-	GT_LIST_FOREACH_SAFE(cb, &fp->fl_cbq, fcb_mbuf.mb_list, tmp) {
+	DLLIST_FOREACH_SAFE(cb, &fp->fl_cbq, fcb_mbuf.mb_list, tmp) {
 		GT_ASSERT(cb->fcb_filter);
 		revents = (events & cb->fcb_filter);
 		if (revents) {
@@ -291,7 +291,7 @@ gt_file_wait_cb(struct gt_file_cb *cb, int fd, short revents)
 {
 	struct gt_file_wait_data *data;
 
-	data = gt_container_of(cb, struct gt_file_wait_data, w_cb);
+	data = container_of(cb, struct gt_file_wait_data, w_cb);
 	data->w_revents = revents;
 }
 
@@ -359,12 +359,12 @@ gt_file_cb_set(struct gt_file *fp, struct gt_file_cb *cb,
 		cb->fcb_fn = gt_file_cb_stub;
 	}
 	if (cb->fcb_filter == 0) {
-		GT_LIST_INSERT_HEAD(&fp->fl_cbq, cb, fcb_mbuf.mb_list);
+		DLLIST_INSERT_HEAD(&fp->fl_cbq, cb, fcb_mbuf.mb_list);
 		action = "add";
 	} else {
 		action = "mod";
 	}
-	GT_UNUSED(action);
+	UNUSED(action);
 	GT_DBG(cb_set, 0, "%s; cb=%p, fd=%d, filter=%s",
 	       action, cb, fd, gt_log_add_poll_events(filter));
 	cb->fcb_filter |= filter;
@@ -383,7 +383,7 @@ gt_file_cb_cancel(struct gt_file_cb *cb)
 		       cb, cb->fcb_fd,
 		       gt_log_add_poll_events(cb->fcb_filter));
 		cb->fcb_filter = 0;
-		GT_LIST_REMOVE(cb, fcb_mbuf.mb_list);
+		DLLIST_REMOVE(cb, fcb_mbuf.mb_list);
 	}
 }
 

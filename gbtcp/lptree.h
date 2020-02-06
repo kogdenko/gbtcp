@@ -8,7 +8,7 @@
 
 struct lpnode {
 	struct gt_mbuf lpn_mbuf;
-	struct gt_list_head lpn_rules;
+	struct dllist lpn_rules;
 	struct lprule *lpn_hidden;
 	struct lpnode *lpn_parent;
 	void *lpn_children[256];

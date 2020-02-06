@@ -16,7 +16,7 @@ struct gt_timer_ring {
 	gt_time_t r_cell_shift;
 	gt_time_t r_cur;
 	int r_nr_timers;
-	struct gt_list_head r_cells[GT_TIMER_RING_SIZE];
+	struct dllist r_cells[GT_TIMER_RING_SIZE];
 };
 
 static int gt_timer_nr_rings;
@@ -31,14 +31,12 @@ static int gt_timer_mod_alloc_rings(struct gt_log *log);
 
 static void gt_timer_mod_free_rings();
 
-static void gt_timer_ring_init(struct gt_timer_ring *ring,
-	gt_time_t cell_size);
+static void gt_timer_ring_init(struct gt_timer_ring *, gt_time_t);
 
 #ifndef GT_TIMER_MOD_DISABLED
-static void gt_timer_mod_call(struct gt_list_head *queue);
+static void gt_timer_mod_call(struct dllist *);
 
-static void gt_timer_ring_check(struct gt_timer_ring *ring,
-	struct gt_list_head *queue);
+static void gt_timer_ring_check(struct gt_timer_ring *ring, struct dllist *);
 #endif /* GT_TIMER_MOD_DISABLED */
 
 static int
@@ -86,7 +84,7 @@ gt_timer_ring_init(struct gt_timer_ring *ring, gt_time_t cell_size)
 	}
 	ring->r_nr_timers = 0;
 	for (i = 0; i < GT_TIMER_RING_SIZE; ++i) {
-		gt_list_init(ring->r_cells + i);
+		dllist_init(ring->r_cells + i);
 	}
 }
 
@@ -145,14 +143,14 @@ gt_timer_mod_check()
 }
 #else /* GT_TIMER_MOD_DISABLED */
 static void
-gt_timer_mod_call(struct gt_list_head *queue)
+gt_timer_mod_call(struct dllist *queue)
 {
 	struct gt_timer *timer;
 	gt_timer_f fn;
 
-	while (!gt_list_empty(queue)) {
-		timer = GT_LIST_FIRST(queue, struct gt_timer, tm_list);
-		GT_LIST_REMOVE(timer, tm_list);
+	while (!dllist_isempty(queue)) {
+		timer = DLLIST_FIRST(queue, struct gt_timer, tm_list);
+		DLLIST_REMOVE(timer, tm_list);
 		fn = (gt_timer_f)(timer->tm_data & ~GT_TIMER_RING_ID_MASK);
 		timer->tm_data = 0;
 		(*fn)(timer);
@@ -163,14 +161,14 @@ void
 gt_timer_mod_check()
 {
 	int i;
-	struct gt_list_head queue;
+	struct dllist queue;
 	struct gt_timer_ring *ring;
 
 	if (gt_nsec - gt_timer_last_time < GT_TIMER_TIMEOUT) {
 		return;
 	}
 	gt_timer_last_time = gt_nsec;
-	gt_list_init(&queue);
+	dllist_init(&queue);
 	for (i = 0; i < gt_timer_nr_rings; ++i) {
 		ring = gt_timer_rings[i];
 		gt_timer_ring_check(ring, &queue);
@@ -196,7 +194,7 @@ gt_timer_timeout(struct gt_timer *timer)
 {
 	int ring_id;
 	gt_time_t e, b, dist;
-	struct gt_list_head *list;
+	struct dllist *list;
 	struct gt_timer_ring *ring;
 
 	if (!gt_timer_is_running(timer)) {
@@ -208,9 +206,9 @@ gt_timer_timeout(struct gt_timer *timer)
 		return 0;
 	}
 	ring = gt_timer_rings[ring_id];
-	for (list = timer->tm_list.ls_next;
-	     list != &timer->tm_list; // Never occured
-	     list = list->ls_next) {
+	for (list = timer->tm_list.dls_next;
+	     list != &timer->tm_list; /* Never occured */
+	     list = list->dls_next) {
 		e = list - ring->r_cells;
 		if (e < GT_TIMER_RING_SIZE) {
 			b = ring->r_cur & GT_TIMER_RING_MASK;
@@ -239,7 +237,7 @@ gt_timer_set(struct gt_timer *timer, gt_time_t expire, gt_timer_f fn)
 	uintptr_t uint_fn;
 	gt_time_t dist, pos;
 	struct gt_log *log;
-	struct gt_list_head *head;
+	struct dllist *head;
 	struct gt_timer_ring *ring;
 
 	uint_fn = (uintptr_t)fn;
@@ -270,7 +268,7 @@ gt_timer_set(struct gt_timer *timer, gt_time_t expire, gt_timer_f fn)
 	head = ring->r_cells + (pos & GT_TIMER_RING_MASK);
 	ring->r_nr_timers++;
 	timer->tm_data = uint_fn|ring_id;
-	GT_LIST_INSERT_HEAD(head, timer, tm_list);
+	DLLIST_INSERT_HEAD(head, timer, tm_list);
 	GT_DBG(set, 0,
 	       "ok; timer=%p, fn=%p, ring=%d, cur=%"PRIu64", head=%p, dist=%d",
 	       timer, fn, ring_id, ring->r_cur, head, (int)dist);
@@ -296,7 +294,7 @@ gt_timer_del(struct gt_timer *timer)
 		ring->r_nr_timers--;
 		GT_DBG(del, 0, "ok; timer=%p, ring=%d", timer, ring_id);
 		GT_ASSERT(ring->r_nr_timers >= 0);
-		GT_LIST_REMOVE(timer, tm_list);
+		DLLIST_REMOVE(timer, tm_list);
 		timer->tm_data = 0;
 	}
 }
@@ -304,12 +302,12 @@ gt_timer_del(struct gt_timer *timer)
 
 #ifndef GT_TIMER_MOD_DISABLED
 static void
-gt_timer_ring_check(struct gt_timer_ring *ring, struct gt_list_head *queue)
+gt_timer_ring_check(struct gt_timer_ring *ring, struct dllist *queue)
 {
 	int i;
 	gt_time_t pos;
 	struct gt_timer *timer;
-	struct gt_list_head *head;
+	struct dllist *head;
 
 	pos = ring->r_cur;
 	ring->r_cur = (gt_nsec >> ring->r_cell_shift);
@@ -319,12 +317,12 @@ gt_timer_ring_check(struct gt_timer_ring *ring, struct gt_list_head *queue)
 	}
 	for (i = 0; pos <= ring->r_cur && i < GT_TIMER_RING_SIZE; ++pos, ++i) {
 		head = ring->r_cells + (pos & GT_TIMER_RING_MASK);
-		while (!gt_list_empty(head)) {
+		while (!dllist_isempty(head)) {
 			ring->r_nr_timers--;
 			GT_ASSERT(ring->r_nr_timers >= 0);
-			timer = GT_LIST_FIRST(head, struct gt_timer, tm_list);
-			GT_LIST_REMOVE(timer, tm_list);
-			GT_LIST_INSERT_HEAD(queue, timer, tm_list);
+			timer = DLLIST_FIRST(head, struct gt_timer, tm_list);
+			DLLIST_REMOVE(timer, tm_list);
+			DLLIST_INSERT_HEAD(queue, timer, tm_list);
 		}
 		if (ring->r_nr_timers == 0) {
 			break;
