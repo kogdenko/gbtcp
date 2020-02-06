@@ -8,11 +8,11 @@
 	x(mod_deinit)
 
 struct gt_ip4_pseudo_hdr {
-	gt_be32_t ip4ph_saddr;
-	gt_be32_t ip4ph_daddr;
+	be32_t ip4ph_saddr;
+	be32_t ip4ph_daddr;
 	uint8_t ip4ph_pad;
 	uint8_t ip4ph_proto;
-	gt_be16_t ip4ph_len;
+	be16_t ip4ph_len;
 } __attribute__((packed));
 
 struct gt_inet_tcp_opt {
@@ -38,9 +38,9 @@ static int gt_inet_tx_cksum_offload = 0;
 static struct gt_log_scope this_log;
 GT_INET_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
 
-static uint8_t *gt_inet_fill_16(uint8_t *buf, gt_be16_t v);
+static uint8_t *gt_inet_fill_16(uint8_t *buf, be16_t v);
 
-static uint8_t * gt_inet_fill_32(uint8_t *buf, gt_be32_t v);
+static uint8_t * gt_inet_fill_32(uint8_t *buf, be32_t v);
 
 static uint64_t gt_inet_cksum_add(uint64_t sum, uint64_t x);
 
@@ -207,16 +207,16 @@ gt_tcp_opts_len(struct gt_tcp_opts *opts)
 
 // static
 static uint8_t *
-gt_inet_fill_16(uint8_t *buf, gt_be16_t v)
+gt_inet_fill_16(uint8_t *buf, be16_t v)
 {
-	*((gt_be16_t *)buf) = v;
+	*((be16_t *)buf) = v;
 	return buf + sizeof(v);
 }
 
 static uint8_t *
-gt_inet_fill_32(uint8_t *buf, gt_be32_t v)
+gt_inet_fill_32(uint8_t *buf, be32_t v)
 {
-	*((gt_be32_t *)buf) = v;
+	*((be32_t *)buf) = v;
 	return buf + sizeof(v);
 }
 
@@ -322,10 +322,10 @@ gt_inet_ip4_udp_calc_cksum(struct gt_ip4_hdr *ip4_h)
 	return sum;
 }
 
-//static gt_be16_t
+//static be16_t
 //gt_ip4_hdr_frag_off(uint16_t off, uint8_t flags)
 //{
-//	gt_be16_t x;
+//	be16_t x;
 //
 //	x = GT_HTON16(off);
 //	*((uint8_t *)(&x)) |= flags;
@@ -349,7 +349,7 @@ static int
 gt_inet_arp_in(struct gt_inet_context *ctx)
 {
 	int i, rc, is_req;
-	gt_be32_t sip, tip;
+	be32_t sip, tip;
 	struct gt_route_if_addr *ifa;
 	struct gt_arp_advert_msg advert_msg;
 
@@ -388,7 +388,7 @@ gt_inet_arp_in(struct gt_inet_context *ctx)
 		gt_arps.arps_badhlen++;
 		return GT_INET_DROP;
 	}
-	if (ctx->inp_arp_h->arph_plen != sizeof(gt_be32_t)) {
+	if (ctx->inp_arp_h->arph_plen != sizeof(be32_t)) {
 		gt_arps.arps_badplen++;
 		return GT_INET_DROP;
 	}
@@ -609,14 +609,14 @@ gt_inet_tcp_opts_in(struct gt_tcp_opts *opts, uint8_t *opts_buf, int opts_len)
 		}
 		switch (kind) {
 		case GT_TCP_OPT_MSS:
-			opts->tcpo_mss = GT_NTOH16(*((gt_be16_t *)data));
+			opts->tcpo_mss = GT_NTOH16(*((be16_t *)data));
 			break;
 		case GT_TCP_OPT_WSCALE:
 			opts->tcpo_wscale = *data;
 			break;
 		case GT_TCP_OPT_TIMESTAMPS:
-			val = GT_NTOH32(*((gt_be32_t *)data + 0));
-			ecr = GT_NTOH32(*((gt_be32_t *)data + 1));
+			val = GT_NTOH32(*((be32_t *)data + 0));
+			ecr = GT_NTOH32(*((be32_t *)data + 1));
 			opts->tcpo_ts.tcpots_val = val;
 			opts->tcpo_ts.tcpots_ecr = ecr;
 			break;

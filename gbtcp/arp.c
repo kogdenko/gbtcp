@@ -36,14 +36,14 @@ enum gt_arp_state {
 
 struct gt_arp_entry {
 	struct gt_mbuf ae_mbuf;
-	gt_be32_t ae_next_hop;
+	be32_t ae_next_hop;
 	short ae_state;
 	short ae_admin;
-	short ae_nr_probes;
+	short ae_nprobes;
 	gt_time_t ae_confirmed;
 	struct gt_timer ae_timer;
 	struct gt_eth_addr ae_addr;
-	struct gt_dev_pkt *ae_incompleteq;
+	struct gt_dev_pkt *ae_incq;
 };
 
 static struct gt_mbuf_pool *gt_arp_entry_pool;
@@ -77,12 +77,12 @@ static inline void
 gt_arp_set_eth_hdr(struct gt_arp_entry *e, struct gt_route_if *ifp,
 	uint8_t *data)
 {
-	struct gt_eth_hdr *eth_h;
+	struct gt_eth_hdr *eh;
 
-	eth_h = (struct gt_eth_hdr *)data;
-	eth_h->ethh_type = GT_ETH_TYPE_IP4_BE;
-	eth_h->ethh_saddr = ifp->rif_hwaddr;
-	eth_h->ethh_daddr = e->ae_addr;
+	eh = (struct gt_eth_hdr *)data;
+	eh->ethh_type = GT_ETH_TYPE_IP4_BE;
+	eh->ethh_saddr = ifp->rif_hwaddr;
+	eh->ethh_daddr = e->ae_addr;
 }
 
 static void
@@ -92,9 +92,9 @@ gt_arp_entry_add_incomplete(struct gt_log *log, struct gt_arp_entry *e,
 	int rc;
 	struct gt_dev_pkt *cp;
 
-	if (e->ae_incompleteq != NULL) {
-		cp = e->ae_incompleteq;
-		e->ae_incompleteq = NULL;
+	if (e->ae_incq != NULL) {
+		cp = e->ae_incq;
+		e->ae_incq = NULL;
 		gt_arps.arps_dropped++;
 	} else {
 		rc = gt_mbuf_alloc(log, gt_arp_pkt_pool,
@@ -108,21 +108,21 @@ gt_arp_entry_add_incomplete(struct gt_log *log, struct gt_arp_entry *e,
 		cp->pkt_len = pkt->pkt_len;
 		cp->pkt_data = (uint8_t *)cp + sizeof(*cp);
 		GT_PKT_COPY(cp->pkt_data, pkt->pkt_data, pkt->pkt_len);
-		e->ae_incompleteq = cp;
+		e->ae_incq = cp;
 	}
 }
 
 static void
-gt_arp_entry_tx_incompleteq(struct gt_arp_entry *e)
+arp_txincq(struct gt_arp_entry *e)
 {
 	int rc;
-	gt_be32_t next_hop;
+	be32_t next_hop;
 	struct gt_ip4_hdr *ip4_h;
 	struct gt_route_entry route;
 	struct gt_dev_pkt pkt, *x;
 
-	x = e->ae_incompleteq;
-	e->ae_incompleteq = NULL;
+	x = e->ae_incq;
+	e->ae_incq = NULL;
 	if (x == NULL) {
 		return;
 	}
@@ -152,37 +152,37 @@ drop:
 }
 
 static int
-gt_arp_fill_probe4(struct gt_eth_hdr *eth_h, gt_be32_t sip, gt_be32_t dip)
+gt_arp_fill_probe4(struct gt_eth_hdr *eh, be32_t sip, be32_t dip)
 {
 	struct gt_arp_hdr *arp_h;
 
-	arp_h = (struct gt_arp_hdr *)(eth_h + 1);
-	eth_h->ethh_type = GT_ETH_TYPE_ARP_BE;
-	memset(&eth_h->ethh_daddr, 0xff, sizeof(eth_h->ethh_daddr));
+	arp_h = (struct gt_arp_hdr *)(eh + 1);
+	eh->ethh_type = GT_ETH_TYPE_ARP_BE;
+	memset(&eh->ethh_daddr, 0xff, sizeof(eh->ethh_daddr));
 	arp_h->arph_hrd = GT_ARP_HRD_ETH_BE;
 	arp_h->arph_pro = GT_ETH_TYPE_IP4_BE;
 	arp_h->arph_hlen = GT_ETH_ADDR_LEN;
 	arp_h->arph_plen = 4;
 	arp_h->arph_op = GT_ARP_OP_REQUEST_BE;
-	arp_h->arph_data.arpip_sha = eth_h->ethh_saddr;
-	arp_h->arph_data.arpip_tha = eth_h->ethh_daddr;
+	arp_h->arph_data.arpip_sha = eh->ethh_saddr;
+	arp_h->arph_data.arpip_tha = eh->ethh_daddr;
 	arp_h->arph_data.arpip_tip = dip;
 	arp_h->arph_data.arpip_sip = sip;
-	return sizeof(*eth_h) + sizeof(*arp_h);
+	return sizeof(*eh) + sizeof(*arp_h);
 }
 
 static void
 gt_arp_tx_probe(struct gt_arp_entry *e)
 {
 	int rc, len;
-	struct gt_eth_hdr *eth_h;
+	struct gt_eth_hdr *eh;
 	struct gt_route_entry route;
 	struct gt_dev_pkt pkt;
 
 	if (gt_timer_is_running(&e->ae_timer)) {
 		return;
 	}
-	e->ae_nr_probes++;
+	e->ae_nprobes++;
 	gt_timer_set(&e->ae_timer, GT_ARP_RETRANS_TIMER, gt_arp_probe_timeout);
 	route.rt_dst.ipa_4 = e->ae_next_hop;
 	rc = gt_route_get(AF_INET, NULL, &route);
@@ -194,10 +194,10 @@ gt_arp_tx_probe(struct gt_arp_entry *e)
 		route.rt_ifp->rif_cnt_tx_drop++;
 		return;
 	}
-	eth_h = (struct gt_eth_hdr *)pkt.pkt_data;
-	eth_h->ethh_saddr = route.rt_ifp->rif_hwaddr;
+	eh = (struct gt_eth_hdr *)pkt.pkt_data;
+	eh->ethh_saddr = route.rt_ifp->rif_hwaddr;
 	if (AF_INET == AF_INET) {
-		len = gt_arp_fill_probe4(eth_h, route.rt_ifa->ria_addr.ipa_4,
+		len = gt_arp_fill_probe4(eh, route.rt_ifa->ria_addr.ipa_4,
 		                         e->ae_next_hop);
 	} else {
 		GT_BUG;
@@ -369,13 +369,13 @@ gt_arp_set_state(struct gt_log *log, struct gt_arp_entry *e, int state)
 	if (state == GT_ARP_REACHABLE) {
 		gt_timer_del(&e->ae_timer);
 		e->ae_confirmed = gt_nsec;
-		e->ae_nr_probes = 0;
+		e->ae_nprobes = 0;
 	}
 }
 
 static int
 gt_arp_entry_alloc(struct gt_log *log, struct gt_arp_entry **ep,
-	gt_be32_t next_hop)
+	be32_t next_hop)
 {
 	int rc;
 	struct gt_arp_entry *e;
@@ -386,8 +386,8 @@ gt_arp_entry_alloc(struct gt_log *log, struct gt_arp_entry **ep,
 		return rc;
 	}
 	e = *ep;
-	e->ae_nr_probes = 0;
-	e->ae_incompleteq = NULL;
+	e->ae_nprobes = 0;
+	e->ae_incq = NULL;
 	e->ae_state = 0;
 	e->ae_admin = 0;
 	gt_timer_init(&e->ae_timer);
@@ -403,14 +403,14 @@ gt_arp_entry_del(struct gt_log *log,struct gt_arp_entry *e)
 	gt_htable_del(&gt_arp_htable, (struct gt_list_head *)e);
 	gt_timer_del(&e->ae_timer);
 	gt_arp_set_state(log, e, GT_ARP_NONE);
-	gt_mbuf_free(&e->ae_incompleteq->pkt_mbuf);
+	gt_mbuf_free(&e->ae_incq->pkt_mbuf);
 	gt_mbuf_free(&e->ae_mbuf);
 }
 
 
 
 static struct gt_arp_entry *
-gt_arp_entry_get(gt_be32_t next_hop)
+gt_arp_entry_get(be32_t next_hop)
 {
 	uint32_t hash;
 	struct gt_list_head *bucket;
@@ -443,7 +443,7 @@ gt_arp_probe_timeout(struct gt_timer *timer)
 	if (!gt_arp_is_probeing(e->ae_state)) {
 		return;
 	}
-	if (e->ae_nr_probes >= GT_ARP_MAX_UNICAST_SOLICIT) {
+	if (e->ae_nprobes >= GT_ARP_MAX_UNICAST_SOLICIT) {
 		log = GT_LOG_TRACE1(probe_timeout);
 		gt_arp_entry_del(log, e);
 	} else {
@@ -464,7 +464,7 @@ gt_arp_entry_is_reachable_timeouted(struct gt_arp_entry *e)
 }
 
 void
-gt_arp_resolve(struct gt_route_if *ifp, gt_be32_t next_hop,
+gt_arp_resolve(struct gt_route_if *ifp, be32_t next_hop,
 	struct gt_dev_pkt *pkt)
 {
 	int rc;
@@ -489,7 +489,7 @@ gt_arp_resolve(struct gt_route_if *ifp, gt_be32_t next_hop,
 				gt_arp_entry_add_incomplete(log, e, pkt);
 				return;
 			}
-			GT_ASSERT(e->ae_incompleteq == NULL);
+			GT_ASSERT(e->ae_incq == NULL);
 			gt_arp_set_eth_hdr(e, ifp, pkt->pkt_data);
 			gt_route_if_tx(ifp, pkt);
 			if (e->ae_state == GT_ARP_STALE) {
@@ -542,7 +542,7 @@ gt_arp_update(struct gt_arp_advert_msg *msg)
 	if (msg->arpam_advert == 0) {
 		if (e->ae_state == GT_ARP_INCOMPLETE) {
 			e->ae_addr = msg->arpam_addr;
-			gt_arp_entry_tx_incompleteq(e);
+			arp_txincq(e);
 			same_addr = 0;
 		}
 		if (same_addr == 0) {
@@ -551,7 +551,7 @@ gt_arp_update(struct gt_arp_advert_msg *msg)
 		}
 	} else if (e->ae_state == GT_ARP_INCOMPLETE) {
 		e->ae_addr = msg->arpam_addr;
-		gt_arp_entry_tx_incompleteq(e);
+		arp_txincq(e);
 		if (msg->arpam_solicited) {
 			gt_arp_set_state(log, e, GT_ARP_REACHABLE);
 		} else {
@@ -581,7 +581,7 @@ gt_arp_update(struct gt_arp_advert_msg *msg)
 }
 
 int
-gt_arp_add(gt_be32_t next_hop, struct gt_eth_addr *addr)
+gt_arp_add(be32_t next_hop, struct gt_eth_addr *addr)
 {
 	int rc;
 	struct gt_log *log;
@@ -597,7 +597,7 @@ gt_arp_add(gt_be32_t next_hop, struct gt_eth_addr *addr)
 		e->ae_admin = 1;
 		e->ae_addr = *addr;
 		gt_arp_set_state(log, e, GT_ARP_REACHABLE);
-		gt_arp_entry_tx_incompleteq(e);
+		arp_txincq(e);
 	}
 	return rc;
 }
@@ -606,7 +606,7 @@ void
 gt_arp_reply(struct gt_route_if *ifp, struct gt_arp_hdr *in_arp_h)
 {
 	int rc;
-	struct gt_eth_hdr *eth_h;
+	struct gt_eth_hdr *eh;
 	struct gt_arp_hdr *arp_h;
 	struct gt_dev_pkt pkt;
 
@@ -616,16 +616,16 @@ gt_arp_reply(struct gt_route_if *ifp, struct gt_arp_hdr *in_arp_h)
 		gt_arps.arps_txrepliesdropped++;
 		return;
 	}
-	pkt.pkt_len = sizeof(*eth_h) + sizeof(*arp_h);
-	eth_h = (struct gt_eth_hdr *)pkt.pkt_data;
-	arp_h = (struct gt_arp_hdr *)(eth_h + 1);
-	eth_h->ethh_type = GT_ETH_TYPE_ARP_BE;
-	eth_h->ethh_saddr = ifp->rif_hwaddr;
-	eth_h->ethh_daddr = in_arp_h->arph_data.arpip_sha;
+	pkt.pkt_len = sizeof(*eh) + sizeof(*arp_h);
+	eh = (struct gt_eth_hdr *)pkt.pkt_data;
+	arp_h = (struct gt_arp_hdr *)(eh + 1);
+	eh->ethh_type = GT_ETH_TYPE_ARP_BE;
+	eh->ethh_saddr = ifp->rif_hwaddr;
+	eh->ethh_daddr = in_arp_h->arph_data.arpip_sha;
 	arp_h->arph_hrd = GT_ARP_HRD_ETH_BE;
 	arp_h->arph_pro = GT_ETH_TYPE_IP4_BE;
 	arp_h->arph_hlen = sizeof(struct gt_eth_addr);
-	arp_h->arph_plen = sizeof(gt_be32_t);
+	arp_h->arph_plen = sizeof(be32_t);
 	arp_h->arph_op = GT_ARP_OP_REPLY_BE;
 	arp_h->arph_data.arpip_sha = ifp->rif_hwaddr;
 	arp_h->arph_data.arpip_sip = in_arp_h->arph_data.arpip_tip;

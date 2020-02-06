@@ -17,10 +17,10 @@ struct gt_sockcb {
 	int socb_flags;
 	int socb_ipproto;
 	int socb_state;
-	gt_be32_t socb_laddr;
-	gt_be32_t socb_faddr;
-	gt_be16_t socb_lport;
-	gt_be16_t socb_fport;
+	be32_t socb_laddr;
+	be32_t socb_faddr;
+	be16_t socb_lport;
+	be16_t socb_fport;
 	int socb_acceptq_len;
 	int socb_incompleteq_len;
 	int socb_backlog;
@@ -65,7 +65,7 @@ struct gt_sock {
 	};
 	struct gt_list_head so_bindl;
 	struct gt_sock_tuple so_tuple;
-	gt_be32_t so_next_hop;
+	be32_t so_next_hop;
 	uint16_t so_lmss;
 	uint16_t so_rmss;
 	struct gt_timer so_timer;
@@ -148,7 +148,7 @@ int gt_sock_recvfrom(struct gt_file *fp, const struct iovec *iov, int iovcnt,
 	int flags, struct sockaddr *addr, socklen_t *addrlen);
 
 int gt_sock_sendto(struct gt_file *fp, const struct iovec *iov, int iovcnt,
-	int flags, gt_be32_t daddr, gt_be16_t dport);
+	int flags, be32_t daddr, be16_t dport);
 
 int gt_sock_ioctl(struct gt_file *fp, unsigned long request, uintptr_t arg);
 

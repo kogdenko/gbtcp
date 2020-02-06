@@ -15,7 +15,7 @@
 int gt_log_stdout;
 int gt_log_debug;
 
-static char gt_log_buf[GT_LOG_BUFSIZ];
+static char gt_log_buf[LOG_BUFSIZ];
 static char gt_log_pattern[PATH_MAX];
 static int gt_log_tid;
 static int gt_log_pid_tid_width;
@@ -236,7 +236,7 @@ gt_log_node_init(struct gt_log_node *node, struct gt_log_scope *scope,
 	memset(node, 0, sizeof(*node));
 	node->lgn_scope = scope;
 	node->lgn_name = name;
-	node->lgn_name_len = strlen(name);
+	node->lgn_namelen = strlen(name);
 	snprintf(path, sizeof(path), "log.scope.%s.node.%s.level",
 	         node->lgn_scope->lgs_name, name);
 	gt_ctl_add_int(log, path, GT_CTL_WR, &node->lgn_level,
@@ -374,7 +374,7 @@ gt_log_fill_pfx(struct gt_log *bottom, int level, struct gt_strbuf *sb)
 			gt_strbuf_add(sb, scope->lgs_name, scope->lgs_name_len);
 			gt_strbuf_add(sb, GT_STRSZ("::"));
 		}
-		gt_strbuf_add(sb, node->lgn_name, node->lgn_name_len);
+		gt_strbuf_add(sb, node->lgn_name, node->lgn_namelen);
 	}
 	gt_strbuf_add(sb, GT_STRSZ("] "));
 }
@@ -406,7 +406,7 @@ void
 gt_log_vprintf(struct gt_log *bottom, int level, int eno, const char *fmt,
 	va_list ap)
 {
-	char buf[GT_LOG_BUFSIZ];
+	char buf[LOG_BUFSIZ];
 	struct gt_strbuf sb;
 
 	gt_strbuf_init(&sb, buf, sizeof(buf));
@@ -430,7 +430,7 @@ gt_log_printf(struct gt_log *bottom, int level, int eno, const char *fmt, ...)
 void
 gt_log_backtrace(int depth_off)
 {
-	char buf[GT_LOG_BUFSIZ];
+	char buf[LOG_BUFSIZ];
 	struct gt_strbuf sb;
 
 	gt_strbuf_init(&sb, buf, sizeof(buf));
@@ -442,7 +442,7 @@ void
 gt_log_hexdump_ascii(uint8_t *data, int count)
 {
 	int i, j, k, x, ch;
-	char buf[GT_LOG_BUFSIZ];
+	char buf[LOG_BUFSIZ];
 	struct gt_strbuf sb;
 
 	gt_strbuf_init(&sb, buf, sizeof(buf));
@@ -473,7 +473,7 @@ void
 gt_log_abort(const char *filename, int line, int eno, const char *expr,
              const char *fmt, ...)
 {
-	char buf[GT_LOG_BUFSIZ];
+	char buf[LOG_BUFSIZ];
 	va_list ap;
 	struct gt_strbuf sb;
 

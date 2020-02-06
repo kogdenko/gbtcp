@@ -63,7 +63,7 @@ struct gt_ctl_conn {
 	struct gt_strbuf c_sndbuf;
 	gt_time_t c_req_time;
 	struct gt_log *c_log;
-	struct gt_log c_log_stack[GT_LOG_STACK_SIZE];
+	struct gt_log c_log_stack[LOG_STACKSIZ];
 	char c_req_path[PATH_MAX];
 	char c_rcvbuf_buf[GT_CTL_BUFSIZ];
 	char c_sndbuf_buf[GT_CTL_BUFSIZ];

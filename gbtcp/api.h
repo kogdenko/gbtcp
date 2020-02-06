@@ -26,7 +26,7 @@ ssize_t gt_api_recvfrom(int fd, const struct iovec *iov, int iovcnt,
 	int flags, struct sockaddr *addr, socklen_t *addrlen);
 
 int gt_api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
-	gt_be32_t faddr, gt_be16_t fport);
+	be32_t faddr, be16_t fport);
 
 int gt_api_fcntl(int fd, int cmd, uintptr_t arg);
 

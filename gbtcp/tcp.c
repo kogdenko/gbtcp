@@ -62,8 +62,8 @@ enum gt_sock_error {
 struct gt_sockbuf_msg {
 	uint16_t sobm_trunc;
 	uint16_t sobm_len;
-	gt_be16_t sobm_fport;
-	gt_be32_t sobm_faddr;
+	be16_t sobm_fport;
+	be32_t sobm_faddr;
 };
 
 int gt_sock_nr_opened;
@@ -88,7 +88,7 @@ static const char *gt_log_add_sock(struct gt_sock *so)
 int gt_calc_rss_q_id(struct gt_sock_tuple *so_tuple);
 
 static void gt_set_sockaddr(struct sockaddr *addr, socklen_t *addrlen,
-	gt_be32_t s_addr, gt_be16_t port);
+	be32_t s_addr, be16_t port);
 
 // tcp
 static uint32_t gt_tcp_diff_seq(uint32_t start, uint32_t end);
@@ -189,7 +189,7 @@ static int gt_udp_rcvbuf_recv(struct gt_sock *so, const struct iovec *iov,
 	int iovcnt, struct sockaddr *addr, socklen_t *addrlen, int peek);
 
 int gt_udp_sendto(struct gt_sock *so, const struct iovec *iov, int iovcnt,
-	int flags, gt_be32_t faddr, gt_be16_t fport);
+	int flags, be32_t faddr, be16_t fport);
 
 // sock
 static int gt_sock_err_from_errno(int eno);
@@ -613,8 +613,8 @@ gt_sock_connect(struct gt_file *fp, const struct sockaddr_in *faddr_in,
 int
 gt_sock_bind(struct gt_file *fp, const struct sockaddr_in *addr)
 {
-	gt_be32_t laddr;
-	gt_be16_t lport;
+	be32_t laddr;
+	be16_t lport;
 	struct gt_sock *so;
 
 	so = (struct gt_sock *)fp;
@@ -782,7 +782,7 @@ gt_sock_recvfrom(struct gt_file *fp, const struct iovec *iov, int iovcnt,
 
 int
 gt_sock_sendto(struct gt_file *fp, const struct iovec *iov, int iovcnt,
-	int flags, gt_be32_t daddr, gt_be16_t dport)
+	int flags, be32_t daddr, be16_t dport)
 {
 	int rc;
 	struct gt_sock *so;
@@ -980,7 +980,7 @@ gt_calc_rss_q_id(struct gt_sock_tuple *so_tuple)
 
 void
 gt_set_sockaddr(struct sockaddr *addr, socklen_t *addrlen,
-	gt_be32_t s_addr, gt_be16_t port)
+	be32_t s_addr, be16_t port)
 {
 	struct sockaddr_in *addr_in;
 
@@ -2063,7 +2063,7 @@ gt_udp_rcvbuf_recv(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 
 int
 gt_udp_sendto(struct gt_sock *so, const struct iovec *iov, int iovcnt,
-	int flags, gt_be32_t faddr, gt_be16_t fport)
+	int flags, be32_t faddr, be16_t fport)
 {
 #if 1
 	return 0;

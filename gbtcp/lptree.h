@@ -1,3 +1,4 @@
+/* GPL2 license */
 #ifndef GBTCP_LPTREE_H
 #define GBTCP_LPTREE_H
 
@@ -5,41 +6,41 @@
 #include "list.h"
 #include "mbuf.h"
 
-struct gt_lptree_node {
-	struct gt_mbuf n_mbuf;
-	struct gt_list_head n_rules;
-	struct gt_lptree_rule *n_hidden;
-	struct gt_lptree_node *n_parent;
-	void *n_children[256];
+struct lpnode {
+	struct gt_mbuf lpn_mbuf;
+	struct gt_list_head lpn_rules;
+	struct lprule *lpn_hidden;
+	struct lpnode *lpn_parent;
+	void *lpn_children[256];
 };
 
-struct gt_lptree_rule {
+struct lprule {
 	struct gt_mbuf lpr_mbuf;
-	struct gt_lptree_node *lpr_parent;
+#define lpr_list lpr_mbuf.mb_list
+
+	struct lpnode *lpr_parent;
 	uint32_t lpr_key;
 	uint8_t lpr_key_rem;
 	uint8_t lpr_depth;
 	uint8_t lpr_depth_rem;
 };
 
-int gt_lptree_mod_init();
+int lptree_mod_init();
+#define gt_lptree_mod_init lptree_mod_init
 
-void gt_lptree_mod_deinit(struct gt_log *log);
+void lptree_mod_deinit(struct gt_log *log);
+#define gt_lptree_mod_deinit lptree_mod_deinit
 
-int gt_lptree_init(struct gt_log *log, struct gt_lptree_node *root,
-	struct gt_mbuf_pool *rule_pool);
+int lptree_init(struct gt_log *, struct lpnode *);
 
-void gt_lptree_deinit(struct gt_lptree_node *root);
+void lptree_deinit(struct lpnode *);
 
-struct gt_lptree_rule *gt_lptree_search(struct gt_lptree_node *root,
-	uint32_t key);
+struct lprule *lptree_search(struct lpnode *, uint32_t);
 
-void gt_lptree_del(struct gt_lptree_rule *rule);
+void lptree_del(struct lprule *);
 
-struct gt_lptree_rule *gt_lptree_find(struct gt_lptree_node *root,
-	uint32_t key, int depth);
+struct lprule *lptree_get(struct lpnode *, uint32_t, int);
 
-int gt_lptree_add(struct gt_log *log, struct gt_lptree_node *root,
-	struct gt_lptree_rule *rule, uint32_t key, int depth);
+int lptree_set(struct gt_log *, struct lpnode *, struct lprule *, uint32_t, int);
 
 #endif /* GBTCP_LPTREE_H */

@@ -46,6 +46,7 @@ void gt_mbuf_pool_del(struct gt_mbuf_pool *p);
 
 int gt_mbuf_alloc(struct gt_log *log, struct gt_mbuf_pool *p,
 	struct gt_mbuf **mp);
+#define mballoc gt_mbuf_alloc
 
 int gt_mbuf_alloc4(struct gt_log *log, struct gt_mbuf_pool *p, uint32_t m_id,
 	struct gt_mbuf **mp);
@@ -53,6 +54,7 @@ int gt_mbuf_alloc4(struct gt_log *log, struct gt_mbuf_pool *p, uint32_t m_id,
 void gt_mbuf_init(struct gt_mbuf *m);
 
 void gt_mbuf_free(struct gt_mbuf *m);
+#define mbfree gt_mbuf_free
 
 struct gt_mbuf *gt_mbuf_get(struct gt_mbuf_pool *p, uint32_t m_id);
 

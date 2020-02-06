@@ -53,25 +53,25 @@
 struct gt_eth_hdr {
 	struct gt_eth_addr ethh_daddr;
 	struct gt_eth_addr ethh_saddr;
-	gt_be16_t ethh_type;
+	be16_t ethh_type;
 } __attribute__((packed));
 
 struct gt_ip4_hdr {
 	uint8_t ip4h_ver_ihl;
 	uint8_t ip4h_type_of_svc;
-	gt_be16_t ip4h_total_len;
-	gt_be16_t ip4h_id;
-	gt_be16_t ip4h_frag_off;
+	be16_t ip4h_total_len;
+	be16_t ip4h_id;
+	be16_t ip4h_frag_off;
 	uint8_t ip4h_ttl;
 	uint8_t ip4h_proto;
 	uint16_t ip4h_cksum;
-	gt_be32_t ip4h_saddr;
-	gt_be32_t ip4h_daddr;
+	be32_t ip4h_saddr;
+	be32_t ip4h_daddr;
 } __attribute__((packed));
 
 struct gt_ip6_hdr {
-	gt_be32_t ip6h_ver_tc_fl;
-	gt_be16_t ip6h_payload_len;
+	be32_t ip6h_ver_tc_fl;
+	be16_t ip6h_payload_len;
 	uint8_t ip6h_next_hdr;
 	uint8_t ip6h_hop_limit;
 	uint8_t ip6h_saddr[GT_IP6_ADDR_LEN];
@@ -79,22 +79,22 @@ struct gt_ip6_hdr {
 } __attribute__((packed));
 
 struct gt_udp_hdr {
-	gt_be16_t udph_sport;
-	gt_be16_t udph_dport;
-	gt_be16_t udph_len;
+	be16_t udph_sport;
+	be16_t udph_dport;
+	be16_t udph_len;
 	uint16_t udph_cksum;
 } __attribute__((packed));
 
 struct gt_tcp_hdr {
-	gt_be16_t tcph_sport;
-	gt_be16_t tcph_dport;
-	gt_be32_t tcph_seq;
-	gt_be32_t tcph_ack;
+	be16_t tcph_sport;
+	be16_t tcph_dport;
+	be32_t tcph_seq;
+	be32_t tcph_ack;
 	uint8_t tcph_data_off;
 	uint8_t tcph_flags;
-	gt_be16_t tcph_win_size;
+	be16_t tcph_win_size;
 	uint16_t tcph_cksum;
-	gt_be16_t tcph_urgent_ptr;
+	be16_t tcph_urgent_ptr;
 } __attribute__((packed));
 
 struct gt_icmp4_hdr {
@@ -104,16 +104,16 @@ struct gt_icmp4_hdr {
 	union {
 		uint32_t icmp4h_unused;
 		struct {
-			gt_be16_t icmp4echo_id;
-			gt_be16_t icmp4echo_seq;
+			be16_t icmp4echo_id;
+			be16_t icmp4echo_seq;
 		} icmp4h_echo;
 		struct {
 			uint8_t icmp4ppm_ptr;
 			uint8_t icmp4ppm_unused[3];
 		} icmp4h_ppm; // Parameter Problem Message
 		struct {
- 			gt_be16_t icmp4ptb_unused;
-			gt_be16_t icmp4ptb_mtu;
+ 			be16_t icmp4ptb_unused;
+			be16_t icmp4ptb_mtu;
 		} icmp4h_ptb; // Packet Too Big
 	};
 } __attribute__((packed));
@@ -143,17 +143,17 @@ struct icmp6_nd {
 
 struct gt_arp_ip4 {
 	struct gt_eth_addr arpip_sha;
-	gt_be32_t arpip_sip;
+	be32_t arpip_sip;
 	struct gt_eth_addr arpip_tha;
-	gt_be32_t arpip_tip;
+	be32_t arpip_tip;
 } __attribute__((packed));
 
 struct gt_arp_hdr {
-	gt_be16_t arph_hrd;
-	gt_be16_t arph_pro;
+	be16_t arph_hrd;
+	be16_t arph_pro;
 	uint8_t arph_hlen;
 	uint8_t arph_plen;
-	gt_be16_t arph_op;
+	be16_t arph_op;
 	struct gt_arp_ip4 arph_data;
 } __attribute__((packed));
 

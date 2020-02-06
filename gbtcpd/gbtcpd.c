@@ -454,7 +454,7 @@ gtd_service_start(struct gt_log *log)
 		if (rc) {
 			return;
 		}
-		while (gt_service_pid) {
+while (gt_service_pid) {
 			gt_fd_event_mod_check();
 		}
 	}

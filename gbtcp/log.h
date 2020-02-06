@@ -5,8 +5,8 @@
 #include "subr.h"
 #include "strbuf.h"
 
-#define GT_LOG_STACK_SIZE 16
-#define GT_LOG_BUFSIZ 16384
+#define LOG_STACKSIZ 16
+#define LOG_BUFSIZ 16384
 
 struct gt_log_scope {
 	const char *lgs_name;
@@ -17,7 +17,7 @@ struct gt_log_scope {
 struct gt_log_node {
 	struct gt_log_scope *lgn_scope;
 	const char *lgn_name;
-	int lgn_name_len;
+	int lgn_namelen;
 	int lgn_level;
 };
 

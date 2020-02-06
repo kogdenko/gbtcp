@@ -25,7 +25,7 @@
 
 
 struct gt_route_entry_long {
-	struct gt_lptree_rule rtl_rule;
+	struct lprule rtl_rule;
 	struct gt_list_head rtl_list;
 	int rtl_af;
 	struct gt_route_if *rtl_ifp;
@@ -47,7 +47,7 @@ void (*gt_route_if_tx_fn)(struct gt_route_if *ifp, struct gt_dev_pkt *pkt);
 
 static struct gt_fd_event *gt_route_monitor_event;
 static int gt_route_monitor_fd = -1;
-static struct gt_lptree_node gt_route_lptree;
+static struct lpnode gt_route_lptree;
 static struct gt_mbuf_pool *gt_route_pool;
 static struct gt_route_entry_long gt_route_default;
 static struct gt_list_head gt_route_addr_head;
@@ -76,7 +76,7 @@ static int gt_route_set_saddrs(struct gt_log *log,
 
 static int gt_route_add(struct gt_log *log, struct gt_route_entry *a);
 
-static int gt_route_del(struct gt_log *log, gt_be32_t dst, int pfx);
+static int gt_route_del(struct gt_log *log, be32_t dst, int pfx);
 
 static void gt_route_on_msg(struct gt_route_msg *msg);
 
@@ -196,7 +196,7 @@ gt_route_if_del(struct gt_log *log, struct gt_route_if *ifp)
 {
 	int rc, pfx;
 	uint32_t key;
-	gt_be32_t dst;
+	be32_t dst;
 	struct gt_route_entry_long *route;
 
 	rc = 0;
@@ -355,12 +355,12 @@ gt_route_alloc(struct gt_log *log, struct gt_route_entry_long **proute,
 	uint32_t key, uint8_t depth)
 {
 	int rc;
-	struct gt_lptree_rule *rule;
+	struct lprule *rule;
 
 	rc = gt_mbuf_alloc(log, gt_route_pool, (struct gt_mbuf **)proute);
 	if (rc == 0) {
-		rule = (struct gt_lptree_rule *)*proute;
-		rc = gt_lptree_add(log, &gt_route_lptree, rule, key, depth);
+		rule = (struct lprule *)*proute;
+		rc = lptree_set(log, &gt_route_lptree, rule, key, depth);
 		if (rc) {
 			gt_mbuf_free((struct gt_mbuf *)rule);
 		}
@@ -373,7 +373,7 @@ gt_route_add(struct gt_log *log, struct gt_route_entry *a)
 {
 	int rc;
 	uint32_t key;
-	struct gt_lptree_rule *rule;
+	struct lprule *rule;
 	struct gt_route_entry_long *route;
 
 	GT_ASSERT(a->rt_af == AF_INET);
@@ -386,7 +386,7 @@ gt_route_add(struct gt_log *log, struct gt_route_entry *a)
 		rc = 0;
 	} else {
 		key = GT_NTOH32(a->rt_dst.ipa_4);
-		rule = gt_lptree_find(&gt_route_lptree, key, a->rt_pfx);
+		rule = lptree_get(&gt_route_lptree, key, a->rt_pfx);
 		route = (struct gt_route_entry_long *)rule;
 		if (route != NULL) {
 			rc = -EEXIST;
@@ -415,10 +415,10 @@ gt_route_add(struct gt_log *log, struct gt_route_entry *a)
 }
 
 static int
-gt_route_del(struct gt_log *log, gt_be32_t dst, int pfx)
+gt_route_del(struct gt_log *log, be32_t dst, int pfx)
 {
 	int rc;
-	struct gt_lptree_rule *rule;
+	struct lprule *rule;
 	struct gt_route_entry_long *route;
 
 	log = GT_LOG_TRACE(log, del);	
@@ -429,12 +429,12 @@ gt_route_del(struct gt_log *log, gt_be32_t dst, int pfx)
 		route->rtl_af = AF_UNSPEC;
 		rc = 0;
 	} else {
-		rule = gt_lptree_find(&gt_route_lptree, GT_NTOH32(dst), pfx);
+		rule = lptree_get(&gt_route_lptree, GT_NTOH32(dst), pfx);
 		route = (struct gt_route_entry_long *)rule;
 		if (route != NULL) {
 			rc = 0;
 			free(route->rtl_saddrs);
-			gt_lptree_del(&route->rtl_rule);
+			lptree_del(&route->rtl_rule);
 		} else {
 			rc = -ESRCH;
 		}
@@ -800,7 +800,7 @@ gt_route_ctl_list(void *udata, int id, const char *new, struct gt_strbuf *out)
 {
 	int pfx;
 	uint32_t key;
-	gt_be32_t dst;
+	be32_t dst;
 	struct gt_route_entry_long *route;
 
 	if (id == 0) {
@@ -936,7 +936,7 @@ gt_route_mod_init()
 		gt_log_scope_deinit(log, &this_log);
 		return rc;
 	}
-	rc = gt_lptree_init(log, &gt_route_lptree, gt_route_pool);
+	rc = lptree_init(log, &gt_route_lptree);
 	if (rc) {
 		gt_mbuf_pool_del(gt_route_pool);
 		gt_log_scope_deinit(log, &this_log);
@@ -993,7 +993,7 @@ gt_route_mod_deinit(struct gt_log *log)
 	gt_ctl_del(log, GT_CTL_ROUTE_RSS_QUEUE_ID);
 	gt_ctl_del(log, GT_CTL_ROUTE_RSS_KEY);
 	gt_route_mod_clean(log);
-	gt_lptree_deinit(&gt_route_lptree);
+	lptree_deinit(&gt_route_lptree);
 	gt_log_scope_deinit(log, &this_log);
 }
 
@@ -1062,7 +1062,7 @@ gt_route_if_addr_get(int af, const struct gt_ip_addr *addr)
 }
 
 struct gt_route_if_addr *
-gt_route_if_addr_get4(gt_be32_t a4)
+gt_route_if_addr_get4(be32_t a4)
 {
 	struct gt_ip_addr a;
 	struct gt_route_if_addr *ifa;
@@ -1077,7 +1077,7 @@ gt_route_get(int af, struct gt_ip_addr *src, struct gt_route_entry *g)
 {
 	int i;
 	uint32_t key;
-	struct gt_lptree_rule *rule;
+	struct lprule *rule;
 	struct gt_route_entry_long *route;
 	struct gt_route_if_addr *ifa;
 
@@ -1087,7 +1087,7 @@ gt_route_get(int af, struct gt_ip_addr *src, struct gt_route_entry *g)
 		return -ENETUNREACH;
 	}
 	key = GT_NTOH32(g->rt_dst.ipa_4);
-	rule = gt_lptree_search(&gt_route_lptree, key);
+	rule = lptree_search(&gt_route_lptree, key);
 	route = (struct gt_route_entry_long *)rule;
 	if (route == NULL) {
 		if (gt_route_default.rtl_af == AF_INET) {
@@ -1118,7 +1118,7 @@ gt_route_get(int af, struct gt_ip_addr *src, struct gt_route_entry *g)
 }
 
 int
-gt_route_get4(gt_be32_t pref_src_ip4, struct gt_route_entry *route)
+gt_route_get4(be32_t pref_src_ip4, struct gt_route_entry *route)
 {
 	int rc;
 	struct gt_ip_addr src;

@@ -512,7 +512,7 @@ gbtcp_write(int fd, const void *buf, size_t count)
 
 int
 gt_api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
-	gt_be32_t faddr, gt_be16_t fport)
+	be32_t faddr, be16_t fport)
 {
 	int rc;
 	struct gt_file *fp;
@@ -1110,8 +1110,8 @@ gt_api_send_gen(int fd, struct iovec *iov, int iovlen, int flags,
 	const void *name, int namelen)
 {
 	int rc;
-	gt_be32_t faddr;
-	gt_be16_t fport;
+	be32_t faddr;
+	be16_t fport;
 	const struct sockaddr_in *addr_in;
 
 	if (namelen >= sizeof(*addr_in)) {

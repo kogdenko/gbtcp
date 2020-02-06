@@ -98,9 +98,9 @@
 #define GT_MSEC 1000000ull
 #define GT_NSEC_MAX ((unsigned long long)(-1))
 
-typedef uint16_t gt_be16_t;
-typedef uint32_t gt_be32_t;
-typedef uint64_t gt_be64_t;
+typedef uint16_t be16_t;
+typedef uint32_t be32_t;
+typedef uint64_t be64_t;
 typedef uint64_t gt_time_t;
 
 struct gt_log;
@@ -111,10 +111,10 @@ struct gt_eth_addr {
 } __attribute__((packed));
 
 struct gt_sock_tuple {
-	gt_be32_t sot_laddr;
-	gt_be32_t sot_faddr;
-	gt_be16_t sot_lport;
-	gt_be16_t sot_fport;
+	be32_t sot_laddr;
+	be32_t sot_faddr;
+	be16_t sot_lport;
+	be16_t sot_fport;
 };
 
 struct gt_spinlock {

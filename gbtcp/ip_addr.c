@@ -70,7 +70,7 @@ gt_ip_addr_pton(int af, struct gt_ip_addr *dst, const char *src)
 }
 
 int
-gt_ip_addr_aton(gt_be32_t *dst, const char *src)
+gt_ip_addr_aton(be32_t *dst, const char *src)
 {
 	int rc;
 	struct gt_ip_addr x;
@@ -84,19 +84,19 @@ gt_ip_addr_aton(gt_be32_t *dst, const char *src)
 }
 
 int
-gt_ip_addr4_is_loopback(gt_be32_t ip)
+gt_ip_addr4_is_loopback(be32_t ip)
 {
 	return (ip & GT_HTON32(0xff000000)) == GT_HTON32(0x7f000000);
 }
 
 int
-gt_ip_addr4_is_mcast(gt_be32_t ip)
+gt_ip_addr4_is_mcast(be32_t ip)
 {
 	return (ip & GT_HTON32(0xf0000000)) == GT_HTON32(0xe0000000);
 }
 
 int
-gt_ip_addr4_is_bcast(gt_be32_t ip)
+gt_ip_addr4_is_bcast(be32_t ip)
 {
 	return ip == 0xffffffff;
 }

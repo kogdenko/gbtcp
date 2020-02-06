@@ -126,12 +126,12 @@ struct gt_route_if *gt_route_if_get_by_name(const char *if_name,
 struct gt_route_if_addr *gt_route_if_addr_get(int af,
 	const struct gt_ip_addr *a);
 
-struct gt_route_if_addr *gt_route_if_addr_get4(gt_be32_t a4);
+struct gt_route_if_addr *gt_route_if_addr_get4(be32_t a4);
 
 int gt_route_get(int af, struct gt_ip_addr *pref_src,
 	struct gt_route_entry *route);
 
-int gt_route_get4(gt_be32_t pref_src, struct gt_route_entry *route);
+int gt_route_get4(be32_t pref_src, struct gt_route_entry *route);
 
 int gt_route_if_not_empty_txr(struct gt_route_if *ifp, struct gt_dev_pkt *pkt);
 
@@ -157,7 +157,7 @@ gt_route_get_next_hop(struct gt_route_entry *r)
 	}
 }
 
-static inline gt_be32_t
+static inline be32_t
 gt_route_get_next_hop4(struct gt_route_entry *r)
 {
 	if (r->rt_via.ipa_4) {
