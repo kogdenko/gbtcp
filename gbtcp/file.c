@@ -6,7 +6,7 @@
 #include "fd_event.h"
 #include "ctl.h"
 
-#define GT_FILE_LOG_NODE_FOREACH(x) \
+#define FILE_LOG_MSG_FOREACH(x) \
 	x(mod_init) \
 	x(mod_deinit) \
 	x(cb_call) \
@@ -17,10 +17,14 @@
 	x(cb_set) \
 	x(cb_cancel) \
 
+struct file_mod {
+	struct log_scope log_scope;
+	FILE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+};
+
 static int gt_file_first_fd;
 static struct gt_mbuf_pool *gt_file_pool;
-static struct gt_log_scope this_log;
-GT_FILE_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct file_mod *this_mod;
 
 static void gt_file_init(struct gt_file *fp, int type);
 
@@ -43,12 +47,14 @@ static void
 gt_file_cb_call(struct gt_file_cb *cb, short revents)
 {
 	int fd;
+	struct gt_log *log;
 	gt_file_cb_f fn;
 
 	fn = cb->fcb_fn;
 	fd = cb->fcb_fd;
-	GT_DBG(cb_call, 0, "hit; cb=%p, fd=%d, events=%s",
-	       cb, fd, gt_log_add_poll_events(revents));
+	log = log_trace0();
+	DBG(log, cb_call, 0, "hit; cb=%p, fd=%d, events=%s",
+	    cb, fd, log_add_poll_events(revents));
 	(*fn)(cb, fd, revents);
 }
 
@@ -58,9 +64,8 @@ gt_file_mod_init()
 	int rc;
 	struct gt_log *log;
 
-	gt_log_scope_init(&this_log, "file");
-	GT_FILE_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
-	log = GT_LOG_TRACE1(mod_init);
+	log_scope_init(&this_mod->log_scope, "file");
+	log = log_trace0();
 	gt_file_first_fd = FD_SETSIZE / 2;
 	gt_ctl_add_int(log, GT_CTL_FILE_FIRST_FD, GT_CTL_LD,
 	               &gt_file_first_fd, 3, 1024 * 1024);
@@ -74,12 +79,12 @@ gt_file_mod_init()
 void
 gt_file_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
+	LOG_TRACE(log);
 	gt_ctl_del(log, GT_CTL_FILE_FIRST_FD);
 	// TODO:
-	//GT_ASSERT(gt_mbuf_pool_is_empty(gt_file_pool));
+	//ASSERT(gt_mbuf_pool_is_empty(gt_file_pool));
 	gt_mbuf_pool_del(gt_file_pool);
-	gt_log_scope_deinit(log, &this_log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 int
@@ -114,14 +119,14 @@ gt_file_alloc(struct gt_log *log, struct gt_file **fpp, int type)
 	int rc;
 	struct gt_file *fp;
 
-	log = GT_LOG_TRACE(log, alloc);
+	LOG_TRACE(log);
 	rc = gt_mbuf_alloc(log, gt_file_pool, (struct gt_mbuf **)fpp);
 	if (rc == 0) {
 		fp = *fpp;
 		gt_file_init(fp, type);
-		GT_DBG(alloc, 0, "ok; fp=%p, fd=%d", fp, gt_file_get_fd(fp));
+		DBG(log, alloc, 0, "ok; fp=%p, fd=%d", fp, gt_file_get_fd(fp));
 	} else {
-		GT_DBG(alloc, -rc, "failed");
+		DBG(log, alloc, -rc, "failed");
 	}
 	return rc;
 }
@@ -133,7 +138,7 @@ gt_file_alloc4(struct gt_log *log, struct gt_file **fpp, int type, int fd)
 	uint32_t m_id;
 	struct gt_file *fp;
 
-	log = GT_LOG_TRACE(log, alloc);
+	LOG_TRACE(log);
 	if (fd < gt_file_first_fd) {
 		rc = -EBADF;
 	} else {
@@ -144,9 +149,9 @@ gt_file_alloc4(struct gt_log *log, struct gt_file **fpp, int type, int fd)
 	if (rc == 0) {
 		fp = *fpp;
 		gt_file_init(fp, type);
-		GT_DBG(alloc, 0, "ok; fp=%p, fd=%d", fp, gt_file_get_fd(fp));
+		DBG(log, alloc, 0, "ok; fp=%p, fd=%d", fp, gt_file_get_fd(fp));
 	} else {
-		GT_DBG(alloc, -rc, "failed");
+		DBG(log, alloc, -rc, "failed");
 	}
 	return rc;
 }
@@ -178,7 +183,10 @@ gt_file_get(int fd, struct gt_file **fpp)
 void
 gt_file_free(struct gt_file *fp)
 {
-	GT_DBG(free, 0, "hit; fp=%p, fd=%d", fp, gt_file_get_fd(fp));
+	struct gt_log *log;
+
+	log = log_trace0();
+	DBG(log, free, 0, "hit; fp=%p, fd=%d", fp, gt_file_get_fd(fp));
 	gt_mbuf_free(&fp->fl_mbuf);
 }
 
@@ -195,7 +203,7 @@ gt_file_close(struct gt_file *fp, int how)
 		gt_epoll_close(fp);
 		break;
 	default:
-		GT_BUG;
+		BUG;
 	}
 }
 
@@ -267,13 +275,15 @@ void
 gt_file_wakeup(struct gt_file *fp, short events)
 {
 	short revents;
+	struct gt_log *log;
 	struct gt_file_cb *cb, *tmp;
 
-	GT_ASSERT(events);
-	GT_DBG(wakeup, 0, "hit; fd=%d, events=%s",
-	       gt_file_get_fd(fp), gt_log_add_poll_events(events));
+	ASSERT(events);
+	log = log_trace0();
+	DBG(log, wakeup, 0, "hit; fd=%d, events=%s",
+	    gt_file_get_fd(fp), gt_log_add_poll_events(events));
 	DLLIST_FOREACH_SAFE(cb, &fp->fl_cbq, fcb_mbuf.mb_list, tmp) {
-		GT_ASSERT(cb->fcb_filter);
+		ASSERT(cb->fcb_filter);
 		revents = (events & cb->fcb_filter);
 		if (revents) {
 			gt_file_cb_call(cb, revents);
@@ -316,6 +326,7 @@ short
 gt_file_get_events(struct gt_file *fp, struct gt_file_cb *cb)
 {
 	short revents;
+	struct gt_log *log;
 
 	if (fp->fl_type == GT_FILE_SOCK) {
 		revents = gt_sock_get_events(fp);
@@ -323,8 +334,9 @@ gt_file_get_events(struct gt_file *fp, struct gt_file_cb *cb)
 		revents = 0;
 	}
 	revents &= cb->fcb_filter;
-	GT_DBG(get_events, 0, "hit; cb=%p, fd=%d, events=%s",
-	       cb, gt_file_get_fd(fp), gt_log_add_poll_events(revents));
+	log = log_trace0();
+	DBG(log, get_events, 0, "hit; cb=%p, fd=%d, events=%s",
+	    cb, gt_file_get_fd(fp), gt_log_add_poll_events(revents));
 	return revents;
 }
 
@@ -346,8 +358,9 @@ gt_file_cb_set(struct gt_file *fp, struct gt_file_cb *cb,
 	int fd;
 	const char *action;
 	short filter, revents;
+	struct gt_log *log;
 
-	GT_ASSERT(fp->fl_type == GT_FILE_SOCK);
+	ASSERT(fp->fl_type == GT_FILE_SOCK);
 	filter = events|POLLERR|POLLNVAL;
 	if (cb->fcb_filter == filter) {
 		return;
@@ -365,8 +378,9 @@ gt_file_cb_set(struct gt_file *fp, struct gt_file_cb *cb,
 		action = "mod";
 	}
 	UNUSED(action);
-	GT_DBG(cb_set, 0, "%s; cb=%p, fd=%d, filter=%s",
-	       action, cb, fd, gt_log_add_poll_events(filter));
+	log = log_trace0();
+	DBG(log, cb_set, 0, "%s; cb=%p, fd=%d, filter=%s",
+	    action, cb, fd, gt_log_add_poll_events(filter));
 	cb->fcb_filter |= filter;
 	revents = gt_file_get_events(fp, cb);
 	if (revents) {
@@ -377,11 +391,14 @@ gt_file_cb_set(struct gt_file *fp, struct gt_file_cb *cb,
 void
 gt_file_cb_cancel(struct gt_file_cb *cb)
 {
+	struct gt_log *log;
+
 	if (cb->fcb_filter) {
-		GT_DBG(cb_cancel, 0,
-		       "hit; cb=%p, fd=%d, filter=%s",
-		       cb, cb->fcb_fd,
-		       gt_log_add_poll_events(cb->fcb_filter));
+		log = log_trace0();
+		DBG(log, cb_cancel, 0,
+		    "hit; cb=%p, fd=%d, filter=%s",
+		    cb, cb->fcb_fd,
+		    log_add_poll_events(cb->fcb_filter));
 		cb->fcb_filter = 0;
 		DLLIST_REMOVE(cb, fcb_mbuf.mb_list);
 	}

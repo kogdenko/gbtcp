@@ -117,7 +117,7 @@ gt_strbuf_add_ip_addr(struct gt_strbuf *sb, int af, const void *ip)
 {
 	char buf[INET6_ADDRSTRLEN];
 
-	GT_ASSERT(af == AF_INET || af == AF_INET6);
+	ASSERT(af == AF_INET || af == AF_INET6);
 	inet_ntop(af, ip, buf, sizeof(buf));
 	gt_strbuf_add_str(sb, buf);
 }
@@ -125,8 +125,8 @@ gt_strbuf_add_ip_addr(struct gt_strbuf *sb, int af, const void *ip)
 void
 gt_strbuf_remove(struct gt_strbuf *sb, int pos, int len)
 {
-	GT_ASSERT(pos + len <= sb->sb_len);
-	GT_ASSERT(sb->sb_len <= sb->sb_cap);
+	ASSERT(pos + len <= sb->sb_len);
+	ASSERT(sb->sb_len <= sb->sb_cap);
 	memmove(sb->sb_buf + pos,
 	        sb->sb_buf + pos + len,
 	        sb->sb_len - (pos + len));
@@ -138,7 +138,7 @@ gt_strbuf_insert(struct gt_strbuf *sb, int pos, const void *data, int len)
 {
 	int excess;
 
-	GT_ASSERT(pos <= sb->sb_len);
+	ASSERT(pos <= sb->sb_len);
 	if (pos >= sb->sb_cap) {
 		/* Nothing to copy */
 	} else if (pos + len >= sb->sb_cap) {

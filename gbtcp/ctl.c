@@ -9,7 +9,7 @@
 #define GT_CTL_DEPTH_MAX 32
 #define GT_CTL_NODE_NAME_MAX 128
 
-#define GT_CTL_LOG_NODE_FOREACH(x) \
+#define SYSCTL_LOG_MSG_FOREACH(x) \
 	x(mod_deinit) \
 	x(read_file) \
 	x(split_path) \
@@ -39,6 +39,11 @@
 	x(get_pids) \
 	x(me) \
 	x(publish) \
+
+struct sysctl_mod {
+	struct log_scope log_scope;
+	SYSCTL_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+};
 
 enum {
 	GT_CTL_CONN_UNDEF,
@@ -123,12 +128,9 @@ static struct gt_ctl_conn *gt_ctl_subscribers[GT_SERVICES_MAX];
 static int gt_ctl_nr_subscribers;
 gt_ctl_sub_f gt_ctl_sub_fn;
 static void (*gt_ctl_publisher_close_fn)();
-static struct gt_log_scope this_log;
-GT_CTL_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct sysctl_mod *this_mod;
 
 static int gt_ctl_process_line(struct gt_log *log, char *s);
-
-static int gt_ctl_is_valid_str(const char *s);
 
 static void gt_ctl_create_sockaddr_un(struct sockaddr_un *addr, int pid);
 
@@ -173,7 +175,7 @@ static int gt_ctl_conn_in_next(struct gt_ctl_conn *cp,
 
 static void gt_ctl_conn_req_done(struct gt_ctl_conn *cp, int eno, char *old);
 
-static void gt_ctl_conn_req_timeout(struct gt_timer *timer);
+static void sysctl_conn_req_timo(struct gt_timer *timer);
 
 // pub/sub
 static void gt_ctl_handle_sub(struct gt_ctl_conn *cp, int action);
@@ -204,9 +206,9 @@ static int gt_ctl_in_sub(struct gt_ctl_conn *cp, char **argv);
 // node
 static int gt_ctl_node_get_path(struct gt_ctl_node *node, char *buf);
 
-void gt_ctl_gt_strbuf_add_node_path(struct gt_strbuf *sb, struct gt_ctl_node *node);
+void sysctl_strbuf_add_node(struct gt_strbuf *sb, struct gt_ctl_node *node);
 
-const char *gt_ctl_log_add_node_path(struct gt_ctl_node *node);
+const char *sysctl_log_add_node(struct gt_ctl_node *node);
 
 static int gt_ctl_node_alloc(struct gt_log *log, struct gt_ctl_node **pnode,
 	struct gt_ctl_node *parent, const char *name, int name_len);
@@ -262,22 +264,50 @@ static int gt_ctl_add6(struct gt_log *log, const char *path,
 static void gt_ctl_add_int_union(struct gt_log *log, const char *path,
 	int mode, void *ptr, int int_sizeof, int64_t min, int64_t max);
 
+
+static int
+sysctl_isvalid_token(const char *s)
+{
+	const char *cur;
+
+	for (cur = s; *cur != '\0'; ++cur) {
+		switch (*cur) {
+		case 'a' ... 'z':
+		case 'A' ... 'Z':
+		case '0' ... '9':
+		case ',':
+		case '.':
+		case ':':
+		case '_':
+		case '-':
+		case '+':
+		case '^':
+		case '/':
+		case '{':
+		case '}':
+		case '%':
+			break;
+		default:
+			return 0;
+		}
+	}
+	return 1;
+}
+
 int
 gt_ctl_mod_init()
 {
 	gt_ctl_node_init(&gt_ctl_root, NULL, NULL, 0);
 	gt_ctl_root.n_is_added = 1;
-	gt_log_scope_init_early(&this_log, "ctl");
-	GT_CTL_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
-	gt_log_scope_init(&this_log, "ctl");
+	log_scope_init(&this_mod->log_scope, "ctl");
 	return 0;
 }
 
 void
 gt_ctl_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
-	gt_log_scope_deinit(log, &this_log);
+	LOG_TRACE(log);
+	log_scope_deinit(log, &this_mod->log_scope);
 	gt_ctl_node_del_children(log, &gt_ctl_root);
 }
 
@@ -311,7 +341,7 @@ gt_ctl_read_file(struct gt_log *log, const char *path)
 	char str[2000];
 	FILE *file;
 
-	log = GT_LOG_TRACE(log, read_file);
+	LOG_TRACE(log);
 	if (path == NULL) {
 		tmp = getenv("GBTCP_CTL");
 		if (tmp != NULL) { 
@@ -337,13 +367,13 @@ gt_ctl_read_file(struct gt_log *log, const char *path)
 		line++;
 		rc = gt_ctl_process_line(log, str);
 		if (rc) {
-			GT_LOGF(log, LOG_ERR, -rc,
-			        "bad line; file='%s', line=%d",
-			        path, line);
+			LOGF(log, read_file, LOG_ERR, -rc,
+			     "bad line; file='%s', line=%d",
+			     path, line);
 		}
 	}
 	fclose(file);
-	GT_LOGF(log, LOG_INFO, 0, "ok; file='%s'", path);
+	LOGF(log, read_file, LOG_INFO, 0, "ok; file='%s'", path);
 	return rc;
 }
 
@@ -385,10 +415,10 @@ gt_ctl_me(struct gt_log *log, const char *path,
 {
 	int rc;
 
-	GT_ASSERT(path != NULL);
-	GT_ASSERT(gt_ctl_is_valid_str(path));
-	GT_ASSERT(new == NULL || gt_ctl_is_valid_str(new));
-	log = GT_LOG_TRACE(log, me);
+	ASSERT(path != NULL);
+	ASSERT(sysctl_isvalid_token(path));
+	ASSERT(new == NULL || sysctl_isvalid_token(new));
+	LOG_TRACE(log);
 	rc = gt_ctl_in(log, path, 0, new, old);
 	return rc;
 }
@@ -403,7 +433,7 @@ gt_ctl_get_pids(int *pids, int cnt)
 	struct sockaddr_un addr;
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(get_pids);
+	log = log_trace0();
 	path = GT_PREFIX"/sock";
 	rc = gt_sys_opendir(log, &dir, path);
 	if (rc) {
@@ -450,9 +480,9 @@ gt_ctl_bind(struct gt_log *log, int pid)
 {
 	int rc;
 
-	log = GT_LOG_TRACE(log, bind);
+	LOG_TRACE(log);
 	if (gt_ctl_binded != NULL) {
-		GT_LOGF(log, LOG_ERR, 0, "already");
+		LOGF(log, bind, LOG_ERR, 0, "already");
 		return -EALREADY;
 	}
 	rc = gt_ctl_conn_listen(log, &gt_ctl_binded, pid);
@@ -484,8 +514,8 @@ gt_ctl_binded_pid(struct gt_log *log)
 {
 	if (gt_ctl_binded == NULL) {
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, binded_pid);
-			GT_LOGF(log, LOG_ERR, 0, "not binded");
+			LOG_TRACE(log);
+			LOGF(log, binded_pid, LOG_ERR, 0, "not binded");
 		}
 		return -EBADF;
 	} else {
@@ -553,7 +583,7 @@ gt_ctl_sync(struct gt_log *log, const char *path)
 	struct gt_strbuf sb;
 	struct gt_ctl_node *node, *parent, *add;
 
-	log = GT_LOG_TRACE(log, sync);
+	LOG_TRACE(log);
 	rc = gt_ctl_node_find(log, path, &node, NULL);
 	if (rc) {
 		return rc;
@@ -570,8 +600,8 @@ gt_ctl_sync(struct gt_log *log, const char *path)
 	parent = node->n_parent;
 	add = gt_ctl_node_find_child(parent, GT_STRSZ("add"));
 	if (add == NULL) {
-		GT_LOGF(log, LOG_ERR, 0, "node not exists; path='%s.add'",
-		        gt_ctl_log_add_node_path(parent));
+		LOGF(log, sync, LOG_ERR, 0, "node not exists; path='%s.add'",
+		     sysctl_log_add_node(parent));
 		return -ENOENT;
 	}
 	gt_strbuf_init(&sb, path_buf, sizeof(path_buf));
@@ -583,13 +613,13 @@ gt_ctl_sync(struct gt_log *log, const char *path)
 		if (rc < 0) {
 			return rc;
 		} else if (rc > 0) {
-			GT_LOGF(log, LOG_ERR, rc, "list err; path='%s'", plus);
+			LOGF(log, sync, LOG_ERR, rc, "list err; path='%s'", plus);
 		} else if (buf[0] == '\0') {
 			return 0;
 		} else if (buf[0] != ',') {
-			GT_LOGF(log, LOG_ERR, 0,
-			        "list invalid rpl; path='%s', reply='%s'",
-			        plus, buf);
+			LOGF(log, sync, LOG_ERR, 0,
+			     "list invalid rpl; path='%s', reply='%s'",
+			     plus, buf);
 			return -EPROTO;
 		}
 		sb.sb_len = len;
@@ -681,7 +711,7 @@ gt_ctl_del(struct gt_log *log, const char *path)
 	int rc;
 	struct gt_ctl_node *node;
 
-	log = GT_LOG_TRACE(log, del);
+	LOG_TRACE(log);
 	rc = gt_ctl_node_find(log, path, &node, NULL);
 	if (rc == 0) {
 		gt_ctl_node_del(log, node);
@@ -703,35 +733,6 @@ gt_ctl_delf(struct gt_log *log, const char *fmt, ...)
 	return rc;
 }
 
-// static
-static int
-gt_ctl_is_valid_str(const char *s)
-{
-	const char *cur;
-
-	for (cur = s; *cur != '\0'; ++cur) {
-		switch (*cur) {
-		case 'a' ... 'z':
-		case 'A' ... 'Z':
-		case '0' ... '9':
-		case ',':
-		case '.':
-		case ':':
-		case '_':
-		case '-':
-		case '+':
-		case '^':
-		case '/':
-		case '{':
-		case '}':
-		case '%':
-			break;
-		default:
-			return 0;
-		}
-	}
-	return 1;
-}
 
 static void
 gt_ctl_create_sockaddr_un(struct sockaddr_un *addr, int pid)
@@ -746,17 +747,17 @@ gt_ctl_split_path(struct gt_log *log, const char *path,	struct iovec *iovec)
 {
 	int i, rc;
 
-	log = GT_LOG_TRACE(log, split_path);
+	LOG_TRACE(log);
 	rc = gt_strsplit(path, ".", iovec, GT_CTL_DEPTH_MAX);
 	if (rc > GT_CTL_DEPTH_MAX) {
-		GT_LOGF(log, LOG_ERR, 0,
-		       "too many dirs; path='%s'", path);
+		LOGF(log, split_path, LOG_ERR, 0,
+		     "too many dirs; path='%s'", path);
 		return -ENAMETOOLONG;
 	}
 	for (i = 0; i < rc; ++i) {
 		if (iovec[i].iov_len >= GT_CTL_NODE_NAME_MAX) {
-			GT_LOGF(log, LOG_ERR, 0,
-			        "too long dir; path='%s', idx=%d", path, i);
+			LOGF(log, split_path, LOG_ERR, 0,
+			     "too long dir; path='%s', idx=%d", path, i);
 			return -ENAMETOOLONG;
 		}
 	}
@@ -772,8 +773,8 @@ gt_ctl_conn_fd(struct gt_ctl_conn *cp)
 static void
 gt_ctl_conn_set_log(struct gt_ctl_conn *cp, struct gt_log *log)
 {
-	cp->c_log = gt_log_copy(cp->c_log_stack,
-	                        GT_ARRAY_SIZE(cp->c_log_stack), log);
+	cp->c_log = log_copy(cp->c_log_stack,
+	                     GT_ARRAY_SIZE(cp->c_log_stack), log);
 }
 
 static int
@@ -784,7 +785,7 @@ gt_ctl_conn_open(struct gt_log *log,
 	char name[PATH_MAX];
 	struct gt_ctl_conn *cp;
 
-	log = GT_LOG_TRACE(log, open);
+	LOG_TRACE(log);
 	opt = GT_CTL_BUFSIZ;
 	rc = gt_sys_setsockopt(log, fd, SOL_SOCKET, SO_SNDBUF,
 	                       &opt, sizeof(opt));
@@ -823,7 +824,7 @@ gt_ctl_conn_open(struct gt_log *log,
 	            sizeof(cp->c_sndbuf_buf));
 	gt_fd_event_set(cp->c_event, POLLIN);
 	*cpp = cp;
-	GT_LOGF(log, LOG_INFO, 0, "ok; fd=%d, path='%s'", fd, path);
+	LOGF(log, conn_open, LOG_INFO, 0, "ok; fd=%d, path='%s'", fd, path);
 	return 0;
 }
 
@@ -832,8 +833,8 @@ gt_ctl_conn_close(struct gt_ctl_conn *cp, int eno)
 {
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE(cp->c_log, close);
-	GT_LOGF(log, LOG_INFO, eno, "hit; fd=%d", gt_ctl_conn_fd(cp));
+	log = log_trace(cp->c_log);
+	LOGF(log, close, LOG_INFO, eno, "hit; fd=%d", gt_ctl_conn_fd(cp));
 	gt_ctl_conn_req_done(cp, eno, NULL);
 	if (cp->c_close_fn != NULL) {
 		(*cp->c_close_fn)(cp);
@@ -851,7 +852,7 @@ gt_ctl_conn_connect(struct gt_log *log, struct gt_ctl_conn **cpp,
 	struct sockaddr_un addr;
 	struct gt_ctl_conn *cp;
 
-	log = GT_LOG_TRACE(log, connect);
+	LOG_TRACE(log);
 	rc = gt_sys_socket(log, AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0);
 	if (rc < 0) {
 		return rc;
@@ -884,7 +885,7 @@ gt_ctl_conn_listen(struct gt_log *log, struct gt_ctl_conn **cpp, int pid)
 	struct group *group;
 	struct gt_ctl_conn *cp;
 
-	log = GT_LOG_TRACE(log, listen);
+	LOG_TRACE(log);
 	rc = gt_sys_socket(log, AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0);
 	if (rc < 0) {
 		return rc;
@@ -932,7 +933,7 @@ gt_ctl_conn_accept(struct gt_ctl_conn *lp)
 	struct gt_log *log;
 	struct gt_ctl_conn *cp;
 
-	log = GT_LOG_TRACE(lp->c_log, accept);
+	log = log_trace(lp->c_log);
 	addrlen = sizeof(addr);
 	lfd = gt_ctl_conn_fd(lp);
 	rc = gt_sys_accept4(log, lfd,
@@ -957,12 +958,12 @@ gt_ctl_conn_recv(struct gt_ctl_conn *cp)
 	int rc, fd, off, n, m;
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE(cp->c_log, recv);
+	log = log_trace(cp->c_log);
 	fd = gt_ctl_conn_fd(cp);
 	do {
 		off = cp->c_rcvbuf.sb_len;
 		n = gt_strbuf_space(&cp->c_rcvbuf);
-		GT_ASSERT(n);
+		ASSERT(n);
 		rc = gt_sys_read(log, fd, cp->c_rcvbuf.sb_buf + off, n);
 		if (rc < 0) {
 			if (rc == -EAGAIN) {
@@ -971,7 +972,7 @@ gt_ctl_conn_recv(struct gt_ctl_conn *cp)
 				return rc;
 			}
 		} else if (rc == 0) {
-			GT_LOGF(log, LOG_INFO, 0, "done");
+			LOGF(log, conn_recv, LOG_INFO, 0, "done");
 			return -ECONNRESET;
 		} else {
 			cp->c_rcvbuf.sb_len += rc;
@@ -981,7 +982,7 @@ gt_ctl_conn_recv(struct gt_ctl_conn *cp)
 			}
 			m = gt_strbuf_space(&cp->c_rcvbuf);
 			if (m == 0) {
-				GT_LOGF(log, LOG_ERR, 0, "too long msg");
+				LOGF(log, conn_recv, LOG_ERR, 0, "too long msg");
 				return -EPROTO;
 			}
 		}
@@ -995,7 +996,7 @@ gt_ctl_conn_send(struct gt_log *log, struct gt_ctl_conn *cp)
 	int rc, fd;
 	struct gt_strbuf *b;
 
-	log = GT_LOG_TRACE(log, send);
+	LOG_TRACE(log);
 	b = &cp->c_sndbuf;
 	rc = gt_fd_event_is_set(cp->c_event, POLLOUT);
 	if (rc) {
@@ -1024,14 +1025,14 @@ gt_ctl_conn_send_cmd(struct gt_log *log, struct gt_ctl_conn *cp,
 {
 	int rc, len;
 
-	log = GT_LOG_TRACE(log, send);
+	LOG_TRACE(log);
 	len = cp->c_sndbuf.sb_len;
 	gt_strbuf_addf(&cp->c_sndbuf, "%s %.*s %.*s\n",
 	            cmd, path_len, path, new_len, new);
 	if (gt_strbuf_space(&cp->c_sndbuf) == 0) {
 		cp->c_sndbuf.sb_len = len;
-		GT_LOGF(log, LOG_ERR, 0, "too long msg; path='%.*s'",
-		       path_len, path);
+		LOGF(log, conn_send, LOG_ERR, 0, "too long msg; path='%.*s'",
+		     path_len, path);
 		return -ENOBUFS;
 	}
 	rc = gt_ctl_conn_send(log, cp);
@@ -1133,23 +1134,24 @@ gt_ctl_conn_req_done(struct gt_ctl_conn *cp, int eno, char *old)
 	if (cp->c_req_fn != NULL) {
 		rc = (*cp->c_req_fn)(cp->c_log, cp->c_req_udata, eno, old);
 		if (rc) {
-			GT_LOGF(cp->c_log, LOG_ERR, -rc, "callback failed");
+			LOGF(cp->c_log, conn_req_done, LOG_ERR, -rc,
+			     "callback failed");
 		}
 		cp->c_req_fn = NULL;
 	}
 }
 
 static void
-gt_ctl_conn_req_timeout(struct gt_timer *timer)
+sysctl_conn_req_timo(struct gt_timer *timer)
 {
 	struct gt_log *log;
 	struct gt_ctl_conn *cp;
 
 	cp = container_of(timer, struct gt_ctl_conn, c_timer);
-	log = GT_LOG_TRACE(cp->c_log, req);
-	GT_LOGF(log, LOG_ERR, 0,
-	        "timedout; timer=%p, dt=%"PRIu64"us",
-	        &cp->c_timer, gt_nsec - cp->c_req_time);
+	log = log_trace(cp->c_log);
+	LOGF(log, conn_req_timo, LOG_ERR, 0,
+	     "timedout; timer=%p, dt=%"PRIu64"us",
+	     &cp->c_timer, gt_nsec - cp->c_req_time);
 	gt_ctl_conn_close(cp, ETIMEDOUT);
 }
 
@@ -1195,7 +1197,7 @@ gt_ctl_publish(struct gt_log *log, struct gt_ctl_node *node,
 	char path[PATH_MAX];
 	struct gt_ctl_conn *cp;
 
-	log = GT_LOG_TRACE(log, publish);
+	LOG_TRACE(log);
 	path_len = 0;
 	for (i = 0; i < gt_ctl_nr_subscribers;) {
 		if (path_len == 0) {
@@ -1227,7 +1229,7 @@ gt_ctl_in(struct gt_log *log, const char *path, int load,
 	char *tail;
 	struct gt_ctl_node *node;
 
-	log = GT_LOG_TRACE(log, in);
+	LOG_TRACE(log);
 	rc = gt_ctl_node_find(log, path, &node, &tail);
 	if (rc == 0) {
 		rc = gt_ctl_node_process(log, node, tail, load, new, out);
@@ -1243,12 +1245,12 @@ gt_ctl_in_pdu(struct gt_ctl_conn *cp, char *data, int data_len)
 	struct iovec *token, tokens[4];
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE(cp->c_log, in);
+	log = log_trace(cp->c_log);
 	data[data_len] = '\0'; // FIXME:
 	rc = gt_strsplit(data, " \r\n\t", tokens, GT_ARRAY_SIZE(tokens));
 	if (rc > GT_ARRAY_SIZE(tokens)) {
-		GT_LOGF(log, LOG_ERR, 0, "too many tokens; data='%.*s'",
-		        data_len, data);
+		LOGF(log, in_pdu, LOG_ERR, 0, "too many tokens; data='%.*s'",
+		     data_len, data);
 		return -EPROTO;
 	}
 	for (i = 0; i < rc; ++i) {
@@ -1281,7 +1283,7 @@ gt_ctl_in_pdu(struct gt_ctl_conn *cp, char *data, int data_len)
 	}
 	return rc;
 unknown_cmd:
-	GT_LOGF(log, LOG_ERR, 0, "unknown cmd; cmd='%s'", argv[0]);
+	LOGF(log, in_pdu, LOG_ERR, 0, "unknown cmd; cmd='%s'", argv[0]);
 	return -EPROTO;
 }
 
@@ -1293,7 +1295,7 @@ gt_ctl_in_req(struct gt_ctl_conn *cp, char **argv)
 	struct gt_strbuf *b;
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE(cp->c_log, in_req);
+	log = log_trace(cp->c_log);
 	path = argv[1];
 	if (path == NULL) {
 		path = "";
@@ -1306,7 +1308,7 @@ gt_ctl_in_req(struct gt_ctl_conn *cp, char **argv)
 	}
 	gt_strbuf_add_ch(b, '\n');
 	if (gt_strbuf_space(b) == 0) {
-		GT_LOGF(log, LOG_ERR, 0, "too long msg; path='%s'", path);
+		LOGF(log, in_req, LOG_ERR, 0, "too long msg; path='%s'", path);
 		return -ENOBUFS;
 	}
 	rc = gt_ctl_conn_send(cp->c_log, cp);
@@ -1320,7 +1322,7 @@ gt_ctl_in_rpl(struct gt_ctl_conn *cp, char **argv)
 	int eno;
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE(cp->c_log, in_rpl);
+	log = log_trace(cp->c_log);
 	if (argv[2] == NULL) {
 		old = argv[1];
 		if (old == NULL) {
@@ -1331,14 +1333,14 @@ gt_ctl_in_rpl(struct gt_ctl_conn *cp, char **argv)
 		old = "";
 		eno = strtoul(argv[2], &endptr, 10);
 		if (strcmp(argv[1], "error") || eno == 0 || *endptr != '\0') {
-			GT_LOGF(log, LOG_ERR, 0,
-			        "bad err fmt; fd=%d, ('%s %s')",
-			        gt_ctl_conn_fd(cp), argv[1], argv[2]);
+			LOGF(log, int_rpl, LOG_ERR, 0,
+			     "bad err fmt; fd=%d, ('%s %s')",
+			     gt_ctl_conn_fd(cp), argv[1], argv[2]);
 			return -EPROTO;
 		}
 	}
 	gt_ctl_conn_req_done(cp, eno, old);
-	GT_LOGF(log, LOG_INFO, 0, "ok; fd=%d", gt_ctl_conn_fd(cp));
+	LOGF(log, in_rpl, LOG_INFO, 0, "ok; fd=%d", gt_ctl_conn_fd(cp));
 	return -ECONNRESET;
 }
 
@@ -1350,15 +1352,15 @@ gt_ctl_in_pub(struct gt_ctl_conn *cp, char **argv)
 	struct gt_log *log;
 	struct gt_strbuf *b;
 
-	log = GT_LOG_TRACE(cp->c_log, in_pub);
+	log = log_trace(cp->c_log);
 	path = argv[1];
 	new = argv[2];
 	if (path == NULL) {
-		GT_LOGF(log, LOG_ERR, 0, "no path");
+		LOGF(log, in_pub, LOG_ERR, 0, "no path");
 		return -EPROTO;
 	}
 	if (new == NULL) {
-		GT_LOGF(log, LOG_ERR, 0, "no new; path='%s'", path);
+		LOGF(log, in_pub, LOG_ERR, 0, "no new; path='%s'", path);
 		return -EPROTO;
 	}
 	b = &cp->c_sndbuf;
@@ -1375,15 +1377,15 @@ gt_ctl_in_sub(struct gt_ctl_conn *cp, char **argv)
 	const char *a_pid;
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE(cp->c_log, in_sub);
+	log = log_trace(cp->c_log);
 	a_pid = argv[1];
 	if (a_pid == NULL) {
-		GT_LOGF(log, LOG_ERR, 0, "no pid");
+		LOGF(log, in_sub, LOG_ERR, 0, "no pid");
 		return -EPROTO;
 	}
 	rc = sscanf(a_pid, "%d", &peer_pid);
 	if (rc != 1) {
-		GT_LOGF(log, LOG_ERR, 0, "invalid pid; pid='%s'", a_pid);
+		LOGF(log, in_sub, LOG_ERR, 0, "invalid pid; pid='%s'", a_pid);
 		return -EPROTO;
 	}
 	rc = gt_ctl_binded_pid(log);
@@ -1392,12 +1394,12 @@ gt_ctl_in_sub(struct gt_ctl_conn *cp, char **argv)
 	}
 	for (i = 0; i < gt_ctl_nr_subscribers; ++i) {
 		if (gt_ctl_subscribers[i] == cp) {
-			GT_LOGF(log, LOG_ERR, 0, "already subscribed");
+			LOGF(log, in_sub, LOG_ERR, 0, "already subscribed");
 			return -EALREADY;
 		}
 	}
 	if (gt_ctl_nr_subscribers == GT_ARRAY_SIZE(gt_ctl_subscribers)) {
-		GT_LOGF(log, LOG_ERR, 0, "too many subscribers");
+		LOGF(log, in_sub, LOG_ERR, 0, "too many subscribers");
 		return -EOVERFLOW;
 	}
 	cp->c_pid = peer_pid;
@@ -1413,23 +1415,23 @@ gt_ctl_node_get_path(struct gt_ctl_node *node, char *buf)
 	struct gt_strbuf sb;
 
 	gt_strbuf_init(&sb, buf, PATH_MAX);
-	gt_ctl_gt_strbuf_add_node_path(&sb, node);
-	GT_ASSERT(sb.sb_len < PATH_MAX);
+	sysctl_strbuf_add_node(&sb, node);
+	ASSERT(sb.sb_len < PATH_MAX);
 	gt_strbuf_cstr(&sb);
 	return sb.sb_len;
 }
 
 void
-gt_ctl_gt_strbuf_add_node_path(struct gt_strbuf *sb, struct gt_ctl_node *node)
+sysctl_strbuf_add_node(struct gt_strbuf *sb, struct gt_ctl_node *node)
 {
 	int i, n;
 	struct gt_ctl_node *path[GT_CTL_DEPTH_MAX];
 
-	GT_ASSERT(node != NULL);
+	ASSERT(node != NULL);
 	n = 0;
 	for (; node != &gt_ctl_root; node = node->n_parent) {
-		GT_ASSERT(node != NULL);
-		GT_ASSERT(n < GT_ARRAY_SIZE(path));
+		ASSERT(node != NULL);
+		ASSERT(n < GT_ARRAY_SIZE(path));
 		path[n++] = node;
 	}
 	for (i = n - 1; i >= 0; --i) {
@@ -1441,12 +1443,12 @@ gt_ctl_gt_strbuf_add_node_path(struct gt_strbuf *sb, struct gt_ctl_node *node)
 }
 
 const char *
-gt_ctl_log_add_node_path(struct gt_ctl_node *node) 
+sysctl_log_add_node(struct gt_ctl_node *node) 
 {
 	struct gt_strbuf *sb;
 
-	sb = gt_log_buf_alloc_space();
-	gt_ctl_gt_strbuf_add_node_path(sb, node);
+	sb = log_buf_alloc_space();
+	sysctl_strbuf_add_node(sb, node);
 	return gt_strbuf_cstr(sb);
 }
 
@@ -1456,7 +1458,7 @@ gt_ctl_node_alloc(struct gt_log *log, struct gt_ctl_node **pnode,
 {
 	int rc;
 
-	log = GT_LOG_TRACE(log, new);
+	LOG_TRACE(log);
 	rc = gt_sys_malloc(log, (void **)pnode, sizeof(struct gt_ctl_node));
 	if (rc < 0) {
 		return rc;
@@ -1469,7 +1471,7 @@ static void
 gt_ctl_node_init(struct gt_ctl_node *node, struct gt_ctl_node *parent,
 	const char *name, int name_len)
 {
-	GT_ASSERT(name_len < GT_CTL_NODE_NAME_MAX);
+	ASSERT(name_len < GT_CTL_NODE_NAME_MAX);
 	memset(node, 0, sizeof(*node));
 	node->n_name_len = name_len;
 	memcpy(node->n_name, name, name_len);
@@ -1490,7 +1492,7 @@ gt_ctl_node_find(struct gt_log *log, const char *path,
 	struct gt_ctl_node *child, *node;
 	struct iovec path_iov[GT_CTL_DEPTH_MAX];
 
-	log = GT_LOG_TRACE(log, find);
+	LOG_TRACE(log);
 	rc = gt_ctl_split_path(log, path, path_iov);
 	if (rc < 0) {
 		return rc;
@@ -1503,15 +1505,15 @@ gt_ctl_node_find(struct gt_log *log, const char *path,
 		child = gt_ctl_node_find_child(node, name, name_len);
 		if (child == NULL) {
 			if (i < path_iovcnt - 1) {
-				GT_LOGF(log, LOG_ERR, 0,
-				        "not exists; path='%s', idx=%d",
-				        path, i);
+				LOGF(log, node_find, LOG_ERR, 0,
+				     "not exists; path='%s', idx=%d",
+				     path, i);
 				return -ENOENT;
 			}
 			*pnode = node;
 			if (ptail == NULL) {
-				GT_LOGF(log, LOG_ERR, 0,
-				        "not a leaf; path='%s'", path);
+				LOGF(log, node_find, LOG_ERR, 0,
+				     "not a leaf; path='%s'", path);
 				return -ENOENT;
 			} else {
 				*ptail = path_iov[i].iov_base;
@@ -1552,12 +1554,12 @@ gt_ctl_node_add(struct gt_log *log, const char *path, int mode,
 	struct iovec path_iov[GT_CTL_DEPTH_MAX];
 	struct gt_ctl_node *child, *node;
 
-	GT_ASSERT(mode == GT_CTL_RD || mode == GT_CTL_LD || mode == GT_CTL_WR);
-	log = GT_LOG_TRACE(log, add);
+	ASSERT(mode == GT_CTL_RD || mode == GT_CTL_LD || mode == GT_CTL_WR);
+	LOG_TRACE(log);
 	node = &gt_ctl_root;
 	path_len = strlen(path);
 	if (path_len >= PATH_MAX) {
-		GT_LOGF(log, LOG_ERR, 0, "too long path; path='%s'", path);
+		LOGF(log, node_add, LOG_ERR, 0, "too long path; path='%s'", path);
 		return -EINVAL;
 	}
 	rc = gt_ctl_split_path(log, path, path_iov);
@@ -1576,8 +1578,8 @@ gt_ctl_node_add(struct gt_log *log, const char *path, int mode,
 				return rc;
 			}
 		} else if (child->n_fn != NULL) {
-			GT_LOGF(log, LOG_ERR, 0, "already exists; path='%s'",
-			        path);
+			LOGF(log, node_add, LOG_ERR, 0,
+			     "already exists; path='%s'", path);
 			if (i == path_iovcnt - 1) {
 				*pnode = node;
 				return -EEXIST;
@@ -1595,15 +1597,15 @@ gt_ctl_node_add(struct gt_log *log, const char *path, int mode,
 		node->n_udata = udata;
 	}
 	*pnode = node;
-	GT_LOGF(log, LOG_INFO, 0, "ok; node='%s'", path);
+	LOGF(log, node_add, LOG_INFO, 0, "ok; node='%s'", path);
 	return 0;
 }
 
 static void
 gt_ctl_node_del(struct gt_log *log, struct gt_ctl_node *node)
 {
-	GT_LOGF(log, LOG_INFO, 0, "hit; node='%s'",
-	        gt_ctl_log_add_node_path(node));
+	LOGF(log, node_del, LOG_INFO, 0, "hit; node='%s'",
+	     sysctl_log_add_node(node));
 	gt_ctl_node_del_children(log, node);
 	DLLIST_REMOVE(node, n_list);
 	if (node->n_free_fn != NULL) {
@@ -1634,7 +1636,7 @@ gt_ctl_node_process(struct gt_log *log,
 	const char *access;
 	struct gt_strbuf stub;
 
-	log = GT_LOG_TRACE(log, process);
+	LOG_TRACE(log);
 	if (tail == NULL) {
 		tail = "";
 	}
@@ -1653,10 +1655,10 @@ gt_ctl_node_process(struct gt_log *log,
 			break;
 		}
 		if (access != NULL) {
-			GT_LOGF(log, LOG_ERR, 0,
-			        "%s only; path='%s', tail='%s'",
-			        access, gt_ctl_log_add_node_path(node),
-			        tail);
+			LOGF(log, node_process, LOG_ERR, 0,
+			     "%s only; path='%s', tail='%s'",
+			     access, sysctl_log_add_node(node),
+			     tail);
 			return -EACCES;
 		}
 	}
@@ -1677,8 +1679,8 @@ gt_ctl_node_process(struct gt_log *log,
 		}
 	}
 	if (rc == 1) {
-		GT_LOGF(log, LOG_ERR, 0, "not exists' path='%s.%s'",
-		        gt_ctl_log_add_node_path(node), tail);
+		LOGF(log, node_process, LOG_ERR, 0, "not exists; path='%s.%s'",
+		     sysctl_log_add_node(node), tail);
 		return -ENOENT;
 	}
 	if (rc < 0) {
@@ -1726,18 +1728,18 @@ gt_ctl_node_process_leaf(struct gt_log *log,
 	off = out->sb_len;
 	rc = (*node->n_fn)(log, node->n_udata, new, out);
 	if (rc < 0) {
-		GT_LOGF(log, LOG_ERR, -rc,
-		        "handler failed; path='%s', new='%s'",
-		        gt_ctl_log_add_node_path(node), new);
+		LOGF(log, node_process, LOG_ERR, -rc,
+		     "handler failed; path='%s', new='%s'",
+		     sysctl_log_add_node(node), new);
 		return rc;
 	}
 	if (off < out->sb_cap) {
 		old = gt_strbuf_cstr(out) + off;
-		rc = gt_ctl_is_valid_str(old);
+		rc = sysctl_isvalid_token(old);
 		if (rc == 0) {
-			GT_LOGF(log, LOG_ERR, 0,
-			        "invalid old; path='%s', old='%s'",
-			        gt_ctl_log_add_node_path(node), old);
+			LOGF(log, node_process, LOG_ERR, 0,
+			     "invalid old; path='%s', old='%s'",
+			     sysctl_log_add_node(node), old);
 			return -EINVAL;
 		}
 	}	 
@@ -1769,8 +1771,7 @@ gt_ctl_node_process_list(struct gt_ctl_node *node,
 	switch (*endptr) {
 	case '\0':
 		rc = (data->sld_fn)(node->n_udata, id, new, out);
-		GT_ASSERT3(0, rc <= 0, "%s",
-		           gt_ctl_log_add_node_path(node));
+		ASSERT3(0, rc <= 0, "%s", sysctl_log_add_node(node));
 		return rc;
 	case '+':
 		if (*(endptr + 1) != '\0') {
@@ -1801,8 +1802,9 @@ gt_ctl_node_process_int(struct gt_log *log, void *udata,
 	rc = 0;
 	old = 0;
 	data = udata;
-	log = GT_LOG_TRACE(log, process_int);
+	LOG_TRACE(log);
 	node = container_of(data, struct gt_ctl_node, n_udata_buf.n_int_data);
+	UNUSED(node);
 	if (new == NULL) {
 		switch (data->sid_int_sizeof) {
 		case 0:
@@ -1815,20 +1817,20 @@ gt_ctl_node_process_int(struct gt_log *log, void *udata,
 			old = *data->sid_ptr_int64;
 			break;
 		default:
-			GT_BUG;
+			BUG;
 		}
 	} else {
 		x = strtoll(new, &endptr, 10);
 		if (*endptr != '\0') {
-			GT_LOGF(log, LOG_ERR, 0,
-			        "not an int; path='%s', new='%s'",
-			        gt_ctl_log_add_node_path(node), new);
+			LOGF(log, node_process, LOG_ERR, 0,
+			     "not an int; path='%s', new='%s'",
+			     sysctl_log_add_node(node), new);
 			return -EPROTO;
 		}
 		if (x < data->sid_min || x > data->sid_max) {
-			GT_LOGF(log, LOG_ERR, 0,
-			        "not in range; path='%s', new=%lld, range=[%lld, %lld]",
-			        gt_ctl_log_add_node_path(node), x,
+			LOGF(log, node_process, LOG_ERR, 0,
+			     "not in range; path='%s', new=%lld, range=[%lld, %lld]",
+			     sysctl_log_add_node(node), x,
 			        data->sid_min, data->sid_max);
 			return -ERANGE;
 		}
@@ -1845,7 +1847,7 @@ gt_ctl_node_process_int(struct gt_log *log, void *udata,
 			*data->sid_ptr_int64 = x;
 			break;
 		default:
-			GT_BUG;
+			BUG;
 		}
 	}
 	gt_strbuf_addf(out, "%lld", old);
@@ -1859,7 +1861,7 @@ gt_ctl_node_set_has_subscribers(struct gt_log *log, const char *path)
 	struct gt_ctl_node *node;
 
 	rc = gt_ctl_node_find(log, path, &node, NULL); 
-	GT_ASSERT3(-rc, rc == 0, "node_set_has_subscribers('%s') failed", path);
+	ASSERT3(-rc, rc == 0, "node_set_has_subscribers('%s') failed", path);
 	node->n_has_subscribers = 1;
 	return rc;
 }
@@ -1887,26 +1889,29 @@ gt_ctl_send_req(struct gt_log *log, struct gt_ctl_conn **cpp,
 	int rc, path_len, new_len;
 	struct gt_ctl_conn *cp;
 
-	log = GT_LOG_TRACE(log, req);
-	GT_ASSERT3(0, gt_ctl_binded_pid(NULL) != pid, "pid=%d", pid);
-	GT_ASSERT(path != NULL);
+	LOG_TRACE(log);
+	ASSERT3(0, gt_ctl_binded_pid(NULL) != pid, "pid=%d", pid);
+	ASSERT(path != NULL);
 	path_len = strlen(path);
 	if (path_len >= PATH_MAX) {
-		GT_LOGF(log, LOG_ERR, 0 , "too long path; path='%s'", path);
+		LOGF(log, send_req, LOG_ERR, 0 ,
+		     "too long path; path='%s'", path);
 		return -EINVAL;
 	}
-	rc = gt_ctl_is_valid_str(path);
+	rc = sysctl_isvalid_token(path);
 	if (rc == 0) {
-		GT_LOGF(log, LOG_ERR, 0, "invalid path; path='%s'", path);
+		LOGF(log, send_req, LOG_ERR, 0,
+		     "invalid path; path='%s'", path);
 		return -EINVAL;
 	}
 	if (new == NULL) {
 		new_len = 0;
 	} else {
 		new_len = strlen(new);
-		rc = gt_ctl_is_valid_str(new);
+		rc = sysctl_isvalid_token(new);
 		if (rc == 0) {
-			GT_LOGF(log, LOG_ERR, 0, "invalid new; new='%s'", new);
+			LOGF(log, send_req, LOG_ERR, 0,
+			     "invalid new; new='%s'", new);
 			return -EINVAL;
 		}
 	}
@@ -1925,7 +1930,7 @@ gt_ctl_send_req(struct gt_log *log, struct gt_ctl_conn **cpp,
 	cp->c_req_udata = udata;
 	cp->c_req_fn = fn;
 	cp->c_req_time = gt_nsec;
-	gt_timer_set(&cp->c_timer, 5 * GT_SEC, gt_ctl_conn_req_timeout);
+	gt_timer_set(&cp->c_timer, 5 * GT_SEC, sysctl_conn_req_timo);
 	if (cpp != NULL) {
 		*cpp = cp;
 	}
@@ -1940,7 +1945,7 @@ gt_ctl_add6(struct gt_log *log, const char *path,
 	int rc;
 
 	rc = gt_ctl_node_add(log, path, mode, udata, free_fn, fn, pnode);
-	GT_ASSERT3(-rc, rc == 0, "ctl_add('%s') failed", path);
+	ASSERT3(-rc, rc == 0, "ctl_add('%s') failed", path);
 	return rc;
 }
 
@@ -1951,7 +1956,7 @@ gt_ctl_add_int_union(struct gt_log *log, const char *path,
 	struct gt_ctl_int_data *data;
 	struct gt_ctl_node *node;
 
-	GT_ASSERT(min <= max);
+	ASSERT(min <= max);
 	gt_ctl_add6(log, path, mode, NULL, NULL,
 	            gt_ctl_node_process_int, &node);
 	data = &node->n_udata_buf.n_int_data;

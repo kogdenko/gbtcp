@@ -294,7 +294,7 @@ int gt_connect_timed(struct gt_log *err, int fd, const struct sockaddr *addr,
 
 int gt_write_all(struct gt_log *log, int fd, const void *buf, size_t count);
 
-int gt_read_rss_key(struct gt_log *log, const char *ifname, uint8_t *rss_key);
+int read_rsskey(struct gt_log *log, const char *ifname, uint8_t *rss_key);
 
 long gt_gettid();
 

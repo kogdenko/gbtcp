@@ -2,7 +2,7 @@
 #include "log.h"
 #include "strbuf.h"
 
-#define GT_SYS_LOG_NODE_FOREACH(x) \
+#define SYS_LOG_MSG_FOREACH(x) \
 	x(mod_deinit) \
 	x(fork) \
 	x(open) \
@@ -41,21 +41,21 @@
 	x(getifaddrs) \
 	x(if_indextoname) \
 	x(kill) \
-	x(waitpid) \
+	x(waitpid) 
 
 #ifdef __linux__
-#define GT_SYS_LOG_NODE_FOREACH_OS(x) \
-	x(clone) \
-
+#define SYS_LOG_MSG_FOREACH_OS(x) \
+	x(clone)
 #else /* __linux__ */
-#define GT_SYS_LOG_NODE_FOREACH_OS(x) \
-	x(kqueue) \
-
+#define SYS_LOG_MSG_FOREACH_OS(x) \
+	x(kqueue)
 #endif /* __linux__ */
 
-static struct gt_log_scope this_log;
-GT_SYS_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
-GT_SYS_LOG_NODE_FOREACH_OS(GT_LOG_NODE_STATIC);
+struct sys_mod {
+	struct log_scope log_scope;
+	SYS_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+	SYS_LOG_MSG_FOREACH_OS(LOG_MSG_DECLARE);
+};
 
 gt_open_f gt_sys_open_fn;
 gt_socket_f gt_sys_socket_fn;
@@ -102,104 +102,107 @@ gt_kqueue_f gt_sys_kqueue_fn;
 gt_kevent_f gt_sys_kevent_fn;
 #endif /* __linux__ */
 
+static struct sys_mod *this_mod;
+
 int
 gt_sys_mod_init()
 {
-	gt_log_scope_init(&this_log, "sys");
-	GT_SYS_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
-	GT_SYS_LOG_NODE_FOREACH_OS(GT_LOG_NODE_INIT);
+	log_scope_init(&this_mod->log_scope, "sys");
 	return 0;
 }
 
 void
 gt_sys_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
-	gt_log_scope_deinit(log, &this_log);
+	LOG_TRACE(log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 #ifdef __linux__
 static void
 gt_sys_dlsym_os()
 {
-	GT_SYS_DLSYM(clone);
-	GT_SYS_DLSYM(epoll_create1);
-	GT_SYS_DLSYM(epoll_ctl);
-	GT_SYS_DLSYM(epoll_wait);
-	GT_SYS_DLSYM(epoll_pwait);
+	SYS_DLSYM(clone);
+	SYS_DLSYM(epoll_create1);
+	SYS_DLSYM(epoll_ctl);
+	SYS_DLSYM(epoll_wait);
+	SYS_DLSYM(epoll_pwait);
 }
 #else /* __linux__ */
 static void
 gt_sys_dlsym_os()
 {
-	GT_SYS_DLSYM(kqueue);
-	GT_SYS_DLSYM(kevent);
+	SYS_DLSYM(kqueue);
+	SYS_DLSYM(kevent);
 }
 #endif /* __linux__ */
 
 void
 gt_sys_mod_dlsym()
 {
-	GT_SYS_DLSYM(open);
-	GT_SYS_DLSYM(socket);
-	GT_SYS_DLSYM(bind);
-	GT_SYS_DLSYM(connect);
-	GT_SYS_DLSYM(listen);
-	GT_SYS_DLSYM(accept4);
-	GT_SYS_DLSYM(flock);
-	GT_SYS_DLSYM(read);
-	GT_SYS_DLSYM(readv);
-	GT_SYS_DLSYM(recv);
-	GT_SYS_DLSYM(recvfrom);
-	GT_SYS_DLSYM(recvmsg);
-	GT_SYS_DLSYM(write);
-	GT_SYS_DLSYM(writev);
-	GT_SYS_DLSYM(send);
-	GT_SYS_DLSYM(sendto);
-	GT_SYS_DLSYM(sendmsg);
-	GT_SYS_DLSYM(sendfile);
-	GT_SYS_DLSYM(dup);
-	GT_SYS_DLSYM(dup2);
-	GT_SYS_DLSYM(close);
-	GT_SYS_DLSYM(shutdown);
-	GT_SYS_DLSYM(fcntl);
-	GT_SYS_DLSYM(ioctl);
-	GT_SYS_DLSYM(fork);
-	GT_SYS_DLSYM(ppoll);
-	GT_SYS_DLSYM(setsockopt);
-	GT_SYS_DLSYM(getsockopt);
-	GT_SYS_DLSYM(getsockname);
-	GT_SYS_DLSYM(getpeername);
-	GT_SYS_DLSYM(signal);
-	GT_SYS_DLSYM(sigaction);
-	GT_SYS_DLSYM(sigprocmask);
+	SYS_DLSYM(open);
+	SYS_DLSYM(socket);
+	SYS_DLSYM(bind);
+	SYS_DLSYM(connect);
+	SYS_DLSYM(listen);
+	SYS_DLSYM(accept4);
+	SYS_DLSYM(flock);
+	SYS_DLSYM(read);
+	SYS_DLSYM(readv);
+	SYS_DLSYM(recv);
+	SYS_DLSYM(recvfrom);
+	SYS_DLSYM(recvmsg);
+	SYS_DLSYM(write);
+	SYS_DLSYM(writev);
+	SYS_DLSYM(send);
+	SYS_DLSYM(sendto);
+	SYS_DLSYM(sendmsg);
+	SYS_DLSYM(sendfile);
+	SYS_DLSYM(dup);
+	SYS_DLSYM(dup2);
+	SYS_DLSYM(close);
+	SYS_DLSYM(shutdown);
+	SYS_DLSYM(fcntl);
+	SYS_DLSYM(ioctl);
+	SYS_DLSYM(fork);
+	SYS_DLSYM(ppoll);
+	SYS_DLSYM(setsockopt);
+	SYS_DLSYM(getsockopt);
+	SYS_DLSYM(getsockname);
+	SYS_DLSYM(getpeername);
+	SYS_DLSYM(signal);
+	SYS_DLSYM(sigaction);
+	SYS_DLSYM(sigprocmask);
 	gt_sys_dlsym_os();
 }
 
 static void
-gt_sys_log_addrfn_failed(struct gt_log *log, int eno, int fd,
-	const struct sockaddr *addr, socklen_t addrlen)
+sys_log_addrfn_failed(struct gt_log *log, int log_msg_level,
+	int errnum, int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	const struct sockaddr_un *addr_un;
 	const struct sockaddr_in *addr_in;
 
 	switch (addr->sa_family) {
 	case AF_INET:
-		GT_ASSERT(addrlen >= sizeof(*addr_in));
+		ASSERT(addrlen >= sizeof(*addr_in));
 		addr_in = (const struct sockaddr_in *)addr;
 		UNUSED(addr_in);
-		GT_LOGF(log, LOG_ERR, eno, "failed; fd=%d, sockaddr_in=%s",
-		        fd, gt_log_add_sockaddr_in(addr_in));
+		LOGF(log, log_msg_level, LOG_ERR, errnum,
+		     "failed; fd=%d, sockaddr_in=%s",
+		     fd, gt_log_add_sockaddr_in(addr_in));
 		break;
 	case AF_UNIX:
-		GT_ASSERT(addrlen >= sizeof(*addr_un));
+		ASSERT(addrlen >= sizeof(*addr_un));
 		addr_un = (const struct sockaddr_un *)addr;
 		UNUSED(addr_un);
-		GT_LOGF(log, LOG_ERR, eno, "failed; fd=%d, sun_path='%s'",
-		        fd, addr_un->sun_path);
+		LOGF(log, log_msg_level, LOG_ERR, errnum,
+		     "failed; fd=%d, sun_path='%s'",
+		     fd, addr_un->sun_path);
 		break;
 	default:
-		GT_LOGF(log, LOG_ERR, eno, "failed; fd=%d", fd);
+		LOGF(log, log_msg_level, LOG_ERR, errnum,
+		     "failed; fd=%d", fd);
 		break;
 	}
 }
@@ -212,10 +215,10 @@ gt_sys_fork(struct gt_log *log)
 	rc = (*gt_sys_fork_fn)();
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, fork);
-			GT_LOGF(log, LOG_ERR, -rc, "failed");
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(fork), LOG_ERR, -rc, "failed");
 		}
 	}
 	return rc;
@@ -230,7 +233,7 @@ restart:
 	rc = (*gt_sys_open_fn)(path, flags, mode);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		switch (-rc) {
 		case EINTR:
 			goto restart;
@@ -238,8 +241,9 @@ restart:
 			break;
 		}
 		if  (log != NULL) {
-			log = GT_LOG_TRACE(log, open);
-			GT_LOGF(log, LOG_ERR, -rc, "failed; path='%s'", path);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(open), LOG_ERR, -rc,
+			     "failed; path='%s'", path);
 		}
 	}
 	return rc;
@@ -253,24 +257,24 @@ gt_sys_socket(struct gt_log *log, int domain, int type, int protocol)
 	rc = (*gt_sys_socket_fn)(domain, type, protocol);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc < 0);
+		ASSERT(rc < 0);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, socket);
-			GT_LOGF(log, LOG_ERR, -rc,
-			        "failed; domain=%s, type=%s",
-			        gt_log_add_socket_domain(domain),
-			        gt_log_add_socket_type(type));
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(socket), LOG_ERR, -rc,
+			     "failed; domain=%s, type=%s",
+			     log_add_socket_domain(domain),
+			     log_add_socket_type(type));
 		}
 	}
 	return rc;
 }
 
 void
-gt_sys_log_connect_failed(struct gt_log *log, int eno, int fd,
+sys_log_connect_failed(struct gt_log *log, int errnum, int fd,
 	const struct sockaddr *addr, socklen_t addrlen)
 {
-	log = GT_LOG_TRACE(log, connect);
-	gt_sys_log_addrfn_failed(log, eno, fd, addr, addrlen);
+	sys_log_addrfn_failed(log, LOG_MSG(connect), errnum,
+	                      fd, addr, addrlen);
 }
 
 int
@@ -282,9 +286,10 @@ gt_sys_connect(struct gt_log *log, int fd, const struct sockaddr *addr,
 	rc = (*gt_sys_connect_fn)(fd, addr, addrlen);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc < 0);
+		ASSERT(rc < 0);
 		if (log != NULL) {
-			gt_sys_log_connect_failed(log, -rc, fd, addr, addrlen);
+			LOG_TRACE(log);
+			sys_log_connect_failed(log, -rc, fd, addr, addrlen);
 		}
 		return rc;
 	} else {
@@ -301,10 +306,11 @@ gt_sys_bind(struct gt_log *log, int fd, const struct sockaddr *addr,
 	rc = (*gt_sys_bind_fn)(fd, addr, addrlen);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc < 0);
+		ASSERT(rc < 0);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, bind);
-			gt_sys_log_addrfn_failed(log, -rc, fd, addr, addrlen);
+			LOG_TRACE(log);
+			sys_log_addrfn_failed(log, LOG_MSG(bind), -rc,
+			                      fd, addr, addrlen);
 		}
 		return rc;
 	} else {
@@ -320,11 +326,11 @@ gt_sys_listen(struct gt_log *log, int fd, int backlog)
 	rc = (*gt_sys_listen_fn)(fd, backlog);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc < 0);
+		ASSERT(rc < 0);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, listen);
-			GT_LOGF(log, LOG_ERR, -rc,
-			        "failed; fd=%d, backlog=%d", fd, backlog);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(listen), LOG_ERR, -rc,
+			     "failed; fd=%d, backlog=%d", fd, backlog);
 		}
 		return rc;
 	} else {
@@ -341,12 +347,12 @@ gt_sys_accept4(struct gt_log *log, int fd, struct sockaddr *addr,
 	rc = (*gt_sys_accept4_fn)(fd, addr, addrlen, flags);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (rc != -EAGAIN) {
 			if (log != NULL) {
-				log = GT_LOG_TRACE(log, accept4);
-				GT_LOGF(log, LOG_ERR, -rc,
-				        "failed; fd=%d", fd);
+				LOG_TRACE(log);
+				LOGF(log, LOG_MSG(accept4), LOG_ERR, -rc,
+				     "failed; fd=%d", fd);
 			}
 		}
 	}
@@ -361,12 +367,12 @@ gt_sys_shutdown(struct gt_log *log, int fd, int how)
 	rc = (*gt_sys_shutdown_fn)(fd, how);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, shutdown);
-			GT_LOGF(log, LOG_ERR, -rc,
-			        "failed; fd=%d, how=%s",
-			        fd, gt_log_add_shutdown_how(how));
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(shutdoen), LOG_ERR, -rc,
+			     "failed; fd=%d, how=%s",
+			      fd, gt_log_add_shutdown_how(how));
 		}
 	}
 	return rc;
@@ -380,10 +386,11 @@ gt_sys_close(struct gt_log *log, int fd)
 	rc = (*gt_sys_close_fn)(fd);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc < 0);
+		ASSERT(rc < 0);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, close);
-			GT_LOGF(log, LOG_ERR, -rc, "failed; fd=%d", fd);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(close), LOG_ERR, -rc,
+			     "failed; fd=%d", fd);
 		}
 	}
 	return rc;
@@ -398,7 +405,7 @@ restart:
 	rc = (*gt_sys_read_fn)(fd, buf, count);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		switch (-rc) {
 		case EINTR:
 			goto restart;
@@ -406,9 +413,9 @@ restart:
 			break;
 		default:
 			if (log != NULL) {
-				log = GT_LOG_TRACE(log, read);
-				GT_LOGF(log, LOG_ERR, -rc,
-				        "failed; fd=%d", fd);
+				LOG_TRACE(log);
+				LOGF(log, LOG_MSG(read), LOG_ERR, -rc,
+				     "failed; fd=%d", fd);
 			}
 			break;
 		}
@@ -424,12 +431,12 @@ gt_sys_recvmsg(struct gt_log *log, int fd, struct msghdr *msg, int flags)
 	rc = (*gt_sys_recvmsg_fn)(fd, msg, flags);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (rc != -EAGAIN) {
 			if (log != NULL) {
-				log = GT_LOG_TRACE(log, recvmsg);
-				GT_LOGF(log, -rc, LOG_ERR,
-				        "failed; fd=%d", fd);
+				LOG_TRACE(log);
+				LOGF(log, LOG_MSG(recvmsg), -rc, LOG_ERR,
+				     "failed; fd=%d", fd);
 			}
 		}
 	}
@@ -445,7 +452,7 @@ restart:
 	rc = (*gt_sys_write_fn)(fd, buf, count);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		switch (-rc) {
 		case EINTR:
 			goto restart;
@@ -453,9 +460,9 @@ restart:
 			break;
 		default:
 			if (log != NULL) {
-				log = GT_LOG_TRACE(log, write);
-				GT_LOGF(log, LOG_ERR, -rc,
-				        "failed; fd=%d", fd);
+				LOG_TRACE(log);
+				LOGF(log, LOG_MSG(write), LOG_ERR, -rc,
+				     "failed; fd=%d", fd);
 			}
 			break;
 		}
@@ -472,7 +479,7 @@ restart:
 	rc = (*gt_sys_send_fn)(fd, buf, len, flags);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		switch (-rc) {
 		case EINTR:
 			goto restart;
@@ -480,9 +487,9 @@ restart:
 			break;
 		default:
 			if (log != NULL) {
-				log = GT_LOG_TRACE(log, send);
-				GT_LOGF(log, LOG_ERR, -rc,
-				        "failed; fd=%d", fd);
+				LOG_TRACE(log);
+				LOGF(log, LOG_MSG(send), LOG_ERR, -rc,
+				     "failed; fd=%d", fd);
 			}
 			break;
 		}
@@ -498,12 +505,12 @@ gt_sys_sendmsg(struct gt_log *log, int fd, const struct msghdr *msg, int flags)
 	rc = (*gt_sys_sendmsg_fn)(fd, msg, flags);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (rc != -EPIPE) {
 			if (log != NULL) {
-				log = GT_LOG_TRACE(log, sendmsg);
-				GT_LOGF(log, LOG_ERR, -rc,
-				        "failed; fd=%d", fd);
+				LOG_TRACE(log);
+				LOGF(log, LOG_MSG(sendmsg), LOG_ERR, -rc,
+				     "failed; fd=%d", fd);
 			}
 		}
 	}
@@ -518,10 +525,11 @@ gt_sys_dup(struct gt_log *log, int fd)
 	rc = (*gt_sys_dup_fn)(fd);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc < 0);
+		ASSERT(rc < 0);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, dup);
-			GT_LOGF(log, LOG_ERR, -rc, "failed; fd=%d", fd);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(dup), LOG_ERR, -rc,
+			     "failed; fd=%d", fd);
 		}
 	}
 	return rc;
@@ -534,12 +542,12 @@ gt_sys_fcntl(struct gt_log *log, int fd, int cmd, uintptr_t arg)
 	rc = (*gt_sys_fcntl_fn)(fd, cmd, arg);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, fcntl);
-			GT_LOGF(log, LOG_ERR, -rc,
-			        "failed; fd=%d, cmd=%s",
-			        fd, gt_log_add_fcntl_cmd(cmd));
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(fcntl), LOG_ERR, -rc,
+			     "failed; fd=%d, cmd=%s",
+			     fd, gt_log_add_fcntl_cmd(cmd));
 		}
 	}
 	return rc;
@@ -553,22 +561,22 @@ gt_sys_ioctl(struct gt_log *log, int fd, unsigned long request, uintptr_t arg)
 	rc = (*gt_sys_ioctl_fn)(fd, request, arg);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		switch (request) {
 		case SIOCGIFFLAGS:
 			if (log != NULL) {
-				log = GT_LOG_TRACE(log, ioctl);
-				GT_LOGF(log, LOG_ERR, -rc,
-				        "failed; fd=%d, req=SIOCGIFFLAGS, ifr_name='%s'",
-				        fd, ((struct ifreq *)arg)->ifr_name);
+				LOG_TRACE(log);
+				LOGF(log, LOG_MSG(ioctl), LOG_ERR, -rc,
+				     "failed; fd=%d, req=SIOCGIFFLAGS, ifr_name='%s'",
+				     fd, ((struct ifreq *)arg)->ifr_name);
 			}
 			break;
 		default:
 			if (log != NULL) {
-				log = GT_LOG_TRACE(log, ioctl);
-				GT_LOGF(log, LOG_ERR, -rc,
-				        "failed; fd=%d, cmd=0x%lx",
-				        fd, request);
+				LOG_TRACE(log);
+				LOGF(log, LOG_MSG(ioctl), LOG_ERR, -rc,
+				     "failed; fd=%d, cmd=0x%lx",
+				     fd, request);
 			}
 			break;
 		}
@@ -585,14 +593,14 @@ gt_sys_getsockopt(struct gt_log *log, int fd, int level, int optname,
 	rc = (*gt_sys_getsockopt_fn)(fd, level, optname, optval, optlen);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, getsockopt);
-			GT_LOGF(log, LOG_ERR, -rc,
-			        "failed; fd=%d, level=%s, optname=%s",
-			        fd,
-			        gt_log_add_sockopt_level(level),
-			        gt_log_add_sockopt_optname(level, optname));
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(getsockopt), LOG_ERR, -rc,
+			     "failed; fd=%d, level=%s, optname=%s",
+			     fd,
+			     log_add_sockopt_level(level),
+			     log_add_sockopt_optname(level, optname));
 		}
 	}
 	return rc;
@@ -607,14 +615,14 @@ gt_sys_setsockopt(struct gt_log *log, int fd, int level, int optname,
 	rc = (*gt_sys_setsockopt_fn)(fd, level, optname, optval, optlen);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, setsockopt);
-			GT_LOGF(log, LOG_ERR, -rc,
-			       "failed; fd=%d, level=%s, optname=%s",
-			       fd,
-			       gt_log_add_sockopt_level(level),
-			       gt_log_add_sockopt_optname(level, optname));
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(setsockopt), LOG_ERR, -rc,
+			     "failed; fd=%d, level=%s, optname=%s",
+			     fd,
+			     log_add_sockopt_level(level),
+			     log_add_sockopt_optname(level, optname));
 		}
 	}
 	return rc;
@@ -629,10 +637,10 @@ gt_sys_ppoll(struct gt_log *log, struct pollfd *fds, nfds_t nfds,
 	rc = (*gt_sys_ppoll_fn)(fds, nfds, to, sigmask);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, ppoll);
-			GT_LOGF(log, LOG_ERR, -rc, "failed");
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(ppoll), LOG_ERR, -rc, "failed");
 		}
 	}
 	return rc;
@@ -648,10 +656,10 @@ gt_sys_signal(struct gt_log *log, int signum, void (*handler)())
 	if (res == SIG_ERR) {
 		rc = -errno;
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, signal);
-			GT_LOGF(log, LOG_ERR, -rc,
-			        "failed; signum=%d, sighandler=%s",
-			        signum, gt_log_add_sighandler(handler));
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(signal), LOG_ERR, -rc,
+			     "failed; signum=%d, sighandler=%s",
+			     signum, gt_log_add_sighandler(handler));
 		}
 	}
 	return res;
@@ -666,11 +674,11 @@ gt_sys_sigaction(struct gt_log *log, int signum, const struct sigaction *act,
 	rc = (*gt_sys_sigaction_fn)(signum, act, oldact);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, sigaction);
-			GT_LOGF(log, LOG_ERR, -rc,
-			        "failed; signum=%d", signum);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(sigaction), LOG_ERR, -rc,
+			     "failed; signum=%d", signum);
 		}
 	}
 	return rc;
@@ -685,11 +693,11 @@ gt_sys_sigprocmask(struct gt_log *log, int how, const sigset_t *set,
 	rc = (*gt_sys_sigprocmask_fn)(how, set, oldset);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, sigprocmask);
-			GT_LOGF(log, LOG_ERR, -rc, "failed; how=%s",
-			        gt_log_add_sigprocmask_how(how));
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(sigprocmask), LOG_ERR, -rc,
+			     "failed; how=%s", log_add_sigprocmask_how(how));
 		}
 	}
 	return rc;
@@ -701,8 +709,9 @@ gt_sys_malloc(struct gt_log *log, void **pptr, size_t size)
 	*pptr = malloc(size);
 	if (*pptr == NULL) {
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, malloc);
-			GT_LOGF(log, LOG_ERR, 0, "failed; size=%zu", size);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(malloc), LOG_ERR, 0,
+			     "failed; size=%zu", size);
 		}
 		return -ENOMEM;
 	}
@@ -717,8 +726,9 @@ gt_sys_realloc(struct gt_log *log, void **pptr, size_t size)
 	new_ptr = realloc(*pptr, size);
 	if (new_ptr == NULL) {
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, realloc);
-			GT_LOGF(log, LOG_ERR, 0, "failed; size=%zu", size);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(realloc), LOG_ERR, 0,
+			     "failed; size=%zu", size);
 		}
 		return -ENOMEM;
 	}
@@ -735,10 +745,10 @@ gt_sys_posix_memalign(struct gt_log *log, void **memptr, size_t alignment,
 	rc = posix_memalign(memptr, alignment, size);
 	if (rc) {
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, posix_memalign);
-			GT_LOGF(log, LOG_ERR, 0,
-			        "failed; alignment=%zu, size=%zu",
-			        alignment, size);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(posix_memalign), LOG_ERR, 0,
+			     "failed; alignment=%zu, size=%zu",
+			     alignment, size);
 		}
 	}
 	return -rc;
@@ -753,11 +763,11 @@ gt_sys_fopen(struct gt_log *log, FILE **file, const char *path,
 	*file = fopen(path, mode);
 	if (*file == NULL) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, fopen);
-			GT_LOGF(log, LOG_ERR, -rc,
-			       "failed; path='%s', mode=%s", path, mode);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(fopen), LOG_ERR, -rc,
+			     "failed; path='%s', mode=%s", path, mode);
 		}
 		return rc;
 	}
@@ -772,10 +782,11 @@ gt_sys_opendir(struct gt_log *log, DIR **pdir, const char *name)
 	*pdir = opendir(name);
 	if (*pdir == NULL) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, opendir);
-			GT_LOGF(log, LOG_ERR, -rc, "failed; name='%s'", name);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(opendir), LOG_ERR, -rc,
+			     "failed; name='%s'", name);
 		}
 		return rc;
 	}
@@ -791,13 +802,14 @@ restart:
 	rc = stat(path, buf);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(errno);
+		ASSERT(errno);
 		if (rc == -EINTR) {
 			goto restart;
 		}
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, stat);
-			GT_LOGF(log, LOG_ERR, -rc, "failed; path='%s'", path);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(stat), LOG_ERR, -rc,
+			     "failed; path='%s'", path);
 		}
 	}
 	return rc;
@@ -812,10 +824,11 @@ gt_sys_realpath(struct gt_log *log, const char *path, char *resolved_path)
 	res = realpath(path, resolved_path);
 	if (res == NULL) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, realpath);
-			GT_LOGF(log, LOG_ERR, -rc, "failed; path='%s'", path);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(realpath), LOG_ERR,
+			     -rc, "failed; path='%s'", path);
 		}
 	} else {
 		rc = 0;
@@ -832,7 +845,7 @@ restart:
 	rc = (*gt_sys_flock_fn)(fd, operation);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		switch (-rc) {
 		case EINTR:
 			goto restart;
@@ -840,8 +853,8 @@ restart:
  			break;
 		}
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, flock);
-			GT_LOGF(log, LOG_ERR, -rc, "failed; fd=%d", fd);
+			LOG_TRACE(log);
+			LOGF(log, flock, LOG_ERR, -rc, "failed; fd=%d", fd);
 		}
 	}
 	return rc;
@@ -857,13 +870,14 @@ restart:
 	*pgroup = getgrnam(name);
 	if (*pgroup == NULL) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		}
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, getgrnam);
-			GT_LOGF(log, LOG_ERR, -rc, "failed; name='%s'", name);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(getgrnam), LOG_ERR, -rc,
+			     "failed; name='%s'", name);
 		}
 	}
 	return rc;
@@ -878,16 +892,16 @@ restart:
 	rc = chown(path, owner, group);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		switch (-rc) {
 		case EINTR:
 			goto restart;
 		default:
 			if (log != NULL) {
-				log = GT_LOG_TRACE(log, chown);
-				GT_LOGF(log, LOG_ERR, -rc,
-				        "failed; uid=%d, gid=%d",
-				         owner, group);
+				LOG_TRACE(log);
+				LOGF(log, LOG_MSG(chown), LOG_ERR, -rc,
+				     "failed; uid=%d, gid=%d",
+				     owner, group);
 			}
 			break;
 		}
@@ -904,16 +918,16 @@ restart:
 	rc = chmod(path, mode);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		switch (-rc) {
 		case EINTR:
 			goto restart;
 		default:
 			if (log != NULL) {
-				log = GT_LOG_TRACE(log, chmod);
-				GT_LOGF(log, LOG_ERR, -rc,
-				        "failed; path='%s', mode=%o",
-				        path, mode);
+				LOG_TRACE(log);
+				LOGF(log, LOG_MSG(chmod), LOG_ERR, -rc,
+				     "failed; path='%s', mode=%o",
+				     path, mode);
 			}
 			break;
 		}
@@ -929,10 +943,10 @@ gt_sys_getifaddrs(struct gt_log *log, struct ifaddrs **ifap)
 	rc = getifaddrs(ifap);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, getifaddrs);
-			GT_LOGF(log, LOG_ERR, -rc, "failed");
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(getifaddrs), LOG_ERR, -rc, "failed");
 		}
 		return rc;
 	}
@@ -948,15 +962,15 @@ gt_sys_if_indextoname(struct gt_log *log, int if_idx, char *if_name)
 	s = if_indextoname(if_idx, if_name);
 	if (s == NULL) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, if_indextoname);
-			GT_LOGF(log, LOG_ERR, -rc,
-			        "failed; if_idx=%d", if_idx);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(if_indextoname), LOG_ERR, -rc,
+			     "failed; if_idx=%d", if_idx);
 		}
 		return rc;
 	}
-	GT_ASSERT(s == if_name);
+	ASSERT(s == if_name);
 	return 0;
 }
 
@@ -968,11 +982,11 @@ gt_sys_kill(struct gt_log *log, int pid, int sig)
 	rc = kill(pid, sig);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, kill);
-			GT_LOGF(log, LOG_ERR, -rc,
-			        "failed; pid=%d, sig=%d", pid, sig);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(kill), LOG_ERR, -rc,
+			     "failed; pid=%d, sig=%d", pid, sig);
 		}
 	}
 	return rc;
@@ -986,11 +1000,11 @@ gt_sys_waitpid(struct gt_log *log, pid_t pid, int *status, int options)
 	rc = waitpid(pid, status, options);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, waitpid);
-			GT_LOGF(log, LOG_ERR, -rc,
-			        "failed; pid=%d", (int)pid);
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(waitpid), LOG_ERR, -rc,
+			     "failed; pid=%d", (int)pid);
 		}
 	}
 	return rc;
@@ -1006,11 +1020,12 @@ gt_sys_clone(struct gt_log *log, int (*fn)(void *), void *child_stack,
 	rc = (*gt_sys_clone_fn)(fn, child_stack, flags, arg, ptid, tls, ctid);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, clone);
-			GT_LOGF(log, LOG_ERR, -rc, "failed; flags=%s",
-			        gt_log_add_clone_flags(flags));
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(clone), LOG_ERR, -rc,
+			     "failed; flags=%s",
+			     log_add_clone_flags(flags));
 		}
 	}
 	return rc;
@@ -1024,10 +1039,10 @@ gt_sys_kqueue(struct gt_log *log)
 	rc = (*gt_sys_kqueue_fn)();
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		if (log != NULL) {
-			log = GT_LOG_TRACE(log, kqueue);
-			GT_LOGF(log, LOG_ERR, -rc, "failed");
+			LOG_TRACE(log);
+			LOGF(log, LOG_MSG(kqueue), LOG_ERR, -rc, "failed");
 		}
 	}
 	return rc;

@@ -4,7 +4,7 @@
 
 #include "subr.h"
 
-#define GT_SYS_DLSYM(x) \
+#define SYS_DLSYM(x) \
 do { \
 	gt_sys_##x##_fn = dlsym(RTLD_NEXT, #x); \
 	assert(gt_sys_##x##_fn != NULL); \
@@ -177,7 +177,7 @@ int gt_sys_open(struct gt_log *log, const char *path, int flags, mode_t mode);
 
 int gt_sys_socket(struct gt_log *log, int domain, int type, int protocol);
 
-void gt_sys_log_connect_failed(struct gt_log *log, int eno, int fd,
+void sys_log_connect_failed(struct gt_log *log, int eno, int fd,
 	const struct sockaddr *addr, socklen_t addrlen);
 
 int gt_sys_connect(struct gt_log *log, int fd, const struct sockaddr *addr,

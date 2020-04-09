@@ -1,6 +1,6 @@
 #include "../gbtcp_lib.h"
 
-#define GT_NETLINK_LOG_NODE_FOREACH(x) \
+#define ROUTE_LOG_MSG_FOREACH(x) \
 	x(read) \
 	x(dump) \
 	x(rtnl_open) \
@@ -9,6 +9,11 @@
 	x(handle_addr) \
 	x(handle_route) \
 
+struct route_mod {
+	struct log_scope log_scope;
+	ROUTE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+};
+
 struct gt_route_dump_req {
 	struct nlmsghdr rdmp_nlh;
 	struct ifinfomsg rdmp_ifm;
@@ -16,8 +21,7 @@ struct gt_route_dump_req {
 	uint32_t rdmp_ext_filter_mask;
 };
 
-static struct gt_log_scope this_log;
-GT_NETLINK_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct route_mod *this_mod;
 
 static const char *gt_route_nlmsg_type_str(int nlmsg_type)
 	__attribute__ ((unused));
@@ -63,7 +67,7 @@ gt_route_rtnl_open(struct gt_log *log, unsigned int nl_groups)
 	int rc, fd, opt;
 	struct sockaddr_nl addr;
 
-	log = GT_LOG_TRACE(log, rtnl_open);
+	LOG_TRACE(log);
 	rc = gt_sys_socket(log, AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 	if (rc < 0) {
 		return rc;
@@ -121,12 +125,12 @@ gt_route_handle_link(struct nlmsghdr *h, struct gt_route_msg *msg)
 	struct rtattr *attrs[IFLA_MAX + 1], *attr;
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(handle_link);
+	log = log_trace0();
 	tmp = NLMSG_LENGTH(sizeof(*ifi));
 	len = h->nlmsg_len - tmp;
 	if (len < 0) {
-		GT_LOGF(log, LOG_ERR, 0,
-		        "bad nlmsg_len; len=%d, need>=%d", h->nlmsg_len, tmp);
+		LOGF(log, LOG_MSG(handle_link), LOG_ERR, 0,
+		     "bad nlmsg_len; len=%d, need>=%d", h->nlmsg_len, tmp);
 		return -EPROTO;
 	}
 	ifi = NLMSG_DATA(h);
@@ -138,9 +142,9 @@ gt_route_handle_link(struct nlmsghdr *h, struct gt_route_msg *msg)
 	if (attr != NULL) {
 		tmp = RTA_PAYLOAD(attr);
 		if (tmp != 6) {
-			GT_LOGF(log, LOG_ERR, 0,
-			        "attr bad len; attr=IFLA_ADDRESS, len=%d, need=6",
-			        tmp);
+			LOGF(log, LOG_MSG(handle_link), LOG_ERR, 0,
+			     "attr bad len; attr=IFLA_ADDRESS, len=%d, need=6",
+			     tmp);
 			return -EPROTO;
 		}
 		memcpy(msg->rtm_link.rtml_hwaddr.etha_bytes,
@@ -157,12 +161,13 @@ gt_route_handle_addr(struct nlmsghdr *h, struct gt_route_msg *msg)
 	struct rtattr *attrs[IFA_MAX + 1], *attr;
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(handle_addr);
+	log = log_trace0();
 	tmp = NLMSG_LENGTH(sizeof(*ifa));
 	len = h->nlmsg_len - tmp;
 	if (len < 0) {
-		GT_LOGF(log, LOG_ERR, 0, "bad nlmsg_len; len=%d, need>=%d",
-		        h->nlmsg_len, tmp);
+		LOGF(log, LOG_MSG(handle_addr), LOG_ERR, 0,
+		     "bad nlmsg_len; len=%d, need>=%d",
+		     h->nlmsg_len, tmp);
 		return -EPROTO;
 	}
 	ifa = NLMSG_DATA(h);
@@ -172,8 +177,8 @@ gt_route_handle_addr(struct nlmsghdr *h, struct gt_route_msg *msg)
 	} else if (ifa->ifa_family == AF_INET6) {
 		addr_len = 16;
 	} else {
-		GT_LOGF(log, LOG_INFO, 0, "skip addr family; af=%d",
-		        ifa->ifa_family);
+		LOGF(log, LOG_MSG(handle_addr), LOG_INFO, 0,
+		     "skip addr family; af=%d", ifa->ifa_family);
 		return 0;
 	}
 	msg->rtm_af = ifa->ifa_family;
@@ -183,15 +188,15 @@ gt_route_handle_addr(struct nlmsghdr *h, struct gt_route_msg *msg)
 		attr = attrs[IFA_ADDRESS];
 	}
 	if (attr == NULL) {
-		GT_LOGF(log, LOG_ERR, 0,
-		        "attr doesnt exists; attr=IFA_ADDRESS");
+		LOGF(log, LOG_MSG(handle_addr), LOG_ERR, 0,
+		     "attr doesnt exists; attr=IFA_ADDRESS");
 		return -EPROTO;
 	}
 	tmp = RTA_PAYLOAD(attr);
 	if (tmp != addr_len) {
-		GT_LOGF(log, LOG_ERR, 0,
-		        "attr bad len; attr=IFA_ADDRESS, len=%d, need=%d",
-		        tmp, addr_len);
+		LOGF(log, LOG_MSG(handle_addr), LOG_ERR, 0,
+		     "attr bad len; attr=IFA_ADDRESS, len=%d, need=%d",
+		     tmp, addr_len);
 		return -EPROTO;
 	}
 	memcpy(msg->rtm_addr.ipa_data, RTA_DATA(attr), addr_len);
@@ -207,22 +212,23 @@ gt_route_handle_route(struct nlmsghdr *h, struct gt_route_msg *msg)
 	struct rtattr *attrs[RTA_MAX + 1], *attr;
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(handle_route);
+	log = log_trace0();
 	tmp = NLMSG_LENGTH(sizeof(*rtm));
 	len = h->nlmsg_len - tmp;
 	if (len < 0) {
-		GT_LOGF(log, LOG_ERR, 0, "bad nlmsg_len; len=%d, need>=%d",
-		        h->nlmsg_len, tmp);
+		LOGF(log, LOG_MSG(handle_route), LOG_ERR, 0,
+		     "bad nlmsg_len; len=%d, need>=%d",
+		     h->nlmsg_len, tmp);
 		return -EPROTO;
 	}
 	rtm = NLMSG_DATA(h);
 	if (rtm->rtm_flags & RTM_F_CLONED) {
-		GT_LOGF(log, LOG_INFO, 0, "RTM_F_CLONED");
+		LOGF(log, LOG_MSG(handle_route), LOG_INFO, 0, "RTM_F_CLONED");
 		return 0;
 	}
 	if (rtm->rtm_type != RTN_UNICAST) {
-		GT_LOGF(log, LOG_INFO, 0, "not unicast; rtm_type=%d",
-		        rtm->rtm_type);
+		LOGF(log, LOG_MSG(handle_route), LOG_INFO, 0,
+		     "not unicast; rtm_type=%d", rtm->rtm_type);
 		return 0;
 	}
 	if (rtm->rtm_family == AF_INET) {
@@ -230,8 +236,8 @@ gt_route_handle_route(struct nlmsghdr *h, struct gt_route_msg *msg)
 	} else if (rtm->rtm_family == AF_INET6) {
 		addr_len = 16;
 	} else {
-		GT_LOGF(log, LOG_INFO, 0, "skip addr family; af=%d",
-		        rtm->rtm_family);
+		LOGF(log, LOG_MSG(handle_route), LOG_INFO, 0,
+		     "skip addr family; af=%d", rtm->rtm_family);
 		return 0;
 	}
 	msg->rtm_af = rtm->rtm_family;
@@ -241,9 +247,9 @@ gt_route_handle_route(struct nlmsghdr *h, struct gt_route_msg *msg)
 	if (attr != NULL) {
 		tmp = RTA_PAYLOAD(attr);
 		if (tmp != sizeof(uint32_t)) {
-			GT_LOGF(log, LOG_ERR, 0,
-			        "attr bad len; attr=RTA_TABLE, len=%d, need=%zu",
-			        tmp, sizeof(uint32_t));
+			LOGF(log, LOG_MSG(handle_addr), LOG_ERR, 0,
+			     "attr bad len; attr=RTA_TABLE, len=%d, need=%zu",
+			     tmp, sizeof(uint32_t));
 			return -EPROTO;
 		}
 		table = gt_route_get_attr_u32(attr);
@@ -266,31 +272,32 @@ gt_route_handle_route(struct nlmsghdr *h, struct gt_route_msg *msg)
 	} else {
 		tmp = RTA_PAYLOAD(attr);
 		if (tmp != addr_len) {
-			GT_LOGF(log, LOG_ERR, 0,
-			        "attr bad len; attr=RTA_DST, len=%d, need=%d",
-			        tmp, addr_len);
+			LOGF(log, LOG_MSG(handle_route), LOG_ERR, 0,
+			     "attr bad len; attr=RTA_DST, len=%d, need=%d",
+			     tmp, addr_len);
 			return -EPROTO;
 		}
 		memcpy(msg->rtm_route.rtmr_dst.ipa_data,
 		       RTA_DATA(attr), addr_len);
 	}
 	if (rtm->rtm_dst_len > addr_len * 8) {
-		GT_LOGF(log, LOG_ERR, 0,
-		        "attr bad len; rtm_dst_len=%d, need>%d",
-		        rtm->rtm_dst_len, addr_len * 8);
+		LOGF(log, LOG_MSG(handle_addr), LOG_ERR, 0,
+		     "attr bad len; rtm_dst_len=%d, need>%d",
+		     rtm->rtm_dst_len, addr_len * 8);
 		return -EPROTO;
 	}	
 	msg->rtm_route.rtmr_pfx = rtm->rtm_dst_len;
 	attr = attrs[RTA_OIF];
 	if (attr == NULL) {
-		GT_LOGF(log, LOG_ERR, 0, "attr doesnt exists; attr=RTA_OIF");
+		LOGF(log, LOG_MSG(handle_route), LOG_ERR, 0,
+		     "attr doesnt exists; attr=RTA_OIF");
 		return -EPROTO;
 	}
 	tmp = RTA_PAYLOAD(attr);
 	if (tmp != sizeof(uint32_t)) {
-		GT_LOGF(log, LOG_ERR, 0,
-		        "attr bad len; attr=RTA_OIF, len=%d, need=%zu",
-		        tmp, sizeof(uint32_t));
+		LOGF(log, LOG_MSG(handle_route), LOG_ERR, 0,
+		     "attr bad len; attr=RTA_OIF, len=%d, need=%zu",
+		     tmp, sizeof(uint32_t));
 		return -EPROTO;
 	}
 	msg->rtm_if_idx = gt_route_get_attr_u32(attr);
@@ -298,9 +305,9 @@ gt_route_handle_route(struct nlmsghdr *h, struct gt_route_msg *msg)
 	if (attr != NULL) {
 		tmp = RTA_PAYLOAD(attr);
 		if (tmp != addr_len) {
-			GT_LOGF(log, LOG_ERR, 0,
-			        "attr bad len; attr=RTA_GATEWAY, len=%d, need=%d",
-			        tmp, addr_len);
+			LOGF(log, LOG_MSG(handle_route), LOG_ERR, 0,
+			     "attr bad len; attr=RTA_GATEWAY, len=%d, need=%d",
+			     tmp, addr_len);
 			return -EPROTO;
 		}
 		memcpy(msg->rtm_route.rtmr_via.ipa_data,
@@ -316,7 +323,7 @@ gt_route_rtnl_handler(struct nlmsghdr *h, gt_route_msg_f fn)
 	struct gt_route_msg msg;
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(rtnl_handler);
+	log = log_trace0();
 	memset(&msg, 0, sizeof(msg));
 	msg.rtm_cmd = GT_ROUTE_MSG_DEL;
 	switch (h->nlmsg_type) {
@@ -339,16 +346,18 @@ gt_route_rtnl_handler(struct nlmsghdr *h, gt_route_msg_f fn)
 		rc = gt_route_handle_route(h, &msg);
 		break;
 	default:
-		GT_LOGF(log, LOG_INFO, 0, "unknown; nlmsg_type=%d",
-		        h->nlmsg_type);
+		LOGF(log, LOG_MSG(rtnl_handler), LOG_INFO, 0,
+		     "unknown; nlmsg_type=%d", h->nlmsg_type);
 		return 0;
 	}
 	if (rc < 0) {
-		GT_LOGF(log, LOG_ERR, -rc, "failed; nlmsg_type=%s",
-		        gt_route_nlmsg_type_str(h->nlmsg_type));
+		LOGF(log, LOG_MSG(rtnl_handler), LOG_ERR, -rc,
+		     "failed; nlmsg_type=%s",
+		     gt_route_nlmsg_type_str(h->nlmsg_type));
 	} else {
-		GT_LOGF(log, LOG_INFO, 0, "ok; nlmsg_type=%s",
-		        gt_route_nlmsg_type_str(h->nlmsg_type));
+		LOGF(log, LOG_MSG(rtnl_handler), LOG_INFO, 0,
+		     "ok; nlmsg_type=%s",
+		     gt_route_nlmsg_type_str(h->nlmsg_type));
 	}
 	if (rc == 1 && fn != NULL) {
 		(*fn)(&msg);
@@ -367,7 +376,7 @@ gt_route_read(int fd, gt_route_msg_f fn)
 	struct iovec iov;
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(read);
+	log = log_trace0();
 	iov.iov_base = buf;
 	iov.iov_len = sizeof(buf);
 	memset(&addr, 0, sizeof(addr));
@@ -398,7 +407,7 @@ gt_route_read(int fd, gt_route_msg_f fn)
 		}
 	}
 	if (msg.msg_flags & MSG_TRUNC) {
-		GT_LOGF(log, LOG_ERR, 0, "truncated");
+		LOGF(log, LOG_MSG(read), LOG_ERR, 0, "truncated");
 		return 0;
 	}
 	return 0;
@@ -409,8 +418,7 @@ gt_route_open(struct gt_log *log)
 {
 	int rc, g;
 
-	gt_log_scope_init(&this_log, "netlink");
-	GT_NETLINK_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
+	log_scope_init(&this_mod->log_scope, "netlink");
 	g = 0;
 	g |= RTMGRP_LINK;
 	g |= RTMGRP_IPV4_IFADDR;
@@ -442,7 +450,7 @@ gt_route_dump(gt_route_msg_f fn)
 	struct gt_log *log;
 	struct gt_route_dump_req req;
 
-	log = GT_LOG_TRACE1(dump);
+	log = log_trace0();
 	rc = gt_route_rtnl_open(log, 0);
 	if (rc < 0) {
 		return rc;

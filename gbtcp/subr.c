@@ -11,12 +11,9 @@ union gt_tsc {
 	};
 };
 
-#define GT_SUBR_LOG_NODE_FOREACH(x) \
-	x(mod_init) \
-	x(mod_deinit) \
-	x(flock_pidfile) \
-	x(read_pidfile) \
-	x(read_rss_key)
+struct subr_mod {
+	struct log_scope log_scope;
+};
 
 uint64_t gt_nsec;
 uint64_t gt_mHZ;
@@ -25,8 +22,7 @@ int gt_application_pid;
 const char *gt_application_name;
 char gt_application_name_buf[32];
 
-static struct gt_log_scope this_log;
-GT_SUBR_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC)
+static struct subr_mod *this_mod;
 
 #define GT_MURMUR_MMIX(h,k) \
 do { \
@@ -83,7 +79,7 @@ gt_application_name_init()
 	char tmpbuf[1000];
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(mod_init);
+	log = log_trace0();
 	snprintf(tmpbuf, sizeof(tmpbuf), "/proc/%d/status",
 		 gt_application_pid);
 	rc = gt_sys_fopen(log, &file, tmpbuf, "r");
@@ -132,19 +128,18 @@ gt_subr_mod_init()
 	srand48(time(NULL));
 	gt_application_pid = getpid();
 	gt_application_name_init();
-	gt_log_scope_init(&this_log, "subr");
-	GT_SUBR_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
-	log = GT_LOG_TRACE1(mod_init);
-	GT_LOGF(log, LOG_INFO, 0, "app=%s, HZ=%"PRIu64,
-	        gt_application_name, 1000000 * gt_mHZ);
+	log_scope_init(&this_mod->log_scope, "subr");
+	log = log_trace0();
+	LOGF(log, mod_init, LOG_INFO, 0, "app=%s, HZ=%"PRIu64,
+	     gt_application_name, 1000000 * gt_mHZ);
 	return 0;
 }
 
 void
 gt_subr_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
-	gt_log_scope_deinit(log, &this_log);
+	log = log_trace0();
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 int
@@ -424,7 +419,7 @@ gt_flock_pidfile(struct gt_log *log, int pid, const char *filename)
 	char buf[32];
 	char path[PATH_MAX];
 
-	log = GT_LOG_TRACE(log, flock_pidfile);
+	LOG_TRACE(log);
 	snprintf(path, sizeof(path), "%s/pid/%s", GT_PREFIX, filename);
 	rc = gt_sys_open(log, path, O_CREAT|O_RDWR, 0666);
 	if (rc < 0) {
@@ -450,7 +445,7 @@ gt_read_pidfile(struct gt_log *log, int fd, const char *filename)
 	char buf[32];
 	char path[PATH_MAX];
 
-	log = GT_LOG_TRACE(log, read_pidfile);
+	LOG_TRACE(log);
 	snprintf(path, sizeof(path), "%s/pid/%s", GT_PREFIX, filename);
 	rc = gt_sys_read(log, fd, buf, sizeof(buf) - 1);
 	if (rc < 0) {
@@ -459,7 +454,8 @@ gt_read_pidfile(struct gt_log *log, int fd, const char *filename)
 	buf[rc] = '\0';
 	rc = sscanf(buf, "%d", &pid);
 	if (rc != 1 || pid <= 0) {
-		GT_LOGF(log, LOG_ERR, 0, "pidfile='%s' bad format", path);
+		LOGF(log, read_pidfile, LOG_ERR, 0,
+		     "pidfile='%s' bad format", path);
 		return -EINVAL;
 	} else {
 		return pid;
@@ -518,7 +514,7 @@ gt_connect_timed(struct gt_log *log, int fd, const struct sockaddr *addr,
 	if (eno == 0) {
 		return 0;
 	} else if (eno != EINPROGRESS) {
-		gt_sys_log_connect_failed(log, eno, fd, addr, addrlen);
+		sys_log_connect_failed(log, eno, fd, addr, addrlen);
 		return -eno;
 	}
 	pfd.events = POLLOUT;
@@ -572,13 +568,13 @@ gt_write_all(struct gt_log *log, int fd, const void *buf, size_t cnt)
 
 #ifdef __linux__
 int
-gt_read_rss_key(struct gt_log *log, const char *ifname, uint8_t *rss_key)
+read_rsskey(struct gt_log *log, const char *ifname, uint8_t *rss_key)
 {
 	int fd, rc, size, off;
 	struct ifreq ifr;
 	struct ethtool_rxfh rss, *rss2;
 
-	log = GT_LOG_TRACE(log, read_rss_key);
+	LOG_TRACE(log);
 	rc = gt_sys_socket(log, AF_INET, SOCK_DGRAM, 0);
 	if (rc < 0) {
 		return rc;
@@ -592,8 +588,8 @@ gt_read_rss_key(struct gt_log *log, const char *ifname, uint8_t *rss_key)
 		goto out;
 	}
 	if (rss.key_size != GT_RSS_KEY_SIZE) {
-		GT_LOGF(log, LOG_ERR, 0, "invalid rss key_size; key_size=%d",
-		        rss.key_size);
+		LOGF(log, read_rsskey, LOG_ERR, 0,
+		     "invalid rss key_size; key_size=%d", rss.key_size);
 		goto out;
 	}
 	size = (sizeof(rss) + rss.key_size +
@@ -621,7 +617,7 @@ out:
 }
 #else /* __linux__ */
 int
-gt_read_rss_key(struct gt_log *log, const char *ifname, uint8_t *rss_key)
+read_rsskey(struct gt_log *log, const char *ifname, uint8_t *rss_key)
 {
 	return 0;
 }

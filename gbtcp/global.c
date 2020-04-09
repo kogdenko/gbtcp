@@ -20,9 +20,6 @@
 #include "service.h"
 #include "api.h"
 
-#define GT_GLOBAL_LOG_NODE_FOREACH(x) \
-	x(deinit) \
-
 struct gt_global_mod {
 	int (*m_init)();
 	void (*m_deinit)(struct gt_log *);
@@ -67,23 +64,21 @@ static struct gt_global_mod gt_global_modules[] = {
 	GT_GLOBAL_MOD(tcp),
 };
 
-static struct gt_log_scope this_log;
-GT_GLOBAL_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct log_scope this_log;
 
 static int gt_global_compute_HZ();
 
 int
 gt_global_mod_init()
 {
-	gt_log_scope_init(&this_log, "global");
-	GT_GLOBAL_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
+	log_scope_init(&this_log, "global");
 	return 0;
 }
 
 void
 gt_global_mod_deinit(struct gt_log *log)
 {
-	gt_log_scope_deinit(log, &this_log);
+	log_scope_deinit(log, &this_log);
 }
 
 int
@@ -122,7 +117,7 @@ gt_global_deinit(struct gt_log *log)
 	struct gt_global_mod *mod;
 
 	assert(gt_global_inited);
-	log = GT_LOG_TRACE(log, deinit);
+	LOG_TRACE(log);
 	for (i = GT_ARRAY_SIZE(gt_global_modules) - 1; i >= 0; --i) {
 		mod = gt_global_modules + i;
 		if (mod->m_inited) {

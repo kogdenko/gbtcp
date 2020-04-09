@@ -20,7 +20,7 @@
 #define GT_SERVICE_WAITPID_OPTIONS 0
 #endif /* __linux__ */
 
-#define GT_SERVICE_LOG_NODE_FOREACH(x) \
+#define SERVICE_LOG_MSG_FOREACH(x) \
 	x(mod_init) \
 	x(mod_deinit) \
 	x(if_add) \
@@ -39,13 +39,19 @@
 	x(fork) \
 
 #ifdef __linux__
-#define GT_SERVICE_LOG_NODE_FOREACH_OS(x) \
+#define SERVICE_LOG_MSG_FOREACH_OS(x) \
 	x(clone) \
 
 #else /* __linux__ */
-#define GT_SERVICE_LOG_NODE_FOREACH_OS(x) \
+#define SERVICE_LOG_MSG_FOREACH_OS(x) \
 
 #endif /* __linux__ */
+
+struct service_mod {
+	struct log_scope log_scope;
+	SERVICE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+	SERVICE_LOG_MSG_FOREACH_OS(LOG_MSG_DECLARE);
+};
 
 struct gt_service_sock {
 	struct dllist ss_list;
@@ -62,9 +68,7 @@ static int gt_service_subscribed;
 static int gt_service_status = GT_SERVICE_NONE;
 static int gt_service_done;
 static int gt_service_epoch;
-static struct gt_log_scope this_log;
-GT_SERVICE_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
-GT_SERVICE_LOG_NODE_FOREACH_OS(GT_LOG_NODE_STATIC);
+static struct service_mod *this_mod;
 
 #ifdef __linux__
 static int (*gt_service_clone_fn)(void *);
@@ -148,10 +152,8 @@ gt_service_mod_init()
 {
 	struct gt_log *log;
 
-	gt_log_scope_init(&this_log, "service");
-	GT_SERVICE_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
-	GT_SERVICE_LOG_NODE_FOREACH_OS(GT_LOG_NODE_INIT);
-	log = GT_LOG_TRACE1(mod_init);
+	log_scope_init(&this_mod->log_scope, "service");
+	log = log_trace0();
 	gt_ctl_add_int(log, GT_CTL_SERVICE_CHILD_CLOSE_LISTEN_SOCKS, GT_CTL_LD,
 	               &gt_service_ctl_child_close_listen_socks, 0, 1);
 	gt_ctl_add_int(log, GT_CTL_SERVICE_POLLING, GT_CTL_LD,
@@ -164,11 +166,11 @@ gt_service_mod_init()
 void
 gt_service_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
+	log = log_trace0();
 	gt_ctl_del(log, GT_CTL_SERVICE_POLLING);
 	gt_ctl_del(log, GT_CTL_SERVICE_CHILD_CLOSE_LISTEN_SOCKS);
 	gt_ctl_del(log, GT_CTL_SERVICE_STATUS);
-	gt_log_scope_deinit(log, &this_log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 const char *
@@ -179,7 +181,7 @@ gt_service_status_str(int status)
 	case GT_SERVICE_SHADOW: return "shadow";
 	case GT_SERVICE_NONE: return "none";
 	default:
-		GT_BUG;
+		BUG;
 		return "";
 	}
 }
@@ -234,7 +236,7 @@ gt_service_if_in(struct gt_route_if *ifp, uint8_t *data, int len)
 		gt_dev_tx3(&gt_service_pipe, data, len);
 		break;
 	default:
-		GT_BUG;
+		BUG;
 		break;
 	}
 }
@@ -330,7 +332,7 @@ gt_service_route_if_set_link_status(struct gt_log *log,
 	rc = 0;
 	if (add) {
 		if (gt_service_status == GT_SERVICE_ACTIVE) {
-			log = GT_LOG_TRACE(log, if_add);
+			LOG_TRACE(log);
 			rc = gt_service_dev_init(log, ifp);
 		}
 	} else {
@@ -369,9 +371,9 @@ gt_service_set_status(struct gt_log *log, int status)
 	if (gt_service_status == status) {
 		return 0;
 	}
-	log = GT_LOG_TRACE(log, set_status);
-	GT_LOGF(log, LOG_INFO, 0, "hit; status=%s",
-	        gt_service_status_str(status));
+	LOG_TRACE(log);
+	LOGF(log, set_status, LOG_INFO, 0, "hit; status=%s",
+	     gt_service_status_str(status));
 	if (gt_service_pid == 0) {
 		return -ESRCH;
 	}
@@ -417,7 +419,7 @@ gt_service_polling(void *arg)
 	struct gt_log *log;
 	struct gt_file *fp;
 
-	log = GT_LOG_TRACE1(polling);
+	log = log_trace0();
 	t0 = gt_global_get_time();
 	sigfillset(&mask);
 	gt_sys_sigprocmask(log, SIG_SETMASK, &mask, NULL);
@@ -432,7 +434,7 @@ gt_service_polling(void *arg)
 		}
 		gt_fd_event_mod_trylock_check();
 	}
-	GT_LOGF(log, LOG_INFO, 0, "application gone");
+	LOGF(log, polling, LOG_INFO, 0, "application gone");
 	GT_FILE_FOREACH_SAFE(fp, tmp_id) {
 		gt_file_close(fp, GT_SOCK_GRACEFULL);
 	}
@@ -449,7 +451,7 @@ gt_service_start_polling(struct gt_log *log)
 	int rc, flags;
 
 	gt_service_done = 0;
-	log = GT_LOG_TRACE(log, start_polling);
+	LOG_TRACE(log);
 	rc = gt_sys_malloc(log, &gt_service_polling_stack,
 	                   GT_SERVICE_STACK_SIZE);
 	if (rc < 0) {
@@ -471,7 +473,7 @@ gt_service_start_polling(struct gt_log *log)
 int
 gt_service_start_polling(struct gt_log *log)
 {
-	GT_BUG;
+	BUG;
 	return -ENOTSUP;
 }
 #endif /* __linux__ */
@@ -489,7 +491,7 @@ gt_service_stop_polling(struct gt_log *log)
 	if (pid == gt_service_pid) {
 		return 0;
 	}
-	log = GT_LOG_TRACE(log, stop_polling);
+	LOG_TRACE(log);
 	rc = gt_sys_waitpid(log, gt_service_pid, &status,
 	                    GT_SERVICE_WAITPID_OPTIONS);
 	free(gt_service_polling_stack);
@@ -505,8 +507,8 @@ gt_service_sub(struct gt_log *log)
 {
 	int rc;
 	
-	GT_ASSERT(!gt_service_subscribed);
-	log = GT_LOG_TRACE(log, sub);
+	ASSERT(!gt_service_subscribed);
+	LOG_TRACE(log);
 	rc = gt_ctl_sub(log, gt_service_unsub_handler);
 	if (rc == 0) {
 		gt_service_subscribed = 1;
@@ -525,7 +527,7 @@ gt_service_sync(struct gt_log *log)
 		NULL,
 	};
 
-	log = GT_LOG_TRACE(log, sync);
+	LOG_TRACE(log);
 	for (i = 0; names[i] != NULL; ++i) {
 		rc = gt_ctl_sync(log, names[i]);
 		if (rc) {
@@ -544,13 +546,13 @@ gt_service_add(struct gt_log *log)
 	struct iovec iov[3 + GT_RSS_KEY_SIZE];
 	char buf[128 + 3 * GT_RSS_KEY_SIZE];
 
-	log = GT_LOG_TRACE(log, add);
+	LOG_TRACE(log);
 	snprintf(buf, sizeof(buf), "%d", gt_service_pid);
 	rc = gt_ctl(log, 0, GT_CTL_SERVICE_ADD, buf, sizeof(buf), buf);
 	if (rc < 0) {
 		return rc;
 	} else if (rc > 0) {
-		GT_LOGF(log, LOG_ERR, rc, "err rpl");
+		LOGF(log, add, LOG_ERR, rc, "err rpl");
 		return -rc;
 	}
 	rc = gt_strsplit(buf, ",:", iov, GT_ARRAY_SIZE(iov));
@@ -581,9 +583,9 @@ gt_service_add(struct gt_log *log)
 	if (rss_q_cnt == 0 || rss_q_cnt > GT_SERVICES_MAX ||
 	    rss_q_id > rss_q_cnt ||
 	    port_pairity > 1) {
-		GT_LOGF(log, LOG_ERR, 0,
-		        "bad rpl; rss_q_id=%d, rss_q_cnt=%d, port_pairity=%d",
-		        rss_q_id, rss_q_cnt, port_pairity);
+		LOGF(log, add, LOG_ERR, 0,
+		     "bad rpl; rss_q_id=%d, rss_q_cnt=%d, port_pairity=%d",
+		     rss_q_id, rss_q_cnt, port_pairity);
 		return -EINVAL;
 	}
 	gt_route_rss_q_id = rss_q_id;
@@ -591,7 +593,7 @@ gt_service_add(struct gt_log *log)
 	gt_route_port_pairity = port_pairity;
 	return 0;
 err:
-	GT_LOGF(log, LOG_ERR, 0, "invalid rpl; rpl=%s", buf);
+	LOGF(log, add, LOG_ERR, 0, "invalid rpl; rpl=%s", buf);
 	return -EINVAL;
 }
 
@@ -604,8 +606,8 @@ gt_service_init(struct gt_log *log)
 	if (gt_service_pid) {
 		return 0;
 	}
-	log = GT_LOG_TRACE(log, init);
-	GT_LOGF(log, LOG_INFO, 0, "hit; epoch=%d", gt_service_epoch);
+	LOG_TRACE(log);
+	LOGF(log, init, LOG_INFO, 0, "hit; epoch=%d", gt_service_epoch);
 	gt_route_if_set_link_status_fn = gt_service_route_if_set_link_status;
 	gt_route_if_not_empty_txr_fn = gt_service_route_if_not_empty_txr;
 	gt_route_if_tx_fn = gt_service_route_if_tx;
@@ -638,10 +640,10 @@ gt_service_init(struct gt_log *log)
 	}
 	gt_service_sync(log);
 	gt_sock_no_opened_fn = gt_service_del;
-	GT_LOGF(log, LOG_INFO, 0,
-	        "ok; pid=%d, rss_q_id=%d, rss_q_cnt=%d, port_pairity=%d",
-	        gt_service_pid, gt_route_rss_q_id,
-	        gt_route_rss_q_cnt, gt_route_port_pairity);
+	LOGF(log, init, LOG_INFO, 0,
+	     "ok; pid=%d, rss_q_id=%d, rss_q_cnt=%d, port_pairity=%d",
+	     gt_service_pid, gt_route_rss_q_id,
+	     gt_route_rss_q_cnt, gt_route_port_pairity);
 	return 0;
 err4:
 	gt_ctl_unsub_me();
@@ -663,8 +665,8 @@ err:
 static void
 gt_service_clean(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, clean);
-	GT_LOGF(log, LOG_INFO, 0, "hit");
+	LOG_TRACE(log);
+	LOGF(log, clean, LOG_INFO, 0, "hit");
 	gt_service_epoch++;
 	gt_service_stop_polling(log);
 	gt_dev_deinit(&gt_service_pipe);
@@ -701,8 +703,8 @@ gt_service_del()
 	char buf[32];
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(del);
-	GT_LOGF(log, LOG_INFO, 0, "hit");
+	log = log_trace0();
+	LOGF(log, del, LOG_INFO, 0, "hit");
 	gt_sock_no_opened_fn = NULL;
 	rc = gt_ctl_binded_pid(log);
 	if (rc > 0) {
@@ -737,7 +739,7 @@ gt_service_unsub_handler()
 		}
 	}
 	if (gt_sock_nr_opened == 0) {
-		log = GT_LOG_TRACE1(unsub);
+		log = log_trace0();
 		gt_service_clean(log);
 	}
 }
@@ -789,7 +791,7 @@ gt_service_in_child(struct gt_log *log)
 	struct gt_sock *so;
 	struct gt_service_sock *sso;
 
-	log = GT_LOG_TRACE(log, in_child);
+	LOG_TRACE(log);
 	gt_service_epoch = 0;
 	dllist_init(&so_head);
 	if (!gt_service_ctl_child_close_listen_socks) {
@@ -815,7 +817,7 @@ gt_service_in_child(struct gt_log *log)
 	gt_global_deinit(log);
 	gt_global_init();
 	gt_ctl_read_file(log, NULL);
-	log = GT_LOG_TRACE1(in_child);
+	log = log_trace0();
 	gt_service_listen(log, &so_head);
 	while (!dllist_isempty(&so_head)) {
 		sso = DLLIST_FIRST(&so_head, struct gt_service_sock, ss_list);
@@ -829,7 +831,7 @@ gt_service_fork(struct gt_log *log)
 {
 	int rc, pid;
 
-	log = GT_LOG_TRACE(log, fork);
+	LOG_TRACE(log);
 	rc = gt_sys_fork(log);
 	if (rc >= 0) {
 		pid = rc;
@@ -849,7 +851,7 @@ gt_service_clone_fn_locked(void *arg)
 	int (*fn)(void *);
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(clone);
+	log = log_trace0();
 	gt_service_in_child(log);
 	fn = gt_service_clone_fn;
 	GT_GLOBAL_UNLOCK;

@@ -15,7 +15,7 @@
 #define GT_ARP_MIN_RANDOM_FACTOR 0.5
 #define GT_ARP_MAX_RANDOM_FACTOR 1.5
 
-#define ARP_LOG_NODE_FOREACH(x) \
+#define ARP_LOG_MSG_FOREACH(x) \
 	x(mod_init) \
 	x(mod_deinit) \
 	x(alloc) \
@@ -25,6 +25,11 @@
 	x(resolve) \
 	x(update) \
 	x(add) \
+
+struct arp_mod {
+	struct log_scope log_scope;
+	ARP_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+};
 
 enum gt_arp_state {
 	GT_ARP_NONE = 0,
@@ -52,8 +57,7 @@ static struct gt_mbuf_pool *gt_arp_pkt_pool;
 static gt_htable_t gt_arp_htable;
 static gt_time_t gt_arp_reachable_time;
 static struct gt_timer gt_arp_timer_calc_reachable_time;
-static struct gt_log_scope this_log;
-ARP_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct arp_mod *this_mod;
 
 static void gt_arp_probe_timeout(struct gt_timer *timer);
 
@@ -201,7 +205,7 @@ gt_arp_tx_probe(struct gt_arp_entry *e)
 		len = gt_arp_fill_probe4(eh, route.rt_ifa->ria_addr.ipa_4,
 		                         e->ae_next_hop);
 	} else {
-		GT_BUG;
+		BUG;
 	}
 	pkt.pkt_len = len;
 	gt_route_if_tx(route.rt_ifp, &pkt);
@@ -236,8 +240,8 @@ gt_arp_calc_reachable_time()
 	max = GT_ARP_REACHABLE_TIME * GT_ARP_MAX_RANDOM_FACTOR;
 	x = gt_rand64();
 	x = min + (max - min) * x / UINT64_MAX;
-	GT_ASSERT(x >= min);
-	GT_ASSERT(x <= max);
+	ASSERT(x >= min);
+	ASSERT(x <= max);
 	return x;
 }
 
@@ -317,9 +321,8 @@ gt_arp_mod_init()
 	int rc;
 	struct gt_log *log;
 
-	gt_log_scope_init(&this_log, "arp");
-	ARP_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
-	log = GT_LOG_TRACE1(mod_init);
+	log_scope_init(&this_mod->log_scope, "arp");
+	log = log_trace0();
 	rc = gt_htable_create(log, &gt_arp_htable, 32, gt_arp_hash);
 	if (rc) {
 		return rc;
@@ -349,23 +352,23 @@ gt_arp_mod_init()
 void
 gt_arp_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
+	log = log_trace0();
 	gt_ctl_del(log, "arp.add");
 	gt_ctl_del(log, "arp.list");
 	gt_htable_free(&gt_arp_htable);
 	gt_mbuf_pool_del(gt_arp_pkt_pool);
 	gt_mbuf_pool_del(gt_arp_entry_pool);
 	gt_timer_del(&gt_arp_timer_calc_reachable_time);
-	gt_log_scope_deinit(log, &this_log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 static inline void
 gt_arp_set_state(struct gt_log *log, struct gt_arp_entry *e, int state)
 {
-	log = GT_LOG_TRACE(log, set_state);
-	GT_LOGF(log, LOG_INFO, 0, "hit; state=%s->%s, next_hop=%s",
-	        gt_arp_state_str(e->ae_state), gt_arp_state_str(state),
-	        gt_log_add_ip_addr(AF_INET, &e->ae_next_hop));
+	LOG_TRACE(log);
+	LOGF(log, set_state, LOG_INFO, 0, "hit; state=%s->%s, next_hop=%s",
+	     gt_arp_state_str(e->ae_state), gt_arp_state_str(state),
+	     log_add_ipaddr(AF_INET, &e->ae_next_hop));
 	e->ae_state = state;
 	if (state == GT_ARP_REACHABLE) {
 		gt_timer_del(&e->ae_timer);
@@ -381,7 +384,7 @@ gt_arp_entry_alloc(struct gt_log *log, struct gt_arp_entry **ep,
 	int rc;
 	struct gt_arp_entry *e;
 
-	log = GT_LOG_TRACE(log, alloc);
+	LOG_TRACE(log);
 	rc = gt_mbuf_alloc(log, gt_arp_entry_pool, (struct gt_mbuf **)ep);
 	if (rc) {
 		return rc;
@@ -400,7 +403,7 @@ gt_arp_entry_alloc(struct gt_log *log, struct gt_arp_entry **ep,
 static void
 gt_arp_entry_del(struct gt_log *log,struct gt_arp_entry *e)
 {
-	log = GT_LOG_TRACE(log, del);
+	LOG_TRACE(log);
 	gt_htable_del(&gt_arp_htable, (struct dllist *)e);
 	gt_timer_del(&e->ae_timer);
 	gt_arp_set_state(log, e, GT_ARP_NONE);
@@ -445,7 +448,7 @@ gt_arp_probe_timeout(struct gt_timer *timer)
 		return;
 	}
 	if (e->ae_nprobes >= GT_ARP_MAX_UNICAST_SOLICIT) {
-		log = GT_LOG_TRACE1(probe_timeout);
+		log = log_trace0();
 		gt_arp_entry_del(log, e);
 	} else {
 		gt_arp_tx_probe(e);
@@ -474,7 +477,7 @@ gt_arp_resolve(struct gt_route_if *ifp, be32_t next_hop,
 	struct gt_log *log;
 	struct gt_arp_entry *e, *tmp;
 
-	log = GT_LOG_TRACE1(resolve);
+	log = log_trace0();
 	hash = gt_custom_hash32(next_hop, 0);
 	bucket = gt_htable_bucket(&gt_arp_htable, hash);
 	DLLIST_FOREACH_SAFE(e, bucket, ae_list, tmp) {
@@ -490,7 +493,7 @@ gt_arp_resolve(struct gt_route_if *ifp, be32_t next_hop,
 				gt_arp_entry_add_incomplete(log, e, pkt);
 				return;
 			}
-			GT_ASSERT(e->ae_incq == NULL);
+			ASSERT(e->ae_incq == NULL);
 			gt_arp_set_eth_hdr(e, ifp, pkt->pkt_data);
 			gt_route_if_tx(ifp, pkt);
 			if (e->ae_state == GT_ARP_STALE) {
@@ -515,9 +518,9 @@ gt_arp_update(struct gt_arp_advert_msg *msg)
 	struct gt_log *log;
 	struct gt_arp_entry *e;
 
-	log = GT_LOG_TRACE1(update);
-	GT_LOGF(log, LOG_INFO, 0, "hit; next_hop=%s",
-	        gt_log_add_ip_addr(AF_INET, &msg->arpam_next_hop));
+	log = log_trace0();
+	LOGF(log, update, LOG_INFO, 0, "hit; next_hop=%s",
+	     gt_log_add_ip_addr(AF_INET, &msg->arpam_next_hop));
 	// RFC-4861
 	// 7.2.5.  Receipt of Neighbor Advertisements
 	// Appendix C: State Machine for the Reachability State
@@ -588,7 +591,7 @@ gt_arp_add(be32_t next_hop, struct gt_eth_addr *addr)
 	struct gt_log *log;
 	struct gt_arp_entry *e;
 
-	log = GT_LOG_TRACE1(add);
+	log = log_trace0();
 	e = gt_arp_entry_get(next_hop);
 	if (e != NULL) {
 		return -EEXIST;

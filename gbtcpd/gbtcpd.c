@@ -17,7 +17,7 @@ struct gtd_service {
 	struct gtd_net_stat_entry *s_req;
 };
 
-#define GTD_LOG_NODE_FOREACH(x) \
+#define GTD_LOG_MSG_FOREACH(x) \
 	x(service_get_net_stat) \
 	x(service_get_if_stat) \
 	x(service_sub_handler) \
@@ -73,7 +73,6 @@ static struct gtd_net_stat_entry gtd_net_stat_entries[] = {
 	GT_IP_STAT(GTD_IP_STAT)
 	GT_ARP_STAT(GTD_ARP_STAT)
 	{ NULL, NULL }
-
 };
 #undef GTD_TCP_STATE
 #undef GTD_TCP_STAT
@@ -81,9 +80,13 @@ static struct gtd_net_stat_entry gtd_net_stat_entries[] = {
 #undef GTD_IP_STAT
 #undef GTD_ARP_STAT
 
+struct gtd_mod {
+	struct log_scope log_scope;
+	GTD_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+};
+
 static struct gtd_service *gtd_services[2][GT_SERVICES_MAX];
-static struct gt_log_scope this_log;
-GTD_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct gtd_mod *this_mod;
 
 static void gtd_service_unref(struct gt_log *log, struct gtd_service *s);
 
@@ -156,11 +159,12 @@ static int gtd_ctl_service_list(void *udata, int id, const char *new,
 static void
 gtd_service_unref(struct gt_log *log, struct gtd_service *s)
 {
-	GT_ASSERT(s->s_ref_cnt > 0);
+	ASSERT(s->s_ref_cnt > 0);
 	s->s_ref_cnt--;
 	if (s->s_ref_cnt == 0) {
-		log = GT_LOG_TRACE(log, service_free);
-		GT_LOGF(log, LOG_INFO, 0, "hit; pid=%d", s->s_pid);
+		LOG_TRACE(log);
+		LOGF(log, LOG_MSG(service_unref), LOG_INFO, 0,
+		     "hit; pid=%d", s->s_pid);
 		gt_dev_deinit(&s->s_pipe);
 		gt_ctl_unsub(log, s->s_pid);
 		free(s);
@@ -199,7 +203,7 @@ gtd_service_get_net_stat(struct gtd_service *s)
 	char path[PATH_MAX];
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(service_get_net_stat);
+	log = log_trace0();
 	if (s->s_req->nse_name == NULL) {
 		return 0;
 	}
@@ -382,7 +386,7 @@ gtd_service_get_if_stat(struct gtd_service *s, struct gt_route_if *ifp)
 	char path[PATH_MAX];
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(service_get_if_stat);
+	log = log_trace0();
 	s->s_ref_cnt++;
 	snprintf(path, sizeof(path), GT_CTL_ROUTE_IF_LIST".%d", ifp->rif_idx);
 	rc = gt_ctl_r(log, s->s_pid, path, s,
@@ -412,12 +416,13 @@ gtd_service_set_status(struct gt_log *log, struct gtd_service *s, int status)
 	int rc;
 	const char *new;
 
-	log = GT_LOG_TRACE(log, service_set_status);
+	LOG_TRACE(log);
 	if (s->s_status == status) {
 		return;
 	}
 	new = gt_service_status_str(status);
-	GT_LOGF(log, LOG_INFO, 0, "hit; pid=%d, status=%s", s->s_pid, new);
+	LOGF(log, LOG_MSG(service_set_status), LOG_INFO, 0,
+	     "hit; pid=%d, status=%s", s->s_pid, new);
 	s->s_status = status;
 	rc = gt_ctl_r(log, s->s_pid, GT_CTL_SERVICE_STATUS,
 	              s, gtd_service_set_status_cb, new);
@@ -431,7 +436,7 @@ gtd_service_set_status(struct gt_log *log, struct gtd_service *s, int status)
 static void
 gtd_deinit(struct gt_log *log)
 {
-	gt_log_scope_deinit(log, &this_log);
+	log_scope_deinit(log, &this_mod->log_scope);
 	gt_global_deinit(log);
 }
 
@@ -441,14 +446,14 @@ gtd_service_start(struct gt_log *log)
 	int rc;
 
 	return;
-	log = GT_LOG_TRACE(log, service_start);
+	LOG_TRACE(log);
 	rc = gt_sys_fork(log);
 	if (rc < 0) {
 		return;
 	} else if (rc == 0) {
 		gtd_deinit(log);
 		gt_global_init();
-		log = GT_LOG_TRACE(log, service_start);
+		LOG_TRACE(log);
 		gt_service_ctl_polling = 0;
 		rc = gt_service_init(log);
 		if (rc) {
@@ -466,7 +471,7 @@ gtd_set_rss_conf(struct gt_log *log, int rss_q_cnt, const uint8_t *rss_key)
 	int i;
 	struct gtd_service *s;
 
-	log = GT_LOG_TRACE(log, set_rss_conf);
+	LOG_TRACE(log);
 	GTD_SERVICE_FOREACH(s) {
 		gtd_service_del(log, s);
 	}
@@ -478,7 +483,8 @@ gtd_set_rss_conf(struct gt_log *log, int rss_q_cnt, const uint8_t *rss_key)
 	for (i = 0; i < gt_route_rss_q_cnt; ++i) {
 		gtd_service_start(log);
 	}
-	GT_LOGF(log, LOG_INFO, 0, "ok; rss_q_cnt=%d", gt_route_rss_q_cnt);
+	LOGF(log, LOG_MSG(set_rss_conf), LOG_INFO, 0,
+	     "ok; rss_q_cnt=%d", gt_route_rss_q_cnt);
 	return 0;
 }
 
@@ -490,7 +496,7 @@ gtd_if_add(struct gt_log *log, struct gt_route_if *ifp)
 	uint8_t rss_key[GT_RSS_KEY_SIZE];
 	struct nmreq *req;
 
-	log = GT_LOG_TRACE(log, if_add);
+	LOG_TRACE(log);
 	if (ifp->rif_is_pipe == 0) {
 		snprintf(ifname, sizeof(ifname), "%s^", ifp->rif_name);
 		rc = gt_dev_init(log, &ifp->rif_dev, ifname, gtd_host_rxtx);
@@ -501,21 +507,21 @@ gtd_if_add(struct gt_log *log, struct gt_route_if *ifp)
 	req = &ifp->rif_dev.dev_nmd->req;
 	nr_rx_rings = req->nr_rx_rings; 
 	nr_tx_rings = req->nr_tx_rings;
-	GT_ASSERT(nr_rx_rings > 0);
+	ASSERT(nr_rx_rings > 0);
 	if (nr_rx_rings > GT_SERVICES_MAX) {
-		GT_LOGF(log, LOG_ERR, 0,
-		        "invalid nr_rx_rings; if='%s', nr_rx_rings=%d, max=%d",
-		        ifp->rif_name, nr_rx_rings, GT_SERVICES_MAX);
+		LOGF(log, LOG_MSG(if_add), LOG_ERR, 0,
+		     "invalid nr_rx_rings; if='%s', nr_rx_rings=%d, max=%d",
+		     ifp->rif_name, nr_rx_rings, GT_SERVICES_MAX);
 		return -EINVAL;
 	}
 	if (nr_tx_rings < nr_rx_rings) {
-		GT_LOGF(log, LOG_ERR, 0,
-		        "invalid nr_tx_rings; if='%s', nr_tx_rings=%d, min=%d",
-		        ifp->rif_name, nr_tx_rings, nr_rx_rings);
+		LOGF(log, LOG_MSG(if_add), LOG_ERR, 0,
+		     "invalid nr_tx_rings; if='%s', nr_tx_rings=%d, min=%d",
+		     ifp->rif_name, nr_tx_rings, nr_rx_rings);
 		return -EINVAL;
 	}
 	if (nr_rx_rings > 1) {
-		rc = gt_read_rss_key(log, ifp->rif_name, rss_key);
+		rc = read_rsskey(log, ifp->rif_name, rss_key);
 		if (rc) {
 			return rc;
 		}
@@ -523,15 +529,15 @@ gtd_if_add(struct gt_log *log, struct gt_route_if *ifp)
 	if (gt_route_rss_q_cnt == 0) {
 		gtd_set_rss_conf(log, nr_rx_rings, rss_key);
 	} else if (nr_rx_rings != gt_route_rss_q_cnt) {
-		GT_LOGF(log, LOG_ERR, 0,
-		        "invalid nr_rx_rings; if='%s', nr_rx_rings=%d, rss_q_cnt=%d",
-		        ifp->rif_name, nr_rx_rings, gt_route_rss_q_cnt);
+		LOGF(log, LOG_MSG(if_add), LOG_ERR, 0,
+		     "invalid nr_rx_rings; if='%s', nr_rx_rings=%d, rss_q_cnt=%d",
+		     ifp->rif_name, nr_rx_rings, gt_route_rss_q_cnt);
 		return -EINVAL;
 	} else if (gt_route_rss_q_cnt > 1 &&
 	           memcmp(gt_route_rss_key, rss_key, GT_RSS_KEY_SIZE)) {
-		GT_LOGF(log, LOG_ERR, 0,
-		        "invalid rss_key - all interfaces must have same rss_key; if=%s",
-		        ifp->rif_name);
+		LOGF(log, LOG_MSG(if_add), LOG_ERR, 0,
+		     "invalid rss_key - all interfaces must have same rss_key; if=%s",
+		     ifp->rif_name);
 	}
 	return 0;
 }
@@ -576,17 +582,18 @@ gtd_service_add(struct gt_log *log, int pid, struct gtd_service **ps)
 	char ifname[GT_IFNAMSIZ];
 	struct gtd_service *oldest_active, *s, *active, *shadow;
 
-	log = GT_LOG_TRACE(log, service_add);
-	GT_LOGF(log, LOG_INFO, 0, "hit; pid=%d", pid);
+	LOG_TRACE(log);
+	LOGF(log, LOG_MSG(service_add), LOG_INFO, 0, "hit; pid=%d", pid);
 	*ps = NULL;
 	s = gtd_service_find(pid);
 	if (s != NULL) {
 		*ps = s;
-		GT_LOGF(log, LOG_ERR, 0, "already; pid=%d", pid);
+		LOGF(log, LOG_MSG(service_add), LOG_ERR, 0,
+		     "already; pid=%d", pid);
 		return -EEXIST;
 	}
 	if (gt_route_rss_q_cnt == 0) {
-		GT_LOGF(log, LOG_ERR, 0, "no rss q");
+		LOGF(log, LOG_MSG(service_add), LOG_ERR, 0, "no rss q");
 		return -ENXIO;
 	}
 	rc = gt_sys_malloc(log, (void **)&s, sizeof(*s));
@@ -638,7 +645,8 @@ out:
 	s->s_status = GT_SERVICE_ACTIVE;
 	s->s_ref_cnt = 1;
 	*ps = s;
-	GT_LOGF(log, LOG_INFO, 0, "ok; pid=%d, qid=%d", pid, qid);
+	LOGF(log, LOG_MSG(service_add), LOG_INFO, 0,
+	     "ok; pid=%d, qid=%d", pid, qid);
 	return 0;
 }
 
@@ -650,9 +658,9 @@ gtd_service_sub_handler(int pid, int action)
 
 	s = gtd_service_find(pid);
 	if (s != NULL && action == GT_CTL_UNSUB) {
-		log = GT_LOG_TRACE1(service_sub_handler);
-		GT_LOGF(log, LOG_ERR, 0, "unexpected unsubscribe; pid=%d",
-		        pid);
+		log = log_trace0();
+		LOGF(log, LOG_MSG(service_sub_handler), LOG_ERR, 0,
+		     "unexpected unsubscribe; pid=%d", pid);
 		gtd_service_del(log, s);
 	}
 }
@@ -687,10 +695,11 @@ gtd_service_del(struct gt_log *log, struct gtd_service *s)
 	int rc;
 	struct gt_route_if *ifp;
 
-	GT_ASSERT(s->s_status < 2);
-	log = GT_LOG_TRACE(log, service_del);
+	ASSERT(s->s_status < 2);
+	LOG_TRACE(log);
 	gtd_services[s->s_status][s->s_qid] = NULL;
-	GT_LOGF(log, LOG_INFO, 0, "hit; pid=%d", s->s_pid);
+	LOGF(log, LOG_MSG(service_del), LOG_INFO, 0,
+	     "hit; pid=%d", s->s_pid);
 	GT_ROUTE_IF_FOREACH(ifp) {
 		rc = gtd_service_get_if_stat(s, ifp);
 		if (rc) {
@@ -784,9 +793,8 @@ main(int argc, char **argv)
 		return 1;
 	}
 	gt_route_if_set_link_status_fn = gtd_if_set_link_status;
-	gt_log_scope_init(&this_log, "gbtcpd");
-	GTD_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
-	log = GT_LOG_TRACE1(main);
+	log_scope_init(&this_mod->log_scope, "gbtcpd");
+	log = log_trace0();
 	gt_ctl_read_file(log, path);
 	rc = gt_ctl_bind(log, 0);
 	if (rc) {

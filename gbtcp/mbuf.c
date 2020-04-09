@@ -9,11 +9,16 @@
 #define GT_MBUF_CHUNK_DATA_SIZE \
 	(GT_MBUF_CHUNK_SIZE - sizeof(struct gt_mbuf_chunk))
 
-#define M_LOG_NODE_FOREACH(x) \
+#define MBUF_LOG_MSG_FOREACH(x) \
 	x(mod_deinit) \
 	x(pool_new) \
 	x(alloc) \
 	x(chunk_alloc) \
+
+struct mbuf_mod {
+	struct log_scope log_scope;
+	MBUF_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+};
 
 struct gt_mbuf_chunk {
 	struct dllist c_list;
@@ -22,9 +27,9 @@ struct gt_mbuf_chunk {
 	short c_id;
 };
 
+static struct mbuf_mod *this_mod;
+
 static struct gt_mbuf_pool *gt_mbuf_pools[256];
-static struct gt_log_scope this_log;
-M_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
 
 static struct gt_mbuf_chunk *gt_mbuf_get_chunk(struct gt_mbuf *m);
 
@@ -46,16 +51,15 @@ static void gt_mbuf_chunk_free(struct gt_mbuf_pool *p,
 int
 gt_mbuf_mod_init()
 {
-	gt_log_scope_init(&this_log, "mbuf");
-	M_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
+	log_scope_init(&this_mod->log_scope, "mbuf");
 	return 0;
 }
 
 void
 gt_mbuf_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
-	gt_log_scope_deinit(log, &this_log);
+	LOG_TRACE(log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 int
@@ -64,8 +68,8 @@ gt_mbuf_pool_new(struct gt_log *log, struct gt_mbuf_pool **pp, int mbuf_size)
 	int i, rc, id;
 	struct gt_mbuf_pool *p;
 
-	GT_ASSERT(mbuf_size >= sizeof(struct gt_mbuf));
-	log = GT_LOG_TRACE(log, pool_new);
+	ASSERT(mbuf_size >= sizeof(struct gt_mbuf));
+	LOG_TRACE(log);
 	mbuf_size = GT_ROUND_UP(mbuf_size, GT_CACHE_LINE_SIZE);
 	id = -1;
 	for (i = 0; i < GT_ARRAY_SIZE(gt_mbuf_pools); ++i) {
@@ -75,7 +79,7 @@ gt_mbuf_pool_new(struct gt_log *log, struct gt_mbuf_pool **pp, int mbuf_size)
 		}
 	}
 	if (id == -1) {
-		GT_LOGF(log, LOG_ERR, 0, "no pool slots");
+		LOGF(log, pool_new, LOG_ERR, 0, "no pool slots");
 		return -ENFILE;
 	}
 	p = gt_mbuf_pools[id];
@@ -125,7 +129,7 @@ gt_mbuf_pool_del(struct gt_mbuf_pool *p)
 {
 	struct gt_mbuf_chunk *chunk;
 
-	GT_ASSERT(dllist_isempty(&p->mbp_empty_chunkq));
+	ASSERT(dllist_isempty(&p->mbp_empty_chunkq));
 	while (!dllist_isempty(&p->mbp_avail_chunkq)) {
 		chunk = DLLIST_FIRST(&p->mbp_avail_chunkq,
 		                     struct gt_mbuf_chunk,
@@ -145,7 +149,7 @@ gt_mbuf_alloc(struct gt_log *log, struct gt_mbuf_pool *p, struct gt_mbuf **mp)
 
 	*mp = NULL;
 	if (dllist_isempty(&p->mbp_avail_chunkq)) {
-		log = GT_LOG_TRACE(log, alloc);
+		LOG_TRACE(log);
 		rc = gt_mbuf_chunk_alloc(log, p, &chunk);
 		if (rc) {
 			return rc;
@@ -157,12 +161,12 @@ gt_mbuf_alloc(struct gt_log *log, struct gt_mbuf_pool *p, struct gt_mbuf **mp)
 				break;
 			}
 		}
-		GT_ASSERT(i < GT_ARRAY_SIZE(p->mbp_chunks));
+		ASSERT(i < GT_ARRAY_SIZE(p->mbp_chunks));
 	}
-	GT_ASSERT(!dllist_isempty(&p->mbp_avail_chunkq));
+	ASSERT(!dllist_isempty(&p->mbp_avail_chunkq));
 	chunk = DLLIST_FIRST(&p->mbp_avail_chunkq,
 	                      struct gt_mbuf_chunk, c_list);
-	GT_ASSERT(chunk->c_freeq_size);
+	ASSERT(chunk->c_freeq_size);
 	m = DLLIST_FIRST(&chunk->c_freeq, struct gt_mbuf, mb_list);
 	gt_mbuf_chunk_pop_freeq(p, chunk, m);
 	*mp = m;
@@ -177,11 +181,11 @@ gt_mbuf_alloc4(struct gt_log *log, struct gt_mbuf_pool *p, uint32_t m_id,
 	struct gt_mbuf *m;
 	struct gt_mbuf_chunk *chunk;
 
-	log = GT_LOG_TRACE(log, alloc);
+	LOG_TRACE(log);
 	*mp = NULL;
 	chunk_id = m_id / p->mbp_mbufs_per_chunk;
 	if (chunk_id >= GT_ARRAY_SIZE(p->mbp_chunks)) {
-		GT_LOGF(log, LOG_ERR, 0, "too big id; m_id=%u", m_id);
+		LOGF(log, alloc, LOG_ERR, 0, "too big id; m_id=%u", m_id);
 		return -ENFILE;
 	}
 	chunk = p->mbp_chunks[chunk_id];
@@ -196,7 +200,7 @@ gt_mbuf_alloc4(struct gt_log *log, struct gt_mbuf_pool *p, uint32_t m_id,
 	i = m_id % p->mbp_mbufs_per_chunk;
 	m = GT_MBUF_GET(p, chunk, i);
 	if (m->mb_used) {
-		GT_LOGF(log, LOG_ERR, 0, "already allocated; m_id=%d", m_id);
+		LOGF(log, alloc, LOG_ERR, 0, "already allocated; m_id=%d", m_id);
 		return -EBUSY;
 	} else {
 		gt_mbuf_chunk_pop_freeq(p, chunk, m);
@@ -222,14 +226,14 @@ gt_mbuf_free(struct gt_mbuf *m)
 	if (m == NULL) {
 		return;
 	}
-	GT_ASSERT(m->mb_magic == GT_MBUF_MAGIC);
-	GT_ASSERT(m->mb_used == 1);
-	GT_ASSERT(m->mb_pool_id < GT_ARRAY_SIZE(gt_mbuf_pools));
+	ASSERT(m->mb_magic == GT_MBUF_MAGIC);
+	ASSERT(m->mb_used == 1);
+	ASSERT(m->mb_pool_id < GT_ARRAY_SIZE(gt_mbuf_pools));
 	p = gt_mbuf_pools[m->mb_pool_id];
 	m->mb_used = 0;
 	chunk = gt_mbuf_get_chunk(m);
 	DLLIST_INSERT_HEAD(&chunk->c_freeq, m, mb_list);
-	GT_ASSERT(chunk->c_freeq_size < p->mbp_mbufs_per_chunk);
+	ASSERT(chunk->c_freeq_size < p->mbp_mbufs_per_chunk);
 	if (chunk->c_freeq_size == 0) {
 		DLLIST_REMOVE(chunk, c_list);
 		DLLIST_INSERT_TAIL(&p->mbp_avail_chunkq, chunk, c_list);
@@ -291,7 +295,7 @@ gt_mbuf_get_id(struct gt_mbuf_pool *p, struct gt_mbuf *m)
 	int i, m_id;
 	struct gt_mbuf_chunk *chunk;
 
-	GT_ASSERT(m->mb_magic == GT_MBUF_MAGIC);
+	ASSERT(m->mb_magic == GT_MBUF_MAGIC);
 	chunk = gt_mbuf_get_chunk(m);
 	i = ((uint8_t *)m - (uint8_t *)(chunk + 1)) / p->mbp_mbuf_size;
 	m_id = chunk->c_id * p->mbp_mbufs_per_chunk + i;
@@ -311,7 +315,7 @@ static void
 gt_mbuf_chunk_pop_freeq(struct gt_mbuf_pool *p, struct gt_mbuf_chunk *chunk,
 	struct gt_mbuf *m)
 {
-	GT_ASSERT(m->mb_used == 0);
+	ASSERT(m->mb_used == 0);
 	DLLIST_REMOVE(m, mb_list);
 	chunk->c_freeq_size--;
 	if (chunk->c_freeq_size == 0) {
@@ -329,9 +333,9 @@ gt_mbuf_chunk_alloc(struct gt_log *log, struct gt_mbuf_pool *p,
 	struct gt_mbuf_chunk *chunk;
 	struct gt_mbuf *m;
 
-	log = GT_LOG_TRACE(log, chunk_alloc);
+	LOG_TRACE(log);
 	if (p->mbp_nr_chunks == 0) {
-		GT_LOGF(log, LOG_ERR, 0, "no chunk slots"); 
+		LOGF(log, chunk_alloc, LOG_ERR, 0, "no chunk slots"); 
 		return -ENOMEM;
 	}
 	rc = gt_sys_posix_memalign(log, (void **)pchunk,

@@ -3,13 +3,17 @@
 #include "sys.h"
 #include "list.h"
 
-#define GT_HTABLE_LOG_NODE_FOREACH(x) \
+#define HTABLE_LOG_MSG_FOREACH(x) \
 	x(mod_deinit) \
 	x(create) \
 	x(resize)
 
-GT_HTABLE_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
-static struct gt_log_scope this_log;
+struct htable_mod {
+	struct log_scope log_scope;
+	HTABLE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+};
+
+static struct htable_mod *this_mod;
 
 static struct gt_htable_static *gt_htable_dynamic_new(
 	struct gt_htable_dynamic *t);
@@ -18,16 +22,15 @@ static void gt_htable_dynamic_resize(struct gt_htable_dynamic *t);
 int
 gt_htable_mod_init()
 {
-	gt_log_scope_init(&this_log, "htable");
-	GT_HTABLE_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
+	log_scope_init(&this_mod->log_scope, "htable");
 	return 0;
 }
 
 void
 gt_htable_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
-	gt_log_scope_deinit(log, &this_log);
+	LOG_TRACE(log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 int
@@ -36,7 +39,7 @@ gt_htable_static_create(struct gt_log *log, struct gt_htable_static *t,
 {
 	int i, rc;
 
-	log = GT_LOG_TRACE(log, create);
+	LOG_TRACE(log);
 	t->hts_size = size;
 	t->hts_mask = size - 1;
 	t->hts_hash_fn = hash_fn;
@@ -146,7 +149,7 @@ gt_htable_dynamic_add(struct gt_htable_dynamic *t, struct dllist *elem)
 void
 gt_htable_dynamic_del(struct gt_htable_dynamic *t, struct dllist *elem)
 {
-	GT_ASSERT(t->htd_nr_elems > 0);
+	ASSERT(t->htd_nr_elems > 0);
 	dllist_remove(elem);
 	t->htd_nr_elems--;
 	gt_htable_dynamic_resize(t);
@@ -162,7 +165,7 @@ gt_htable_dynamic_new(struct gt_htable_dynamic *t)
 			return t->htd_tables + i;
 		}
 	}
-	GT_BUG;
+	BUG;
 	return 0;
 }
 
@@ -193,7 +196,7 @@ gt_htable_dynamic_resize(struct gt_htable_dynamic *t)
 			return;
 		}
 		tmp = gt_htable_dynamic_new(t);
-		log = GT_LOG_TRACE1(resize);
+		log = log_trace0();
 		rc = gt_htable_static_create(log, tmp, new_size,
 		                             t->htd_new->hts_hash_fn);
 		if (rc) {
@@ -203,10 +206,12 @@ gt_htable_dynamic_resize(struct gt_htable_dynamic *t)
 		t->htd_old = t->htd_new;
 		t->htd_new = tmp;
 		t->htd_resize_progress = 0;
-		GT_LOGF(log, LOG_INFO, 0, "ok; size=%d->%d, elements=%d",
-		        size, new_size, t->htd_nr_elems);
+		log = log_trace0();
+		LOGF(log, LOG_MSG(resize), LOG_INFO, 0,
+		     "ok; size=%d->%d, elements=%d",
+		     size, new_size, t->htd_nr_elems);
 	} else {
-		GT_ASSERT(t->htd_old->hts_size > t->htd_resize_progress);
+		ASSERT(t->htd_old->hts_size > t->htd_resize_progress);
 		bucket = t->htd_old->hts_array + t->htd_resize_progress;
 		while (!dllist_isempty(bucket)) {
 			elem = dllist_first(bucket);
@@ -217,9 +222,9 @@ gt_htable_dynamic_resize(struct gt_htable_dynamic *t)
 		if (t->htd_old->hts_size == t->htd_resize_progress) {
 			gt_htable_static_free(t->htd_old);
 			t->htd_old = NULL;
-			log = GT_LOG_TRACE1(resize);
-			GT_LOGF(log, LOG_INFO, 0, "done; elements=%d",
-			        t->htd_nr_elems);
+			log = log_trace0();
+			LOGF(log, LOG_MSG(resize), LOG_INFO, 0,
+			     "done; elements=%d", t->htd_nr_elems);
 		}
 	}
 }

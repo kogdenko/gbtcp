@@ -9,13 +9,13 @@
 #include "ctl.h"
 #include "global.h"
 
-#define GT_FD_EVENT_LOG_NODE_FOREACH(x) \
-	x(mod_deinit) \
-	x(mod_check) \
-	x(mod_wait) \
+#define FD_EVENT_LOG_MSG_FOREACH(x) \
 	x(new) \
-	x(free) \
-	x(del) \
+
+struct fd_event_mod {
+	struct log_scope log_scope;
+	FD_EVENT_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+};
 
 uint64_t gt_fd_event_epoch;
 
@@ -24,8 +24,7 @@ static int gt_fd_event_nr_used;
 static int gt_fd_event_in_cb;
 static struct gt_fd_event *gt_fd_event_used[GT_FD_EVENTS_MAX];
 static struct gt_fd_event gt_fd_event_buf[GT_FD_EVENTS_MAX];
-static struct gt_log_scope this_log;
-GT_FD_EVENT_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct fd_event_mod *this_mod;
 
 static void gt_fd_event_ctl_init_stat_entry(struct gt_log * log,
 	const char *event_name, uint64_t *val, const char *stat_name);
@@ -42,8 +41,7 @@ gt_fd_event_mod_init()
 	int i;
 	struct gt_fd_event *e;
 
-	gt_log_scope_init(&this_log, "fd_event");
-	GT_FD_EVENT_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
+	log_scope_init(&this_mod->log_scope, "fd_event");
 	gt_fd_event_nr_used = 0;
 	memset(gt_fd_event_buf, 0, sizeof(gt_fd_event_buf));
 	for (i = 0; i < GT_ARRAY_SIZE(gt_fd_event_buf); ++i) {
@@ -56,9 +54,9 @@ gt_fd_event_mod_init()
 void
 gt_fd_event_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
+	LOG_TRACE(log);
 	gt_fd_event_nr_used = 0;
-	gt_log_scope_deinit(log, &this_log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 void
@@ -68,7 +66,7 @@ gt_fd_event_mod_check()
 	struct gt_fd_event_set set;
 	struct pollfd pfds[GT_FD_EVENTS_MAX];
 
-	log = GT_LOG_TRACE1(mod_check);
+	log = log_trace0();
 	do {
 		set.fdes_to = 0;
 		gt_fd_event_set_init(&set, pfds);
@@ -121,8 +119,8 @@ gt_fd_event_mod_wait()
 	struct gt_fd_event_set set;
 	struct pollfd pfds[GT_FD_EVENTS_MAX];
 
-	log = GT_LOG_TRACE1(mod_wait);
-	set.fdes_to = GT_TIMER_TIMEOUT;
+	log = log_trace0();
+	set.fdes_to = TIMER_TIMO;
 	gt_fd_event_set_init(&set, pfds);
 	epoch = gt_global_epoch;
 	GT_GLOBAL_UNLOCK;
@@ -172,12 +170,13 @@ gt_fd_event_new(struct gt_log *log, struct gt_fd_event **pe,
 	int i, id;
 	struct gt_fd_event *e;
 
-	GT_ASSERT(fd != -1);
-	GT_ASSERT(fn != NULL);
-	log = GT_LOG_TRACE(log, new);
+	ASSERT(fd != -1);
+	ASSERT(fn != NULL);
+	LOG_TRACE(log);
 	if (gt_fd_event_nr_used == GT_ARRAY_SIZE(gt_fd_event_used)) {
-		GT_LOGF(log, LOG_ERR, 0, "limit exceeded; limit=%zu",
-		        GT_ARRAY_SIZE(gt_fd_event_used));
+		LOGF(log, LOG_MSG(new), LOG_ERR, 0,
+		     "limit exceeded; limit=%zu",
+		     GT_ARRAY_SIZE(gt_fd_event_used));
 		return -ENOMEM;
 	}
 	id = -1;
@@ -185,9 +184,9 @@ gt_fd_event_new(struct gt_log *log, struct gt_fd_event **pe,
 		e = gt_fd_event_buf + i;
 		if (e->fde_fd != -1) {
 			if (!strcmp(e->fde_name, name)) {
-				GT_LOGF(log, LOG_ERR, 0,
-				        "already exists; event='%s'",
-				        name);
+				LOGF(log, LOG_MSG(new), LOG_ERR, 0,
+				     "already exists; event='%s'",
+				     name);
 				return -EEXIST;
 			}
 		} else {
@@ -198,7 +197,7 @@ gt_fd_event_new(struct gt_log *log, struct gt_fd_event **pe,
 			}
 		}
 	}
-	GT_ASSERT(id != -1);
+	ASSERT(id != -1);
 	e = gt_fd_event_buf + id;
 	memset(e, 0, sizeof(*e));
 	e->fde_fd = fd;
@@ -211,7 +210,7 @@ gt_fd_event_new(struct gt_log *log, struct gt_fd_event **pe,
 	gt_fd_event_used[e->fde_id] = e;
 	gt_fd_event_nr_used++;
 	*pe = e;
-	GT_DBG(new, 0, "ok; event='%s'", e->fde_name);
+	DBG(log, LOG_MSG(new), 0, "ok; event='%s'", e->fde_name);
 	return 0;
 }
 
@@ -222,10 +221,10 @@ gt_fd_event_free(struct gt_fd_event *e)
 	struct gt_log *log;
 	struct gt_fd_event *last;
 
-	GT_DBG(free, 0, "hit; event='%s'", e->fde_name);
-	GT_ASSERT(e->fde_id < gt_fd_event_nr_used);
+	log = log_trace0();
+	DBG(log, LOG_MSG(free), 0, "hit; event='%s'", e->fde_name);
+	ASSERT(e->fde_id < gt_fd_event_nr_used);
 	if (e->fde_has_cnt) {
-		log = GT_LOG_TRACE1(del);
 		snprintf(path, sizeof(path), "event.list.%s", e->fde_name);
 		gt_ctl_del(log, path);
 	}
@@ -242,7 +241,7 @@ gt_fd_event_unref(struct gt_fd_event *e)
 {
 	int ref_cnt;
 
-	GT_ASSERT(e->fde_ref_cnt > 0);
+	ASSERT(e->fde_ref_cnt > 0);
 	e->fde_ref_cnt--;
 	ref_cnt = e->fde_ref_cnt;
 	if (ref_cnt == 0) {
@@ -254,12 +253,15 @@ gt_fd_event_unref(struct gt_fd_event *e)
 void
 gt_fd_event_del(struct gt_fd_event *e)
 {
+	struct gt_log *log;
+
 	if (e != NULL) {
-		GT_DBG(del, 0, "hit; event='%s'", e->fde_name);
-		GT_ASSERT(gt_fd_event_nr_used);
-		GT_ASSERT(e->fde_fd != -1);
-		GT_ASSERT(e->fde_id < gt_fd_event_nr_used);
-		GT_ASSERT(e == gt_fd_event_used[e->fde_id]);
+		log = log_trace0();
+		DBG(log, LOG_MSG(del), 0, "hit; event='%s'", e->fde_name);
+		ASSERT(gt_fd_event_nr_used);
+		ASSERT(e->fde_fd != -1);
+		ASSERT(e->fde_id < gt_fd_event_nr_used);
+		ASSERT(e == gt_fd_event_used[e->fde_id]);
 		e->fde_fd = -1;
 		gt_fd_event_unref(e);
 	}
@@ -268,12 +270,12 @@ gt_fd_event_del(struct gt_fd_event *e)
 void
 gt_fd_event_set(struct gt_fd_event *e, short events)
 {	
-	GT_ASSERT(events);
-	GT_ASSERT((events & ~(POLLIN|POLLOUT)) == 0);
-	GT_ASSERT(e != NULL);
-	GT_ASSERT(e->fde_fd != -1);
-	GT_ASSERT(e->fde_id < gt_fd_event_nr_used);
-	GT_ASSERT(e == gt_fd_event_used[e->fde_id]);
+	ASSERT(events);
+	ASSERT((events & ~(POLLIN|POLLOUT)) == 0);
+	ASSERT(e != NULL);
+	ASSERT(e->fde_fd != -1);
+	ASSERT(e->fde_id < gt_fd_event_nr_used);
+	ASSERT(e == gt_fd_event_used[e->fde_id]);
 	if (e->fde_events != events) {
 		if (events & POLLIN) {
 			e->fde_cnt_set_POLLIN++;
@@ -288,11 +290,11 @@ gt_fd_event_set(struct gt_fd_event *e, short events)
 void
 gt_fd_event_clear(struct gt_fd_event *e, short events)
 {
-	GT_ASSERT(events);
-	GT_ASSERT(e != NULL);
-	GT_ASSERT(e->fde_id < gt_fd_event_nr_used);
-	GT_ASSERT(e == gt_fd_event_used[e->fde_id]);
-	GT_ASSERT((events & ~(POLLIN|POLLOUT)) == 0);
+	ASSERT(events);
+	ASSERT(e != NULL);
+	ASSERT(e->fde_id < gt_fd_event_nr_used);
+	ASSERT(e == gt_fd_event_used[e->fde_id]);
+	ASSERT((events & ~(POLLIN|POLLOUT)) == 0);
 	e->fde_events &= ~events;
 }
 
@@ -308,7 +310,7 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 	int i, idx;
 	struct gt_fd_event *e;
 
-	GT_ASSERT3(0, gt_fd_event_in_cb == 0, "recursive wait");
+	ASSERT3(0, gt_fd_event_in_cb == 0, "recursive wait");
 	gt_global_set_time();
 	set->fdes_again = 0;
 	set->fdes_time = gt_nsec;
@@ -330,8 +332,8 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 	set->fdes_ts.tv_sec = 0;
 	if (set->fdes_to == 0) {
 		set->fdes_ts.tv_nsec = 0;
-	} else if (set->fdes_to >= GT_TIMER_TIMEOUT) {
-		set->fdes_ts.tv_nsec = GT_TIMER_TIMEOUT;
+	} else if (set->fdes_to >= TIMER_TIMO) {
+		set->fdes_ts.tv_nsec = TIMER_TIMO;
 	} else {
 		set->fdes_ts.tv_nsec = set->fdes_to;
 	}
@@ -387,10 +389,10 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 		if (pfds[i].revents) {
 			n++;
 			if (e->fde_fd != -1) {
-				GT_ASSERT(pfds[i].fd == e->fde_fd);
+				ASSERT(pfds[i].fd == e->fde_fd);
 				rc = gt_fd_event_call(e, pfds[i].revents);
 				if (rc) {
-					GT_ASSERT(rc == -EAGAIN);
+					ASSERT(rc == -EAGAIN);
 					set->fdes_again = 1;
 				}
 			}

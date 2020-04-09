@@ -3,9 +3,9 @@
 #include "arp.h"
 #include "ctl.h"
 
-#define GT_INET_LOG_NODE_FOREACH(x) \
-	x(mod_init) \
-	x(mod_deinit)
+struct inet_mod {
+	struct log_scope log_scope;
+};
 
 struct gt_ip4_pseudo_hdr {
 	be32_t ip4ph_saddr;
@@ -35,8 +35,7 @@ struct gt_arp_stat gt_arps;
 
 static int gt_inet_rx_cksum_offload = 0;
 static int gt_inet_tx_cksum_offload = 0;
-static struct gt_log_scope this_log;
-GT_INET_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct inet_mod *this_mod;
 
 static uint8_t *gt_inet_fill_16(uint8_t *buf, be16_t v);
 
@@ -92,9 +91,8 @@ gt_inet_mod_init()
 {
 	struct gt_log *log;
 
-	gt_log_scope_init(&this_log, "inet");
-	GT_INET_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
-	log = GT_LOG_TRACE1(mod_init);
+	log_scope_init(&this_mod->log_scope, "inet");
+	log = log_trace0();
 	gt_inet_ctl_add_tcp_stat(log);
 	gt_inet_ctl_add_udp_stat(log);
 	gt_inet_ctl_add_ip_stat(log);
@@ -109,11 +107,11 @@ gt_inet_mod_init()
 void
 gt_inet_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
+	LOG_TRACE(log);
 	gt_ctl_del(log, "inet.stat");
 	gt_ctl_del(log, GT_CTL_INET_RX_CKSUM_OFFLOAD);
 	gt_ctl_del(log, GT_CTL_INET_TX_CKSUM_OFFLOAD);
-	gt_log_scope_deinit(log, &this_log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 int

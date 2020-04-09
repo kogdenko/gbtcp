@@ -6,10 +6,11 @@
 #include "service.h"
 #include "global.h"
 
-#define GT_POLL_LOG_NODE_FOREACH(x) \
-	x(mod_deinit) 
-
 struct gt_poll;
+
+struct poll_mod {
+	struct log_scope log_scope;
+};
 
 struct gt_poll_entry {
 	struct gt_file_cb pe_cb;
@@ -26,8 +27,7 @@ struct gt_poll {
 	int p_n;
 };
 
-static struct gt_log_scope this_log;
-GT_POLL_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct poll_mod *this_mod;
 
 static void gt_poll_cb(struct gt_file_cb *cb, int fd, short events);
 
@@ -39,16 +39,15 @@ static int gt_poll_fill(struct gt_poll *poll, struct pollfd *pfds, int npfds);
 int
 gt_poll_mod_init()
 {
-	gt_log_scope_init(&this_log, "poll");
-	GT_POLL_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
+	log_scope_init(&this_mod->log_scope, "poll");
 	return 0;
 }
 
 void
 gt_poll_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
-	gt_log_scope_deinit(log, &this_log);
+	LOG_TRACE(log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 static void
@@ -159,6 +158,6 @@ gt_poll(struct pollfd *pfds, int npfds, gt_time_t to, const sigset_t *sigmask)
 		n += poll.p_n;
 	} while (n == 0 && set.fdes_to > 0);
 	b = gt_poll_fill(&poll, pfds, npfds);
-	GT_ASSERT3(0, a == b, "%d, %d", a, b);
+	ASSERT3(0, a == b, "%d, %d", a, b);
 	return n;
 }

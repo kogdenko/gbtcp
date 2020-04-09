@@ -3,16 +3,14 @@
 #include "sys.h"
 #include "subr.h"
 
-#define GT_SIGNAL_LOG_NODE_FOREACH(x) \
-	x(mod_init) \
-	x(mod_deinit) \
-	x(sigaction) \
+struct signal_mod {
+	struct log_scope log_scope;
+};
 
 void *gt_signal_stack;
 size_t gt_signal_stack_size;
 
-static struct gt_log_scope this_log;
-GT_SIGNAL_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct signal_mod *this_mod;
 
 int
 gt_signal_mod_init()
@@ -20,9 +18,8 @@ gt_signal_mod_init()
 	int rc;
 	struct gt_log *log;
 
-	gt_log_scope_init(&this_log, "signal");
-	GT_SIGNAL_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);	
-	log = GT_LOG_TRACE1(mod_init);
+	log_scope_init(&this_mod->log_scope, "signal");
+	log = log_trace0();
 	rc = gt_sys_malloc(log, &gt_signal_stack, SIGSTKSZ);
 	if (rc == 0) {
 		gt_signal_stack_size = SIGSTKSZ;
@@ -33,8 +30,8 @@ gt_signal_mod_init()
 void
 gt_signal_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
-	gt_log_scope_deinit(log, &this_log);
+	LOG_TRACE(log);
+	log_scope_deinit(log, &this_mod->log_scope);
 	free(gt_signal_stack);
 	gt_signal_stack = NULL;
 	gt_signal_stack_size = 0;
@@ -48,7 +45,7 @@ gt_signal_sigaction(int signum, const struct sigaction *act,
 	struct sigaction newact;
 	struct gt_log *log;
 
-	log = GT_LOG_TRACE1(sigaction);
+	log = log_trace0();
 	if (act == NULL) {
 		rc = gt_sys_sigaction(log, signum, NULL, oldact);
 	} else {
@@ -62,13 +59,13 @@ gt_signal_sigaction(int signum, const struct sigaction *act,
 int
 gt_signal_sigaltstack(const stack_t *ss, stack_t *oss)
 {
-	GT_BUG; // TODO:
+	BUG; // TODO:
 	return -EINVAL;
 }
 
 int
 gt_signal_sigstack(struct sigstack *ss, struct sigstack *oss)
 {
-	GT_BUG;
+	BUG;
 	return -EINVAL;
 }

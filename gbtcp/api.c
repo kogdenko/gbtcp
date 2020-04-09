@@ -11,7 +11,7 @@
 #include "signal.h"
 #include "ctl.h"
 
-#define GT_API_LOG_NODE_FOREACH(x) \
+#define API_LOG_MSG_FOREACH(x) \
 	x(mod_init) \
 	x(mod_deinit) \
 	x(fork) \
@@ -36,22 +36,26 @@
 	x(sigaction) \
 
 #ifdef __linux__
-#define GT_API_LOG_NODE_FOREACH_OS(x) \
+#define API_LOG_MSG_FOREACH_OS(x) \
 	x(clone) \
 	x(epoll_create) \
 	x(epoll_ctl) \
 	x(epoll_pwait) \
  
 #else /* __linux__ */
-#define GT_API_LOG_NODE_FOREACH_OS(x) \
+#define API_LOG_MSG_FOREACH_OS(x) \
 	x(kqueue) \
 	x(kevent) \
 
 #endif /* __linux__ */
 
-static struct gt_log_scope this_log;
-GT_API_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
-GT_API_LOG_NODE_FOREACH_OS(GT_LOG_NODE_STATIC);
+struct api_mod {
+	struct log_scope log_scope;
+	API_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+	API_LOG_MSG_FOREACH_OS(LOG_MSG_DECLARE);
+};
+
+static struct api_mod *this_mod;
 
 static inline int gt_api_lock();
 static ssize_t gt_api_send_gen(int fd, struct iovec *iov, int iovlen,
@@ -82,7 +86,7 @@ static ssize_t gt_api_send_gen(int fd, struct iovec *iov, int iovlen,
 static void
 gt_api_mod_init_os()
 {
-	GT_LOG_NODE(clone)->lgn_level = LOG_INFO;
+	LOG_MSG(clone) = LOG_INFO;
 }
 #else /* __linux__ */
 static void
@@ -94,10 +98,8 @@ gt_api_mod_init_os()
 int
 gt_api_mod_init()
 {
-	gt_log_scope_init(&this_log, "api");
-	GT_API_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
-	GT_API_LOG_NODE_FOREACH_OS(GT_LOG_NODE_INIT);
-	GT_LOG_NODE(fork)->lgn_level = LOG_INFO;
+	log_scope_init(&this_mod->log_scope, "api");
+	LOG_MSG(fork) = LOG_INFO;
 	gt_api_mod_init_os();
 	return 0;
 }
@@ -105,8 +107,8 @@ gt_api_mod_init()
 void
 gt_api_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
-	gt_log_scope_deinit(log, &this_log);
+	LOG_TRACE(log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 pid_t
@@ -116,11 +118,11 @@ gbtcp_fork()
 	struct gt_log *log;
 
 	GT_API_LOCK;
-	log = GT_LOG_TRACE1(fork);
-	GT_LOGF(log, LOG_INFO, 0, "hit");
+	log = log_trace0();
+	LOGF(log, fork, LOG_INFO, 0, "hit");
 	rc = gt_service_fork(log);
 	if (rc >= 0) {
-		GT_LOGF(log, LOG_INFO, 0, "ok, pid=%d", rc);
+		LOGF(log, fork, LOG_INFO, 0, "ok, pid=%d", rc);
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -147,19 +149,18 @@ gt_api_socket(struct gt_log *log, int fd, int domain, int type, int proto)
 		break;
 	}
 	if (domain == AF_INET && use) {
-		log = GT_LOG_TRACE(log, socket);
+		LOG_TRACE(log);
 		rc = gt_sock_socket(log, fd, domain, type_noflags,
 		                    flags, proto);
 		if (rc < 0) {
-			// TODO: log
-			GT_DBG(socket, -rc, "failed; type=%s, flags=%s",
-			       gt_log_add_socket_type(type_noflags),
-			       gt_log_add_socket_flags(flags));
+			DBG(log, socket, -rc, "failed; type=%s, flags=%s",
+			    log_add_socket_type(type_noflags),
+			    log_add_socket_flags(flags));
 		} else {
-			GT_DBG(socket, 0, "ok; fd=%d, type=%s, flags=%s",
-			       rc,
-			       gt_log_add_socket_type(type_noflags),
-			       gt_log_add_socket_flags(flags));
+			DBG(log, socket, 0, "ok; fd=%d, type=%s, flags=%s",
+			    rc,
+			    log_add_socket_type(type_noflags),
+			    log_add_socket_flags(flags));
 		}
 		return rc;
 	} else {
@@ -188,22 +189,22 @@ gt_api_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	struct gt_log *log;
 	struct gt_file *fp;
 
+	log = log_trace0();
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
 	if (addr->sa_family != AF_INET) {
-		GT_DBG(connect, 0, "bad sa family; fd=%d", fd);
+		DBG(log, connect, 0, "bad sa family; fd=%d", fd);
 		return -EAFNOSUPPORT;
 	}
 	if (addrlen < sizeof(*faddr_in)) {
-		GT_DBG(connect, 0, "bad sa len; fd=%d", fd);
+		DBG(log, connect, 0, "bad sa len; fd=%d", fd);
 		return -EINVAL;
 	}
 	faddr_in = (const struct sockaddr_in *)addr;
-	GT_DBG(connect, 0, "hit; fd=%d, faddr=%s",
-	       fd, gt_log_add_sockaddr_in(faddr_in));
-	log = GT_LOG_TRACE1(connect);
+	DBG(log, connect, 0, "hit; fd=%d, faddr=%s",
+	    fd, gt_log_add_sockaddr_in(faddr_in));
 	rc = gt_service_init(log);
 	if (rc == 0) {
 		rc = gt_sock_connect(fp, faddr_in, &laddr_in);
@@ -218,14 +219,14 @@ restart:
 		optlen = sizeof(error);
 		rc = gt_sock_getsockopt(fp, SOL_SOCKET, SO_ERROR,
 		                        &error, &optlen);
-		GT_ASSERT(rc == 0);
+		ASSERT(rc == 0);
 		rc = -error;
 	}
 	if (rc < 0) {
-		GT_DBG(connect, -rc, "failed");
+		DBG(log, connect, -rc, "failed");
 	} else {
-		GT_DBG(connect, 0, "ok; laddr=%s",
-		       gt_log_add_sockaddr_in(&laddr_in));
+		DBG(log, connect, 0, "ok; laddr=%s",
+		    log_add_sockaddr_in(&laddr_in));
 	}
 	return rc;
 }
@@ -253,26 +254,26 @@ gt_api_bind(struct gt_log *log, int fd, const struct sockaddr *addr,
 	if (rc) {
 		return rc;
 	}
-	log = GT_LOG_TRACE(log, bind);
+	LOG_TRACE(log);
 	if (addr->sa_family != AF_INET) {
-		GT_LOGF(log, LOG_INFO, 0, "bad sa family; fd=%d", fd);
+		LOGF(log, bind, LOG_INFO, 0, "bad sa family; fd=%d", fd);
 		return -EAFNOSUPPORT;
 	}
 	if (addrlen < sizeof(*addr_in)) {
-		GT_LOGF(log, LOG_INFO, 0, "bad sa len; fd=%d", fd);
+		LOGF(log, bind, LOG_INFO, 0, "bad sa len; fd=%d", fd);
 		return -EINVAL;
 	}
 	addr_in = (const struct sockaddr_in *)addr;
-	GT_LOGF(log, LOG_INFO, 0, "hit; fd=%d, laddr=%s",
-	        fd, gt_log_add_sockaddr_in(addr_in));
+	LOGF(log, bind, LOG_INFO, 0, "hit; fd=%d, laddr=%s",
+	     fd, log_add_sockaddr_in(addr_in));
 	rc = gt_service_init(log);
 	if (rc == 0) {
 		rc = gt_sock_bind(fp, addr_in);
 	}
 	if (rc < 0) {
-		GT_LOGF(log, LOG_INFO, -rc, "failed");
+		LOGF(log, bind, LOG_INFO, -rc, "failed");
 	} else {
-		GT_LOGF(log, LOG_INFO, 0, "ok");
+		LOGF(log, bind, LOG_INFO, 0, "ok");
 	}
 	return rc;
 }
@@ -298,16 +299,16 @@ gt_api_listen(struct gt_log *log, int fd, int backlog)
 	if (rc) {
 		return rc;
 	}
-	log = GT_LOG_TRACE(log, listen);
-	GT_LOGF(log, LOG_INFO, 0, "hit; lfd=%d", fd);
+	LOG_TRACE(log);
+	LOGF(log, listen, LOG_INFO, 0, "hit; lfd=%d", fd);
 	rc = gt_service_init(log);
 	if (rc == 0) {
 		rc = gt_sock_listen(fp, backlog);
 	}
 	if (rc < 0) {
-		GT_LOGF(log, LOG_INFO, rc, "failed");
+		LOGF(log, listen, LOG_INFO, rc, "failed");
 	} else {
-		GT_LOGF(log, LOG_INFO, 0, "ok");
+		LOGF(log, listen, LOG_INFO, 0, "ok");
 	}
 	return rc;
 }
@@ -327,14 +328,16 @@ int
 gt_api_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
 	int rc;
+	struct gt_log *log;
 	struct gt_file *fp;
 
 	rc = gt_sock_get(lfd, &fp);
 	if (rc) {
 		return rc;
 	}
-	GT_DBG(accept, 0, "hit; lfd=%d, flags=%s)",
-	       lfd, gt_log_add_socket_flags(flags));
+	log = log_trace0();
+	DBG(log, accept, 0, "hit; lfd=%d, flags=%s)",
+	    lfd, log_add_socket_flags(flags));
 restart:
 	if (rc == 0) {
 		rc = gt_sock_accept(fp, addr, addrlen, flags);
@@ -347,9 +350,9 @@ restart:
 		}
 	}
 	if (rc < 0) {
-		GT_DBG(accept, -rc, "failed");
+		DBG(log, accept, -rc, "failed");
 	} else {
-		GT_DBG(accept, 0, "ok; fd=%d", rc);
+		DBG(log, accept, 0, "ok; fd=%d", rc);
 	}
 	return rc;
 }
@@ -396,15 +399,17 @@ int
 gt_api_close(int fd)
 {
 	int rc;
+	struct gt_log *log;
 	struct gt_file *fp;
 
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
-	GT_DBG(close, 0, "hit; fd=%d", fd);
+	log = log_trace0();
+	DBG(log, close, 0, "hit; fd=%d", fd);
 	gt_file_close(fp, GT_SOCK_GRACEFULL);
-	GT_DBG(close, 0, "ok");
+	DBG(log, close, 0, "ok");
 	return 0;
 }
 
@@ -433,13 +438,15 @@ gt_api_recvfrom(int fd, const struct iovec *iov, int iovcnt, int flags,
 	struct sockaddr *addr, socklen_t *addrlen)
 {
 	ssize_t rc;
+	struct gt_log *log;
 	struct gt_file *fp;
 
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
-	GT_DBG(recvfrom, 0, "hit; fd=%d", fd);
+	log = log_trace0();
+	DBG(log, recvfrom, 0, "hit; fd=%d", fd);
 restart:
 	if (rc == 0) {
 		rc = gt_sock_recvfrom(fp, iov, iovcnt, flags, addr, addrlen);
@@ -452,9 +459,9 @@ restart:
 		}
 	}
 	if (rc < 0) {
-		GT_DBG(recvfrom, -rc, "failed");
+		DBG(log, recvfrom, -rc, "failed");
 	} else {
-		GT_DBG(recvfrom, 0, "ok; rc=%zd", rc);
+		DBG(log, recvfrom, 0, "ok; rc=%zd", rc);
 	}
 	return rc;
 }
@@ -497,7 +504,7 @@ gbtcp_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *addr,
 ssize_t
 gbtcp_recvmsg(int fd, struct msghdr *msg, int flags)
 {
-	GT_BUG;
+	BUG;
 	GT_API_RETURN(-ENOTSUP);
 }
 
@@ -515,14 +522,16 @@ gt_api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
 	be32_t faddr, be16_t fport)
 {
 	int rc;
+	struct gt_log *log;
 	struct gt_file *fp;
 
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
-	GT_DBG(sendto, 0, "hit; fd=%d, count=%d",
-	       fd, gt_iovec_len(iov, iovcnt));
+	log = log_trace0();
+	DBG(log, sendto, 0, "hit; fd=%d, count=%d",
+	    fd, gt_iovec_len(iov, iovcnt));
 restart:
 	if (rc == 0) {
 		rc = gt_sock_sendto(fp, iov, iovcnt, flags, faddr, fport);
@@ -535,9 +544,9 @@ restart:
 		}
 	}
 	if (rc < 0) {
-		GT_DBG(sendto, -rc, "failed");
+		DBG(log, sendto, -rc, "failed");
 	} else {
-		GT_DBG(sendto, 0, "ok; rc=%d", rc);
+		DBG(log, sendto, 0, "ok; rc=%d", rc);
 	}
 	return rc;
 }
@@ -608,18 +617,20 @@ int
 gt_api_fcntl(int fd, int cmd, uintptr_t arg)
 {
 	int rc;
+	struct gt_log *log;
 	struct gt_file *fp;
 
 	rc = gt_file_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
-	GT_DBG(fcntl, 0, "hit; fd=%d, cmd=%s", fd, gt_log_add_fcntl_cmd(cmd));
+	log = log_trace0();
+	DBG(log, fcntl, 0, "hit; fd=%d, cmd=%s", fd, log_add_fcntl_cmd(cmd));
 	rc = gt_file_cntl(fp, cmd, arg);
 	if (rc < 0) {
-		GT_DBG(fcntl, -rc, "failed");
+		DBG(log, fcntl, -rc, "failed");
 	} else {
-		GT_DBG(fcntl, 0, "ok; rc=0x%x", rc);
+		DBG(log, fcntl, 0, "ok; rc=0x%x", rc);
 	}
 	return rc;
 }
@@ -639,18 +650,20 @@ int
 gt_api_ioctl(int fd, unsigned long req, uintptr_t arg)
 {
 	int rc;
+	struct gt_log *log;
 	struct gt_file *fp;
 
 	rc = gt_file_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
-	GT_DBG(ioctl, 0, "hit, fd=%d, req=%s", fd, gt_log_add_ioctl_req(req));
+	log = log_trace0();
+	DBG(log, ioctl, 0, "hit, fd=%d, req=%s", fd, log_add_ioctl_req(req));
 	rc = gt_file_ioctl(fp, req, arg);
 	if (rc < 0) {
-		GT_DBG(ioctl, -rc, "failed");
+		DBG(log, ioctl, -rc, "failed");
 	} else {
-		GT_DBG(ioctl, 0, "ok; rc=0x%x", rc);
+		DBG(log, ioctl, 0, "ok; rc=0x%x", rc);
 	}
 	return rc;
 }
@@ -671,24 +684,25 @@ gt_api_getsockopt(int fd, int level, int optname, void *optval,
 	socklen_t *optlen)
 {
 	int rc;
+	struct gt_log *log;
 	struct gt_file *fp;
 
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
-	GT_DBG(getsockopt, 0, "hit; fd=%d, level=%s, optname=%s",
-	       fd,
-	       gt_log_add_sockopt_level(level),
-	       gt_log_add_sockopt_optname(level, optname));
+	log = log_trace0();
+	DBG(log, getsockopt, 0, "hit; fd=%d, level=%s, optname=%s",
+	    fd, log_add_sockopt_level(level),
+	    log_add_sockopt_optname(level, optname));
 	rc = gt_sock_getsockopt(fp, level, optname, optval, optlen);
 	if (rc < 0) {
-		GT_DBG(getsockopt, -rc, "failed");
+		DBG(log, getsockopt, -rc, "failed");
 	} else if (level == SOL_SOCKET &&
-		optname == SO_ERROR && *optlen >= sizeof(int)) {
-		GT_DBG(getsockopt, 0, "error; error=%d", *(int *)optval);
+		   optname == SO_ERROR && *optlen >= sizeof(int)) {
+		DBG(log, getsockopt, 0, "error; error=%d", *(int *)optval);
 	} else {
-		GT_DBG(getsockopt, 0, "ok");
+		DBG(log, getsockopt, 0, "ok");
 	}
 	return rc;
 }
@@ -710,21 +724,22 @@ gt_api_setsockopt(int fd, int level, int optname, const void *optval,
 	socklen_t optlen)
 {
 	int rc;
+	struct gt_log *log;
 	struct gt_file *fp;
 
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
-	GT_DBG(setsockopt, 0, "hit; fd=%d, level=%s, optname=%s",
-	       fd,
-	       gt_log_add_sockopt_level(level),
-	       gt_log_add_sockopt_optname(level, optname));
+	log = log_trace0();
+	DBG(log, setsockopt, 0, "hit; fd=%d, level=%s, optname=%s",
+	    fd, log_add_sockopt_level(level),
+	    log_add_sockopt_optname(level, optname));
 	rc = gt_sock_setsockopt(fp, level, optname, optval, optlen);
 	if (rc < 0) {
-		GT_DBG(setsockopt, -rc, "failed");
+		DBG(log, setsockopt, -rc, "failed");
 	} else {
-		GT_DBG(setsockopt, 0, "ok");
+		DBG(log, setsockopt, 0, "ok");
 	}
 	return rc;
 }
@@ -745,18 +760,20 @@ int
 gt_api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
+	struct gt_log *log;
 	struct gt_file *fp;
 
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
-	GT_DBG(getpeername, 0, "hit; fd=%d", fd);
+	log = log_trace0();
+	DBG(log, getpeername, 0, "hit; fd=%d", fd);
 	rc = gt_sock_getpeername(fp, addr, addrlen);
 	if (rc < 0) {
-		GT_DBG(getpeername, -rc, "failed");
+		DBG(log, getpeername, -rc, "failed");
 	} else {
-		GT_DBG(getpeername, 0, "ok");
+		DBG(log, getpeername, 0, "ok");
 	}
 	return rc;
 }
@@ -777,6 +794,7 @@ gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 {
 	int rc;
 	uint64_t to;
+	struct gt_log *log;
 
 	if (timeout_ms == -1) {
 		to = GT_NSEC_MAX;
@@ -784,14 +802,15 @@ gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 		to = timeout_ms * GT_MSEC;
 	}
 	GT_API_LOCK;
-	GT_DBG(poll, 0, "hit; to=%d, events={%s}",
-	       timeout_ms, gt_log_add_pollfds_events(fds, nfds));
+	log = log_trace0();
+	DBG(log, poll, 0, "hit; to=%d, events={%s}",
+	    timeout_ms, log_add_pollfds_events(fds, nfds));
 	rc = gt_poll(fds, nfds, to, NULL);
 	if (rc < 0) {
-		GT_DBG(poll, -rc, "failed");
+		DBG(log, poll, -rc, "failed");
 	} else {
-		GT_DBG(poll, 0, "ok; rc=%d, revents={%s}",
-		       rc, gt_log_add_pollfds_revents(fds, nfds));
+		DBG(log, poll, 0, "ok; rc=%d, revents={%s}",
+		    rc, log_add_pollfds_revents(fds, nfds));
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -803,6 +822,7 @@ gbtcp_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 {
 	int rc;
 	gt_time_t to;
+	struct gt_log *log;
 
 	if (timeout == NULL) {
 		to = GT_NSEC_MAX;
@@ -810,21 +830,21 @@ gbtcp_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 		to = GT_SEC * timeout->tv_sec + timeout->tv_nsec;
 	}
 	GT_API_LOCK;
+	log = log_trace0();
 	if (timeout == NULL) {
-		GT_DBG(ppoll, 0, "hit; to={inf}, events={%s}",
-		       gt_log_add_pollfds_events(fds, nfds));
+		DBG(log, ppoll, 0, "hit; to={inf}, events={%s}",
+		    log_add_pollfds_events(fds, nfds));
 	} else {
-		GT_DBG(ppoll, 0,
-		       "hit; to={sec=%ld, nsec=%ld}, events={%s}",
-		       timeout->tv_sec, timeout->tv_nsec,
-		       gt_log_add_pollfds_events(fds, nfds));
+		DBG(log, ppoll, 0, "hit; to={sec=%ld, nsec=%ld}, events={%s}",
+		    timeout->tv_sec, timeout->tv_nsec,
+		    log_add_pollfds_events(fds, nfds));
 	}
 	rc = gt_poll(fds, nfds, to, sigmask);
 	if (rc < 0) {
-		GT_DBG(ppoll, -rc, "failed");
+		DBG(log, ppoll, -rc, "failed");
 	} else {
-		GT_DBG(ppoll, 0, "ok; rc=%d, revents={%s}",
-		       rc, gt_log_add_pollfds_revents(fds, nfds));
+		DBG(log, ppoll, 0, "ok; rc=%d, revents={%s}",
+		    rc, gt_log_add_pollfds_revents(fds, nfds));
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -856,6 +876,7 @@ gbtcp_sigaction(int signum, const struct sigaction *act,
 {
 	int rc;
 	void *fn;
+	struct gt_log *log;
 
 	GT_API_LOCK;
 	if (act == NULL) {
@@ -866,13 +887,14 @@ gbtcp_sigaction(int signum, const struct sigaction *act,
 		fn = act->sa_handler;
 	}
 	UNUSED(fn);
-	GT_DBG(sigaction, 0, "hit; signum=%d, handler=%s",
-	       signum, gt_log_add_sighandler(fn));
+	log = log_trace0();
+	DBG(log, sigaction, 0, "hit; signum=%d, handler=%s",
+	    signum, gt_log_add_sighandler(fn));
 	rc = gt_signal_sigaction(signum, act, oldact);
 	if (rc < 0) {
-		GT_DBG(sigaction, -rc, "failed");
+		DBG(log, sigaction, -rc, "failed");
 	} else {
-		GT_DBG(sigaction, 0, "ok");
+		DBG(log, sigaction, 0, "ok");
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -885,13 +907,13 @@ gbtcp_ctl(int pid, const char *path, char *old, int len, const char *new)
 	struct gt_log *log;
 
 	GT_API_LOCK;
-	log = GT_LOG_TRACE1(ctl);
-	GT_LOGF(log, LOG_INFO, 0, "hit; pid=%d, path='%s'", pid, path);
+	log = log_trace0();
+	LOGF(log, ctl, LOG_INFO, 0, "hit; pid=%d, path='%s'", pid, path);
 	rc = gt_ctl(log, pid, path, old, len, new);
 	if (rc < 0) {
-		GT_LOGF(log, LOG_INFO, -rc, "failed");
+		LOGF(log, ctl, LOG_INFO, -rc, "failed");
 	} else {
-		GT_LOGF(log, LOG_INFO, 0, "ok");
+		LOGF(log, ctl, LOG_INFO, 0, "ok");
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -904,13 +926,13 @@ gbtcp_ctl_get_pids(int *pids, int count)
 	struct gt_log *log;
 
 	GT_API_LOCK;
-	log = GT_LOG_TRACE1(ctl_get_pids);
-	GT_LOGF(log, LOG_INFO, 0, "hit");
+	log = log_trace0();
+	LOGF(log, ctl_get_pids, LOG_INFO, 0, "hit");
 	rc = gt_ctl_get_pids(pids, count);
 	if (rc < 0) {
-		GT_LOGF(log, LOG_INFO, -rc, "failed");
+		LOGF(log, ctl_get_pids, LOG_INFO, -rc, "failed");
 	} else {
-		GT_LOGF(log, LOG_INFO, 0, "ok");
+		LOGF(log, ctl_get_pids, LOG_INFO, 0, "ok");
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -920,14 +942,16 @@ int
 gbtcp_try_fd(int fd)
 {
 	int rc;
+	struct gt_log *log;
 
 	GT_API_LOCK;
-	GT_DBG(try_fd, 0, "hit; fd=%d", fd);
+	log = log_trace0();
+	DBG(log, try_fd, 0, "hit; fd=%d", fd);
 	rc = gt_file_try_fd(fd);
 	if (rc == 0) {
-		GT_DBG(try_fd, 0, "ok");
+		DBG(log, try_fd, 0, "ok");
 	} else {
-		GT_DBG(try_fd, -rc, "failed");
+		DBG(log, try_fd, -rc, "failed");
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -942,14 +966,14 @@ gbtcp_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
 	struct gt_log *log;
 
 	GT_API_LOCK;
-	log = GT_LOG_TRACE1(clone);
-	GT_LOGF(log, LOG_INFO, 0, "hit; flags=%s",
-	        gt_log_add_clone_flags(flags));
+	log = log_trace0();
+	LOGF(log, clone, LOG_INFO, 0, "hit; flags=%s",
+	     log_add_clone_flags(flags));
 	rc = gt_service_clone(fn, child_stack, flags, arg, ptid, tls, ctid);
 	if (rc < 0) {
-		GT_LOGF(log, LOG_INFO, -rc, "failed");
+		LOGF(log, clone, LOG_INFO, -rc, "failed");
 	} else {
-		GT_LOGF(log, LOG_INFO, 0, "ok; pid=%d", rc);
+		LOGF(log, clone, LOG_INFO, 0, "ok; pid=%d", rc);
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -962,12 +986,12 @@ gbtcp_epoll_create()
 	struct gt_log *log;
 
 	GT_API_LOCK;
-	log = GT_LOG_TRACE1(epoll_create);
-	GT_LOGF(log, LOG_INFO, 0, "hit");
+	log = log_trace0();
+	LOGF(log, epoll_create, LOG_INFO, 0, "hit");
 	rc = (*gt_sys_epoll_create1_fn)(EPOLL_CLOEXEC);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 	} else {
 		fd = rc;
 		rc = gt_epoll_create(fd);
@@ -976,9 +1000,9 @@ gbtcp_epoll_create()
 		}
 	}
 	if (rc < 0) {
-		GT_LOGF(log, LOG_INFO, -rc, "failed");
+		LOGF(log, epoll_create, LOG_INFO, -rc, "failed");
 	} else {
-		GT_LOGF(log, LOG_INFO, 0, "ok; fd=%d", rc);
+		LOGF(log, epoll_create, LOG_INFO, 0, "ok; fd=%d", rc);
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -988,16 +1012,17 @@ int
 gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
 	int rc;
+	struct gt_log *log;
 
 	GT_API_LOCK;
-	GT_DBG(epoll_ctl, 0, "hit; epfd=%d, op=%s, fd=%d, events={%s}",
-	       epfd, gt_log_add_epoll_op(op), fd,
-	       gt_log_add_epoll_event_events(event->events));
+	DBG(log, epoll_ctl, 0, "hit; epfd=%d, op=%s, fd=%d, events={%s}",
+	    epfd, gt_log_add_epoll_op(op), fd,
+	    log_add_epoll_event_events(event->events));
 	rc = gt_epoll_ctl(epfd, op, fd, event);
 	if (rc) {
-		GT_DBG(epoll_ctl, -rc, "failed");
+		DBG(log, epoll_ctl, -rc, "failed");
 	} else {
-		GT_DBG(epoll_ctl, 0, "ok");
+		DBG(log, epoll_ctl, 0, "ok");
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -1009,6 +1034,7 @@ gbtcp_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 {
 	int rc;
 	uint64_t to;
+	struct gt_log *log;
 
 	if (timeout_ms == -1) {
 		to = GT_NSEC_MAX;
@@ -1016,12 +1042,13 @@ gbtcp_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 		to = timeout_ms * GT_MSEC;
 	}
 	GT_API_LOCK;
-	GT_DBG(epoll_pwait, 0, "hit; epfd=%d", epfd);
+	log = log_trace0();
+	DBG(log, epoll_pwait, 0, "hit; epfd=%d", epfd);
 	rc = gt_epoll_pwait(epfd, events, maxevents, to, sigmask);
 	if (rc < 0) {
-		GT_DBG(epoll_pwait, -rc, "failed");
+		DBG(log, epoll_pwait, -rc, "failed");
 	} else {
-		GT_DBG(epoll_pwait, 0, "ok; rc=%d", rc);
+		DBG(log, epoll_pwait, 0, "ok; rc=%d", rc);
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);	
@@ -1035,12 +1062,12 @@ gbtcp_kqueue()
 	struct gt_log *log;
 
 	GT_API_LOCK;
-	log = GT_LOG_TRACE1(kqueue);
-	GT_LOGF(log, LOG_INFO, 0, "hit");
+	log = log_trace0();
+	LOGF(log, kqueue, LOG_INFO, 0, "hit");
 	rc = (*gt_sys_kqueue_fn)();
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 	} else {
 		fd = rc;
 		rc = gt_epoll_create(fd);
@@ -1049,9 +1076,9 @@ gbtcp_kqueue()
 		}
 	}
 	if (rc < 0) {
-		GT_LOGF(log, LOG_INFO, -rc, "failed");
+		LOGF(log, kqueue, LOG_INFO, -rc, "failed");
 	} else {
-		GT_LOGF(log, LOG_INFO, 0, "ok; fd=%d", rc);
+		LOGF(log, kqueue, LOG_INFO, 0, "ok; fd=%d", rc);
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -1062,15 +1089,17 @@ gbtcp_kevent(int kq, const struct kevent *changelist, int nchanges,
 	struct kevent *eventlist, int nevents, const struct timespec *timeout)
 {
 	int rc;
+	struct gt_log *log;
 
 	GT_API_LOCK;
-	GT_DBG(kevent, 0, "hit; kq=%d, nchanges=%d, nevents=%d",
-	       kq, nchanges, nevents);
+	log = log_trace0();
+	DBG(log, kevent, 0, "hit; kq=%d, nchanges=%d, nevents=%d",
+	    kq, nchanges, nevents);
 	rc = gt_epoll_kevent(kq, changelist, nchanges, eventlist, nevents, timeout);
 	if (rc < 0) {
-		GT_DBG(kevent, -rc, "failed; kq=%d", kq);
+		DBG(log, kevent, -rc, "failed; kq=%d", kq);
 	} else {
-		GT_DBG(kevent, 0, "ok; kq=%d, rc=%d", kq, rc);
+		DBG(log, kevent, 0, "ok; kq=%d, rc=%d", kq, rc);
 	}
 	GT_API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -1095,7 +1124,7 @@ gt_api_lock()
 	} else {
 		rc = gt_global_init();
 		if (rc == 0) {
-			log = GT_LOG_TRACE1(mod_init);
+			log = log_trace0();
 			gt_ctl_read_file(log, NULL);
 		} else {
 			GT_GLOBAL_UNLOCK;

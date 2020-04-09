@@ -4,11 +4,11 @@
 #include "subr.h"
 #include "list.h"
 
-#define GT_TIMER_RING_SIZE 4096llu
-#define GT_TIMER_RING_MASK (GT_TIMER_RING_SIZE - 1llu)
-#define GT_TIMER_TIMEOUT (32 * GT_MSEC)
-#define GT_TIMER_RING_ID_SHIFT 3
-#define GT_TIMER_EXPIRE_MAX (5 * 60 * 60 * GT_SEC) // 5 Hours
+#define TIMER_RING_SIZE 4096llu
+#define TIMER_RING_MASK (TIMER_RING_SIZE - 1llu)
+#define TIMER_TIMO (32 * GT_MSEC)
+#define TIMER_RING_ID_SHIFT 3
+#define TIMER_EXPIRE_MAX (5 * 60 * 60 * GT_SEC) // 5 Hours
 
 struct gt_timer {
 	struct dllist tm_list;

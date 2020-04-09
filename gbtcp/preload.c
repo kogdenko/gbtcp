@@ -3,10 +3,10 @@
 #include "strbuf.h"
 #include "gbtcp.h"
 
-#define GT_SYS_CALL(func, ...) \
+#define SYS_CALL(func, ...) \
 ({ \
 	if (gt_sys_##func##_fn == NULL) { \
- 		GT_SYS_DLSYM(func); \
+ 		SYS_DLSYM(func); \
 	} \
 	(gt_sys_##func##_fn)(__VA_ARGS__); \
 })
@@ -18,7 +18,7 @@
 	rc = gbtcp_##func(__VA_ARGS__); \
 	if (rc == -1) { \
 		if (gbtcp_errno == EBADF || gbtcp_errno == ENOTSOCK) { \
-			rc = GT_SYS_CALL(func, __VA_ARGS__); \
+			rc = SYS_CALL(func, __VA_ARGS__); \
 		} else { \
 			gt_preload_set_errno(gbtcp_errno); \
 		} \
@@ -107,14 +107,14 @@ GT_PRELOAD_SOCKET(int domain, int type, int protocol)
 	if (rc >= 0) {
 		return rc;
 	}
-	rc = GT_SYS_CALL(socket, domain, type, protocol);
+	rc = SYS_CALL(socket, domain, type, protocol);
 	if (rc == -1) {
 		return rc;
 	}
 	fd = rc;
 	rc = gbtcp_try_fd(fd);
 	if (rc == -1) {
-		GT_SYS_CALL(close, fd);
+		SYS_CALL(close, fd);
 		gt_preload_set_errno(gbtcp_errno);
 		return -1;
 	} else {
@@ -158,14 +158,14 @@ GT_PRELOAD_ACCEPT4(int fd, struct sockaddr *addr, socklen_t *addrlen,
 	rc = gbtcp_accept4(fd, addr, addrlen, flags);
 	if (rc == -1) {
 		if (gbtcp_errno == EBADF || gbtcp_errno == ENOTSOCK) {
-			rc = GT_SYS_CALL(accept4, fd, addr, addrlen, flags);
+			rc = SYS_CALL(accept4, fd, addr, addrlen, flags);
 			if (rc == -1) {
 				return rc;
 			}
 			fd = rc;
 			rc = gbtcp_try_fd(fd);
 			if (rc == -1) {
-				GT_SYS_CALL(close, fd);
+				SYS_CALL(close, fd);
 				gt_preload_set_errno(gbtcp_errno);
 				return -1;
 			} else {

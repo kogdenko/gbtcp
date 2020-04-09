@@ -16,10 +16,15 @@
 #define GT_EPOLL_FLAG_ET (1 << 2)
 #define GT_EPOLL_FLAG_ADDED (1 << 3)
 
-#define GT_EPOLL_LOG_NODE_FOREACH(x) \
+#define EPOLL_LOG_MSG_FOREACH(x) \
 	x(mod_deinit) \
 	x(open) \
 	x(get_events) \
+
+struct epoll_mod {
+	struct log_scope log_scope;
+	EPOLL_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+};
 
 struct gt_epoll {
 	struct gt_file ep_file;
@@ -42,8 +47,7 @@ struct gt_epoll_entry {
 };
 
 static int gt_epoll_cnt;
-static struct gt_log_scope this_log;
-GT_EPOLL_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct epoll_mod *this_mod;
 
 // entry
 static struct gt_epoll_entry *gt_epoll_entry_alloc(struct gt_epoll *ep,
@@ -81,8 +85,7 @@ static int gt_epoll_kevent_mod(struct gt_epoll *ep, struct gt_file *fp,
 int
 gt_epoll_mod_init()
 {
-	gt_log_scope_init(&this_log, "epoll");
-	GT_EPOLL_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
+	log_scope_init(&this_mod->log_scope, "epoll");
 	gt_epoll_cnt = 0;
 	return 0;
 }
@@ -90,8 +93,8 @@ gt_epoll_mod_init()
 void
 gt_epoll_mod_deinit(struct gt_log *log)
 {
-	log = GT_LOG_TRACE(log, mod_deinit);
-	gt_log_scope_deinit(log, &this_log);
+	LOG_TRACE(log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 int
@@ -102,9 +105,10 @@ gt_epoll_create(int ep_fd)
 	struct gt_file *fp;
 	struct gt_epoll *ep;
 
-	log = GT_LOG_TRACE1(open);
+	log = log_trace0();
 	if (gt_epoll_cnt == GT_EPOLL_CNT_MAX) {
-		GT_LOGF(log, LOG_ERR, 0, "too many epoll objects");
+		LOGF(log, LOG_MSG(create), LOG_ERR, 0,
+		     "too many epoll objects");
 		return -ENFILE;
 	}
 	rc = gt_file_alloc(log, &fp, GT_FILE_EPOLL);
@@ -143,7 +147,7 @@ gt_epoll_close(struct gt_file *fp)
 		e = (struct gt_epoll_entry *)m;
 		gt_epoll_entry_free(e);
 	}
-	GT_ASSERT(gt_mbuf_pool_is_empty(ep->ep_pool));
+	ASSERT(gt_mbuf_pool_is_empty(ep->ep_pool));
 	gt_mbuf_pool_del(ep->ep_pool);
 	gt_file_free(fp);
 	gt_epoll_cnt--;
@@ -230,7 +234,7 @@ gt_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 		rc = (*gt_sys_epoll_ctl_fn)(ep->ep_fd, op, fd, event);
 		if (rc) {
 			rc = -errno;
-			GT_ASSERT(rc);
+			ASSERT(rc);
 		}
 		return rc;
 	}
@@ -379,7 +383,7 @@ gt_epoll_entry_get(struct gt_epoll *ep, struct gt_file *fp)
 static void
 gt_epoll_entry_remove(struct gt_epoll_entry *e)
 {
-	GT_ASSERT(e->epe_revents);
+	ASSERT(e->epe_revents);
 	DLLIST_REMOVE(e, epe_list);
 	e->epe_revents = 0;
 }
@@ -462,7 +466,7 @@ gt_epoll_entry_cb(struct gt_file_cb *cb, int fd, short revents)
 	if (revents & POLLNVAL) {
 		gt_epoll_entry_free(e);
 	} else {
-		GT_ASSERT(revents);
+		ASSERT(revents);
 		if (e->epe_revents == 0) {
 			e->epe_flags |= GT_EPOLL_FLAG_ADDED;
 			DLLIST_INSERT_HEAD(&e->epe_ep->ep_head, e, epe_list);
@@ -506,6 +510,7 @@ gt_epoll_get_events(struct gt_epoll *ep, gt_epoll_event_t *buf, int cnt)
 {
 	int n, rc;
 	short revents;
+	struct gt_log *log;
 	struct gt_file *fp;
 	struct gt_epoll_entry *e, *tmp;
 
@@ -514,14 +519,14 @@ gt_epoll_get_events(struct gt_epoll *ep, gt_epoll_event_t *buf, int cnt)
 	}
 	n = 0;
 	DLLIST_FOREACH_SAFE(e, &ep->ep_head, epe_list, tmp) {
-		GT_ASSERT(e->epe_revents);
+		ASSERT(e->epe_revents);
 		if ((e->epe_flags & GT_EPOLL_FLAG_ENABLED) == 0) {
 			continue;
 		}
 		rc = gt_sock_get(e->epe_fd, &fp);
 		UNUSED(rc);
-		GT_ASSERT(rc == 0);
-		GT_ASSERT(fp->fl_type == GT_FILE_SOCK);
+		ASSERT(rc == 0);
+		ASSERT(fp->fl_type == GT_FILE_SOCK);
 		if ((e->epe_flags & GT_EPOLL_FLAG_ADDED) == 0) {
 			revents = gt_file_get_events(fp, &e->epe_cb);
 			if (revents == 0) {
@@ -532,8 +537,9 @@ gt_epoll_get_events(struct gt_epoll *ep, gt_epoll_event_t *buf, int cnt)
 		}
 		e->epe_flags &= ~GT_EPOLL_FLAG_ADDED;
 		gt_epoll_entry_get_event(e, buf + n, fp);
-		GT_DBG(get_events, 0, "hit; fd=%d, events=%s",
-		       e->epe_fd, gt_log_add_poll_events(e->epe_revents));
+		log = log_trace0();
+		DBG(log, get_events, 0, "hit; fd=%d, events=%s",
+		    e->epe_fd, gt_log_add_poll_events(e->epe_revents));
 		if (e->epe_flags & GT_EPOLL_FLAG_ET) {
 			gt_epoll_entry_remove(e);
 		}
@@ -557,7 +563,7 @@ gt_epoll_wait_fd(int fd, gt_epoll_event_t *buf, int cnt)
 	rc = (*gt_sys_epoll_pwait_fn)(fd, buf, cnt, 0, NULL);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 	}
 	return rc;
 }

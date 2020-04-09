@@ -8,26 +8,29 @@
 
 #define GT_DEV_BURST_SIZE  256
 
-#define GT_DEV_LOG_NODE_FOREACH(x) \
+#define DEV_LOG_MSG_FOREACH(x) \
 	x(mod_deinit) \
 	x(nm_open) \
 	x(nm_close) \
 	x(init) \
 	x(deinit) \
 
+struct dev_mod {
+	struct log_scope log_scope;
+	DEV_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+};
+
 static struct dllist gt_dev_head;
-static struct gt_log_scope this_log;
-GT_DEV_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct dev_mod *this_mod;
 
 static int gt_dev_rxtx(void *udata, short revents);
 
-static void gt_dev_nm_close(struct gt_log *log, struct gt_dev *dev);
+static void dev_nm_close(struct gt_log *log, struct gt_dev *dev);
 
 int
 gt_dev_mod_init()
 {
-	gt_log_scope_init(&this_log, "dev");
-	GT_DEV_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
+	log_scope_init(&this_mod->log_scope, "dev");
 	dllist_init(&gt_dev_head);
 	return 0;
 }
@@ -37,12 +40,12 @@ gt_dev_mod_deinit(struct gt_log *log)
 {
 	struct gt_dev *dev;
 
-	log = GT_LOG_TRACE(log, mod_deinit);
+	LOG_TRACE(log);
 	while (!dllist_isempty(&gt_dev_head)) {
 		dev = DLLIST_FIRST(&gt_dev_head, struct gt_dev, dev_list);
 		gt_dev_deinit(dev);
 	}
-	gt_log_scope_deinit(log, &this_log);
+	log_scope_deinit(log, &this_mod->log_scope);
 }
 
 struct gt_dev *
@@ -59,12 +62,12 @@ gt_dev_get(const char *if_name)
 }
 
 static int
-gt_dev_nm_open(struct gt_log *log, struct gt_dev *dev)
+dev_nm_open(struct gt_log *log, struct gt_dev *dev)
 {
 	int rc, flags, epoch;
 	struct nmreq nmr;
 
-	log = GT_LOG_TRACE(log, nm_open);
+	LOG_TRACE(log);
 	memset(&nmr, 0, sizeof(nmr));
 	flags = 0;
 	epoch = gt_global_epoch;
@@ -74,36 +77,36 @@ gt_dev_nm_open(struct gt_log *log, struct gt_dev *dev)
 	GT_GLOBAL_LOCK;
 	if (epoch != gt_global_epoch) {
 		if (dev->dev_nmd != NULL) {
-			gt_dev_nm_close(log, dev);
+			dev_nm_close(log, dev);
 		}
 		return -EFAULT;
 	}
 	if (dev->dev_nmd != NULL) {
-		GT_ASSERT(dev->dev_nmd->nifp != NULL);
+		ASSERT(dev->dev_nmd->nifp != NULL);
 		gt_sys_fcntl(log, dev->dev_nmd->fd,
 		             F_SETFD, FD_CLOEXEC);
 		nmr = dev->dev_nmd->req;
-		GT_LOGF(log, LOG_INFO, 0,
-		        "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
-		        dev->dev_name, dev->dev_nmd,
-	        	nmr.nr_rx_rings, nmr.nr_rx_slots,
-		        nmr.nr_tx_rings, nmr.nr_tx_slots);
-
+		LOGF(log, nm_open, LOG_INFO, 0,
+		     "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
+		      dev->dev_name, dev->dev_nmd,
+	              nmr.nr_rx_rings, nmr.nr_rx_slots,
+		      nmr.nr_tx_rings, nmr.nr_tx_slots);
 		return 0;
 	} else {
 		rc = -errno;
-		GT_ASSERT(rc);
-		GT_LOGF(log, LOG_ERR, -rc, "failed; dev='%s'", dev->dev_name);
+		ASSERT(rc);
+		LOGF(log, nm_open, LOG_ERR, -rc, "failed; dev='%s'",
+		     dev->dev_name);
 		return rc;
 	}
 }
 
 static void
-gt_dev_nm_close(struct gt_log *log, struct gt_dev *dev)
+dev_nm_close(struct gt_log *log, struct gt_dev *dev)
 {
-	log = GT_LOG_TRACE(log, nm_close);
-	GT_LOGF(log, LOG_INFO, 0, "ok; dev='%s', nmd=%p",
-	        dev->dev_name, dev->dev_nmd);
+	LOG_TRACE(log);
+	LOGF(log, nm_close, LOG_INFO, 0, "ok; dev='%s', nmd=%p",
+	     dev->dev_name, dev->dev_nmd);
 	if (dev->dev_nmd->fd != -1) {
 		gt_sys_close(log, dev->dev_nmd->fd);
 		dev->dev_nmd->fd = -1;
@@ -119,12 +122,12 @@ gt_dev_init(struct gt_log *log, struct gt_dev *dev, const char *if_name,
 	int rc;
 	const char *name;
 
-	GT_ASSERT(dev_fn != NULL);
-	log = GT_LOG_TRACE(log, init);
+	ASSERT(dev_fn != NULL);
+	LOG_TRACE(log);
 	memset(dev, 0, sizeof(*dev));
 	snprintf(dev->dev_name, sizeof(dev->dev_name), "%s%s",
 	         GT_NETMAP_PFX, if_name);
-	rc = gt_dev_nm_open(log, dev);
+	rc = dev_nm_open(log, dev);
 	if (rc) {
 		return rc;
 	}
@@ -133,7 +136,7 @@ gt_dev_init(struct gt_log *log, struct gt_dev *dev, const char *if_name,
 	rc = gt_fd_event_new(log, &dev->dev_event, dev->dev_nmd->fd,
 	                     name, gt_dev_rxtx, dev);
 	if (rc) {
-		gt_dev_nm_close(log, dev);
+		dev_nm_close(log, dev);
 		return rc;
 	}
 //	fd_event_init_sysctl(dev->event);
@@ -149,11 +152,11 @@ gt_dev_deinit(struct gt_dev *dev)
 	struct gt_log *log;
 
 	if (dev->dev_fn != NULL) {
-		log = GT_LOG_TRACE1(deinit);
+		log = log_trace0();
 		dev->dev_fn = NULL;
 		gt_fd_event_del(dev->dev_event);
 		dev->dev_event = NULL;
-		gt_dev_nm_close(log, dev);
+		dev_nm_close(log, dev);
 		DLLIST_REMOVE(dev, dev_list);
 	}
 }
@@ -181,7 +184,7 @@ gt_dev_not_empty_txr(struct gt_dev *dev, struct gt_dev_pkt *pkt)
 	struct netmap_ring *txr;
 	struct netmap_slot *slot;
 
-	GT_ASSERT(dev->dev_nmd != NULL);
+	ASSERT(dev->dev_nmd != NULL);
 	if (dev->dev_tx_full) {
 		return -ENOBUFS;
 	}
@@ -191,7 +194,7 @@ gt_dev_not_empty_txr(struct gt_dev *dev, struct gt_dev_pkt *pkt)
 	}
 	GT_DEV_FOREACH_TXRING_CONTINUE(dev->dev_cur_tx_ring, txr, dev) {
 		if (!nm_ring_empty(txr)) {
-			GT_ASSERT(txr != NULL);
+			ASSERT(txr != NULL);
 			pkt->pkt_flags = 0;
 			pkt->pkt_txr = txr;
 			slot = txr->slot + txr->cur;
@@ -224,7 +227,7 @@ gt_dev_tx(struct gt_dev_pkt *pkt)
 	struct netmap_ring *txr;
 
 	txr = pkt->pkt_txr;
-	GT_ASSERT(txr != NULL);
+	ASSERT(txr != NULL);
 	dst = txr->slot + txr->cur;
 	dst->len = pkt->pkt_len;
 	txr->head = txr->cur = nm_ring_next(txr, txr->cur);

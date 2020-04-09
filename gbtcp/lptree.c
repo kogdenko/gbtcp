@@ -3,14 +3,12 @@
 #include "log.h"
 #include "mbuf.h"
 
-#define LPTREE_LOG_NODE_FOREACH(x) \
-	x(mod_init) \
-	x(add) \
-	x(node_alloc)
+struct lptree_mod {
+	struct log_scope log_scope;
+};
 
 static struct gt_mbuf_pool *lpnode_pool;
-static struct gt_log_scope this_log;
-LPTREE_LOG_NODE_FOREACH(GT_LOG_NODE_STATIC);
+static struct lptree_mod *this_mod;
 
 #define is_lpnode(m) ((m)->mb_pool_id == lpnode_pool->mbp_id)
 
@@ -28,7 +26,7 @@ lpnode_alloc(struct gt_log *log, struct lpnode *parent, struct lpnode **pnode)
 {
 	int rc;
 
-	log = GT_LOG_TRACE(log, node_alloc);
+	LOG_TRACE(log);
 	rc = mballoc(log, lpnode_pool, (struct gt_mbuf **)pnode);
 	if (rc) {
 		return rc;
@@ -56,7 +54,7 @@ lpnode_isempty(struct lpnode *node)
 static void
 lpnode_free(struct lpnode *node)
 {
-	GT_ASSERT(lpnode_isempty(node));
+	ASSERT(lpnode_isempty(node));
 	mbfree(&node->lpn_mbuf);
 }
 
@@ -66,9 +64,8 @@ lptree_mod_init()
 	int rc;
 	struct gt_log *log;
 
-	gt_log_scope_init(&this_log, "lptree");
-	LPTREE_LOG_NODE_FOREACH(GT_LOG_NODE_INIT);
-	log = GT_LOG_TRACE1(mod_init);
+	log_scope_init(&this_mod->log_scope, "lptree");
+	log = log_trace0();
 	rc = gt_mbuf_pool_new(log, &lpnode_pool, sizeof(struct lpnode));
 	return rc;
 }
@@ -89,7 +86,7 @@ lptree_init(struct gt_log *log, struct lpnode *root)
 void
 lptree_deinit(struct lpnode *root)
 {
-	GT_ASSERT(lpnode_isempty(root));
+	ASSERT(lpnode_isempty(root));
 }
 
 struct lprule *
@@ -181,7 +178,7 @@ lprule_set(struct lprule *rule)
 	struct lprule *tmp;
 
 	n = 1 << (8 - rule->lpr_depth_rem);
-	GT_ASSERT(rule->lpr_key_rem + n <= 256);
+	ASSERT(rule->lpr_key_rem + n <= 256);
 	for (i = 0; i < n; ++i) {
 		idx = rule->lpr_key_rem + i;
 		slot = rule->lpr_parent->lpn_children + idx;
@@ -264,14 +261,14 @@ lptree_getset(struct gt_log *log, struct lpnode *root,
 	struct lpnode *node, *parent;
 	struct lprule *rule, *after;
 
-	GT_ASSERT(depth > 0);
-	GT_ASSERT(depth <= 32);
+	ASSERT(depth > 0);
+	ASSERT(depth <= 32);
 	parent = root;
 	for (i = 0; i < 4; ++i) {
 		k = (key >> ((3 - i) << 3)) & 0x000000FF;
 		d = depth - (i << 3);
-		GT_ASSERT(d);
-		GT_ASSERT(k < 256);
+		ASSERT(d);
+		ASSERT(k < 256);
 		if (d > 8) {
 			if (*prule == NULL) {
 				node = parent->lpn_children[k];
@@ -331,7 +328,7 @@ lptree_get(struct lpnode *root, uint32_t key, int depth)
 
 	rule = NULL;
 	rc = lptree_getset(NULL, root, &rule, key, depth);
-	GT_ASSERT(rc);
+	ASSERT(rc);
 	if (rc == -EEXIST) {
 		return rule;
 	} else {
@@ -345,7 +342,7 @@ lptree_set(struct gt_log *log, struct lpnode *root,
 {
 	int rc;
 
-	log = GT_LOG_TRACE(log, add);
+	LOG_TRACE(log);
 	rc = lptree_getset(log, root, &rule, key, depth);
 	return rc;
 }

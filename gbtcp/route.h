@@ -123,7 +123,7 @@ struct gt_route_if *gt_route_if_get_by_idx(int if_idx);
 struct gt_route_if *gt_route_if_get_by_name(const char *if_name,
 	int if_name_len, int if_name_type);
 
-struct gt_route_if_addr *gt_route_if_addr_get(int af,
+struct gt_route_if_addr *route_ifaddr_get(int af,
 	const struct gt_ip_addr *a);
 
 struct gt_route_if_addr *gt_route_if_addr_get4(be32_t a4);
