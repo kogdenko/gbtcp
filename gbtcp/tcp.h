@@ -9,7 +9,7 @@
 #define GT_SOCK_RESET 1
 
 struct gt_tcpcb;
-struct gt_file;
+struct file;
 struct route_if;
 
 struct gt_sockcb {
@@ -27,7 +27,7 @@ struct gt_sockcb {
 };
 
 struct gt_sock {
-	struct gt_file so_file;
+	struct file so_file;
 #define so_list so_file.fl_mbuf.mb_list
 	union {
 		uint64_t so_flags;
@@ -64,7 +64,7 @@ struct gt_sock {
 			u_int so_nagle_acked : 1;
 		};
 	};
-	struct dllist so_bindl;
+	struct dlist so_bindl;
 	struct gt_sock_tuple so_tuple;
 	be32_t so_next_hop;
 	uint16_t so_lmss;
@@ -80,13 +80,13 @@ struct gt_sock {
 			uint16_t so_rwnd;
 			uint16_t so_rwnd_max;
 			uint16_t so_ip_id;
-			struct dllist so_acceptl;
-			struct dllist so_txl;
+			struct dlist so_acceptl;
+			struct dlist so_txl;
 		};
 		struct {
 			// Listen
-			struct dllist so_incompleteq;
-			struct dllist so_completeq;
+			struct dlist so_incompleteq;
+			struct dlist so_completeq;
 			int so_backlog;
 			int so_acceptq_len;
 		};
@@ -101,27 +101,28 @@ struct gt_sock {
 
 extern void (*gt_sock_no_opened_fn)();
 extern int gt_sock_nr_opened;
-extern struct dllist gt_sock_binded[65536];
+extern struct dlist gt_sock_binded[65536];
 
 #define GT_SOCK_FOREACH_BINDED(so) \
 	for (int GT_UNIQV(i) = 0; \
-	     GT_UNIQV(i) < GT_ARRAY_SIZE(gt_sock_binded); \
+	     GT_UNIQV(i) < ARRAY_SIZE(gt_sock_binded); \
 	     GT_UNIQV(i)++) \
-		DLLIST_FOREACH(so, gt_sock_binded + GT_UNIQV(i), so_bindl)
+		DLIST_FOREACH(so, gt_sock_binded + GT_UNIQV(i), so_bindl)
 
-int gt_tcp_mod_init();
+int tcp_mod_init(struct log *, void **);
+int tcp_mod_attach(struct log *, void *);
+void tcp_mod_deinit(struct log *, void *);
+void tcp_mod_detach(struct log *);
 
-void gt_tcp_mod_deinit(struct gt_log *log);
-
-int gt_sock_get(int fd, struct gt_file **fpp);
+int gt_sock_get(int fd, struct file **fpp);
 
 int gt_sock_get_eno(struct gt_sock *so);
 
-short gt_sock_get_events(struct gt_file *fp);
+short gt_sock_get_events(struct file *fp);
 
 void gt_sock_get_sockcb(struct gt_sock *so, struct gt_sockcb *socb);
 
-int gt_sock_nread(struct gt_file *fp);
+int gt_sock_nread(struct file *fp);
 
 int gt_sock_in(int ipproto, struct gt_sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 	void *payload);
@@ -130,36 +131,36 @@ void gt_sock_in_err(int ipproto, struct gt_sock_tuple *so_tuple, int eno);
 
 void gt_sock_tx_flush();
 
-int gt_sock_socket(struct gt_log *log, int fd,
+int gt_sock_socket(struct log *log, int fd,
 	int domain, int type, int flags, int proto);
 
-int gt_sock_connect(struct gt_file *fp, const struct sockaddr_in *f_addr_in,
+int gt_sock_connect(struct file *fp, const struct sockaddr_in *f_addr_in,
 	struct sockaddr_in *l_addr_in);
 
-int gt_sock_bind(struct gt_file *fp, const struct sockaddr_in *addr);
+int gt_sock_bind(struct file *fp, const struct sockaddr_in *addr);
 
-int gt_sock_listen(struct gt_file *fp, int backlog);
+int gt_sock_listen(struct file *fp, int backlog);
 
-int gt_sock_accept(struct gt_file *fp, struct sockaddr *addr,
+int gt_sock_accept(struct file *fp, struct sockaddr *addr,
 	socklen_t *addrlen, int flags);
 
-void gt_sock_close(struct gt_file *fp, int how);
+void gt_sock_close(struct file *fp, int how);
 
-int gt_sock_recvfrom(struct gt_file *fp, const struct iovec *iov, int iovcnt,
+int gt_sock_recvfrom(struct file *fp, const struct iovec *iov, int iovcnt,
 	int flags, struct sockaddr *addr, socklen_t *addrlen);
 
-int gt_sock_sendto(struct gt_file *fp, const struct iovec *iov, int iovcnt,
+int gt_sock_sendto(struct file *fp, const struct iovec *iov, int iovcnt,
 	int flags, be32_t daddr, be16_t dport);
 
-int gt_sock_ioctl(struct gt_file *fp, unsigned long request, uintptr_t arg);
+int gt_sock_ioctl(struct file *fp, unsigned long request, uintptr_t arg);
 
-int gt_sock_getsockopt(struct gt_file *fp, int level, int optname,
+int gt_sock_getsockopt(struct file *fp, int level, int optname,
 	void *optval, socklen_t *optlen);
 
-int gt_sock_setsockopt(struct gt_file *fp, int level, int optname,
+int gt_sock_setsockopt(struct file *fp, int level, int optname,
 	const void *optval, socklen_t optlen);
 
-int gt_sock_getpeername(struct gt_file *fp, struct sockaddr *addr,
+int gt_sock_getpeername(struct file *fp, struct sockaddr *addr,
 	socklen_t *addrlen);
 
 #endif /* GBTCP_TCP_H */

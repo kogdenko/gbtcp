@@ -9,43 +9,26 @@
 #define LOG_BUFSIZ 16384
 
 struct log_scope {
-	const char *lgs_name;
-	int lgs_namelen;
+	char lgs_name[16];
+	int lgs_name_len;
 	int lgs_level;
 };
 
-struct gt_log {
+struct log {
 	const char *lg_func;
-	struct gt_log *lg_upper;
-	struct gt_log *lg_lower;
+	struct log *lg_upper;
+	struct log *lg_lower;
 };
 
 #define LOG_MSG_DECLARE(name) int log_level_##name;
-#define LOG_MSG(name) ((this_mod)->log_level_##name)
-
-#define LOG_DISABLED
-
-#ifdef LOG_DISABLED
-#define log_trace(upper) \
-({ \
-	struct gt_log *GT_UNIQV(log); \
-	GT_UNIQV(log) = alloca(sizeof(struct gt_log)); \
-	UNUSED(upper); \
-	GT_UNIQV(log); \
-})
-
-#define LOG_TRACE UNUSED
-#define LOGF(log, name, level, err, fmt, ...) \
-	do { \
-		UNUSED(log); \
-		UNUSED(err); \
-	} while (0)
-#else /* LOG_DISABLED */
+#define LOG_MSG2(mod, name) ((mod)->log_level_##name)
+#define LOG_MSG(name) \
+	(current_mod == NULL ? 0 : LOG_MSG2(current_mod, name))
 
 #define log_trace(upper) \
 ({ \
-	struct gt_log *GT_UNIQV(log); \
-	GT_UNIQV(log) = alloca(sizeof(struct gt_log)); \
+	struct log *GT_UNIQV(log); \
+	GT_UNIQV(log) = alloca(sizeof(struct log)); \
 	GT_UNIQV(log)->lg_func = __func__; \
 	GT_UNIQV(log)->lg_upper = upper; \
 	GT_UNIQV(log); \
@@ -53,10 +36,18 @@ struct gt_log {
 
 #define LOG_TRACE(log) (log) = log_trace(log)
 
-#define LOGF(log, name, level, err, fmt, ...) \
+//#define LOG_DISABLED
+
+#ifdef LOG_DISABLED
+#define LOGF(log, log_msg_level, level, err, fmt, ...) \
+	do { \
+		UNUSED(log); \
+		UNUSED(err); \
+	} while (0)
+#else /* LOG_DISABLED */
+#define LOGF(log, log_msg_level, level, err, fmt, ...) \
 do { \
-	if (log_is_enabled(&this_mod->log_scope, \
-	                    this_mod->log_level_##name, level)) { \
+	if (log_is_enabled(&current_mod->log_scope, log_msg_level, level)) { \
 		log_buf_init(); \
 		log_printf(log, level, err, fmt, ##__VA_ARGS__); \
 	} \
@@ -66,7 +57,7 @@ do { \
 #define log_trace0() log_trace(NULL)
 
 #ifdef NDEBUG
-#define DBG(...)
+#define DBG(trace, ...) UNUSED(trace)
 #define ASSERT3(err, expr, fmt, ...) \
 	do { \
 	} while (0)
@@ -90,23 +81,24 @@ do { \
 #define BUG1(fmt, ...) BUG2(0, fmt, ##__VA_ARGS__)
 #define BUG BUG1(NULL)
 
-int gt_log_mod_init();
-
-void gt_log_mod_deinit(struct gt_log *log);
+int log_mod_init(struct log *, void **);
+int log_mod_attach(struct log *, void *);
+void log_mod_deinit(struct log *, void *);
+void log_mod_detach(struct log *);
 
 void log_scope_init_early(struct log_scope *, const char *);
 
 void log_scope_init(struct log_scope *, const char *);
 
-void log_scope_deinit(struct gt_log *, struct log_scope *);
+void log_scope_deinit(struct log *, struct log_scope *);
 
-struct gt_log *log_copy(struct gt_log *, int, struct gt_log *);
+struct log *log_copy(struct log *, int, struct log *);
 
 int log_is_enabled(struct log_scope *, int, int);
 
-void log_vprintf(struct gt_log *, int, int, const char *, va_list);
+void log_vprintf(struct log *, int, int, const char *, va_list);
 
-void log_printf(struct gt_log *, int, int, const char *, ...)
+void log_printf(struct log *, int, int, const char *, ...)
 	__attribute__((format(printf, 4, 5)));
 
 void log_backtrace(int depth_off);
@@ -118,7 +110,7 @@ void log_abort(const char *, int, int, const char *, const char *, ...)
 
 void log_buf_init();
 
-struct gt_strbuf *log_buf_alloc_space();
+struct strbuf *log_buf_alloc_space();
 
 const char *log_add_ipaddr(int, const void *);
 

@@ -1,17 +1,6 @@
-#include "log.h"
-#include "sys.h"
-#include "global.h"
-#include "strbuf.h"
-#include "mbuf.h"
-#include "poll.h"
-#include "file.h"
-#include "fd_event.h"
-#include "tcp.h"
-#include "epoll.h"
+#include "internals.h"
 
-#define GT_EPOLL_CNT_MAX 8
-
-#define GT_EPOLL_FLAG_ENABLED (1 << 0)
+#define EPOLL_FLAG_ENABLED (1 << 0)
 #define GT_EPOLL_FLAG_ONESHOT (1 << 1)
 #define GT_EPOLL_FLAG_ET (1 << 2)
 #define GT_EPOLL_FLAG_ADDED (1 << 3)
@@ -27,15 +16,15 @@ struct epoll_mod {
 };
 
 struct gt_epoll {
-	struct gt_file ep_file;
+	struct file ep_file;
 	int ep_fd;
-	struct gt_mbuf_pool *ep_pool;
-	struct dllist ep_head;
+	struct mbuf_pool *ep_pool;
+	struct dlist ep_head;
 };
 
 struct gt_epoll_entry {
-	struct gt_file_cb epe_cb;
-	struct dllist epe_list;
+	struct file_aio epe_aio;
+	struct dlist epe_list;
 	struct gt_epoll *epe_ep;
 	int epe_fd;
 	short epe_revents;
@@ -46,27 +35,26 @@ struct gt_epoll_entry {
 	};
 };
 
-static int gt_epoll_cnt;
-static struct epoll_mod *this_mod;
+static struct epoll_mod *current_mod;
 
 // entry
 static struct gt_epoll_entry *gt_epoll_entry_alloc(struct gt_epoll *ep,
-	struct gt_file *fp, short filter);
+	struct file *fp, short filter);
 
 static struct gt_epoll_entry *gt_epoll_entry_get(struct gt_epoll *ep,
-	struct gt_file *fp);
+	struct file *fp);
 
 static void gt_epoll_entry_remove(struct gt_epoll_entry *e);
 
 static void gt_epoll_entry_free(struct gt_epoll_entry *e);
 
 static void gt_epoll_entry_get_event(struct gt_epoll_entry *e,
-	gt_epoll_event_t *event, struct gt_file *fp);
+	gt_epoll_event_t *event, struct file *fp);
 
-static void gt_epoll_entry_cb(struct gt_file_cb *cb, int fd, short revents);
+static void gt_epoll_entry_cb(struct file_aio *, int fd, short revents);
 
 static void gt_epoll_entry_set(struct gt_epoll_entry *e,
-	struct gt_file *fp, short filter);
+	struct file *fp, short filter);
 
 // epoll
 static int gt_epoll_get(int fd, struct gt_epoll **ep);
@@ -77,80 +65,94 @@ static int gt_epoll_get_events(struct gt_epoll *ep,
 static int gt_epoll_wait_fd(int fd, gt_epoll_event_t *buf, int cnt);
 
 #ifndef __linux__
-static int gt_epoll_kevent_mod(struct gt_epoll *ep, struct gt_file *fp,
+static int gt_epoll_kevent_mod(struct gt_epoll *ep, struct file *fp,
 	struct kevent *event);
 #endif /* __linux__ */
 
 
 int
-gt_epoll_mod_init()
+epoll_mod_init(struct log *log, void **pp)
 {
-	log_scope_init(&this_mod->log_scope, "epoll");
-	gt_epoll_cnt = 0;
+	int rc;
+	struct epoll_mod *mod;
+	LOG_TRACE(log);
+	rc = mm_alloc(log, pp, sizeof(*mod));
+	if (rc) {
+		return rc;
+	}
+	mod = *pp;
+	log_scope_init(&mod->log_scope, "epoll");
+	return 0;
+}
+
+int
+epoll_mod_attach(struct log *log, void *raw_mod)
+{
+	current_mod = raw_mod;
 	return 0;
 }
 
 void
-gt_epoll_mod_deinit(struct gt_log *log)
+epoll_mod_deinit(struct log *log, void *raw_mod)
 {
+	struct epoll_mod *mod;
 	LOG_TRACE(log);
-	log_scope_deinit(log, &this_mod->log_scope);
+	mod = raw_mod;
+	log_scope_deinit(log, &mod->log_scope);
+}
+
+void
+epoll_mod_detach(struct log *log)
+{
+	current_mod = NULL;
 }
 
 int
 gt_epoll_create(int ep_fd)
 {
 	int rc, fd;
-	struct gt_log *log;
-	struct gt_file *fp;
+	struct log *log;
+	struct file *fp;
 	struct gt_epoll *ep;
 
 	log = log_trace0();
-	if (gt_epoll_cnt == GT_EPOLL_CNT_MAX) {
-		LOGF(log, LOG_MSG(create), LOG_ERR, 0,
-		     "too many epoll objects");
-		return -ENFILE;
-	}
-	rc = gt_file_alloc(log, &fp, GT_FILE_EPOLL);
+	rc = file_alloc(log, &fp, FILE_EPOLL);
 	if (rc) {
 		return rc;
 	}
 	fp->fl_opened = 1;
 	ep = (struct gt_epoll *)fp;
 	ep->ep_fd = ep_fd;
-	rc = gt_mbuf_pool_new(log, &ep->ep_pool,
-	                      sizeof(struct gt_epoll_entry));
+	rc = mbuf_pool_alloc(log, &ep->ep_pool, sizeof(struct gt_epoll_entry));
 	if (rc) {
-		gt_file_free(fp);
+		file_free(fp);
 		return rc;
 	}
-	dllist_init(&ep->ep_head);
-	fd = gt_file_get_fd(fp);
-	gt_epoll_cnt++;
+	dlist_init(&ep->ep_head);
+	fd = file_get_fd(fp);
 	return fd;
 }
 
 int
-gt_epoll_close(struct gt_file *fp)
+gt_epoll_close(struct file *fp)
 {
 	int rc, tmp;
-	struct gt_mbuf *m;
+	struct mbuf *m;
 	struct gt_epoll *ep;
 	struct gt_epoll_entry *e;
 
 	ep = (struct gt_epoll *)fp;
-	rc = (*gt_sys_close_fn)(ep->ep_fd);
+	rc = (*sys_close_fn)(ep->ep_fd);
 	if (rc == -1) {
 		rc = errno;
 	}
-	GT_MBUF_FOREACH_SAFE(m, ep->ep_pool, tmp) {
+	MBUF_FOREACH_SAFE(m, ep->ep_pool, tmp) {
 		e = (struct gt_epoll_entry *)m;
 		gt_epoll_entry_free(e);
 	}
-	ASSERT(gt_mbuf_pool_is_empty(ep->ep_pool));
-	gt_mbuf_pool_del(ep->ep_pool);
-	gt_file_free(fp);
-	gt_epoll_cnt--;
+	ASSERT(mbuf_pool_is_empty(ep->ep_pool));
+	mbuf_pool_free(ep->ep_pool);
+	file_free(fp);
 	return rc;
 }
 
@@ -184,8 +186,8 @@ gt_epoll_pwait(int ep_fd, gt_epoll_event_t *buf, int cnt,
 		if (n) {
 			set.fdes_ts.tv_nsec = 0;
 		}
-		rc = gt_sys_ppoll(NULL, pfds, set.fdes_nr_used + 1,
-		                  &set.fdes_ts, sigmask);
+		rc = sys_ppoll(NULL, pfds, set.fdes_nr_used + 1,
+		               &set.fdes_ts, sigmask);
 		GT_GLOBAL_LOCK;
 		if (epoch != gt_global_epoch) {
 			return -EFAULT;
@@ -218,7 +220,7 @@ int
 gt_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 {
 	int rc, filter;
-	struct gt_file *fp;
+	struct file *fp;
 	struct gt_epoll *ep;
 	struct gt_epoll_entry *e;
 
@@ -231,7 +233,7 @@ gt_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 	}
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
-		rc = (*gt_sys_epoll_ctl_fn)(ep->ep_fd, op, fd, event);
+		rc = (*sys_epoll_ctl_fn)(ep->ep_fd, op, fd, event);
 		if (rc) {
 			rc = -errno;
 			ASSERT(rc);
@@ -298,7 +300,7 @@ gt_epoll_kevent(int kq, const struct kevent *changelist, int nchanges,
 	int i, rc;
 	uint64_t to;
 	struct kevent *event;
-	struct gt_file *fp;
+	struct file *fp;
 	struct gt_epoll *ep;
 
 	rc = gt_epoll_get(kq, &ep);
@@ -309,8 +311,8 @@ gt_epoll_kevent(int kq, const struct kevent *changelist, int nchanges,
 		event = (struct kevent *)changelist + i;
 		rc = gt_sock_get(event->ident, &fp);
 		if (rc) {
-			rc = (*gt_sys_kevent_fn)(ep->ep_fd, event, 1,
-			                         NULL, 0, NULL);
+			rc = (*sys_kevent_fn)(ep->ep_fd, event, 1,
+			                      NULL, 0, NULL);
 			if (rc == -1) {
 				rc = -errno;
 				GT_ASSERT(rc);
@@ -347,31 +349,30 @@ gt_epoll_kevent(int kq, const struct kevent *changelist, int nchanges,
 
 // static
 static struct gt_epoll_entry *
-gt_epoll_entry_alloc(struct gt_epoll *ep, struct gt_file *fp, short filter)
+gt_epoll_entry_alloc(struct gt_epoll *ep, struct file *fp, short filter)
 {
 	int rc;
         struct gt_epoll_entry *e;
 
-	rc = gt_mbuf_alloc(NULL, ep->ep_pool, (struct gt_mbuf **)&e);
+	rc = mbuf_alloc(NULL, ep->ep_pool, (struct mbuf **)&e);
 	if (rc) {
 		return NULL;
 	}
 	e->epe_revents = 0;
-	e->epe_flags = GT_EPOLL_FLAG_ENABLED;
+	e->epe_flags = EPOLL_FLAG_ENABLED;
 	e->epe_ep = ep;
-	e->epe_fd = gt_file_get_fd(fp);
-	gt_file_cb_init(&e->epe_cb);
+	e->epe_fd = file_get_fd(fp);
+	file_aio_init(&e->epe_aio);
 	gt_epoll_entry_set(e, fp, filter);
 	return e;
 }
 
 static struct gt_epoll_entry *
-gt_epoll_entry_get(struct gt_epoll *ep, struct gt_file *fp)
+gt_epoll_entry_get(struct gt_epoll *ep, struct file *fp)
 {
-	struct gt_mbuf *mbuf;
+	struct mbuf *mbuf;
 	struct gt_epoll_entry *e;
-
-	DLLIST_FOREACH(mbuf, &fp->fl_cbq, mb_list) {
+	DLIST_FOREACH(mbuf, &fp->fl_aioq, mb_list) {
 		if (mbuf->mb_pool_id == ep->ep_pool->mbp_id) {
 			e = (struct gt_epoll_entry *)mbuf;
 			return e;
@@ -384,7 +385,7 @@ static void
 gt_epoll_entry_remove(struct gt_epoll_entry *e)
 {
 	ASSERT(e->epe_revents);
-	DLLIST_REMOVE(e, epe_list);
+	DLIST_REMOVE(e, epe_list);
 	e->epe_revents = 0;
 }
 
@@ -394,14 +395,14 @@ gt_epoll_entry_free(struct gt_epoll_entry *e)
 	if (e->epe_revents) {
 		gt_epoll_entry_remove(e);
 	}
-	gt_file_cb_cancel(&e->epe_cb);
-	gt_mbuf_free(&e->epe_cb.fcb_mbuf);
+	file_aio_cancel(&e->epe_aio);
+	mbuf_free(&e->epe_aio.faio_mbuf);
 }
 
 #ifdef __linux__
 static void
 gt_epoll_entry_get_event(struct gt_epoll_entry *e,
-	gt_epoll_event_t *event, struct gt_file *fp)
+	gt_epoll_event_t *event, struct file *fp)
 {
 	short x, y;
 
@@ -425,7 +426,7 @@ gt_epoll_entry_get_event(struct gt_epoll_entry *e,
 #else /* __linux__ */
 static void
 gt_epoll_entry_get_event(struct gt_epoll_entry *e,
-	gt_epoll_event_t *event, struct gt_file *fp)
+	gt_epoll_event_t *event, struct file *fp)
 {
 	short x, filter;
 	u_short flags;
@@ -438,10 +439,10 @@ gt_epoll_entry_get_event(struct gt_epoll_entry *e,
 	if (x & POLLIN) {
 		GT_ASSERT((x & POLLOUT) == 0);
 		filter = EVFILT_READ;
-		gt_file_ioctl(fp, FIONREAD, (uintptr_t)(&data));
+		file_ioctl(fp, FIONREAD, (uintptr_t)(&data));
 	} else if (x & POLLOUT) {
 		filter = EVFILT_WRITE;
-		gt_file_ioctl(fp, FIONSPACE, (uintptr_t)(&data));
+		file_ioctl(fp, FIONSPACE, (uintptr_t)(&data));
 	}
 	if (x & POLLERR) {
 		flags |= EV_ERROR;
@@ -458,77 +459,73 @@ gt_epoll_entry_get_event(struct gt_epoll_entry *e,
 #endif /* __linux__ */
 
 static void
-gt_epoll_entry_cb(struct gt_file_cb *cb, int fd, short revents)
+gt_epoll_entry_cb(struct file_aio *aio, int fd, short revents)
 {
 	struct gt_epoll_entry *e;
 
-	e = (struct gt_epoll_entry *)cb;
+	e = (struct gt_epoll_entry *)aio;
 	if (revents & POLLNVAL) {
 		gt_epoll_entry_free(e);
 	} else {
 		ASSERT(revents);
 		if (e->epe_revents == 0) {
 			e->epe_flags |= GT_EPOLL_FLAG_ADDED;
-			DLLIST_INSERT_HEAD(&e->epe_ep->ep_head, e, epe_list);
+			DLIST_INSERT_HEAD(&e->epe_ep->ep_head, e, epe_list);
 		}
 		e->epe_revents |= revents;
 	}
 }
 
 static void
-gt_epoll_entry_set(struct gt_epoll_entry *e, struct gt_file *fp, short filter)
+gt_epoll_entry_set(struct gt_epoll_entry *e, struct file *fp, short filter)
 {
-	if (e->epe_cb.fcb_filter != filter) {
+	if (e->epe_aio.faio_filter != filter) {
 		if (e->epe_revents) {
-			DLLIST_REMOVE(e, epe_list);
+			DLIST_REMOVE(e, epe_list);
 			e->epe_revents = 0;
 		}	
-		gt_file_cb_set(fp, &e->epe_cb, filter, gt_epoll_entry_cb);
+		file_aio_set(fp, &e->epe_aio, filter, gt_epoll_entry_cb);
 	}
 }
-
 static int
 gt_epoll_get(int fd, struct gt_epoll **ep)
 {
 	int rc;
-	struct gt_file *fp;
-
-	rc = gt_file_get(fd, &fp);
+	struct file *fp;
+	rc = file_get(fd, &fp);
 	if (rc < 0) {
 		return rc;
 	}
-	if (fp->fl_type != GT_FILE_EPOLL) {
+	if (fp->fl_type != FILE_EPOLL) {
 		return -EINVAL;
 	}
 	*ep = (struct gt_epoll *)fp;
 	return 0;
 }
-
-
 static int
 gt_epoll_get_events(struct gt_epoll *ep, gt_epoll_event_t *buf, int cnt)
 {
 	int n, rc;
 	short revents;
-	struct gt_log *log;
-	struct gt_file *fp;
+	struct log *log;
+	struct file *fp;
 	struct gt_epoll_entry *e, *tmp;
 
 	if (cnt <= 0) {
 		return 0;
 	}
 	n = 0;
-	DLLIST_FOREACH_SAFE(e, &ep->ep_head, epe_list, tmp) {
+	DLIST_FOREACH_SAFE(e, &ep->ep_head, epe_list, tmp) {
 		ASSERT(e->epe_revents);
-		if ((e->epe_flags & GT_EPOLL_FLAG_ENABLED) == 0) {
+		if ((e->epe_flags & EPOLL_FLAG_ENABLED) == 0) {
 			continue;
 		}
 		rc = gt_sock_get(e->epe_fd, &fp);
 		UNUSED(rc);
 		ASSERT(rc == 0);
-		ASSERT(fp->fl_type == GT_FILE_SOCK);
+		ASSERT(fp->fl_type == FILE_SOCK);
 		if ((e->epe_flags & GT_EPOLL_FLAG_ADDED) == 0) {
-			revents = gt_file_get_events(fp, &e->epe_cb);
+			revents = file_get_events(fp, &e->epe_aio);
 			if (revents == 0) {
 				gt_epoll_entry_remove(e);
 				continue;
@@ -538,8 +535,8 @@ gt_epoll_get_events(struct gt_epoll *ep, gt_epoll_event_t *buf, int cnt)
 		e->epe_flags &= ~GT_EPOLL_FLAG_ADDED;
 		gt_epoll_entry_get_event(e, buf + n, fp);
 		log = log_trace0();
-		DBG(log, get_events, 0, "hit; fd=%d, events=%s",
-		    e->epe_fd, gt_log_add_poll_events(e->epe_revents));
+		DBG(log, LOG_MSG(get_events), 0, "hit; fd=%d, events=%s",
+		    e->epe_fd, log_add_poll_events(e->epe_revents));
 		if (e->epe_flags & GT_EPOLL_FLAG_ET) {
 			gt_epoll_entry_remove(e);
 		}
@@ -560,7 +557,7 @@ gt_epoll_wait_fd(int fd, gt_epoll_event_t *buf, int cnt)
 {
 	int rc;
 
-	rc = (*gt_sys_epoll_pwait_fn)(fd, buf, cnt, 0, NULL);
+	rc = (*sys_epoll_pwait_fn)(fd, buf, cnt, 0, NULL);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -576,21 +573,20 @@ gt_epoll_wait_fd(int fd, gt_epoll_event_t *buf, int cnt)
 
 	to.tv_sec = 0;
 	to.tv_nsec = 0;
-	rc = (*gt_sys_kevent_fn)(fd, NULL, 0, buf, cnt, &to);
+	rc = (*sys_kevent_fn)(fd, NULL, 0, buf, cnt, &to);
 	if (rc == -1) {
 		rc = -errno;
-		GT_ASSERT(rc); 
+		ASSERT(rc); 
 	}
 	return rc;
 }
 
 static int
-gt_epoll_kevent_mod(struct gt_epoll *ep, struct gt_file *fp,
+gt_epoll_kevent_mod(struct gt_epoll *ep, struct file *fp,
 	struct kevent *event)
 {
 	short filter;
 	struct gt_epoll_entry *e;
-
 	if (event->flags & EV_RECEIPT) {
 		return -ENOTSUP;
 	}
@@ -626,10 +622,10 @@ gt_epoll_kevent_mod(struct gt_epoll *ep, struct gt_file *fp,
 	}
 	e->epe_udata_ptr = event->udata;
 	if (event->flags & EV_ENABLE) {
-		e->epe_flags |= GT_EPOLL_FLAG_ENABLED;
+		e->epe_flags |= EPOLL_FLAG_ENABLED;
 	}
 	if (event->flags & EV_DISABLE) {
-		e->epe_flags &= ~GT_EPOLL_FLAG_ENABLED;
+		e->epe_flags &= ~EPOLL_FLAG_ENABLED;
 	}
 	if (event->flags & EV_ONESHOT) {
 		e->epe_flags |=  GT_EPOLL_FLAG_ONESHOT;

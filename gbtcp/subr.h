@@ -1,3 +1,4 @@
+/* GPL2 license */
 #ifndef GBTCP_SUBR_H
 #define GBTCP_SUBR_H
 
@@ -80,18 +81,18 @@
 #define GT_TCP_CORK TCP_NOPUSH
 #endif /* __linux__ */
 
-#define GT_CACHE_LINE_SIZE 64
+#define CACHELINESIZ 64
 
-#define GT_ETH_ADDR_STRLEN 18
-#define GT_ETH_ADDR_LEN 6
+#define ETHADDR_STRLEN 18
+#define ETHADDR_LEN 6
 
-#define GT_IP6_ADDR_LEN 16
+#define IP6ADDR_LEN 16
 
-#define GT_RSS_KEY_SIZE 40
+#define RSSKEYSIZ 40
 
-#define GT_NETMAP_PFX "netmap:"
-#define GT_NETMAP_PFX_LEN (sizeof(GT_NETMAP_PFX) - 1)
-#define GT_IFNAMSIZ (IFNAMSIZ + GT_NETMAP_PFX_LEN)
+#define NETMAP_PFX "netmap:"
+#define NETMAP_PFX_LEN (sizeof(NETMAP_PFX) - 1)
+#define NM_IFNAMSIZ (IFNAMSIZ + NETMAP_PFX_LEN)
 #define GT_PREFIX "/usr/local/gbtcp"
 
 #define GT_SEC 1000000000ull
@@ -103,11 +104,11 @@ typedef uint32_t be32_t;
 typedef uint64_t be64_t;
 typedef uint64_t gt_time_t;
 
-struct gt_log;
+struct log;
 struct gt_strbuf;
 
-struct gt_eth_addr {
-	uint8_t etha_bytes[GT_ETH_ADDR_LEN];
+struct ethaddr {
+	uint8_t etha_bytes[ETHADDR_LEN];
 } __attribute__((packed));
 
 struct gt_sock_tuple {
@@ -129,6 +130,7 @@ struct gt_profiler {
 	uint64_t prf_spended;
 };
 
+
 #ifndef field_off
 #define field_off(type, field) ((intptr_t)&((type *)0)->field)
 #endif /* field_off */
@@ -146,18 +148,20 @@ struct gt_profiler {
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif /* MIN */
 
-#define GT_MAX(a, b) ((a) > (b) ? (a) : (b))
+#ifndef MAX
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif /* MAX */
 
-#define GT_ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 
-#define GT_STRSZ(s) (s), (sizeof(s) - 1)
+#define STRSZ(s) (s), (sizeof(s) - 1)
 
-#define GT_ALIGNMENT sizeof(unsigned long)
-#define GT_ALIGN(x, a) (((x) + (a - 1)) & ~(a - 1))
-#define GT_ALIGN_PTR(x) GT_ALIGN(x, GT_ALIGNMENT)
+#define ALIGNMENT sizeof(unsigned long)
+#define ALIGN(x, a) (((x) + (a - 1)) & ~(a - 1))
+#define ALIGN_PTR(x) ALIGN(x, ALIGNMENT)
 
-#define GT_ROUND_UP(x, y) ((((x) - 1) | (((__typeof__(x))(y)) - 1)) + 1)
-#define GT_ROUND_DOWN(x, y) ((x) & (~((y) - 1 )))
+#define ROUND_UP(x, y) ((((x) - 1) | (((__typeof__(x))(y)) - 1)) + 1)
+#define ROUND_DOWN(x, y) ((x) & (~((y) - 1 )))
 
 #define GT_BSWAP16(x) \
 	(((((uint16_t)(x)) & ((uint16_t)0x00FF)) << 8) | \
@@ -229,32 +233,30 @@ extern uint64_t gt_mHZ;
 extern int gt_application_pid;
 extern const char *gt_application_name;
 
-int gt_subr_mod_init();
+int subr_mod_init(struct log *, void **);
+int subr_mod_attach(struct log *, void *);
+void subr_mod_deinit(struct log *, void *);
+void subr_mod_detach(struct log *);
 
-void gt_subr_mod_deinit();
+int ethaddr_aton(struct ethaddr *, const char *);
 
-// eth_addr
-int gt_eth_addr_aton(struct gt_eth_addr *a, const char *s);
+int ethaddr_is_mcast(const uint8_t *);
 
-int gt_eth_addr_is_mcast(const uint8_t *addr);
+int ethaddr_is_ucast(const uint8_t *);
 
-int gt_eth_addr_is_ucast(const uint8_t *addr);
+void ethaddr_make_ip6_mcast(struct ethaddr *, const uint8_t *);
 
-void gt_eth_addr_make_ip6_mcast(struct gt_eth_addr *addr, const uint8_t *ip6);
+void gt_spinlock_init(struct gt_spinlock *);
 
-// spinlock
-void gt_spinlock_init(struct gt_spinlock *sl);
+void gt_spinlock_lock(struct gt_spinlock *);
 
-void gt_spinlock_lock(struct gt_spinlock *sl);
+int gt_spinlock_trylock(struct gt_spinlock *);
 
-int gt_spinlock_trylock(struct gt_spinlock *sl);
+void gt_spinlock_unlock(struct gt_spinlock *);
 
-void gt_spinlock_unlock(struct gt_spinlock *sl);
+void gt_profiler_enter(struct gt_profiler *);
 
-// profiler
-void gt_profiler_enter(struct gt_profiler *p);
-
-void gt_profiler_leave(struct gt_profiler *p);
+void gt_profiler_leave(struct gt_profiler *);
 
 // string
 char *gt_ltrim(const char *s);
@@ -264,14 +266,14 @@ char *gt_trim(const char *s);
 int gt_strsplit(const char *str, const char *delim,
 	struct iovec *iovec, int iovcnt);
 
-char *gt_strzcpy(char *dest, const char *src, size_t n);
+char *strzcpy(char *dest, const char *src, size_t n);
 
 // hash
 uint32_t gt_custom_hash32(uint32_t data, uint32_t initval);
 
 uint32_t gt_custom_hash(const void *data, size_t cnt, uint32_t val);
 
-uint32_t gt_toeplitz_hash(const uint8_t *data, int cnt, const uint8_t *key);
+uint32_t toeplitz_hash(const uint8_t *data, int cnt, const uint8_t *key);
 
 // byte
 uint32_t gt_upper_pow_of_2_32(uint32_t x);
@@ -283,18 +285,18 @@ uint32_t gt_lower_pow_of_2_32(uint32_t x);
 uint64_t gt_lower_pow_of_2_64(uint64_t x);
 
 // wrapper
-int gt_flock_pidfile(struct gt_log *log, int pid, const char *filename);
+int gt_flock_pidfile(struct log *, int pid, const char *filename);
 
-int gt_read_pidfile(struct gt_log *log, int fd, const char *filename);
+int read_pidfile(struct log *, int fd, const char *filename);
 
-int gt_set_nonblock(struct gt_log *log, int fd);
+int gt_set_nonblock(struct log *, int fd);
 
-int gt_connect_timed(struct gt_log *err, int fd, const struct sockaddr *addr,
+int gt_connect_timed(struct log *, int fd, const struct sockaddr *addr,
 	socklen_t addrlen, gt_time_t to);
 
-int gt_write_all(struct gt_log *log, int fd, const void *buf, size_t count);
+int gt_write_all(struct log *log, int fd, const void *buf, size_t count);
 
-int read_rsskey(struct gt_log *log, const char *ifname, uint8_t *rss_key);
+int read_rsskey(struct log *log, const char *ifname, uint8_t *rss_key);
 
 long gt_gettid();
 
@@ -322,9 +324,7 @@ const char *gt_epoll_op_str(int op);
 #else /* __linux__ */
 #endif /* __linux__ */
 
-// other
-int gt_iovec_len(const struct iovec *iov, int iovcnt);
-
-void gt_print_backtrace(int depth_off);
+int iovec_len(const struct iovec *, int);
+void print_backtrace(int);
 
 #endif /* GBTCP_SUBR_H */

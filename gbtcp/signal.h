@@ -1,3 +1,4 @@
+/* GPL2 license */
 #ifndef GBTCP_SIGNAL_H
 #define GBTCP_SIGNAL_H
 
@@ -6,9 +7,10 @@
 extern void *gt_signal_stack;
 extern size_t gt_signal_stack_size;
 
-int gt_signal_mod_init();
-
-void gt_signal_mod_deinit();
+int signal_mod_init(struct log *, void **);
+int signal_mod_attach(struct log *, void *);
+void signal_mod_deinit(struct log *, void *);
+void signal_mod_detach(struct log *);
 
 int gt_signal_sigaction(int signum, const struct sigaction *act,
 	struct sigaction *oldact);

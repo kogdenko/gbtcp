@@ -5,10 +5,10 @@
 
 #define SYS_CALL(func, ...) \
 ({ \
-	if (gt_sys_##func##_fn == NULL) { \
+	if (sys_##func##_fn == NULL) { \
  		SYS_DLSYM(func); \
 	} \
-	(gt_sys_##func##_fn)(__VA_ARGS__); \
+	(sys_##func##_fn)(__VA_ARGS__); \
 })
 
 #define GT_PRELOAD_CALL(func, ...) \

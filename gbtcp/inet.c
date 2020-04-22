@@ -1,7 +1,4 @@
-#include "log.h"
-#include "inet.h"
-#include "arp.h"
-#include "ctl.h"
+#include "internals.h"
 
 struct inet_mod {
 	struct log_scope log_scope;
@@ -35,11 +32,7 @@ struct gt_arp_stat gt_arps;
 
 static int gt_inet_rx_cksum_offload = 0;
 static int gt_inet_tx_cksum_offload = 0;
-static struct inet_mod *this_mod;
-
-static uint8_t *gt_inet_fill_16(uint8_t *buf, be16_t v);
-
-static uint8_t * gt_inet_fill_32(uint8_t *buf, be32_t v);
+static struct inet_mod *current_mod;
 
 static uint64_t gt_inet_cksum_add(uint64_t sum, uint64_t x);
 
@@ -69,16 +62,16 @@ static int gt_inet_icmp4_in(struct gt_inet_context *ctx);
 
 static int gt_tcp_opt_fill(uint8_t *buf, struct gt_tcp_opts *opts, int kind);
 
-static void gt_inet_ctl_add_stat_var(struct gt_log *log, const char *proto,
+static void gt_inet_ctl_add_stat_var(struct log *log, const char *proto,
 	uint64_t *val, const char *name);
 
-static void gt_inet_ctl_add_ip_stat(struct gt_log *log);
+static void gt_inet_ctl_add_ip_stat(struct log *log);
 
-static void gt_inet_ctl_add_arp_stat(struct gt_log *log);
+static void gt_inet_ctl_add_arp_stat(struct log *log);
 
-static void gt_inet_ctl_add_udp_stat(struct gt_log *log);
+static void gt_inet_ctl_add_udp_stat(struct log *log);
 
-static void gt_inet_ctl_add_tcp_stat(struct gt_log *log);
+static void gt_inet_ctl_add_tcp_stat(struct log *log);
 
 #define GT_INET_SHIFT(ctx, size) \
 	do { \
@@ -87,31 +80,52 @@ static void gt_inet_ctl_add_tcp_stat(struct gt_log *log);
 	} while (0)
 
 int
-gt_inet_mod_init()
+inet_mod_init(struct log *log, void **pp)
 {
-	struct gt_log *log;
-
-	log_scope_init(&this_mod->log_scope, "inet");
-	log = log_trace0();
+	int rc;
+	struct inet_mod *mod;
+	LOG_TRACE(log);
+	rc = mm_alloc(log, pp, sizeof(*mod));
+	if (rc) {
+		return rc;
+	}
+	mod = *pp;
+	log_scope_init(&mod->log_scope, "inet");
 	gt_inet_ctl_add_tcp_stat(log);
 	gt_inet_ctl_add_udp_stat(log);
 	gt_inet_ctl_add_ip_stat(log);
 	gt_inet_ctl_add_arp_stat(log);
-	gt_ctl_add_int(log, GT_CTL_INET_RX_CKSUM_OFFLOAD, GT_CTL_WR,
+	sysctl_add_int(log, GT_CTL_INET_RX_CKSUM_OFFLOAD, SYSCTL_WR,
 	               &gt_inet_rx_cksum_offload, 0, 1);
-	gt_ctl_add_int(log, GT_CTL_INET_TX_CKSUM_OFFLOAD, GT_CTL_WR,
+	sysctl_add_int(log, GT_CTL_INET_TX_CKSUM_OFFLOAD, SYSCTL_WR,
 	               &gt_inet_tx_cksum_offload, 0, 1);
 	return 0;
 }
 
-void
-gt_inet_mod_deinit(struct gt_log *log)
+int
+inet_mod_attach(struct log *log, void *raw_mod)
 {
+	current_mod = raw_mod;
+	return 0;
+}
+
+void
+inet_mod_deinit(struct log *log, void *raw_mod)
+{
+	struct inet_mod *mod;
 	LOG_TRACE(log);
-	gt_ctl_del(log, "inet.stat");
-	gt_ctl_del(log, GT_CTL_INET_RX_CKSUM_OFFLOAD);
-	gt_ctl_del(log, GT_CTL_INET_TX_CKSUM_OFFLOAD);
-	log_scope_deinit(log, &this_mod->log_scope);
+	mod = raw_mod;
+	sysctl_del(log, "inet.stat");
+	sysctl_del(log, GT_CTL_INET_RX_CKSUM_OFFLOAD);
+	sysctl_del(log, GT_CTL_INET_TX_CKSUM_OFFLOAD);
+	log_scope_deinit(log, &mod->log_scope);
+	mm_free(mod);
+}
+
+void
+inet_mod_detach(struct log *log)
+{
+	current_mod = NULL;
 }
 
 int
@@ -168,14 +182,12 @@ gt_inet_ip4_set_cksum(struct gt_ip4_hdr *ip4_h, void *l4_h)
 		break;
 	}
 }
-
 int
 gt_tcp_opts_fill(struct gt_tcp_opts *opts, void *buf)
 {
 	uint8_t *ptr;
 	int i, kind;
-
-	for (i = 0, ptr = buf; i < GT_ARRAY_SIZE(gt_inet_tcp_opts); ++i) {
+	for (i = 0, ptr = buf; i < ARRAY_SIZE(gt_inet_tcp_opts); ++i) {
 		kind = gt_inet_tcp_opts[i].tcpopt_kind;
 		if (opts->tcpo_flags & (1 << kind)) {
 			ptr += gt_tcp_opt_fill(ptr, opts, kind);
@@ -186,33 +198,31 @@ gt_tcp_opts_fill(struct gt_tcp_opts *opts, void *buf)
 	}
 	return ptr - (uint8_t *)buf;
 }
-
 int
 gt_tcp_opts_len(struct gt_tcp_opts *opts)
 {
 	int i, len;
 	struct gt_inet_tcp_opt *opt;
-
-	for (i = 0, len = 0; i < GT_ARRAY_SIZE(gt_inet_tcp_opts); ++i) {
+	for (i = 0, len = 0; i < ARRAY_SIZE(gt_inet_tcp_opts); ++i) {
 		opt = gt_inet_tcp_opts + i;
 		if (opts->tcpo_flags & (1 << opt->tcpopt_kind)) {
 			len += opt->tcpopt_len;
 		}
 	}
-	len = GT_ROUND_UP(len, 4);	
+	len = ROUND_UP(len, 4);	
 	return len;
 }
 
 // static
 static uint8_t *
-gt_inet_fill_16(uint8_t *buf, be16_t v)
+opt_fill_16(uint8_t *buf, be16_t v)
 {
 	*((be16_t *)buf) = v;
 	return buf + sizeof(v);
 }
 
 static uint8_t *
-gt_inet_fill_32(uint8_t *buf, be32_t v)
+opt_fill_32(uint8_t *buf, be32_t v)
 {
 	*((be32_t *)buf) = v;
 	return buf + sizeof(v);
@@ -334,8 +344,7 @@ static int
 gt_tcp_opt_len(int kind)
 {
 	int i;
-
-	for (i = 0; i < GT_ARRAY_SIZE(gt_inet_tcp_opts); ++i) {
+	for (i = 0; i < ARRAY_SIZE(gt_inet_tcp_opts); ++i) {
 		if (gt_inet_tcp_opts[i].tcpopt_kind == kind) {
 			return gt_inet_tcp_opts[i].tcpopt_len;
 		}
@@ -382,7 +391,7 @@ gt_inet_arp_in(struct gt_inet_context *ctx)
 		gt_arps.arps_filtered++;
 		return GT_INET_DROP;
 	}
-	if (ctx->inp_arp_h->arph_hlen != sizeof(struct gt_eth_addr)) {
+	if (ctx->inp_arp_h->arph_hlen != sizeof(struct ethaddr)) {
 		gt_arps.arps_badhlen++;
 		return GT_INET_DROP;
 	}
@@ -390,19 +399,19 @@ gt_inet_arp_in(struct gt_inet_context *ctx)
 		gt_arps.arps_badplen++;
 		return GT_INET_DROP;
 	}
-	if (gt_ip_addr4_is_loopback(tip)) {
+	if (ipaddr4_is_loopback(tip)) {
 		gt_arps.arps_badaddr++;
 		return GT_INET_DROP;
 	}
-	if (gt_ip_addr4_is_bcast(tip)) {
+	if (ipaddr4_is_bcast(tip)) {
 		gt_arps.arps_badaddr++;
 		return GT_INET_DROP;
 	}
-	if (gt_ip_addr4_is_loopback(sip)) {
+	if (ipaddr4_is_loopback(sip)) {
 		gt_arps.arps_badaddr++;
 		return GT_INET_DROP;
 	}
-	if (gt_ip_addr4_is_bcast(sip)) {
+	if (ipaddr4_is_bcast(sip)) {
 		gt_arps.arps_badaddr++;
 		return GT_INET_DROP;
 	}
@@ -452,7 +461,7 @@ gt_inet_ip_in(struct gt_inet_context *ctx)
 	if (ctx->inp_ip4_h->ip4h_ttl < 1) {
 		return GT_INET_DROP;
 	}
-	if (gt_ip_addr4_is_mcast(ctx->inp_ip4_h->ip4h_saddr)) {
+	if (ipaddr4_is_mcast(ctx->inp_ip4_h->ip4h_saddr)) {
 		return GT_INET_BYPASS;
 	}
 	if (ctx->inp_ip4_h->ip4h_frag_off & GT_IP4H_FRAG_MASK) {
@@ -749,16 +758,16 @@ gt_tcp_opt_fill(uint8_t *buf, struct gt_tcp_opts *opts, int kind)
 	len = ptr++;
 	switch (kind) {
 	case GT_TCP_OPT_MSS:
-		ptr = gt_inet_fill_16(ptr, GT_HTON16(opts->tcpo_mss));
+		ptr = opt_fill_16(ptr, GT_HTON16(opts->tcpo_mss));
 		break;
 	case GT_TCP_OPT_WSCALE:
 		*ptr++ = opts->tcpo_wscale;
 		break;
 	case GT_TCP_OPT_TIMESTAMPS:
 		val = GT_HTON32(opts->tcpo_ts.tcpots_val);
-		ptr = gt_inet_fill_32(ptr, val);
+		ptr = opt_fill_32(ptr, val);
 		val = GT_HTON32(opts->tcpo_ts.tcpots_ecr);
-		ptr = gt_inet_fill_32(ptr, val);
+		ptr = opt_fill_32(ptr, val);
 		break;
 	}
 	*len = ptr - buf;
@@ -766,17 +775,16 @@ gt_tcp_opt_fill(uint8_t *buf, struct gt_tcp_opts *opts, int kind)
 }
 
 static void
-gt_inet_ctl_add_stat_var(struct gt_log *log,
+gt_inet_ctl_add_stat_var(struct log *log,
 	const char *proto, uint64_t *val, const char *name)
 {
 	char path[PATH_MAX];
-
 	snprintf(path, sizeof(path), "inet.stat.%s.%s", proto, name);
-	gt_ctl_add_uint64(log, path, GT_CTL_RD, val, 0, 0);
+	sysctl_add_uint64(log, path, SYSCTL_RD, val, 0, 0);
 }
 
 static void
-gt_inet_ctl_add_ip_stat(struct gt_log *log)
+gt_inet_ctl_add_ip_stat(struct log *log)
 {
 #define GT_X(x) gt_inet_ctl_add_stat_var(log, "ip", &gt_ips.ips_##x, #x);
 	GT_IP_STAT(GT_X)
@@ -784,7 +792,7 @@ gt_inet_ctl_add_ip_stat(struct gt_log *log)
 }
 
 static void
-gt_inet_ctl_add_arp_stat(struct gt_log *log)
+gt_inet_ctl_add_arp_stat(struct log *log)
 {
 #define GT_X(x) gt_inet_ctl_add_stat_var(log, "arp", &gt_arps.arps_##x, #x);
 	GT_ARP_STAT(GT_X)
@@ -792,7 +800,7 @@ gt_inet_ctl_add_arp_stat(struct gt_log *log)
 }
 
 static void
-gt_inet_ctl_add_udp_stat(struct gt_log *log)
+gt_inet_ctl_add_udp_stat(struct log *log)
 {
 #define GT_X(x) gt_inet_ctl_add_stat_var(log, "udp", &gt_udps.udps_##x, #x);
 	GT_UDP_STAT(GT_X)
@@ -800,7 +808,7 @@ gt_inet_ctl_add_udp_stat(struct gt_log *log)
 }
 
 static void
-gt_inet_ctl_add_tcp_stat(struct gt_log *log)
+gt_inet_ctl_add_tcp_stat(struct log *log)
 {
 	int i;
 	char name[64];
@@ -808,7 +816,7 @@ gt_inet_ctl_add_tcp_stat(struct gt_log *log)
 #define GT_X(x) gt_inet_ctl_add_stat_var(log, "tcp", &gt_tcps.tcps_##x, #x);
 	GT_TCP_STAT(GT_X)
 #undef GT_X
-	for (i = 0; i < GT_ARRAY_SIZE(gt_tcps.tcps_states); ++i) {
+	for (i = 0; i < ARRAY_SIZE(gt_tcps.tcps_states); ++i) {
 		snprintf(name, sizeof(name), "states.%d", i);
 		gt_inet_ctl_add_stat_var(log, "tcp",
 		                         gt_tcps.tcps_states + i, name);

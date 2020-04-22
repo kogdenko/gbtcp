@@ -1,43 +1,30 @@
-// +
+/* GPL2 license */
 #ifndef GBTCP_API_H
 #define GBTCP_API_H
 
-#include "subr.h"
+#include "log.h"
 
-int gt_api_mod_init();
+int api_mod_init(struct log *, void **);
+int api_mod_attach(struct log *, void *);
+void api_mod_deinit(struct log *, void *);
+void api_mod_detach(struct log *);
 
-void gt_api_mod_deinit(struct gt_log *log);
-
-int gt_api_socket(struct gt_log *log, int fd, int domain, int type, int proto);
-
-int gt_api_bind(struct gt_log *log, int fd, const struct sockaddr *addr,
-	socklen_t addrlen);
-
-int gt_api_listen(struct gt_log *log, int fd, int backlog);
-
-int gt_api_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen,
-	int flags);
-
-int gt_api_shutdown(int fd, int how);
-
-int gt_api_close(int fd);
-
-ssize_t gt_api_recvfrom(int fd, const struct iovec *iov, int iovcnt,
-	int flags, struct sockaddr *addr, socklen_t *addrlen);
-
-int gt_api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
+int api_socket(struct log *, int, int, int, int);
+int api_bind(struct log *, int, const struct sockaddr *, socklen_t);
+int api_listen(struct log *, int, int);
+int api_accept4(int, struct sockaddr *, socklen_t *, int);
+int api_shutdown(int, int);
+int api_close(int);
+ssize_t api_recvfrom(int, const struct iovec *, int, int,
+	struct sockaddr *, socklen_t *);
+int api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
 	be32_t faddr, be16_t fport);
-
-int gt_api_fcntl(int fd, int cmd, uintptr_t arg);
-
-int gt_api_fcntl(int fd, int cmd, uintptr_t arg);
-
-int gt_api_getsockopt(int fd, int level, int optname, void *optval,
+int api_fcntl(int fd, int cmd, uintptr_t arg);
+int api_fcntl(int fd, int cmd, uintptr_t arg);
+int api_getsockopt(int fd, int level, int optname, void *optval,
 	socklen_t *optlen);
-
-int gt_api_setsockopt(int fd, int level, int optname, const void *optval,
+int api_setsockopt(int fd, int level, int optname, const void *optval,
 	socklen_t optlen);
-
-int gt_api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen);
+int api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen);
 
 #endif /* GBTCP_API_H */

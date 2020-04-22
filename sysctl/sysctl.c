@@ -168,7 +168,7 @@ sysctl_list_r(int pid, char *path, int path_len, char *buf, int depth)
 		path[len - 1] = '+';
 		path[len] = '\0';
 		// path: A.B.list.C+
-		rc = gbtcp_ctl(pid, path, buf, GT_CTL_BUFSIZ, NULL);
+		rc = gt_sysctl(pid, path, buf, GT_SYSCTL_BUFSIZ, NULL);
 		if (rc == -1) {
 			rc = -gbtcp_errno;
 			return rc;
@@ -188,7 +188,7 @@ sysctl_r(int pid, char *path, int path_len,
 {
 	int rc;
 
-	rc = gbtcp_ctl(pid, path, buf, GT_CTL_BUFSIZ, new);
+	rc = gt_sysctl(pid, path, buf, GT_SYSCTL_BUFSIZ, new);
 	if (rc == -1) {
 		rc = -gbtcp_errno;
 		return rc;
@@ -216,8 +216,8 @@ sysctl_raw(int pid, const char *arg, int line_num)
 	int rc;
 	char *path, *new, *eql;
 	char line[32];
-	char arg_buf[GT_CTL_BUFSIZ];
-	char buf[GT_CTL_BUFSIZ];
+	char arg_buf[GT_SYSCTL_BUFSIZ];
+	char buf[GT_SYSCTL_BUFSIZ];
 
 	strzcpy(arg_buf, arg, sizeof(arg_buf));
 	// Separate variable name and value

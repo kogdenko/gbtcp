@@ -1,7 +1,4 @@
-#include "signal.h"
-#include "log.h"
-#include "sys.h"
-#include "subr.h"
+#include "internals.h"
 
 struct signal_mod {
 	struct log_scope log_scope;
@@ -9,32 +6,48 @@ struct signal_mod {
 
 void *gt_signal_stack;
 size_t gt_signal_stack_size;
-
-static struct signal_mod *this_mod;
+static struct signal_mod *current_mod;
 
 int
-gt_signal_mod_init()
+signal_mod_init(struct log *log, void **pp)
 {
 	int rc;
-	struct gt_log *log;
-
-	log_scope_init(&this_mod->log_scope, "signal");
-	log = log_trace0();
-	rc = gt_sys_malloc(log, &gt_signal_stack, SIGSTKSZ);
-	if (rc == 0) {
+	struct signal_mod *mod;
+	LOG_TRACE(log);
+	rc = mm_alloc(log, pp, sizeof(*mod));
+	if (rc)
+		return rc;
+	mod = *pp;
+	log_scope_init(&mod->log_scope, "signal");
+	rc = sys_malloc(log, &gt_signal_stack, SIGSTKSZ);
+	if (rc == 0)
 		gt_signal_stack_size = SIGSTKSZ;
-	}
 	return rc;
 }
 
-void
-gt_signal_mod_deinit(struct gt_log *log)
+int
+signal_mod_attach(struct log *log, void *raw_mod)
 {
+	current_mod = raw_mod;
+	return 0;
+}
+
+void
+signal_mod_deinit(struct log *log, void *raw_mod)
+{
+	struct signal_mod *mod;
 	LOG_TRACE(log);
-	log_scope_deinit(log, &this_mod->log_scope);
+	mod = raw_mod;
+	log_scope_deinit(log, &mod->log_scope);
 	free(gt_signal_stack);
 	gt_signal_stack = NULL;
 	gt_signal_stack_size = 0;
+}
+
+void
+signal_mod_detach(struct log *log)
+{
+	current_mod = NULL;
 }
 
 int
@@ -43,15 +56,15 @@ gt_signal_sigaction(int signum, const struct sigaction *act,
 {
 	int rc;
 	struct sigaction newact;
-	struct gt_log *log;
+	struct log *log;
 
 	log = log_trace0();
 	if (act == NULL) {
-		rc = gt_sys_sigaction(log, signum, NULL, oldact);
+		rc = sys_sigaction(log, signum, NULL, oldact);
 	} else {
 		memcpy(&newact, act, sizeof(newact));
 		newact.sa_flags |= SA_ONSTACK;
-		rc = gt_sys_sigaction(log, signum, &newact, oldact);
+		rc = sys_sigaction(log, signum, &newact, oldact);
 	}
 	return rc;
 }

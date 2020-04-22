@@ -17,12 +17,12 @@ struct gt_dev {
 	int dev_tx_full;
 	uint64_t dev_cur_tx_ring_epoch;
 	gt_dev_f dev_fn;
-	struct dllist dev_list;
-	char dev_name[GT_IFNAMSIZ];
+	struct dlist dev_list;
+	char dev_name[NM_IFNAMSIZ];
 };
 
 struct gt_dev_pkt {
-	struct gt_mbuf pkt_mbuf;
+	struct mbuf pkt_mbuf;
 	union {
 		struct {
 			unsigned int pkt_len : 11;
@@ -64,13 +64,14 @@ struct gt_dev_pkt {
 #define GT_DEV_RXR_NEXT(rxr) \
 	(rxr)->head = (rxr)->cur = nm_ring_next(rxr, (rxr)->cur)
 
-int gt_dev_mod_init();
-
-void gt_dev_mod_deinit(struct gt_log *log);
+int dev_mod_init(struct log *, void **);
+int dev_mod_attach(struct log *, void *);
+void dev_mod_deinit(struct log *, void *);
+void dev_mod_detach(struct log *);
 
 struct gt_dev *gt_dev_get(const char *if_name);
 
-int gt_dev_init(struct gt_log *log, struct gt_dev *dev, const char *if_name,
+int gt_dev_init(struct log *log, struct gt_dev *dev, const char *if_name,
 	gt_dev_f fn);
 
 void gt_dev_deinit(struct gt_dev *dev);

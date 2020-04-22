@@ -9,7 +9,7 @@
 	} \
 
 static int
-ipaddr_from_sockaddr(struct gt_ip_addr *dst, struct sockaddr *sa)
+ipaddr_from_sockaddr(struct ipaddr *dst, struct sockaddr *sa)
 {
 	struct sockaddr_in *sa_in;
 	struct sockaddr_in6 *sa_in6;
@@ -70,7 +70,7 @@ handle_link(struct gt_route_msg *msg, int ifindex)
 
 	msg->rtm_type = GT_ROUTE_MSG_LINK;
 	msg->rtm_if_idx = ifindex;
-	rc = gt_sys_if_indextoname(NULL, ifindex, if_name);
+	rc = sys_if_indextoname(NULL, ifindex, if_name);
 	if (rc) {
 		return rc;
 	}
@@ -136,7 +136,7 @@ handle_route(struct gt_route_msg *msg, struct rt_msghdr *rtm)
 	struct sockaddr *addrs[RTAX_MAX];
 	struct sockaddr *dst, *netmask, *gateway;
 	struct sockaddr_dl *gateway_dl;
-	struct gt_ip_addr tmp;
+	struct ipaddr tmp;
 
 	msg->rtm_type = GT_ROUTE_MSG_ROUTE;
 	rc = get_route_addrs(rtm + 1, rtm->rtm_msglen - sizeof(*rtm),
@@ -155,7 +155,7 @@ handle_route(struct gt_route_msg *msg, struct rt_msghdr *rtm)
 	}
 	msg->rtm_af = dst->sa_family;
 	msg->rtm_if_idx = rtm->rtm_index;
-	msg->rtm_route.rtmr_via = gt_ip_addr_zero;
+	msg->rtm_route.rtmr_via = ipaddr_zero;
 	rc = ipaddr_from_sockaddr(&msg->rtm_route.rtmr_dst, dst);
 	if (rc) {
 		return rc;
@@ -180,7 +180,7 @@ handle_route(struct gt_route_msg *msg, struct rt_msghdr *rtm)
 	if (rc) {
 		return rc;
 	}
-	msg->rtm_route.rtmr_pfx = gt_ip_addr_pfx(msg->rtm_af, &tmp);
+	msg->rtm_route.rtmr_pfx = ipaddr_pfx(msg->rtm_af, &tmp);
 	return 1;
 }
 
@@ -243,7 +243,7 @@ route_dump_ifaddrs(gt_route_msg_f fn)
 	struct ifaddrs *ifap, *ifa;
 	struct gt_route_msg msg;
 
-	rc = gt_sys_getifaddrs(NULL, &ifap);
+	rc = sys_getifaddrs(NULL, &ifap);
 	if (rc) {
 		return rc;
 	}
@@ -316,7 +316,7 @@ gt_route_dump(gt_route_msg_f fn)
 	if (rc == -1) {
 		return -errno;
 	}
-	rc = gt_sys_malloc(NULL, (void **)&buf, len);
+	rc = sys_malloc(NULL, (void **)&buf, len);
 	if (rc) {
 		return rc;
 	}
@@ -347,7 +347,7 @@ gt_route_open(struct gt_log *log)
 {
 	int rc;
 
-	rc = gt_sys_socket(log, PF_ROUTE, SOCK_RAW, 0);
+	rc = sys_socket(log, PF_ROUTE, SOCK_RAW, 0);
 	return rc;
 }
 
@@ -357,7 +357,7 @@ gt_route_read(int fd, gt_route_msg_f fn)
 	char msg[2048];
 	int rc;
 
-	rc = gt_sys_read(NULL, fd, msg, sizeof(msg));
+	rc = sys_read(NULL, fd, msg, sizeof(msg));
 	if (rc < 0) {
 		return rc;
 	}

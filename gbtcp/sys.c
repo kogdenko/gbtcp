@@ -1,6 +1,5 @@
-#include "sys.h"
-#include "log.h"
-#include "strbuf.h"
+/* GPL2 license */
+#include "internals.h"
 
 #define SYS_LOG_MSG_FOREACH(x) \
 	x(mod_deinit) \
@@ -44,11 +43,14 @@
 	x(waitpid) 
 
 #ifdef __linux__
+
 #define SYS_LOG_MSG_FOREACH_OS(x) \
 	x(clone)
+
 #else /* __linux__ */
 #define SYS_LOG_MSG_FOREACH_OS(x) \
 	x(kqueue)
+
 #endif /* __linux__ */
 
 struct sys_mod {
@@ -57,70 +59,89 @@ struct sys_mod {
 	SYS_LOG_MSG_FOREACH_OS(LOG_MSG_DECLARE);
 };
 
-gt_open_f gt_sys_open_fn;
-gt_socket_f gt_sys_socket_fn;
-gt_bind_f gt_sys_bind_fn;
-gt_connect_f gt_sys_connect_fn;
-gt_listen_f gt_sys_listen_fn;
-gt_accept4_f gt_sys_accept4_fn;
-gt_flock_f gt_sys_flock_fn;
-gt_read_f gt_sys_read_fn;
-gt_readv_f gt_sys_readv_fn;
-gt_recv_f gt_sys_recv_fn;
-gt_recvfrom_f gt_sys_recvfrom_fn;
-gt_recvmsg_f gt_sys_recvmsg_fn;
-gt_write_f gt_sys_write_fn;
-gt_writev_f gt_sys_writev_fn;
-gt_send_f gt_sys_send_fn;
-gt_sendto_f gt_sys_sendto_fn;
-gt_sendmsg_f gt_sys_sendmsg_fn;
-gt_sendfile_f gt_sys_sendfile_fn;
-gt_shutdown_f gt_sys_shutdown_fn;
-gt_close_f gt_sys_close_fn;
-gt_dup_f gt_sys_dup_fn;
-gt_dup2_f gt_sys_dup2_fn;
-gt_fcntl_f gt_sys_fcntl_fn;
-gt_ioctl_f gt_sys_ioctl_fn;
-gt_ppoll_f gt_sys_ppoll_fn;
-gt_fork_f gt_sys_fork_fn;
-gt_getsockopt_f gt_sys_getsockopt_fn;
-gt_setsockopt_f gt_sys_setsockopt_fn;
-gt_getsockname_f gt_sys_getsockname_fn;
-gt_getpeername_f gt_sys_getpeername_fn;
-gt_signal_f gt_sys_signal_fn;
-gt_sigaction_f gt_sys_sigaction_fn;
-gt_sigprocmask_f gt_sys_sigprocmask_fn;
+sys_open_f sys_open_fn;
+sys_socket_f sys_socket_fn;
+sys_bind_f sys_bind_fn;
+sys_connect_f sys_connect_fn;
+sys_listen_f sys_listen_fn;
+sys_accept4_f sys_accept4_fn;
+sys_flock_f sys_flock_fn;
+sys_read_f sys_read_fn;
+sys_readv_f sys_readv_fn;
+sys_recv_f sys_recv_fn;
+sys_recvfrom_f sys_recvfrom_fn;
+sys_recvmsg_f sys_recvmsg_fn;
+sys_write_f sys_write_fn;
+sys_writev_f sys_writev_fn;
+sys_send_f sys_send_fn;
+sys_sendto_f sys_sendto_fn;
+sys_sendmsg_f sys_sendmsg_fn;
+sys_sendfile_f sys_sendfile_fn;
+sys_shutdown_f sys_shutdown_fn;
+sys_close_f sys_close_fn;
+sys_dup_f sys_dup_fn;
+sys_dup2_f sys_dup2_fn;
+sys_fcntl_f sys_fcntl_fn;
+sys_ioctl_f sys_ioctl_fn;
+sys_ppoll_f sys_ppoll_fn;
+sys_fork_f sys_fork_fn;
+sys_getsockopt_f sys_getsockopt_fn;
+sys_setsockopt_f sys_setsockopt_fn;
+sys_getsockname_f sys_getsockname_fn;
+sys_getpeername_f sys_getpeername_fn;
+sys_signal_f sys_signal_fn;
+sys_sigaction_f sys_sigaction_fn;
+sys_sigprocmask_f sys_sigprocmask_fn;
 #ifdef __linux__
-gt_clone_f gt_sys_clone_fn;
-gt_epoll_create1_f gt_sys_epoll_create1_fn;
-gt_epoll_ctl_f gt_sys_epoll_ctl_fn;
-gt_epoll_wait_f gt_sys_epoll_wait_fn;
-gt_epoll_pwait_f gt_sys_epoll_pwait_fn;
-gt_dup3_f gt_sys_dup3_fn;
+sys_clone_f sys_clone_fn;
+sys_epoll_create1_f sys_epoll_create1_fn;
+sys_epoll_ctl_f sys_epoll_ctl_fn;
+sys_epoll_wait_f sys_epoll_wait_fn;
+sys_epoll_pwait_f sys_epoll_pwait_fn;
+sys_dup3_f sys_dup3_fn;
 #else /* __linux__ */
-gt_kqueue_f gt_sys_kqueue_fn;
-gt_kevent_f gt_sys_kevent_fn;
+sys_kqueue_f sys_kqueue_fn;
+sys_kevent_f sys_kevent_fn;
 #endif /* __linux__ */
 
-static struct sys_mod *this_mod;
+static struct sys_mod *current_mod;
 
 int
-gt_sys_mod_init()
+sys_mod_init(struct log *log, void **pp)
 {
-	log_scope_init(&this_mod->log_scope, "sys");
+	int rc;
+	struct sys_mod *mod;
+	LOG_TRACE(log);
+	rc = mm_alloc(log, pp, sizeof(*mod));
+	if (rc)
+		return rc;
+	mod = *pp;
+	log_scope_init(&mod->log_scope, "sys");
 	return 0;
 }
-
-void
-gt_sys_mod_deinit(struct gt_log *log)
+int
+sys_mod_attach(struct log *log, void *raw_mod)
 {
-	LOG_TRACE(log);
-	log_scope_deinit(log, &this_mod->log_scope);
+	current_mod = raw_mod;
+	return 0;
 }
-
+void
+sys_mod_deinit(struct log *log, void *raw_mod)
+{
+	struct sys_mod *mod;
+	LOG_TRACE(log);
+	mod = raw_mod;
+	log_scope_deinit(log, &mod->log_scope);
+	mm_free(mod);
+}
+void
+sys_mod_detach(struct log *log)
+{
+	current_mod = NULL;
+}
 #ifdef __linux__
 static void
-gt_sys_dlsym_os()
+sys_mod_dlsym_os()
 {
 	SYS_DLSYM(clone);
 	SYS_DLSYM(epoll_create1);
@@ -130,15 +151,14 @@ gt_sys_dlsym_os()
 }
 #else /* __linux__ */
 static void
-gt_sys_dlsym_os()
+sys_mod_dlsym_os()
 {
 	SYS_DLSYM(kqueue);
 	SYS_DLSYM(kevent);
 }
 #endif /* __linux__ */
-
 void
-gt_sys_mod_dlsym()
+sys_mod_dlsym()
 {
 	SYS_DLSYM(open);
 	SYS_DLSYM(socket);
@@ -173,16 +193,14 @@ gt_sys_mod_dlsym()
 	SYS_DLSYM(signal);
 	SYS_DLSYM(sigaction);
 	SYS_DLSYM(sigprocmask);
-	gt_sys_dlsym_os();
+	sys_mod_dlsym_os();
 }
-
 static void
-sys_log_addrfn_failed(struct gt_log *log, int log_msg_level,
+sys_log_addrfn_failed(struct log *log, int log_msg_level,
 	int errnum, int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	const struct sockaddr_un *addr_un;
 	const struct sockaddr_in *addr_in;
-
 	switch (addr->sa_family) {
 	case AF_INET:
 		ASSERT(addrlen >= sizeof(*addr_in));
@@ -190,7 +208,7 @@ sys_log_addrfn_failed(struct gt_log *log, int log_msg_level,
 		UNUSED(addr_in);
 		LOGF(log, log_msg_level, LOG_ERR, errnum,
 		     "failed; fd=%d, sockaddr_in=%s",
-		     fd, gt_log_add_sockaddr_in(addr_in));
+		     fd, log_add_sockaddr_in(addr_in));
 		break;
 	case AF_UNIX:
 		ASSERT(addrlen >= sizeof(*addr_un));
@@ -206,13 +224,12 @@ sys_log_addrfn_failed(struct gt_log *log, int log_msg_level,
 		break;
 	}
 }
-
 int
-gt_sys_fork(struct gt_log *log)
+sys_fork(struct log *log)
 {
 	int rc;
 
-	rc = (*gt_sys_fork_fn)();
+	rc = (*sys_fork_fn)();
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -223,14 +240,12 @@ gt_sys_fork(struct gt_log *log)
 	}
 	return rc;
 }
-
 int
-gt_sys_open(struct gt_log *log, const char *path, int flags, mode_t mode)
+sys_open(struct log *log, const char *path, int flags, mode_t mode)
 {
 	int rc;
-
 restart:
-	rc = (*gt_sys_open_fn)(path, flags, mode);
+	rc = (*sys_open_fn)(path, flags, mode);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -248,13 +263,11 @@ restart:
 	}
 	return rc;
 }
-
 int
-gt_sys_socket(struct gt_log *log, int domain, int type, int protocol)
+sys_socket(struct log *log, int domain, int type, int protocol)
 {
 	int rc;
-
-	rc = (*gt_sys_socket_fn)(domain, type, protocol);
+	rc = (*sys_socket_fn)(domain, type, protocol);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc < 0);
@@ -268,22 +281,19 @@ gt_sys_socket(struct gt_log *log, int domain, int type, int protocol)
 	}
 	return rc;
 }
-
 void
-sys_log_connect_failed(struct gt_log *log, int errnum, int fd,
+sys_log_connect_failed(struct log *log, int errnum, int fd,
 	const struct sockaddr *addr, socklen_t addrlen)
 {
 	sys_log_addrfn_failed(log, LOG_MSG(connect), errnum,
 	                      fd, addr, addrlen);
 }
-
 int
-gt_sys_connect(struct gt_log *log, int fd, const struct sockaddr *addr,
+sys_connect(struct log *log, int fd, const struct sockaddr *addr,
 	socklen_t addrlen)
 {
 	int rc;
-
-	rc = (*gt_sys_connect_fn)(fd, addr, addrlen);
+	rc = (*sys_connect_fn)(fd, addr, addrlen);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc < 0);
@@ -296,14 +306,12 @@ gt_sys_connect(struct gt_log *log, int fd, const struct sockaddr *addr,
 		return 0;
 	}
 }
-
 int
-gt_sys_bind(struct gt_log *log, int fd, const struct sockaddr *addr,
+sys_bind(struct log *log, int fd, const struct sockaddr *addr,
 	socklen_t addrlen)
 {
 	int rc;
-
-	rc = (*gt_sys_bind_fn)(fd, addr, addrlen);
+	rc = (*sys_bind_fn)(fd, addr, addrlen);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc < 0);
@@ -317,13 +325,11 @@ gt_sys_bind(struct gt_log *log, int fd, const struct sockaddr *addr,
 		return 0;
 	}
 }
-
 int
-gt_sys_listen(struct gt_log *log, int fd, int backlog)
+sys_listen(struct log *log, int fd, int backlog)
 {
 	int rc;
-
-	rc = (*gt_sys_listen_fn)(fd, backlog);
+	rc = (*sys_listen_fn)(fd, backlog);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc < 0);
@@ -337,14 +343,12 @@ gt_sys_listen(struct gt_log *log, int fd, int backlog)
 		return 0;
 	}
 }
-
 int
-gt_sys_accept4(struct gt_log *log, int fd, struct sockaddr *addr,
+sys_accept4(struct log *log, int fd, struct sockaddr *addr,
 	socklen_t *addrlen, int flags)
 {
 	int rc;
-
-	rc = (*gt_sys_accept4_fn)(fd, addr, addrlen, flags);
+	rc = (*sys_accept4_fn)(fd, addr, addrlen, flags);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -358,32 +362,28 @@ gt_sys_accept4(struct gt_log *log, int fd, struct sockaddr *addr,
 	}
 	return rc;
 }
-
 int
-gt_sys_shutdown(struct gt_log *log, int fd, int how)
+sys_shutdown(struct log *log, int fd, int how)
 {
 	int rc;
-
-	rc = (*gt_sys_shutdown_fn)(fd, how);
+	rc = (*sys_shutdown_fn)(fd, how);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(shutdoen), LOG_ERR, -rc,
+			LOGF(log, LOG_MSG(shutdown), LOG_ERR, -rc,
 			     "failed; fd=%d, how=%s",
-			      fd, gt_log_add_shutdown_how(how));
+			      fd, log_add_shutdown_how(how));
 		}
 	}
 	return rc;
 }
-
 int
-gt_sys_close(struct gt_log *log, int fd)
+sys_close(struct log *log, int fd)
 {
 	int rc;
-
-	rc = (*gt_sys_close_fn)(fd);
+	rc = (*sys_close_fn)(fd);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc < 0);
@@ -395,14 +395,12 @@ gt_sys_close(struct gt_log *log, int fd)
 	}
 	return rc;
 }
-
 ssize_t
-gt_sys_read(struct gt_log *log, int fd, void *buf, size_t count)
+sys_read(struct log *log, int fd, void *buf, size_t count)
 {
 	ssize_t rc;
-
 restart:
-	rc = (*gt_sys_read_fn)(fd, buf, count);
+	rc = (*sys_read_fn)(fd, buf, count);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -422,13 +420,11 @@ restart:
 	}
 	return rc;
 }
-
 ssize_t
-gt_sys_recvmsg(struct gt_log *log, int fd, struct msghdr *msg, int flags)
+sys_recvmsg(struct log *log, int fd, struct msghdr *msg, int flags)
 {
 	ssize_t rc;
-
-	rc = (*gt_sys_recvmsg_fn)(fd, msg, flags);
+	rc = (*sys_recvmsg_fn)(fd, msg, flags);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -442,14 +438,12 @@ gt_sys_recvmsg(struct gt_log *log, int fd, struct msghdr *msg, int flags)
 	}
 	return rc;
 }
-
 ssize_t
-gt_sys_write(struct gt_log *log, int fd, const void *buf, size_t count)
+sys_write(struct log *log, int fd, const void *buf, size_t count)
 {
 	ssize_t rc;
-
 restart:
-	rc = (*gt_sys_write_fn)(fd, buf, count);
+	rc = (*sys_write_fn)(fd, buf, count);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -469,14 +463,12 @@ restart:
 	}
 	return rc;
 }
-
 ssize_t
-gt_sys_send(struct gt_log *log, int fd, const void *buf, size_t len, int flags)
+sys_send(struct log *log, int fd, const void *buf, size_t len, int flags)
 {
 	ssize_t rc;
-
 restart:
-	rc = (*gt_sys_send_fn)(fd, buf, len, flags);
+	rc = (*sys_send_fn)(fd, buf, len, flags);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -496,13 +488,11 @@ restart:
 	}
 	return rc;
 }
-
 ssize_t
-gt_sys_sendmsg(struct gt_log *log, int fd, const struct msghdr *msg, int flags)
+sys_sendmsg(struct log *log, int fd, const struct msghdr *msg, int flags)
 {
 	ssize_t rc;
-
-	rc = (*gt_sys_sendmsg_fn)(fd, msg, flags);
+	rc = (*sys_sendmsg_fn)(fd, msg, flags);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -516,13 +506,11 @@ gt_sys_sendmsg(struct gt_log *log, int fd, const struct msghdr *msg, int flags)
 	}
 	return rc;
 }
-
 int
-gt_sys_dup(struct gt_log *log, int fd)
+sys_dup(struct log *log, int fd)
 {
 	int rc;
-
-	rc = (*gt_sys_dup_fn)(fd);
+	rc = (*sys_dup_fn)(fd);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc < 0);
@@ -534,12 +522,11 @@ gt_sys_dup(struct gt_log *log, int fd)
 	}
 	return rc;
 }
-
 int
-gt_sys_fcntl(struct gt_log *log, int fd, int cmd, uintptr_t arg)
+sys_fcntl(struct log *log, int fd, int cmd, uintptr_t arg)
 {
 	int rc;
-	rc = (*gt_sys_fcntl_fn)(fd, cmd, arg);
+	rc = (*sys_fcntl_fn)(fd, cmd, arg);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -547,18 +534,16 @@ gt_sys_fcntl(struct gt_log *log, int fd, int cmd, uintptr_t arg)
 			LOG_TRACE(log);
 			LOGF(log, LOG_MSG(fcntl), LOG_ERR, -rc,
 			     "failed; fd=%d, cmd=%s",
-			     fd, gt_log_add_fcntl_cmd(cmd));
+			     fd, log_add_fcntl_cmd(cmd));
 		}
 	}
 	return rc;
 }
-
 int
-gt_sys_ioctl(struct gt_log *log, int fd, unsigned long request, uintptr_t arg)
+sys_ioctl(struct log *log, int fd, unsigned long request, uintptr_t arg)
 {
 	int rc;
-
-	rc = (*gt_sys_ioctl_fn)(fd, request, arg);
+	rc = (*sys_ioctl_fn)(fd, request, arg);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -583,14 +568,12 @@ gt_sys_ioctl(struct gt_log *log, int fd, unsigned long request, uintptr_t arg)
 	}
 	return rc;
 }
-
 int
-gt_sys_getsockopt(struct gt_log *log, int fd, int level, int optname,
+sys_getsockopt(struct log *log, int fd, int level, int optname,
 	void *optval, socklen_t *optlen)
 {
 	int rc;
-
-	rc = (*gt_sys_getsockopt_fn)(fd, level, optname, optval, optlen);
+	rc = (*sys_getsockopt_fn)(fd, level, optname, optval, optlen);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -605,14 +588,12 @@ gt_sys_getsockopt(struct gt_log *log, int fd, int level, int optname,
 	}
 	return rc;
 }
-
 int
-gt_sys_setsockopt(struct gt_log *log, int fd, int level, int optname,
+sys_setsockopt(struct log *log, int fd, int level, int optname,
 	void *optval, socklen_t optlen)
 {
 	int rc;
-
-	rc = (*gt_sys_setsockopt_fn)(fd, level, optname, optval, optlen);
+	rc = (*sys_setsockopt_fn)(fd, level, optname, optval, optlen);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -627,14 +608,12 @@ gt_sys_setsockopt(struct gt_log *log, int fd, int level, int optname,
 	}
 	return rc;
 }
-
 int
-gt_sys_ppoll(struct gt_log *log, struct pollfd *fds, nfds_t nfds,
+sys_ppoll(struct log *log, struct pollfd *fds, nfds_t nfds,
 	const struct timespec *to, const sigset_t *sigmask)
 {
 	int rc;
-
-	rc = (*gt_sys_ppoll_fn)(fds, nfds, to, sigmask);
+	rc = (*sys_ppoll_fn)(fds, nfds, to, sigmask);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -645,33 +624,29 @@ gt_sys_ppoll(struct gt_log *log, struct pollfd *fds, nfds_t nfds,
 	}
 	return rc;
 }
-
 void *
-gt_sys_signal(struct gt_log *log, int signum, void (*handler)())
+sys_signal(struct log *log, int signum, void (*handler)())
 {
 	int rc;
 	void (*res)(int);
-
-	res = (*gt_sys_signal_fn)(signum, handler);
+	res = (*sys_signal_fn)(signum, handler);
 	if (res == SIG_ERR) {
 		rc = -errno;
 		if (log != NULL) {
 			LOG_TRACE(log);
 			LOGF(log, LOG_MSG(signal), LOG_ERR, -rc,
 			     "failed; signum=%d, sighandler=%s",
-			     signum, gt_log_add_sighandler(handler));
+			     signum, log_add_sighandler(handler));
 		}
 	}
 	return res;
 }
-
 int
-gt_sys_sigaction(struct gt_log *log, int signum, const struct sigaction *act,
+sys_sigaction(struct log *log, int signum, const struct sigaction *act,
 	struct sigaction *oldact)
 {
 	int rc;
-
-	rc = (*gt_sys_sigaction_fn)(signum, act, oldact);
+	rc = (*sys_sigaction_fn)(signum, act, oldact);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -683,14 +658,12 @@ gt_sys_sigaction(struct gt_log *log, int signum, const struct sigaction *act,
 	}
 	return rc;
 }
-
 int
-gt_sys_sigprocmask(struct gt_log *log, int how, const sigset_t *set,
+sys_sigprocmask(struct log *log, int how, const sigset_t *set,
 	sigset_t *oldset)
 {
 	int rc;
-
-	rc = (*gt_sys_sigprocmask_fn)(how, set, oldset);
+	rc = (*sys_sigprocmask_fn)(how, set, oldset);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -702,12 +675,11 @@ gt_sys_sigprocmask(struct gt_log *log, int how, const sigset_t *set,
 	}
 	return rc;
 }
-
 int
-gt_sys_malloc(struct gt_log *log, void **pptr, size_t size)
+sys_malloc(struct log *log, void **pp, size_t size)
 {
-	*pptr = malloc(size);
-	if (*pptr == NULL) {
+	*pp = malloc(size);
+	if (*pp == NULL) {
 		if (log != NULL) {
 			LOG_TRACE(log);
 			LOGF(log, LOG_MSG(malloc), LOG_ERR, 0,
@@ -717,13 +689,11 @@ gt_sys_malloc(struct gt_log *log, void **pptr, size_t size)
 	}
 	return 0;
 }
-
 int
-gt_sys_realloc(struct gt_log *log, void **pptr, size_t size)
+sys_realloc(struct log *log, void **pp, size_t size)
 {
 	void *new_ptr;
-
-	new_ptr = realloc(*pptr, size);
+	new_ptr = realloc(*pp, size);
 	if (new_ptr == NULL) {
 		if (log != NULL) {
 			LOG_TRACE(log);
@@ -732,16 +702,14 @@ gt_sys_realloc(struct gt_log *log, void **pptr, size_t size)
 		}
 		return -ENOMEM;
 	}
-	*pptr = new_ptr;
+	*pp = new_ptr;
 	return 0;
 }
-
 int
-gt_sys_posix_memalign(struct gt_log *log, void **memptr, size_t alignment,
+sys_posix_memalign(struct log *log, void **memptr, size_t alignment,
 	size_t size)
 {
 	int rc;
-
 	rc = posix_memalign(memptr, alignment, size);
 	if (rc) {
 		if (log != NULL) {
@@ -753,13 +721,11 @@ gt_sys_posix_memalign(struct gt_log *log, void **memptr, size_t alignment,
 	}
 	return -rc;
 }
-
 int
-gt_sys_fopen(struct gt_log *log, FILE **file, const char *path,
+sys_fopen(struct log *log, FILE **file, const char *path,
 	const char *mode)
 {
 	int rc;
-
 	*file = fopen(path, mode);
 	if (*file == NULL) {
 		rc = -errno;
@@ -773,12 +739,10 @@ gt_sys_fopen(struct gt_log *log, FILE **file, const char *path,
 	}
 	return 0;
 }
-
 int
-gt_sys_opendir(struct gt_log *log, DIR **pdir, const char *name)
+sys_opendir(struct log *log, DIR **pdir, const char *name)
 {
 	int rc;
-
 	*pdir = opendir(name);
 	if (*pdir == NULL) {
 		rc = -errno;
@@ -792,12 +756,10 @@ gt_sys_opendir(struct gt_log *log, DIR **pdir, const char *name)
 	}
 	return 0;
 }
-
 int
-gt_sys_stat(struct gt_log *log, const char *path, struct stat *buf)
+sys_stat(struct log *log, const char *path, struct stat *buf)
 {
 	int rc;
-
 restart:
 	rc = stat(path, buf);
 	if (rc == -1) {
@@ -814,13 +776,11 @@ restart:
 	}
 	return rc;
 }
-
 int
-gt_sys_realpath(struct gt_log *log, const char *path, char *resolved_path)
+sys_realpath(struct log *log, const char *path, char *resolved_path)
 {
 	int rc;
 	char *res;
-
 	res = realpath(path, resolved_path);
 	if (res == NULL) {
 		rc = -errno;
@@ -835,14 +795,12 @@ gt_sys_realpath(struct gt_log *log, const char *path, char *resolved_path)
 	}
 	return rc;
 }
-
 int
-gt_sys_flock(struct gt_log *log, int fd, int operation)
+sys_flock(struct log *log, int fd, int operation)
 {
 	int rc;
-
 restart:
-	rc = (*gt_sys_flock_fn)(fd, operation);
+	rc = (*sys_flock_fn)(fd, operation);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -854,17 +812,16 @@ restart:
 		}
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, flock, LOG_ERR, -rc, "failed; fd=%d", fd);
+			LOGF(log, LOG_MSG(flock), LOG_ERR, -rc,
+			     "failed; fd=%d", fd);
 		}
 	}
 	return rc;
 }
-
 int
-gt_sys_getgrnam(struct gt_log *log, const char *name, struct group **pgroup)
+sys_getgrnam(struct log *log, const char *name, struct group **pgroup)
 {
 	int rc;
-
 restart:
 	rc = 0;
 	*pgroup = getgrnam(name);
@@ -882,12 +839,10 @@ restart:
 	}
 	return rc;
 }
-
 int
-gt_sys_chown(struct gt_log *log, const char *path, uid_t owner, gid_t group)
+sys_chown(struct log *log, const char *path, uid_t owner, gid_t group)
 {
 	int rc;
-
 restart:
 	rc = chown(path, owner, group);
 	if (rc == -1) {
@@ -908,12 +863,10 @@ restart:
 	}
 	return rc;
 }
-
 int
-gt_sys_chmod(struct gt_log *log, const char *path, mode_t mode)
+sys_chmod(struct log *log, const char *path, mode_t mode)
 {
 	int rc;
-
 restart:
 	rc = chmod(path, mode);
 	if (rc == -1) {
@@ -934,12 +887,10 @@ restart:
 	}
 	return rc;
 }
-
 int
-gt_sys_getifaddrs(struct gt_log *log, struct ifaddrs **ifap)
+sys_getifaddrs(struct log *log, struct ifaddrs **ifap)
 {
 	int rc;
-
 	rc = getifaddrs(ifap);
 	if (rc == -1) {
 		rc = -errno;
@@ -952,13 +903,11 @@ gt_sys_getifaddrs(struct gt_log *log, struct ifaddrs **ifap)
 	}
 	return 0;
 }
-
 int
-gt_sys_if_indextoname(struct gt_log *log, int if_idx, char *if_name)
+sys_if_indextoname(struct log *log, int if_idx, char *if_name)
 {
 	int rc;
 	char *s;
-
 	s = if_indextoname(if_idx, if_name);
 	if (s == NULL) {
 		rc = -errno;
@@ -973,12 +922,10 @@ gt_sys_if_indextoname(struct gt_log *log, int if_idx, char *if_name)
 	ASSERT(s == if_name);
 	return 0;
 }
-
 int
-gt_sys_kill(struct gt_log *log, int pid, int sig)
+sys_kill(struct log *log, int pid, int sig)
 {
 	int rc;
-
 	rc = kill(pid, sig);
 	if (rc == -1) {
 		rc = -errno;
@@ -991,12 +938,10 @@ gt_sys_kill(struct gt_log *log, int pid, int sig)
 	}
 	return rc;
 }
-
 int
-gt_sys_waitpid(struct gt_log *log, pid_t pid, int *status, int options)
+sys_waitpid(struct log *log, pid_t pid, int *status, int options)
 {
 	int rc;
-
 	rc = waitpid(pid, status, options);
 	if (rc == -1) {
 		rc = -errno;
@@ -1009,15 +954,13 @@ gt_sys_waitpid(struct gt_log *log, pid_t pid, int *status, int options)
 	}
 	return rc;
 }
-
 #ifdef __linux__
 int
-gt_sys_clone(struct gt_log *log, int (*fn)(void *), void *child_stack,
+sys_clone(struct log *log, int (*fn)(void *), void *child_stack,
 	int flags, void *arg, void *ptid, void *tls, void *ctid)
 {
 	int rc;
-
-	rc = (*gt_sys_clone_fn)(fn, child_stack, flags, arg, ptid, tls, ctid);
+	rc = (*sys_clone_fn)(fn, child_stack, flags, arg, ptid, tls, ctid);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
@@ -1032,11 +975,10 @@ gt_sys_clone(struct gt_log *log, int (*fn)(void *), void *child_stack,
 }
 #else /* __linux__ */
 int
-gt_sys_kqueue(struct gt_log *log)
+sys_kqueue(struct log *log)
 {
 	int rc;
-
-	rc = (*gt_sys_kqueue_fn)();
+	rc = (*sys_kqueue_fn)();
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);

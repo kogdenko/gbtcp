@@ -115,14 +115,14 @@ xsysctl(int pid, const char *path, char *old, const char *new)
 {
 	int rc;
 
-	rc = gbtcp_ctl(pid, path, old, GT_CTL_BUFSIZ, new);
+	rc = gt_sysctl(pid, path, old, GT_SYSCTL_BUFSIZ, new);
 	if (rc >= 0) {
 		return 0;
 	} else {
 		rc = -gbtcp_errno;
 		assert(rc < 0);
 		if (rc != -ENOENT) {
-			warnx("gbtcp_ctl(%d, '%s') failed (%s)",
+			warnx("gt_sysctl(%d, '%s') failed (%s)",
 			      pid, path, strerror(-rc));
 		}
 		return rc;
@@ -253,7 +253,7 @@ get_ifs_pid(int pid, struct netif_head *head)
 	char ifname[64], id[64], tmp32[32];
 	unsigned long long ipackets, ibytes, opackets, obytes, odrops;
 	char path[PATH_MAX];
-	char buf[GT_CTL_BUFSIZ];
+	char buf[GT_SYSCTL_BUFSIZ];
 	struct netif *ifp;
 
 	rc = xsysctl(pid, "route.if.list", buf, NULL);
@@ -402,7 +402,7 @@ sysctl_sock_list_get(struct conn *cp, int pid, int fd)
 {
 	int rc;
 	char path[PATH_MAX];
-	char buf[GT_CTL_BUFSIZ];
+	char buf[GT_SYSCTL_BUFSIZ];
 
 	snprintf(path, sizeof(path), "sock.list.%d", fd);
 	rc = xsysctl(pid, path, buf, NULL);
@@ -622,7 +622,7 @@ sysctl_net_stat(const char *name, struct stat_entry *e)
 	int i, rc;
 	char *endptr;
 	char path[PATH_MAX];
-	char buf[GT_CTL_BUFSIZ];
+	char buf[GT_SYSCTL_BUFSIZ];
 
 	for (i = 0; i < nr_pids; ++i) {
 		snprintf(path, sizeof(path), "inet.stat.%s.%s", name, e->name);

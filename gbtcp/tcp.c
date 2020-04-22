@@ -1,18 +1,7 @@
 // TODO:
 // 1) del ack: with a stream of full-sized incoming segments,
 //    ACK responses must be sent for every second segment.
-#include "tcp.h"
-#include "log.h"
-#include "sys.h"
-#include "strbuf.h"
-#include "timer.h"
-#include "htable.h"
-#include "gbtcp.h"
-#include "ctl.h"
-#include "inet.h"
-#include "fd_event.h"
-#include "file.h"
-#include "sockbuf.h"
+#include "internals.h"
 
 #define GT_SO_IPPROTO_UDP 0
 #define GT_SO_IPPROTO_TCP 1
@@ -26,8 +15,6 @@
 	x(GT_TCP_FLAG_URG, 'U') 
 
 #define TCP_LOG_MSG_FOREACH(x) \
-	x(mod_init) \
-	x(mod_deinit) \
 	x(rcvbuf_add) \
 	x(rcvbuf_pop) \
 	x(sndbuf_add) \
@@ -38,6 +25,7 @@
 	x(in) \
 	x(in_err) \
 	x(tcp_set_state) \
+	x(tcp_rexmit_timo) \
 	x(tcp_snd) \
 	x(tcp_rcv) \
 	x(tcp_rcv_syn) \
@@ -73,14 +61,14 @@ struct tcp_mod {
 
 int gt_sock_nr_opened;
 void (*gt_sock_no_opened_fn)();
-struct dllist gt_sock_binded[65536];
+struct dlist gt_sock_binded[65536];
 
-static gt_htable_t gt_sock_htable;
+static htable_t gt_sock_htable;
 static gt_time_t gt_tcp_fin_timeout;
-static struct tcp_mod *this_mod;
+static struct tcp_mod *current_mod;
 
 // subr
-static const char *gt_tcp_flags_str(struct gt_strbuf *sb, int proto,
+static const char *gt_tcp_flags_str(struct strbuf *sb, int proto,
 	uint8_t tcp_flags);
 
 static const char *gt_log_add_sock(struct gt_sock *so)
@@ -113,7 +101,7 @@ static void gt_tcp_open(struct gt_sock *so);
 
 static void gt_tcp_close(struct gt_sock *so);
 
-static void gt_tcp_close_not_accepted(struct dllist *q);
+static void gt_tcp_close_not_accepted(struct dlist *q);
 
 static void gt_tcp_reset(struct gt_sock *so, struct gt_tcpcb *tcb);
 
@@ -195,7 +183,7 @@ int gt_udp_sendto(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 // sock
 static int gt_sock_err_from_errno(int eno);
 
-static const char *gt_sock_str(struct gt_strbuf *sb, struct gt_sock *so);
+static const char *gt_sock_str(struct strbuf *sb, struct gt_sock *so);
 
 static void gt_sock_dec_nr_opened();
 
@@ -235,7 +223,7 @@ static int gt_sock_is_closed(struct gt_sock *so);
 
 static void gt_sock_open(struct gt_sock *so);
 
-static struct gt_sock *gt_sock_new(struct gt_log *log, int fd, int so_proto);
+static struct gt_sock *gt_sock_new(struct log *log, int fd, int so_proto);
 
 static void gt_sock_del(struct gt_sock *so);
 
@@ -255,14 +243,14 @@ static int gt_sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt);
 
 static void gt_sock_sndbuf_pop(struct gt_sock *so, int cnt);
 
-static struct gt_file *gt_sock_next(int fd);
+static struct file *gt_sock_next(int fd);
 
 static int gt_sock_ctl_sock_list_next(void *udata, int fd);
 
 static int gt_sock_ctl_sock_list(void *udata, int fd, const char *new,
-	struct gt_strbuf *out);
+	struct strbuf *out);
 
-static void gt_sock_ctl_init_sock_list(struct gt_log *log);
+static void gt_sock_ctl_init_sock_list(struct log *log);
 
 static int gt_sock_ctl_tcp_fin_timeout(const long long *new, long long *old);
 
@@ -270,58 +258,87 @@ static int gt_sock_ctl_tcp_fin_timeout(const long long *new, long long *old);
 
 #define GT_TCP_FLAG_ADD(val, name) \
 	if (tcp_flags & val) { \
-		gt_strbuf_add_ch(sb, name); \
+		strbuf_add_ch(sb, name); \
 	}
 
 int
-gt_tcp_mod_init()
+tcp_mod_init(struct log *log, void **pp)
 {
 	int i, rc;
-	struct gt_log *log;
-
-	log_scope_init(&this_mod->log_scope, "tcp");
-	log = log_trace0();
-	gt_sock_nr_opened = 0;
-	rc = gt_htable_create(log, &gt_sock_htable, 2048, gt_sock_hash);
-	if (rc) {
+	struct tcp_mod *mod;
+	LOG_TRACE(log);
+	rc = mm_alloc(log, pp, sizeof(*mod));
+	if (rc)
 		return rc;
-	}
-	for (i = 0; i < GT_ARRAY_SIZE(gt_sock_binded); ++i) {
-		dllist_init(gt_sock_binded + i);
-	}
+	mod = *pp;
+	log_scope_init(&mod->log_scope, "tcp");
+	gt_sock_nr_opened = 0;
+	rc = htable_create(log, &gt_sock_htable, 2048, gt_sock_hash);
+	if (rc)
+		return rc;
+	for (i = 0; i < ARRAY_SIZE(gt_sock_binded); ++i)
+		dlist_init(gt_sock_binded + i);
 	gt_sock_ctl_init_sock_list(log);
 	gt_tcp_fin_timeout = GT_SEC;
-	gt_ctl_add_intfn(log, "tcp.fin_timeout", GT_CTL_WR,
+	sysctl_add_intfn(log, "tcp.fin_timeout", SYSCTL_WR,
 	                 &gt_sock_ctl_tcp_fin_timeout, 1, 24 * 60 * 60);
 	return 0;
 }
 
-void
-gt_tcp_mod_deinit(struct gt_log *log)
+int
+tcp_mod_attach(struct log *log, void *raw_mod)
 {
-//	struct gt_file *fp;
-
-	LOG_TRACE(log);
-	// TODO: delete all
-	//GT_FILE_FOREACH(fp) {
-	//	gt_file_close(fp, GT_SOCK_RESET);
-	//}
-	gt_ctl_del(log, "tcp.fin_timeout");
-	gt_htable_free(&gt_sock_htable);
-	gt_ctl_del(log, GT_CTL_SOCK_LIST);
-	log_scope_deinit(log, &this_mod->log_scope);
+	current_mod = raw_mod;
+	return 0;
 }
 
+void
+tcp_mod_deinit(struct log *log, void *raw_mod)
+{
+	struct tcp_mod *mod;
+	LOG_TRACE(log);
+	mod = raw_mod;
+	// TODO: delete all
+	//GT_FILE_FOREACH(fp) {
+	//	file_close(fp, GT_SOCK_RESET);
+	//}
+	sysctl_del(log, "tcp.fin_timeout");
+	htable_free(&gt_sock_htable);
+	sysctl_del(log, GT_CTL_SOCK_LIST);
+	log_scope_deinit(log, &mod->log_scope);
+	mm_free(mod);
+}
+
+void
+tcp_mod_detach(struct log *log)
+{
+	current_mod = NULL;
+}
+
+const char *
+log_add_tcp_flags(int proto, uint8_t tcp_flags)
+{
+	return gt_tcp_flags_str(log_buf_alloc_space(), proto, tcp_flags);
+}
+
+static const char *
+gt_log_add_sock(struct gt_sock *so)
+{
+	return gt_sock_str(log_buf_alloc_space(), so);
+}
+
+
+
 int
-gt_sock_get(int fd, struct gt_file **fpp)
+gt_sock_get(int fd, struct file **fpp)
 {
 	int rc;
 
-	rc = gt_file_get(fd, fpp);
+	rc = file_get(fd, fpp);
 	if (rc) {
 		return rc;
 	}
-	if ((*fpp)->fl_type != GT_FILE_SOCK) {
+	if ((*fpp)->fl_type != FILE_SOCK) {
 		return -ENOTSOCK;
 	}
 	return 0;
@@ -348,7 +365,7 @@ gt_sock_get_eno(struct gt_sock *so)
 }
 
 short
-gt_sock_get_events(struct gt_file *fp)
+gt_sock_get_events(struct file *fp)
 {
 	short events;
 	struct gt_sock *so;
@@ -365,7 +382,7 @@ gt_sock_get_events(struct gt_file *fp)
 		case GT_TCP_S_CLOSED:
 			break;
 		case GT_TCP_S_LISTEN:
-			if (!dllist_isempty(&so->so_completeq)) {
+			if (!dlist_is_empty(&so->so_completeq)) {
 				events |= POLLIN;
 			}
 			break;
@@ -398,7 +415,7 @@ void
 gt_sock_get_sockcb(struct gt_sock *so, struct gt_sockcb *socb)
 {
 	socb->socb_fd = gt_sock_fd(so);
-	socb->socb_flags = gt_file_cntl(&so->so_file, F_GETFL, 0);
+	socb->socb_flags = file_cntl(&so->so_file, F_GETFL, 0);
 	socb->socb_state = so->so_state;
 	socb->socb_laddr = so->so_tuple.sot_laddr;
 	socb->socb_faddr = so->so_tuple.sot_faddr;
@@ -408,7 +425,7 @@ gt_sock_get_sockcb(struct gt_sock *so, struct gt_sockcb *socb)
 	                                     IPPROTO_TCP : IPPROTO_UDP;
 	if (so->so_is_listen) {
 		socb->socb_acceptq_len = so->so_acceptq_len;
-		socb->socb_incompleteq_len = dllist_size(&so->so_incompleteq);
+		socb->socb_incompleteq_len = dlist_size(&so->so_incompleteq);
 		socb->socb_backlog = so->so_backlog;
 	} else {
 		socb->socb_acceptq_len = 0;
@@ -418,7 +435,7 @@ gt_sock_get_sockcb(struct gt_sock *so, struct gt_sockcb *socb)
 }
 
 int
-gt_sock_nread(struct gt_file *fp)
+gt_sock_nread(struct file *fp)
 {
 	struct gt_sock *so;
 
@@ -431,7 +448,7 @@ gt_sock_in(int ipproto, struct gt_sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 	void *payload)
 {
 	int proto;
-	struct gt_log *log;
+	struct log *log;
 	struct gt_sock *so;
 
 	switch (ipproto) {
@@ -457,7 +474,7 @@ gt_sock_in(int ipproto, struct gt_sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 	if (so == NULL) {
 		DBG(log, LOG_MSG(in), 0, "bypass; flags=%s, tuple=%s:%hu>%s:%hu",
 		    log_add_tcp_flags(proto, tcb->tcb_flags),	    
-		    log_add_ip_addr(AF_INET, &so_tuple->sot_laddr),
+		    log_add_ipaddr(AF_INET, &so_tuple->sot_laddr),
 		    GT_NTOH16(so_tuple->sot_lport),
 		    log_add_ipaddr(AF_INET, &so_tuple->sot_faddr),
 		    GT_NTOH16(so_tuple->sot_fport));
@@ -494,7 +511,7 @@ void
 gt_sock_in_err(int ipproto, struct gt_sock_tuple *so_tuple, int eno)
 {
 	int err, proto;
-	struct gt_log *log;
+	struct log *log;
 	struct gt_sock *so;
 
 	if (ipproto == IPPROTO_UDP) {
@@ -528,7 +545,7 @@ gt_sock_tx_flush()
 }
 
 int
-gt_sock_socket(struct gt_log *log, int fd,
+gt_sock_socket(struct log *log, int fd,
 	int domain, int type, int flags, int proto)
 {
 	int so_fd, so_proto;
@@ -566,11 +583,11 @@ gt_sock_socket(struct gt_log *log, int fd,
 }
 
 int
-gt_sock_connect(struct gt_file *fp, const struct sockaddr_in *faddr_in,
+gt_sock_connect(struct file *fp, const struct sockaddr_in *faddr_in,
 	struct sockaddr_in *laddr_in)
 {
 	int rc;
-	struct gt_log *log;
+	struct log *log;
 	struct gt_route_entry r;
 	struct gt_sock *so;
 
@@ -619,7 +636,7 @@ gt_sock_connect(struct gt_file *fp, const struct sockaddr_in *faddr_in,
 }
 
 int
-gt_sock_bind(struct gt_file *fp, const struct sockaddr_in *addr)
+gt_sock_bind(struct file *fp, const struct sockaddr_in *addr)
 {
 	be32_t laddr;
 	be16_t lport;
@@ -643,13 +660,13 @@ gt_sock_bind(struct gt_file *fp, const struct sockaddr_in *addr)
 	so->so_tuple.sot_laddr = laddr;
 	so->so_tuple.sot_lport = lport;
 	so->so_binded = 1;
-	DLLIST_INSERT_TAIL(gt_sock_binded + GT_NTOH16(lport),
-	                   so, so_bindl);
+	DLIST_INSERT_TAIL(gt_sock_binded + GT_NTOH16(lport),
+	                  so, so_bindl);
 	return 0;
 }
 
 int 
-gt_sock_listen(struct gt_file *fp, int backlog)
+gt_sock_listen(struct file *fp, int backlog)
 {
 	struct gt_sock *lso;
 
@@ -666,8 +683,8 @@ gt_sock_listen(struct gt_file *fp, int backlog)
 	if (lso->so_tuple.sot_lport == 0) {
 		return -EADDRINUSE;
 	}
-	dllist_init(&lso->so_incompleteq);
-	dllist_init(&lso->so_completeq);
+	dlist_init(&lso->so_incompleteq);
+	dlist_init(&lso->so_completeq);
 	lso->so_acceptq_len = 0;
 	lso->so_backlog = backlog > 0 ? backlog : 32;
 	gt_tcp_set_state(lso, GT_TCP_S_LISTEN);
@@ -676,7 +693,7 @@ gt_sock_listen(struct gt_file *fp, int backlog)
 }
 
 int
-gt_sock_accept(struct gt_file *fp, struct sockaddr *addr, socklen_t *addrlen,
+gt_sock_accept(struct file *fp, struct sockaddr *addr, socklen_t *addrlen,
 	int flags)
 {
 	int fd;
@@ -686,15 +703,15 @@ gt_sock_accept(struct gt_file *fp, struct sockaddr *addr, socklen_t *addrlen,
 	if (lso->so_state != GT_TCP_S_LISTEN) {
 		return -EINVAL;
 	}
-	if (dllist_isempty(&lso->so_completeq)) {
+	if (dlist_is_empty(&lso->so_completeq)) {
 		return -EAGAIN;
 	}
 	ASSERT(lso->so_acceptq_len);
-	so = DLLIST_FIRST(&lso->so_completeq, struct gt_sock, so_acceptl);
+	so = DLIST_FIRST(&lso->so_completeq, struct gt_sock, so_acceptl);
 	ASSERT(so->so_state >= GT_TCP_S_ESTABLISHED);
 	ASSERT(so->so_accepted == 0);
 	so->so_accepted = 1;
-	DLLIST_REMOVE(so, so_acceptl);
+	DLIST_REMOVE(so, so_acceptl);
 	lso->so_acceptq_len--;
 	gt_set_sockaddr(addr, addrlen, so->so_tuple.sot_faddr,
 	                so->so_tuple.sot_fport);
@@ -708,7 +725,7 @@ gt_sock_accept(struct gt_file *fp, struct sockaddr *addr, socklen_t *addrlen,
 }
 
 void
-gt_sock_close(struct gt_file *fp, int how)
+gt_sock_close(struct file *fp, int how)
 {
 	struct gt_sock *so;
 
@@ -745,7 +762,7 @@ gt_sock_close(struct gt_file *fp, int how)
 }
 
 int
-gt_sock_recvfrom(struct gt_file *fp, const struct iovec *iov, int iovcnt,
+gt_sock_recvfrom(struct file *fp, const struct iovec *iov, int iovcnt,
 	int flags, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc, peek;
@@ -789,7 +806,7 @@ gt_sock_recvfrom(struct gt_file *fp, const struct iovec *iov, int iovcnt,
 }
 
 int
-gt_sock_sendto(struct gt_file *fp, const struct iovec *iov, int iovcnt,
+gt_sock_sendto(struct file *fp, const struct iovec *iov, int iovcnt,
 	int flags, be32_t daddr, be16_t dport)
 {
 	int rc;
@@ -815,13 +832,13 @@ gt_sock_sendto(struct gt_file *fp, const struct iovec *iov, int iovcnt,
 
 #ifdef __linux__
 int
-gt_sock_ioctl(struct gt_file *fp, unsigned long request, uintptr_t arg)
+gt_sock_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 {
 	return -ENOTSUP;
 }
 #else /* __linux */
 int
-gt_sock_ioctl(struct gt_file *fp, unsigned long request, uintptr_t arg)
+gt_sock_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 {
 	int v;
 	struct gt_sock *so;
@@ -843,7 +860,7 @@ gt_sock_ioctl(struct gt_file *fp, unsigned long request, uintptr_t arg)
 #endif /* __linux__ */
 
 int
-gt_sock_getsockopt(struct gt_file *fp, int level, int optname, void *optval,
+gt_sock_getsockopt(struct file *fp, int level, int optname, void *optval,
 	socklen_t *optlen)
 {
 	struct gt_sock *so;
@@ -876,7 +893,7 @@ gt_sock_getsockopt(struct gt_file *fp, int level, int optname, void *optval,
 }
 
 int
-gt_sock_setsockopt(struct gt_file *fp, int level, int optname, const void *optval,
+gt_sock_setsockopt(struct file *fp, int level, int optname, const void *optval,
 	socklen_t optlen)
 {
 	int optint;
@@ -938,7 +955,7 @@ gt_sock_setsockopt(struct gt_file *fp, int level, int optname, const void *optva
 }
 
 int
-gt_sock_getpeername(struct gt_file *fp, struct sockaddr *addr,
+gt_sock_getpeername(struct file *fp, struct sockaddr *addr,
 	socklen_t *addrlen)
 {
 	struct gt_sock *so;
@@ -959,7 +976,7 @@ gt_sock_getpeername(struct gt_file *fp, struct sockaddr *addr,
 
 // static
 static const char *
-gt_tcp_flags_str(struct gt_strbuf *sb, int proto, uint8_t tcp_flags)
+gt_tcp_flags_str(struct strbuf *sb, int proto, uint8_t tcp_flags)
 {
 	const char *s;
 
@@ -967,7 +984,7 @@ gt_tcp_flags_str(struct gt_strbuf *sb, int proto, uint8_t tcp_flags)
 		return "UDP";
 	}
 	GT_TCP_FLAG_FOREACH(GT_TCP_FLAG_ADD);
-	s = gt_strbuf_cstr(sb);
+	s = strbuf_cstr(sb);
 	return s;
 }
 
@@ -981,7 +998,7 @@ gt_calc_rss_q_id(struct gt_sock_tuple *so_tuple)
 	tmp.sot_faddr = so_tuple->sot_laddr;
 	tmp.sot_lport = so_tuple->sot_fport;
 	tmp.sot_fport = so_tuple->sot_lport;
-	h = gt_toeplitz_hash((uint8_t *)&tmp, sizeof(tmp), gt_route_rss_key);
+	h = toeplitz_hash((uint8_t *)&tmp, sizeof(tmp), gt_route_rss_key);
 	h &= 0x0000007F;
 	return h % gt_route_rss_q_cnt;
 }
@@ -1004,18 +1021,6 @@ gt_set_sockaddr(struct sockaddr *addr, socklen_t *addrlen,
 }
 
 // tcp
-const char *
-log_add_tcp_flags(int proto, uint8_t tcp_flags)
-{
-	return gt_tcp_flags_str(log_buf_alloc_space(), proto, tcp_flags);
-}
-
-static const char *
-gt_log_add_sock(struct gt_sock *so)
-{
-	return gt_sock_str(log_buf_alloc_space(), so);
-}
-
 static uint32_t
 gt_tcp_diff_seq(uint32_t start, uint32_t end)
 {
@@ -1047,7 +1052,7 @@ static void
 gt_tcp_set_rmss(struct gt_sock *so, struct gt_tcp_opts *opts)
 {
 	if (opts->tcpo_flags & (1 << GT_TCP_OPT_MSS)) {
-		so->so_rmss = GT_MAX(GT_IP4_MTU_MIN - 20, opts->tcpo_mss);
+		so->so_rmss = MAX(GT_IP4_MTU_MIN - 20, opts->tcpo_mss);
 	} else {
 		so->so_rmss = 536;
 	}
@@ -1084,13 +1089,13 @@ gt_tcp_set_swnd(struct gt_sock *so)
 static int
 gt_tcp_set_state(struct gt_sock *so, int state)
 {
-	struct gt_log *log;
+	struct log *log;
 
 	ASSERT(GT_SOCK_ALIVE(so));
 	ASSERT(state < GT_TCP_NSTATES);
 	ASSERT(state != so->so_state);
 	log = log_trace0();
-	DBG(log, LOG_MSG(set_state), 0, "hit; state %s->%s, fd=%d",
+	DBG(log, LOG_MSG(tcp_set_state), 0, "hit; state %s->%s, fd=%d",
 	    gt_tcp_state_str(so->so_state), gt_tcp_state_str(state),
 	    gt_sock_fd(so));
 	if (state != GT_TCP_S_CLOSED) {
@@ -1121,7 +1126,7 @@ gt_tcp_rcvbuf_recv(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 	int peek)
 {
 	int rc, buflen;
-	struct gt_log *log;
+	struct log *log;
 
 	buflen = so->so_rcvbuf.sob_len;
 	if (buflen == 0) {
@@ -1175,19 +1180,19 @@ gt_tcp_close(struct gt_sock *so)
 		if (so->so_accepted == 0) { 
 			ASSERT(so->so_listen != NULL);
 			so->so_listen->so_acceptq_len--;
-			DLLIST_REMOVE(so, so_acceptl);
+			DLIST_REMOVE(so, so_acceptl);
 			so->so_listen = NULL;
 		}
 	}
 }
 
 static void
-gt_tcp_close_not_accepted(struct dllist *q)
+gt_tcp_close_not_accepted(struct dlist *q)
 {
 	struct gt_sock *so;
 
-	while (!dllist_isempty(q)) {
-		so = DLLIST_FIRST(q, struct gt_sock, so_acceptl);
+	while (!dlist_is_empty(q)) {
+		so = DLIST_FIRST(q, struct gt_sock, so_acceptl);
 		ASSERT(so->so_file.fl_opened == 0);
 		so->so_listen = NULL;
 		gt_sock_close(&so->so_file, GT_SOCK_GRACEFULL);
@@ -1306,7 +1311,7 @@ gt_tcp_timeout_delack(struct gt_timer *timer)
 static void
 gt_tcp_timeout_rexmit(struct gt_timer *timer)
 {
-	struct gt_log *log;
+	struct log *log;
 	struct gt_sock *so;
 
 	so = container_of(timer, struct gt_sock, so_timer);
@@ -1317,7 +1322,7 @@ gt_tcp_timeout_rexmit(struct gt_timer *timer)
 	so->so_sfin_sent = 0;
 	gt_tcps.tcps_rexmttimeo++;
 	log = log_trace0();
-	DBG(log, LOG_MSG(timeout_rexmit), 0,
+	DBG(log, LOG_MSG(tcp_rexmit_timo), 0,
 	    "hit; fd=%d, state=%s",
 	    gt_sock_fd(so), gt_tcp_state_str(so->so_state));
 	if (so->so_nr_rexmit_tries++ > 6) {
@@ -1382,7 +1387,7 @@ static void
 gt_tcp_rcv_syn(struct gt_sock *lso, struct gt_sock_tuple *so_tuple,
 	struct gt_tcpcb *tcb)
 {
-	struct gt_log *log;
+	struct log *log;
 	struct gt_sock *so;
 
 	//ASSERT(lso->so_acceptq_len <= lso->so_backlog);
@@ -1399,7 +1404,7 @@ gt_tcp_rcv_syn(struct gt_sock *lso, struct gt_sock_tuple *so_tuple,
 	so->so_tuple = *so_tuple;
 	gt_tcp_open(so);
 	if (tcb->tcb_flags != GT_TCP_FLAG_SYN) {
-		DBG(log, LOG_MSG(rcv_syn), 0,
+		DBG(log, LOG_MSG(tcp_rcv_syn), 0,
 		    "not a SYN; tuple=%s:%hu>%s:%hu, lfd=%d, fd=%d",
 		    log_add_ipaddr(AF_INET, &so->so_tuple.sot_laddr),
 		    GT_NTOH16(so->so_tuple.sot_lport),
@@ -1410,7 +1415,7 @@ gt_tcp_rcv_syn(struct gt_sock *lso, struct gt_sock_tuple *so_tuple,
 		gt_tcp_reset(so, tcb);
 		return;
 	} else {
-		DBG(log, LOG_MSG(rcv_syn), 0,
+		DBG(log, LOG_MSG(tcp_rcv_syn), 0,
 		    "ok; tuple=%s:%hu>%s:%hu, lfd=%d, fd=%d",
 		    log_add_ipaddr(AF_INET, &so->so_tuple.sot_laddr),
 		    GT_NTOH16(so->so_tuple.sot_lport),
@@ -1418,7 +1423,7 @@ gt_tcp_rcv_syn(struct gt_sock *lso, struct gt_sock_tuple *so_tuple,
 		    GT_NTOH16(so->so_tuple.sot_fport),
 		    gt_sock_fd(lso), gt_sock_fd(so));
 	}
-	DLLIST_INSERT_HEAD(&lso->so_incompleteq, so, so_acceptl);
+	DLIST_INSERT_HEAD(&lso->so_incompleteq, so, so_acceptl);
 	lso->so_acceptq_len++;
 	so->so_passive_open = 1;
 	so->so_listen = lso;
@@ -1543,7 +1548,7 @@ gt_tcp_rcv_open(struct gt_sock *so, struct gt_tcpcb *tcb, void *payload)
 			return;
 		}
 		so->so_rwnd = tcb->tcb_win;
-		so->so_rwnd_max = GT_MAX(so->so_rwnd_max, so->so_rwnd);
+		so->so_rwnd_max = MAX(so->so_rwnd_max, so->so_rwnd);
 	}
 	switch (so->so_state) {
 	case GT_TCP_S_SYN_SENT:
@@ -1568,7 +1573,7 @@ static int
 gt_tcp_is_in_order(struct gt_sock *so, struct gt_tcpcb *tcb)
 {
 	uint32_t len, off;
-	struct gt_log *log;
+	struct log *log;
 
 	len = tcb->tcb_len;
 	if (tcb->tcb_flags & (GT_TCP_FLAG_SYN|GT_TCP_FLAG_FIN)) {
@@ -1577,7 +1582,7 @@ gt_tcp_is_in_order(struct gt_sock *so, struct gt_tcpcb *tcb)
 	off = gt_tcp_diff_seq(tcb->tcb_seq, so->so_rseq);
 	if (off > len) {
 		log = log_trace0();
-		DBG(log, LOG_MSG(rcv), 0,
+		DBG(log, LOG_MSG(tcp_rcv), 0,
 		    "out of order; flags=%s, seq=%u, len=%u, %s",
 		    log_add_tcp_flags(so->so_proto, tcb->tcb_flags),
 		    tcb->tcb_seq, len, gt_log_add_sock(so));
@@ -1621,8 +1626,8 @@ gt_tcp_establish(struct gt_sock *so)
 	if (so->so_passive_open && so->so_listen != NULL) {
 		lso = so->so_listen;
 		ASSERT(lso->so_acceptq_len);
-		DLLIST_REMOVE(so, so_acceptl);
-		DLLIST_INSERT_HEAD(&lso->so_completeq, so, so_acceptl);
+		DLIST_REMOVE(so, so_acceptl);
+		DLIST_INSERT_HEAD(&lso->so_completeq, so, so_acceptl);
 		gt_sock_wakeup(lso, POLLIN);
 	} else {
 		gt_sock_wakeup(so, POLLOUT);
@@ -1653,7 +1658,7 @@ gt_tcp_process_ack(struct gt_sock *so, struct gt_tcpcb *tcb)
 {
 	int rc;
 	uint32_t acked;
-	struct gt_log *log;
+	struct log *log;
 
 	acked = gt_tcp_diff_seq(so->so_sack, tcb->tcb_ack);
 	if (acked == 0) {
@@ -1668,7 +1673,7 @@ gt_tcp_process_ack(struct gt_sock *so, struct gt_tcpcb *tcb)
 		}
 		if (acked > so->so_ssnt) {
 			log = log_trace0();
-			DBG(log, LOG_MSG(process_ack), 0,
+			DBG(log, LOG_MSG(tcp_process_ack), 0,
 			    "bad ACK; flags=%s, ack=%u, %s",
 		            log_add_tcp_flags(so->so_proto,
 			                      tcb->tcb_flags),
@@ -2028,8 +2033,8 @@ gt_tcp_flush_if(struct gt_route_if *ifp)
 	struct gt_sock *so;
 
 	n = 0;
-	while (!dllist_isempty(&ifp->rif_txq) && n < 128) {
-		so = DLLIST_FIRST(&ifp->rif_txq, struct gt_sock, so_txl);
+	while (!dlist_is_empty(&ifp->rif_txq) && n < 128) {
+		so = DLIST_FIRST(&ifp->rif_txq, struct gt_sock, so_txl);
 		do {
 			rc = gt_route_if_not_empty_txr(ifp, &pkt);
 			if (rc) {
@@ -2050,7 +2055,7 @@ gt_udp_rcvbuf_recv(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 	struct sockaddr *addr, socklen_t *addrlen, int peek)
 {
 	int rc, cnt;
-	struct gt_log *log;
+	struct log *log;
 	struct gt_sockbuf_msg msg;
 
 	if (so->so_msgbuf.sob_len == 0) {
@@ -2209,17 +2214,17 @@ gt_sock_err_from_errno(int eno)
 }
 
 static const char *
-gt_sock_str(struct gt_strbuf *sb, struct gt_sock *so)
+gt_sock_str(struct strbuf *sb, struct gt_sock *so)
 {
 	int is_tcp;
 
 	is_tcp = so->so_proto == GT_SO_IPPROTO_TCP;
-	gt_strbuf_addf(sb, "{ proto=%s, fd=%d, tuple=",
-		is_tcp ? "tcp" : "udp", gt_sock_fd(so));
-	gt_strbuf_add_ip_addr(sb, AF_INET, &so->so_tuple.sot_laddr);
-	gt_strbuf_addf(sb, ".%hu>", GT_NTOH16(so->so_tuple.sot_lport));
-	gt_strbuf_add_ip_addr(sb, AF_INET, &so->so_tuple.sot_faddr);
-	gt_strbuf_addf(sb,
+	strbuf_addf(sb, "{ proto=%s, fd=%d, tuple=",
+	            is_tcp ? "tcp" : "udp", gt_sock_fd(so));
+	strbuf_add_ipaddr(sb, AF_INET, &so->so_tuple.sot_laddr);
+	strbuf_addf(sb, ".%hu>", GT_NTOH16(so->so_tuple.sot_lport));
+	strbuf_add_ipaddr(sb, AF_INET, &so->so_tuple.sot_faddr);
+	strbuf_addf(sb,
 		".%hu"
 		", in_txq=%u"
 		", error=%u"
@@ -2239,13 +2244,13 @@ gt_sock_str(struct gt_strbuf *sb, struct gt_sock *so)
 		so->so_rmss);
 	if (is_tcp) {
 		if (so->so_is_listen) {
-			gt_strbuf_addf(sb,
+			strbuf_addf(sb,
 				", backlog=%u"
 				", acceptq_len=%u",
 				so->so_backlog,
 				so->so_acceptq_len);
 		} else {
-			gt_strbuf_addf(sb,
+			strbuf_addf(sb,
 				", state=%s"
 				", passive_open=%u"
 				", accepted=%u"
@@ -2303,19 +2308,19 @@ gt_sock_str(struct gt_strbuf *sb, struct gt_sock *so)
 				so->so_rcvbuf.sob_len,
 				so->so_sndbuf.sob_len);
 			if (so->so_listen != NULL) {
-				gt_strbuf_addf(sb, ", listen_fd=%d",
+				strbuf_addf(sb, ", listen_fd=%d",
 				               gt_sock_fd(so->so_listen));
 			}
 		}
 	} else {
-		gt_strbuf_addf(sb,
+		strbuf_addf(sb,
 			", rcvbuf_len=%u"
 			", msgbuf_len=%u",
 			so->so_rcvbuf.sob_len,
 			so->so_msgbuf.sob_len);
 	}
-	gt_strbuf_add_ch(sb, '}');
-	return gt_strbuf_cstr(sb);
+	strbuf_add_ch(sb, '}');
+	return strbuf_cstr(sb);
 }
 
 static void
@@ -2377,25 +2382,25 @@ gt_sock_htable_add(struct gt_sock *so)
 {
 	ASSERT(so->so_hashed == 0);
 	so->so_hashed = 1;
-	gt_htable_add(&gt_sock_htable, (struct dllist *)so);
+	htable_add(&gt_sock_htable, (struct dlist *)so);
 }
 
 static int
 gt_sock_fd(struct gt_sock *so)
 {
-	return gt_file_get_fd((struct gt_file *)so);
+	return file_get_fd((struct file *)so);
 }
 
 static struct gt_sock *
 gt_sock_find(int proto, struct gt_sock_tuple *so_tuple)
 {
 	uint32_t hash;
-	struct dllist *bucket;
+	struct dlist *bucket;
 	struct gt_sock *so;
 
 	hash = gt_custom_hash(so_tuple, sizeof(*so_tuple), 0);
-	bucket = gt_htable_bucket(&gt_sock_htable, hash);
-	DLLIST_FOREACH(so, bucket, so_file.fl_mbuf.mb_list) {
+	bucket = htable_bucket(&gt_sock_htable, hash);
+	DLIST_FOREACH(so, bucket, so_file.fl_mbuf.mb_list) {
 		if (so->so_proto == proto &&
 		    so->so_tuple.sot_laddr == so_tuple->sot_laddr &&
 		    so->so_tuple.sot_faddr == so_tuple->sot_faddr &&
@@ -2411,18 +2416,18 @@ static struct gt_sock *
 gt_sock_get_binded(int proto, struct gt_sock_tuple *so_tuple)
 {
 	uint32_t lport;
-	struct dllist *bucket;
+	struct dlist *bucket;
 	struct gt_sock *so, *binded;
 
 	lport = GT_NTOH16(so_tuple->sot_lport);
 	bucket = gt_sock_binded + lport;
 	binded = NULL;
-	DLLIST_FOREACH(so, bucket, so_bindl) {
+	DLIST_FOREACH(so, bucket, so_bindl) {
 		if (so->so_proto == proto &&
 		    (so->so_tuple.sot_laddr == 0 ||
 		     so->so_tuple.sot_laddr == so_tuple->sot_laddr)) {
 			binded = so;
-			if (!dllist_isempty(&so->so_file.fl_cbq)) {
+			if (!dlist_is_empty(&so->so_file.fl_aioq)) {
 				break;
 			}
 		}
@@ -2507,21 +2512,21 @@ gt_sock_in_txq(struct gt_sock *so)
 static void
 gt_sock_add_txq(struct gt_route_if *ifp, struct gt_sock *so)
 {
-	DLLIST_INSERT_TAIL(&ifp->rif_txq, so, so_txl);
+	DLIST_INSERT_TAIL(&ifp->rif_txq, so, so_txl);
 }
 
 static void
 gt_sock_del_txq(struct gt_sock *so)
 {
 	ASSERT(gt_sock_in_txq(so));
-	DLLIST_REMOVE(so, so_txl);
+	DLIST_REMOVE(so, so_txl);
 	so->so_txl.dls_next = NULL;
 }
 
 static void
 gt_sock_wakeup(struct gt_sock *so, short revents)
 {
-	gt_file_wakeup(&so->so_file, revents);
+	file_wakeup(&so->so_file, revents);
 }
 
 static int
@@ -2540,17 +2545,17 @@ gt_sock_open(struct gt_sock *so)
 }
 
 static struct gt_sock *
-gt_sock_new(struct gt_log *log, int fd, int so_proto)
+gt_sock_new(struct log *log, int fd, int so_proto)
 {
 	int rc;
-	struct gt_file *fp;
+	struct file *fp;
 	struct gt_sock *so;
 
 	LOG_TRACE(log);
 	if (fd) {
-		rc = gt_file_alloc4(log, &fp, GT_FILE_SOCK, fd);
+		rc = file_alloc4(log, &fp, FILE_SOCK, fd);
 	} else {
-		rc = gt_file_alloc(log, &fp, GT_FILE_SOCK);
+		rc = file_alloc(log, &fp, FILE_SOCK);
 	}
 	if (rc) {
 		return NULL;
@@ -2587,17 +2592,17 @@ gt_sock_new(struct gt_log *log, int fd, int so_proto)
 static void
 gt_sock_del(struct gt_sock *so)
 {
-	struct gt_log *log;
+	struct log *log;
 
 	ASSERT(GT_SOCK_ALIVE(so));
 	ASSERT(so->so_file.fl_opened == 0);
 	ASSERT(so->so_state == GT_TCP_S_CLOSED);
 	if (so->so_hashed) {
-		gt_htable_del(&gt_sock_htable, (struct dllist *)so);
+		htable_del(&gt_sock_htable, (struct dlist *)so);
 		so->so_hashed = 0;
 	}
 	if (so->so_binded) {
-		DLLIST_REMOVE(so, so_bindl);
+		DLIST_REMOVE(so, so_bindl);
 		so->so_binded = 0;
 	}
 	if (gt_sock_in_txq(so)) {
@@ -2608,7 +2613,7 @@ gt_sock_del(struct gt_sock *so)
 	if (so->so_proto == GT_SO_IPPROTO_TCP) {
 		gt_tcps.tcps_closed++;
 	}
-	gt_file_free(&so->so_file);
+	file_free(&so->so_file);
 	gt_sock_dec_nr_opened();
 }
 
@@ -2616,7 +2621,7 @@ static int
 gt_sock_rcvbuf_add(struct gt_sock *so, const void *src, int cnt, int all)
 {
 	int rc, len;
-	struct gt_log *log;
+	struct log *log;
 
 	len = so->so_rcvbuf.sob_len;
 	rc = gt_sockbuf_add(&so->so_rcvbuf, src, cnt, all);
@@ -2694,7 +2699,7 @@ gt_sock_xmit_data(struct gt_route_if *ifp, struct gt_dev_pkt *pkt,
 	struct gt_sock *so, uint8_t tcp_flags, u_int len)
 {
 	int delack, sndwinup, total_len;
-	struct gt_log *log;
+	struct log *log;
 	struct gt_tcpcb tcb;
 	struct gt_eth_hdr *eth_h;
 
@@ -2730,7 +2735,7 @@ static int
 gt_sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt)
 {
 	int rc;
-	struct gt_log *log;
+	struct log *log;
 
 	rc = gt_sockbuf_add(&so->so_sndbuf, src, cnt, 0);
 	log = log_trace0();
@@ -2743,7 +2748,7 @@ gt_sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt)
 static void
 gt_sock_sndbuf_pop(struct gt_sock *so, int cnt)
 {
-	struct gt_log *log;
+	struct log *log;
 
 	gt_sockbuf_pop(&so->so_sndbuf, cnt);
 	log = log_trace0();
@@ -2751,17 +2756,17 @@ gt_sock_sndbuf_pop(struct gt_sock *so, int cnt)
 	    cnt, so->so_sndbuf.sob_len, gt_sock_fd(so));
 }
 
-static struct gt_file *
+static struct file *
 gt_sock_next(int fd)
 {
-	struct gt_file *fp;
+	struct file *fp;
 
 	while (1) {
-		fp = gt_file_next(fd);
+		fp = file_next(fd);
 		if (fp == NULL) {
 			return NULL;
 		}
-		if (fp->fl_type == GT_FILE_SOCK) {
+		if (fp->fl_type == FILE_SOCK) {
 			return fp;
 		} else {
 			++fd;
@@ -2772,13 +2777,13 @@ gt_sock_next(int fd)
 static int
 gt_sock_ctl_sock_list_next(void *udata, int fd)
 {
-	struct gt_file *fp;
+	struct file *fp;
 
 	fp = gt_sock_next(fd);
 	if (fp == NULL) {
 		return -ENOENT;
 	} else {
-		fd = gt_file_get_fd(fp);
+		fd = file_get_fd(fp);
 		return fd;
 	}
 }
@@ -2786,20 +2791,20 @@ gt_sock_ctl_sock_list_next(void *udata, int fd)
 
 static int
 gt_sock_ctl_sock_list(void *udata, int fd, const char *new,
-	struct gt_strbuf *out)
+	struct strbuf *out)
 {
-	struct gt_file *fp;
+	struct file *fp;
 	struct gt_sockcb socb;
 
 	fp = gt_sock_next(fd);
 	if (fp == NULL) {
 		return -ENOENT;
 	}
-	if (gt_file_get_fd(fp) != fd) {
+	if (file_get_fd(fp) != fd) {
 		return -ENOENT;
 	}
 	gt_sock_get_sockcb((struct gt_sock *)fp, &socb);
-	gt_strbuf_addf(out, "%d,%d,%d,%x,%hu,%x,%hu,%d,%d,%d",
+	strbuf_addf(out, "%d,%d,%d,%x,%hu,%x,%hu,%d,%d,%d",
 		socb.socb_fd,
 		socb.socb_ipproto,
 		socb.socb_state,
@@ -2814,9 +2819,9 @@ gt_sock_ctl_sock_list(void *udata, int fd, const char *new,
 }
 
 static void
-gt_sock_ctl_init_sock_list(struct gt_log *log)
+gt_sock_ctl_init_sock_list(struct log *log)
 {
-	gt_ctl_add_list(log, GT_CTL_SOCK_LIST, GT_CTL_RD, NULL,
+	sysctl_add_list(log, GT_CTL_SOCK_LIST, SYSCTL_RD, NULL,
 	                gt_sock_ctl_sock_list_next,
 	                gt_sock_ctl_sock_list);
 }

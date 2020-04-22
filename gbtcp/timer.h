@@ -1,3 +1,4 @@
+/* GPL2 license */
 #ifndef GBTCP_TIMER_H
 #define GBTCP_TIMER_H
 
@@ -11,15 +12,16 @@
 #define TIMER_EXPIRE_MAX (5 * 60 * 60 * GT_SEC) // 5 Hours
 
 struct gt_timer {
-	struct dllist tm_list;
+	struct dlist tm_list;
 	uintptr_t tm_data;
 };
 
 typedef void (*gt_timer_f)(struct gt_timer *);
 
-int gt_timer_mod_init();
-
-void gt_timer_mod_deinit(struct gt_log *log);
+int timer_mod_init(struct log *, void **);
+int timer_mod_attach(struct log *, void *);
+void timer_mod_deinit(struct log *, void *);
+void timer_mod_detach(struct log *);
 
 void gt_timer_mod_check();
 

@@ -1,18 +1,5 @@
-#include "../gbtcp_lib.h"
+#include "../internals.h"
 
-#define ROUTE_LOG_MSG_FOREACH(x) \
-	x(read) \
-	x(dump) \
-	x(rtnl_open) \
-	x(rtnl_handler) \
-	x(handle_link) \
-	x(handle_addr) \
-	x(handle_route) \
-
-struct route_mod {
-	struct log_scope log_scope;
-	ROUTE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
-};
 
 struct gt_route_dump_req {
 	struct nlmsghdr rdmp_nlh;
@@ -21,7 +8,7 @@ struct gt_route_dump_req {
 	uint32_t rdmp_ext_filter_mask;
 };
 
-static struct route_mod *this_mod;
+static struct route_mod *current_mod;
 
 static const char *gt_route_nlmsg_type_str(int nlmsg_type)
 	__attribute__ ((unused));
@@ -62,42 +49,42 @@ gt_route_get_attr_u32(struct rtattr *attr)
 }
 
 int
-gt_route_rtnl_open(struct gt_log *log, unsigned int nl_groups)
+gt_route_rtnl_open(struct log *log, unsigned int nl_groups)
 {
 	int rc, fd, opt;
 	struct sockaddr_nl addr;
 
 	LOG_TRACE(log);
-	rc = gt_sys_socket(log, AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+	rc = sys_socket(log, AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 	if (rc < 0) {
 		return rc;
 	}
 	fd = rc;
 	rc = gt_set_nonblock(log, fd);
 	if (rc) {
-		gt_sys_close(log, fd);
+		sys_close(log, fd);
 		return rc;
 	}
 	opt = 32768;
-	rc = gt_sys_setsockopt(log, fd, SOL_SOCKET, SO_SNDBUF,
-	                       &opt, sizeof(opt));
+	rc = sys_setsockopt(log, fd, SOL_SOCKET, SO_SNDBUF,
+	                    &opt, sizeof(opt));
 	if (rc < 0) {
-		gt_sys_close_fn(fd);
+		sys_close_fn(fd);
 		return rc;
 	}
 	opt = 1024 * 1024;
-	rc = gt_sys_setsockopt(log, fd, SOL_SOCKET, SO_RCVBUF,
-	                       &opt, sizeof(opt));
+	rc = sys_setsockopt(log, fd, SOL_SOCKET, SO_RCVBUF,
+	                    &opt, sizeof(opt));
 	if (rc < 0) {
-		gt_sys_close(log, fd);
+		sys_close(log, fd);
 		return rc;
 	}
 	memset(&addr, 0, sizeof(addr));
 	addr.nl_family = AF_NETLINK;
 	addr.nl_groups = nl_groups;
-	rc = gt_sys_bind(log, fd, (struct sockaddr *)&addr, sizeof(addr));
+	rc = sys_bind(log, fd, (struct sockaddr *)&addr, sizeof(addr));
 	if (rc) {
-		gt_sys_close(log, fd);
+		sys_close(log, fd);
 		return rc;
 	}
 	return fd;
@@ -123,7 +110,7 @@ gt_route_handle_link(struct nlmsghdr *h, struct gt_route_msg *msg)
 	int len, tmp;
 	struct ifinfomsg *ifi;
 	struct rtattr *attrs[IFLA_MAX + 1], *attr;
-	struct gt_log *log;
+	struct log *log;
 
 	log = log_trace0();
 	tmp = NLMSG_LENGTH(sizeof(*ifi));
@@ -135,7 +122,7 @@ gt_route_handle_link(struct nlmsghdr *h, struct gt_route_msg *msg)
 	}
 	ifi = NLMSG_DATA(h);
 	attr = IFLA_RTA(ifi);
-	gt_route_get_attrs(attr, len, attrs, GT_ARRAY_SIZE(attrs));
+	gt_route_get_attrs(attr, len, attrs, ARRAY_SIZE(attrs));
 	msg->rtm_if_idx = ifi->ifi_index;
 	msg->rtm_link.rtml_flags = ifi->ifi_flags;
 	attr = attrs[IFLA_ADDRESS];
@@ -159,7 +146,7 @@ gt_route_handle_addr(struct nlmsghdr *h, struct gt_route_msg *msg)
 	int len, tmp, addr_len;
 	struct ifaddrmsg *ifa;
 	struct rtattr *attrs[IFA_MAX + 1], *attr;
-	struct gt_log *log;
+	struct log *log;
 
 	log = log_trace0();
 	tmp = NLMSG_LENGTH(sizeof(*ifa));
@@ -182,7 +169,7 @@ gt_route_handle_addr(struct nlmsghdr *h, struct gt_route_msg *msg)
 		return 0;
 	}
 	msg->rtm_af = ifa->ifa_family;
-	gt_route_get_attrs(attr, len, attrs, GT_ARRAY_SIZE(attrs));
+	gt_route_get_attrs(attr, len, attrs, ARRAY_SIZE(attrs));
 	attr = attrs[IFA_LOCAL];
 	if (attr == NULL) {
 		attr = attrs[IFA_ADDRESS];
@@ -210,7 +197,7 @@ gt_route_handle_route(struct nlmsghdr *h, struct gt_route_msg *msg)
 	int len, tmp, table, addr_len;
 	struct rtmsg *rtm;
 	struct rtattr *attrs[RTA_MAX + 1], *attr;
-	struct gt_log *log;
+	struct log *log;
 
 	log = log_trace0();
 	tmp = NLMSG_LENGTH(sizeof(*rtm));
@@ -242,7 +229,7 @@ gt_route_handle_route(struct nlmsghdr *h, struct gt_route_msg *msg)
 	}
 	msg->rtm_af = rtm->rtm_family;
 	attr = RTM_RTA(rtm);
-	gt_route_get_attrs(attr, len, attrs, GT_ARRAY_SIZE(attrs));
+	gt_route_get_attrs(attr, len, attrs, ARRAY_SIZE(attrs));
 	attr = attrs[RTA_TABLE];
 	if (attr != NULL) {
 		tmp = RTA_PAYLOAD(attr);
@@ -268,7 +255,7 @@ gt_route_handle_route(struct nlmsghdr *h, struct gt_route_msg *msg)
 	}
 	attr = attrs[RTA_DST];
 	if (attr == NULL) {
-		msg->rtm_route.rtmr_dst = gt_ip_addr_zero;
+		msg->rtm_route.rtmr_dst = ipaddr_zero;
 	} else {
 		tmp = RTA_PAYLOAD(attr);
 		if (tmp != addr_len) {
@@ -321,7 +308,7 @@ gt_route_rtnl_handler(struct nlmsghdr *h, gt_route_msg_f fn)
 {
 	int rc;
 	struct gt_route_msg msg;
-	struct gt_log *log;
+	struct log *log;
 
 	log = log_trace0();
 	memset(&msg, 0, sizeof(msg));
@@ -374,7 +361,7 @@ gt_route_read(int fd, gt_route_msg_f fn)
 	struct nlmsghdr *h;
 	struct sockaddr_nl addr;
 	struct iovec iov;
-	struct gt_log *log;
+	struct log *log;
 
 	log = log_trace0();
 	iov.iov_base = buf;
@@ -386,7 +373,7 @@ gt_route_read(int fd, gt_route_msg_f fn)
 	msg.msg_namelen = sizeof(addr);
 	msg.msg_iov = &iov;
 	msg.msg_iovlen = 1; 
-	rc = gt_sys_recvmsg(log, fd, &msg, 0);
+	rc = sys_recvmsg(log, fd, &msg, 0);
 	if (rc < 0) {
 		return rc;
 	}
@@ -414,11 +401,11 @@ gt_route_read(int fd, gt_route_msg_f fn)
 }
 
 int
-gt_route_open(struct gt_log *log)
+route_open(struct route_mod *mod, struct log *log)
 {
 	int rc, g;
 
-	log_scope_init(&this_mod->log_scope, "netlink");
+	current_mod = mod;
 	g = 0;
 	g |= RTMGRP_LINK;
 	g |= RTMGRP_IPV4_IFADDR;
@@ -447,7 +434,7 @@ gt_route_dump(gt_route_msg_f fn)
 {
 	static int types[3] = { RTM_GETLINK, RTM_GETADDR, RTM_GETROUTE };
 	int i, rc, fd;
-	struct gt_log *log;
+	struct log *log;
 	struct gt_route_dump_req req;
 
 	log = log_trace0();
@@ -456,7 +443,7 @@ gt_route_dump(gt_route_msg_f fn)
 		return rc;
 	}
 	fd = rc;
-	for (i = 0; i < GT_ARRAY_SIZE(types); ++i) {
+	for (i = 0; i < ARRAY_SIZE(types); ++i) {
 		memset(&req, 0, sizeof(req));
 		req.rdmp_nlh.nlmsg_len = sizeof(req);
 		req.rdmp_nlh.nlmsg_type = types[i];
@@ -467,13 +454,13 @@ gt_route_dump(gt_route_msg_f fn)
 		req.rdmp_ext_req.rta_type = IFLA_EXT_MASK;
 		req.rdmp_ext_req.rta_len = RTA_LENGTH(sizeof(uint32_t));
 		req.rdmp_ext_filter_mask = RTEXT_FILTER_VF;
-		rc = gt_sys_send(log, fd, &req, sizeof(req), 0);
+		rc = sys_send(log, fd, &req, sizeof(req), 0);
 		if (rc < 0) {
-			gt_sys_close(log, fd);
+			sys_close(log, fd);
 			return rc;
 		}
 		gt_route_read_all(fd, fn);
 	}
-	gt_sys_close(log, fd);
+	sys_close(log, fd);
 	return 0;
 }

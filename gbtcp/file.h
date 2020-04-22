@@ -1,18 +1,19 @@
+/* GPL2 license */
 #ifndef GBTCP_FILE_H
 #define GBTCP_FILE_H
 
 #include "mbuf.h"
 
-struct gt_file_cb;
+struct file_aio;
 
-enum gt_file_type {
-	GT_FILE_OTHER,
-	GT_FILE_SOCK,
-	GT_FILE_EPOLL,
+enum file_type {
+	FILE_OTHER,
+	FILE_SOCK,
+	FILE_EPOLL,
 };
 
-struct gt_file {
-	struct gt_mbuf fl_mbuf;
+struct file {
+	struct mbuf fl_mbuf;
 	union {
 		uint32_t fl_flags;
 		struct {
@@ -21,64 +22,50 @@ struct gt_file {
 			unsigned int fl_blocked : 1;
 		};
 	};
-	struct dllist fl_cbq;
+	struct dlist fl_aioq;
 };
 
-typedef void (*gt_file_cb_f)(struct gt_file_cb *cb, int fd, short revents);
+typedef void (*file_aio_f)(struct file_aio *, int, short);
 
-struct gt_file_cb {
-	struct gt_mbuf fcb_mbuf;
-	gt_file_cb_f fcb_fn;
-	int fcb_fd;
-	short fcb_filter;
+struct file_aio {
+	struct mbuf faio_mbuf;
+#define faio_list faio_mbuf.mb_list
+	file_aio_f faio_fn;
+	int faio_fd;
+	short faio_filter;
 };
 
-#define GT_FILE_FOREACH(fp) \
+#define FILE_FOREACH(fp) \
 	for (int GT_UNIQV(fd) = 0; \
-	     (fp = gt_file_next(GT_UNIQV(fd))) != NULL; \
-	     GT_UNIQV(fd) = gt_file_get_fd(fp) + 1)
+	     (fp = file_next(GT_UNIQV(fd))) != NULL; \
+	     GT_UNIQV(fd) = file_get_fd(fp) + 1)
 
-#define GT_FILE_FOREACH_SAFE(fp, tmp_fd) \
+#define FILE_FOREACH_SAFE(fp, tmp_fd) \
 	for (int GT_UNIQV(fd) = 0; \
-	     ((fp = gt_file_next(GT_UNIQV(fd))) != NULL) && \
-	     ((tmp_fd = gt_file_get_fd(fp) + 1), 1); \
+	     ((fp = file_next(GT_UNIQV(fd))) != NULL) && \
+	     ((tmp_fd = file_get_fd(fp) + 1), 1); \
 	     GT_UNIQV(fd) = tmp_fd)
 
-int gt_file_mod_init();
+int file_mod_init(struct log *, void **);
+int file_mod_attach(struct log *, void *);
+void file_mod_deinit(struct log *, void *);
+void file_mod_detach(struct log *);
 
-void gt_file_mod_deinit();
-
-struct gt_file *gt_file_next(int fd);
-
-int gt_file_alloc(struct gt_log *log, struct gt_file **fpp, int type);
-
-int gt_file_alloc4(struct gt_log *log, struct gt_file **fpp, int type, int fd);
-
-void gt_file_free(struct gt_file *fp);
-
-void gt_file_close(struct gt_file *fp, int how);
-
-int gt_file_cntl(struct gt_file *fp, int cmd, uintptr_t arg);
-
-int gt_file_ioctl(struct gt_file *fp, unsigned long request, uintptr_t arg);
-
-int gt_file_get(int fd, struct gt_file **fpp);
-
-int gt_file_get_fd(struct gt_file *fp);
-
-short gt_file_get_events(struct gt_file *fp, struct gt_file_cb *cb);
-
-void gt_file_wakeup(struct gt_file *fp, short revents);
-
-int gt_file_wait(struct gt_file *fp, short events);
-
-void gt_file_cb_set(struct gt_file *fp, struct gt_file_cb *cb,
-	short filter, gt_file_cb_f fn);
-
-void gt_file_cb_cancel(struct gt_file_cb *cb);
-
-void gt_file_cb_init(struct gt_file_cb *cb);
-
-int gt_file_try_fd(int fd);
+struct file *file_next(int);
+int file_alloc(struct log *, struct file **, int);
+int file_alloc4(struct log *, struct file **, int, int);
+void file_free(struct file *);
+void file_close(struct file *, int);
+int file_cntl(struct file *, int, uintptr_t);
+int file_ioctl(struct file *, unsigned long, uintptr_t);
+int file_get(int, struct file **);
+int file_get_fd(struct file *);
+short file_get_events(struct file *, struct file_aio *);
+void file_wakeup(struct file *, short);
+int file_wait(struct file *, short);
+void file_aio_set(struct file *, struct file_aio *, short, file_aio_f);
+void file_aio_cancel(struct file_aio *);
+void file_aio_init(struct file_aio *);
+int file_try_fd(int);
 
 #endif /* GBTCP_FILE_H */

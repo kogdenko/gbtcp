@@ -1,278 +1,221 @@
-// +
+/* GPL2 license */
 #ifndef GBTCP_SYS_H
 #define GBTCP_SYS_H
 
-#include "subr.h"
+#include "log.h"
 
 #define SYS_DLSYM(x) \
 do { \
-	gt_sys_##x##_fn = dlsym(RTLD_NEXT, #x); \
-	assert(gt_sys_##x##_fn != NULL); \
+	sys_##x##_fn = dlsym(RTLD_NEXT, #x); \
+	assert(sys_##x##_fn != NULL); \
 } while (0)
 
-typedef pid_t (*gt_fork_f)();
 
-typedef int (*gt_open_f)(const char *path, int flags, mode_t mode);
+typedef pid_t (*sys_fork_f)();
 
-typedef int (*gt_socket_f)(int domain, int type, int protocol);
+typedef int (*sys_open_f)(const char *path, int flags, mode_t mode);
 
-typedef int (*gt_connect_f)(int fd, const struct sockaddr *addr,
+typedef int (*sys_socket_f)(int domain, int type, int protocol);
+
+typedef int (*sys_connect_f)(int fd, const struct sockaddr *addr,
 	socklen_t addrlen);
 
-typedef int (*gt_bind_f)(int fd, const struct sockaddr *addr,
+typedef int (*sys_bind_f)(int fd, const struct sockaddr *addr,
 	socklen_t addrlen);
 
-typedef int (*gt_listen_f)(int fd, int backlog);
+typedef int (*sys_listen_f)(int fd, int backlog);
 
-typedef int (*gt_accept4_f)(int fd, struct sockaddr *addr, socklen_t *addrlen,
+typedef int (*sys_accept4_f)(int fd, struct sockaddr *addr, socklen_t *addrlen,
 	int flags);
 
-typedef int (*gt_shutdown_f)(int fd, int how);
+typedef int (*sys_shutdown_f)(int fd, int how);
 
-typedef int (*gt_close_f)(int fd);
+typedef int (*sys_close_f)(int fd);
 
-typedef ssize_t (*gt_read_f)(int fd, void *buf, size_t count);
+typedef ssize_t (*sys_read_f)(int fd, void *buf, size_t count);
 
-typedef ssize_t (*gt_readv_f)(int fd, const struct iovec *iov, int iovcnt);
+typedef ssize_t (*sys_readv_f)(int fd, const struct iovec *iov, int iovcnt);
 
-typedef ssize_t (*gt_recv_f)(int fd, void *buf, size_t len, int flags);
+typedef ssize_t (*sys_recv_f)(int fd, void *buf, size_t len, int flags);
 
-typedef ssize_t (*gt_recvfrom_f)(int fd, void *buf, size_t len, int flags,
+typedef ssize_t (*sys_recvfrom_f)(int fd, void *buf, size_t len, int flags,
 	struct sockaddr *src_addr, socklen_t *addrlen);
 
-typedef ssize_t (*gt_recvmsg_f)(int fd, struct msghdr *msg, int flags);
+typedef ssize_t (*sys_recvmsg_f)(int fd, struct msghdr *msg, int flags);
 
-typedef ssize_t (*gt_write_f)(int fd, const void *buf, size_t count);
+typedef ssize_t (*sys_write_f)(int fd, const void *buf, size_t count);
 
-typedef ssize_t (*gt_writev_f)(int fd, const struct iovec *iov, int iovcnt);
+typedef ssize_t (*sys_writev_f)(int fd, const struct iovec *iov, int iovcnt);
 
-typedef ssize_t (*gt_send_f)(int fd, const void *buf, size_t len, int flags);
+typedef ssize_t (*sys_send_f)(int fd, const void *buf, size_t len, int flags);
 
-typedef ssize_t (*gt_sendto_f)(int fd, const void *buf, size_t len, int flags,
+typedef ssize_t (*sys_sendto_f)(int fd, const void *buf, size_t len, int flags,
 	const struct sockaddr *dest_addr, socklen_t addrlen);
 
-typedef ssize_t (*gt_sendmsg_f)(int fd, const struct msghdr *msg, int flags);
+typedef ssize_t (*sys_sendmsg_f)(int fd, const struct msghdr *msg, int flags);
 
-typedef ssize_t (*gt_sendfile_f)(int out_fd, int in_fd, off_t *offset,
+typedef ssize_t (*sys_sendfile_f)(int out_fd, int in_fd, off_t *offset,
 	size_t count);
 
-typedef int (*gt_dup_f)(int oldfd);
+typedef int (*sys_dup_f)(int oldfd);
 
-typedef int (*gt_dup2_f)(int oldfd, int newfd);
+typedef int (*sys_dup2_f)(int oldfd, int newfd);
 
-typedef int (*gt_fcntl_f)(int fd, int cmd, ...);
+typedef int (*sys_fcntl_f)(int fd, int cmd, ...);
 
-typedef int (*gt_ioctl_f)(int fd, unsigned long request, ...);
+typedef int (*sys_ioctl_f)(int fd, unsigned long request, ...);
 
-typedef int (*gt_getsockopt_f)(int fd, int level, int optname, void *optval,
+typedef int (*sys_getsockopt_f)(int fd, int level, int optname, void *optval,
 	socklen_t *optlen);
 
-typedef int (*gt_setsockopt_f)(int fd, int level, int optname,
+typedef int (*sys_setsockopt_f)(int fd, int level, int optname,
 	const void *optval, socklen_t optlen);
 
-typedef int (*gt_getpeername_f)(int fd, struct sockaddr *addr,
+typedef int (*sys_getpeername_f)(int fd, struct sockaddr *addr,
 	socklen_t *addrlen);
 
-typedef int (*gt_getsockname_f)(int fd, struct sockaddr *addr,
+typedef int (*sys_getsockname_f)(int fd, struct sockaddr *addr,
 	socklen_t *addrlen);
 
-typedef int (*gt_ppoll_f)(struct pollfd *fds, nfds_t nfds,
+typedef int (*sys_ppoll_f)(struct pollfd *fds, nfds_t nfds,
 	const struct timespec *timeout_ts, const sigset_t *sigmask);
 
-typedef void *(*gt_signal_f)(int signum, void (*new_sa_handler)(int));
+typedef void *(*sys_signal_f)(int signum, void (*new_sa_handler)(int));
 
-typedef int (*gt_sigaction_f)(int signum, const struct sigaction *act,
+typedef int (*sys_sigaction_f)(int signum, const struct sigaction *act,
 	struct sigaction *oldact);
 
-typedef int (*gt_sigprocmask_f)(int how, const sigset_t *set,
+typedef int (*sys_sigprocmask_f)(int how, const sigset_t *set,
 	sigset_t *oldset);
 
-typedef int (*gt_flock_f)(int fd, int operations);
+typedef int (*sys_flock_f)(int fd, int operations);
 
-typedef struct group *(*gt_getgrnam_f)(const char *name);
+typedef struct group *(*sys_getgrnam_f)(const char *name);
 
-typedef int (*gt_chown_f)(const char *path, uid_t owner, gid_t group);
+typedef int (*sys_chown_f)(const char *path, uid_t owner, gid_t group);
 
 #ifdef __linux__
-
-typedef int (*gt_clone_f)(int (*fn)(void *), void *child_stack,
+typedef int (*sys_clone_f)(int (*fn)(void *), void *child_stack,
 	int flags, void *arg, void *ptid, void *tls, void *ctid);
 
-typedef int (*gt_epoll_create1_f)(int flags);
+typedef int (*sys_epoll_create1_f)(int flags);
 
-typedef int (*gt_epoll_ctl_f)(int epfd, int op, int fd,
+typedef int (*sys_epoll_ctl_f)(int epfd, int op, int fd,
 	struct epoll_event *event);
 
-typedef int (*gt_epoll_wait_f)(int epfd, struct epoll_event *events,
+typedef int (*sys_epoll_wait_f)(int epfd, struct epoll_event *events,
 	int maxevents, int timeout);
 
-typedef int (*gt_epoll_pwait_f)(int epfd, struct epoll_event *events,
+typedef int (*sys_epoll_pwait_f)(int epfd, struct epoll_event *events,
 	int maxevents, int timeout, const sigset_t *sigmask);
 
-typedef int (*gt_dup3_f)(int oldfd, int newfd, int flags);
-
+typedef int (*sys_dup3_f)(int oldfd, int newfd, int flags);
 #else /* __linux__ */
+typedef int (*sys_kqueue_f)();
 
-typedef int (*gt_kqueue_f)();
-
-typedef int (*gt_kevent_f)(int kq, const struct kevent *changelist,
+typedef int (*sys_kevent_f)(int kq, const struct kevent *changelist,
 	int nchanges, struct kevent *eventlist, int nevents,
 	const struct timespec *timeout);
-
 #endif /* __linux__ */
 
-extern gt_fork_f gt_sys_fork_fn;
-extern gt_open_f gt_sys_open_fn;
-extern gt_socket_f gt_sys_socket_fn;
-extern gt_connect_f gt_sys_connect_fn;
-extern gt_bind_f gt_sys_bind_fn;
-extern gt_listen_f gt_sys_listen_fn;
-extern gt_accept4_f gt_sys_accept4_fn;
-extern gt_shutdown_f gt_sys_shutdown_fn;
-extern gt_close_f gt_sys_close_fn;
-extern gt_read_f gt_sys_read_fn;
-extern gt_readv_f gt_sys_readv_fn;
-extern gt_recv_f gt_sys_recv_fn;
-extern gt_recvfrom_f gt_sys_recvfrom_fn;
-extern gt_recvmsg_f gt_sys_recvmsg_fn;
-extern gt_write_f gt_sys_write_fn;
-extern gt_writev_f gt_sys_writev_fn;
-extern gt_send_f gt_sys_send_fn;
-extern gt_sendto_f gt_sys_sendto_fn;
-extern gt_sendmsg_f gt_sys_sendmsg_fn;
-extern gt_sendfile_f gt_sys_sendfile_fn;
-extern gt_fcntl_f gt_sys_fcntl_fn;
-extern gt_ioctl_f gt_sys_ioctl_fn;
-extern gt_getsockopt_f gt_sys_getsockopt_fn;
-extern gt_setsockopt_f gt_sys_setsockopt_fn;
-extern gt_getpeername_f gt_sys_getpeername_fn;
-extern gt_getsockname_f gt_sys_getsockname_fn;
-extern gt_ppoll_f gt_sys_ppoll_fn;
-extern gt_signal_f gt_sys_signal_fn;
-extern gt_sigaction_f gt_sys_sigaction_fn;
-extern gt_sigprocmask_f gt_sys_sigprocmask_fn;
-extern gt_flock_f gt_sys_flock_fn;
-extern gt_getgrnam_f gt_sys_getgrnam_fn;
-extern gt_chown_f gt_sys_chown_fn;
+extern sys_fork_f sys_fork_fn;
+extern sys_open_f sys_open_fn;
+extern sys_socket_f sys_socket_fn;
+extern sys_connect_f sys_connect_fn;
+extern sys_bind_f sys_bind_fn;
+extern sys_listen_f sys_listen_fn;
+extern sys_accept4_f sys_accept4_fn;
+extern sys_shutdown_f sys_shutdown_fn;
+extern sys_close_f sys_close_fn;
+extern sys_read_f sys_read_fn;
+extern sys_readv_f sys_readv_fn;
+extern sys_recv_f sys_recv_fn;
+extern sys_recvfrom_f sys_recvfrom_fn;
+extern sys_recvmsg_f sys_recvmsg_fn;
+extern sys_write_f sys_write_fn;
+extern sys_writev_f sys_writev_fn;
+extern sys_send_f sys_send_fn;
+extern sys_sendto_f sys_sendto_fn;
+extern sys_sendmsg_f sys_sendmsg_fn;
+extern sys_sendfile_f sys_sendfile_fn;
+extern sys_fcntl_f sys_fcntl_fn;
+extern sys_ioctl_f sys_ioctl_fn;
+extern sys_getsockopt_f sys_getsockopt_fn;
+extern sys_setsockopt_f sys_setsockopt_fn;
+extern sys_getpeername_f sys_getpeername_fn;
+extern sys_getsockname_f sys_getsockname_fn;
+extern sys_ppoll_f sys_ppoll_fn;
+extern sys_signal_f sys_signal_fn;
+extern sys_sigaction_f sys_sigaction_fn;
+extern sys_sigprocmask_f sys_sigprocmask_fn;
+extern sys_flock_f sys_flock_fn;
+extern sys_getgrnam_f sys_getgrnam_fn;
+extern sys_chown_f sys_chown_fn;
 #ifdef __linux__
-extern gt_clone_f gt_sys_clone_fn;
-extern gt_epoll_create1_f gt_sys_epoll_create1_fn;
-extern gt_epoll_ctl_f gt_sys_epoll_ctl_fn;
-extern gt_epoll_wait_f gt_sys_epoll_wait_fn;
-extern gt_epoll_pwait_f gt_sys_epoll_pwait_fn;
+extern sys_clone_f sys_clone_fn;
+extern sys_epoll_create1_f sys_epoll_create1_fn;
+extern sys_epoll_ctl_f sys_epoll_ctl_fn;
+extern sys_epoll_wait_f sys_epoll_wait_fn;
+extern sys_epoll_pwait_f sys_epoll_pwait_fn;
 #else /* __linux__ */
-extern gt_kqueue_f gt_sys_kqueue_fn;
-extern gt_kevent_f gt_sys_kevent_fn;
+extern sys_kqueue_f sys_kqueue_fn;
+extern sys_kevent_f sys_kevent_fn;
 #endif /* __linux__ */
 
-int gt_sys_mod_init();
+int sys_mod_init(struct log *, void **);
+int sys_mod_attach(struct log *, void *);
+void sys_mod_deinit(struct log *, void *);
+void sys_mod_detach(struct log *);
 
-void gt_sys_mod_deinit(struct gt_log *log);
+void sys_mod_dlsym();
 
-void gt_sys_mod_dlsym();
-
-int gt_sys_fork(struct gt_log *log);
-
-int gt_sys_open(struct gt_log *log, const char *path, int flags, mode_t mode);
-
-int gt_sys_socket(struct gt_log *log, int domain, int type, int protocol);
-
-void sys_log_connect_failed(struct gt_log *log, int eno, int fd,
-	const struct sockaddr *addr, socklen_t addrlen);
-
-int gt_sys_connect(struct gt_log *log, int fd, const struct sockaddr *addr,
-	socklen_t addrlen);
-
-int gt_sys_bind(struct gt_log *log, int fd, const struct sockaddr *addr,
-	socklen_t addrlen);
-
-int gt_sys_listen(struct gt_log *log, int fd, int backlog);
-
-int gt_sys_accept4(struct gt_log *log, int fd,
-	struct sockaddr *addr, socklen_t *addrlen, int flags);
-
-int gt_sys_shutdown(struct gt_log *log, int fd, int how);
-
-int gt_sys_close(struct gt_log *log, int fd);
-
-ssize_t gt_sys_read(struct gt_log *log, int fd, void *buf, size_t count);
-
-ssize_t gt_sys_recvmsg(struct gt_log *log, int fd, struct msghdr *msg,
-	int flags);
-
-ssize_t gt_sys_write(struct gt_log *log, int fd, const void *buf,
-	size_t count);
-
-ssize_t gt_sys_send(struct gt_log *log, int fd, const void *buf, size_t len,
-	int flags);
-
-ssize_t gt_sys_sendmsg(struct gt_log *log, int fd, const struct msghdr *msg,
-	int flags);
-
-int gt_sys_dup(struct gt_log *log, int fd);
-
-int gt_sys_fcntl(struct gt_log *log, int fd, int cmd, uintptr_t arg);
-
-int gt_sys_ioctl(struct gt_log *log, int fd, unsigned long request,
-	uintptr_t arg);
-
-int gt_sys_getsockopt(struct gt_log *log, int fd, int level, int opt_name,
-	void *opt_val, socklen_t *opt_len);
-
-int gt_sys_setsockopt(struct gt_log *log, int fd, int level, int optname,
-	void *optval, socklen_t optlen);
-
-int gt_sys_ppoll(struct gt_log *log, struct pollfd *fds, nfds_t nfds,
-	const struct timespec *to, const sigset_t *sigmask);
-
-void *gt_sys_signal(struct gt_log *log, int signum, void (*handler)(int));
-
-int gt_sys_sigaction(struct gt_log *log, int signum, const struct sigaction *act,
-	struct sigaction *oldact);
-
-int gt_sys_sigprocmask(struct gt_log *log, int how, const sigset_t *set,
-	sigset_t *oldset);
-
-int gt_sys_malloc(struct gt_log *log, void **pptr, size_t size);
-
-int gt_sys_realloc(struct gt_log *log, void **pptr, size_t size);
-
-int gt_sys_posix_memalign(struct gt_log *log, void **memptr, size_t alignment,
-	size_t size);
-
-int gt_sys_fopen(struct gt_log *log, FILE **file, const char *path,
-	const char *mode);
-
-int gt_sys_opendir(struct gt_log *log, DIR **pdir, const char *name);
-
-int gt_sys_stat(struct gt_log *log, const char *path, struct stat *buf);
-
-int gt_sys_realpath(struct gt_log *log, const char *path, char *resolved_path);
-
-int gt_sys_flock(struct gt_log *log, int fd, int operation);
-
-int gt_sys_getgrnam(struct gt_log *log, const char *name,
-	struct group **pgroup);
-
-int gt_sys_chown(struct gt_log *log, const char *path, uid_t owner,
-	gid_t group);
-
-int gt_sys_chmod(struct gt_log *log, const char *path, mode_t mode);
-
-int gt_sys_getifaddrs(struct gt_log *log, struct ifaddrs **ifap);
-
-int gt_sys_if_indextoname(struct gt_log *log, int ifindex, char *ifname);
-
-int gt_sys_kill(struct gt_log *log, int pid, int sig);
-
-int gt_sys_waitpid(struct gt_log *log, pid_t pid, int *status, int options);
+int sys_fork(struct log *);
+int sys_open(struct log *, const char *, int, mode_t);
+int sys_socket(struct log *, int, int, int);
+void sys_log_connect_failed(struct log *, int, int,
+	const struct sockaddr *, socklen_t);
+int sys_connect(struct log *, int, const struct sockaddr *, socklen_t);
+int sys_bind(struct log *, int, const struct sockaddr *, socklen_t);
+int sys_listen(struct log *, int, int);
+int sys_accept4(struct log *, int, struct sockaddr *, socklen_t *, int);
+int sys_shutdown(struct log *, int, int);
+int sys_close(struct log *, int);
+ssize_t sys_read(struct log *, int, void *, size_t);
+ssize_t sys_recvmsg(struct log *, int, struct msghdr *, int);
+ssize_t sys_write(struct log *, int, const void *, size_t);
+ssize_t sys_send(struct log *, int, const void *, size_t, int);
+ssize_t sys_sendmsg(struct log *, int, const struct msghdr *, int);
+int sys_dup(struct log *, int);
+int sys_fcntl(struct log *, int, int, uintptr_t);
+int sys_ioctl(struct log *, int, unsigned long, uintptr_t);
+int sys_getsockopt(struct log *, int, int, int, void *, socklen_t *);
+int sys_setsockopt(struct log *, int, int, int, void *, socklen_t);
+int sys_ppoll(struct log *, struct pollfd *, nfds_t, const struct timespec *,
+	const sigset_t *);
+void *sys_signal(struct log *, int, void (*)(int));
+int sys_sigaction(struct log *, int, const struct sigaction *, struct sigaction *);
+int sys_sigprocmask(struct log *, int, const sigset_t *, sigset_t *);
+int sys_malloc(struct log *, void **, size_t);
+int sys_realloc(struct log *, void **, size_t);
+int sys_posix_memalign(struct log *, void **, size_t, size_t);
+int sys_fopen(struct log *, FILE **, const char *, const char *);
+int sys_opendir(struct log *, DIR **, const char *);
+int sys_stat(struct log *, const char *, struct stat *);
+int sys_realpath(struct log *, const char *, char *);
+int sys_flock(struct log *, int, int);
+int sys_getgrnam(struct log *, const char *, struct group **);
+int sys_chown(struct log *, const char *, uid_t, gid_t);
+int sys_chmod(struct log *, const char *, mode_t);
+int sys_getifaddrs(struct log *, struct ifaddrs **);
+int sys_if_indextoname(struct log *, int, char *);
+int sys_kill(struct log *, int, int);
+int sys_waitpid(struct log *, pid_t, int *, int);
 
 #ifdef __linux__
-
-int gt_sys_clone(struct gt_log *log, int (*fn)(void *), void *child_stack,
-	int flags, void *arg, void *ptid, void *tls, void *ctid);
+int sys_clone(struct log *, int (*)(void *), void *, int , void *,
+	void *, void *, void *);
 #else /* __linux__ */
-int gt_sys_kqueue();
+int sys_kqueue();
 #endif /* __linux__ */
 
 #endif /* GBTCP_SYS_H */

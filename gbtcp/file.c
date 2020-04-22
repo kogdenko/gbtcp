@@ -1,175 +1,163 @@
-#include "file.h"
-#include "log.h"
-#include "tcp.h"
-#include "epoll.h"
-#include "strbuf.h"
-#include "fd_event.h"
-#include "ctl.h"
+#include "internals.h"
 
 #define FILE_LOG_MSG_FOREACH(x) \
-	x(mod_init) \
-	x(mod_deinit) \
-	x(cb_call) \
+	x(aio_call) \
 	x(alloc) \
 	x(free) \
 	x(wakeup) \
 	x(get_events) \
-	x(cb_set) \
-	x(cb_cancel) \
+	x(aio_set) \
+	x(aio_cancel) \
 
 struct file_mod {
 	struct log_scope log_scope;
 	FILE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+	int file_first_fd;
 };
 
-static int gt_file_first_fd;
-static struct gt_mbuf_pool *gt_file_pool;
-static struct file_mod *this_mod;
-
-static void gt_file_init(struct gt_file *fp, int type);
-
-static void gt_file_cb_call(struct gt_file_cb *cb, short revents);
-
-static void gt_file_wait_cb(struct gt_file_cb *cb, int fd, short revents);
-
-static void gt_file_cb_stub(struct gt_file_cb *cb, int fd, short events);
+static struct mbuf_pool *file_pool;
+static struct file_mod *current_mod;
 
 static void
-gt_file_init(struct gt_file *fp, int type)
+file_init(struct file *fp, int type)
 {
 	fp->fl_flags = 0;
 	fp->fl_type = type;
 	fp->fl_blocked = 1;
-	dllist_init(&fp->fl_cbq);
+	dlist_init(&fp->fl_aioq);
 }
-
 static void
-gt_file_cb_call(struct gt_file_cb *cb, short revents)
+file_aio_call(struct file_aio *aio, short revents)
 {
 	int fd;
-	struct gt_log *log;
-	gt_file_cb_f fn;
-
-	fn = cb->fcb_fn;
-	fd = cb->fcb_fd;
+	struct log *log;
+	file_aio_f fn;
+	fn = aio->faio_fn;
+	fd = aio->faio_fd;
 	log = log_trace0();
-	DBG(log, cb_call, 0, "hit; cb=%p, fd=%d, events=%s",
-	    cb, fd, log_add_poll_events(revents));
-	(*fn)(cb, fd, revents);
+	DBG(log, LOG_MSG(aio_call), 0, "hit; aio=%p, fd=%d, events=%s",
+	    aio, fd, log_add_poll_events(revents));
+	(*fn)(aio, fd, revents);
 }
-
 int
-gt_file_mod_init()
+file_mod_init(struct log *log, void **pp)
 {
 	int rc;
-	struct gt_log *log;
-
-	log_scope_init(&this_mod->log_scope, "file");
-	log = log_trace0();
-	gt_file_first_fd = FD_SETSIZE / 2;
-	gt_ctl_add_int(log, GT_CTL_FILE_FIRST_FD, GT_CTL_LD,
-	               &gt_file_first_fd, 3, 1024 * 1024);
-	rc = gt_mbuf_pool_new(log, &gt_file_pool, sizeof(struct gt_sock));
-	if (rc) {
-		gt_ctl_del(log, GT_CTL_FILE_FIRST_FD);
+	struct file_mod *mod;
+	LOG_TRACE(log);
+	rc = mm_alloc(log, pp, sizeof(*mod));
+	if (rc == 0) {
+		mod = *pp;
+		log_scope_init(&mod->log_scope, "file");
+		mod->file_first_fd = FD_SETSIZE / 2;
+		sysctl_add_int(log, SYSCTL_FILE_FIRST_FD, SYSCTL_LD,
+			       &mod->file_first_fd, 3, 1024 * 1024);
 	}
 	return rc;
 }
-
-void
-gt_file_mod_deinit(struct gt_log *log)
-{
-	LOG_TRACE(log);
-	gt_ctl_del(log, GT_CTL_FILE_FIRST_FD);
-	// TODO:
-	//ASSERT(gt_mbuf_pool_is_empty(gt_file_pool));
-	gt_mbuf_pool_del(gt_file_pool);
-	log_scope_deinit(log, &this_mod->log_scope);
-}
-
 int
-gt_file_get_fd(struct gt_file *fp)
+file_mod_attach(struct log *log, void *raw_mod)
 {
-	int m_id;
-
-	m_id = gt_mbuf_get_id(gt_file_pool, &fp->fl_mbuf);
-	return m_id + gt_file_first_fd;
+	int rc;
+	current_mod = raw_mod;
+	LOG_TRACE(log);
+	rc = mbuf_pool_alloc(log, &file_pool, sizeof(struct gt_sock));
+	return rc;
 }
-
-struct gt_file *
-gt_file_next(int fd)
+void
+file_mod_deinit(struct log *log, void *raw_mod)
+{
+	struct file_mod *mod;
+	LOG_TRACE(log);
+	mod = raw_mod;
+	sysctl_del(log, SYSCTL_FILE_FIRST_FD);
+	log_scope_deinit(log, &mod->log_scope);
+	mm_free(mod);
+}
+void
+file_mod_detach(struct log *log)
+{
+	//ASSERT(mbuf_pool_is_empty(file_pool));
+	mbuf_pool_free(file_pool);
+	file_pool = NULL;
+	current_mod = NULL;
+}
+int
+file_get_fd(struct file *fp)
 {
 	int m_id;
-	struct gt_mbuf *m;
-	struct gt_file *fp;
-
-	if (fd < gt_file_first_fd) {
+	m_id = mbuf_get_id(file_pool, &fp->fl_mbuf);
+	return m_id + current_mod->file_first_fd;
+}
+struct file *
+file_next(int fd)
+{
+	int m_id;
+	struct mbuf *m;
+	struct file *fp;
+	if (fd < current_mod->file_first_fd) {
 		m_id = 0;
 	} else {
-		m_id = fd - gt_file_first_fd;
+		m_id = fd - current_mod->file_first_fd;
 	}
-	m = gt_mbuf_next(gt_file_pool, m_id);
-	fp = (struct gt_file *)m;
+	m = mbuf_next(file_pool, m_id);
+	fp = (struct file *)m;
 	return fp;
 }
-
 int
-gt_file_alloc(struct gt_log *log, struct gt_file **fpp, int type)
+file_alloc(struct log *log, struct file **fpp, int type)
 {
 	int rc;
-	struct gt_file *fp;
-
+	struct file *fp;
 	LOG_TRACE(log);
-	rc = gt_mbuf_alloc(log, gt_file_pool, (struct gt_mbuf **)fpp);
+	rc = mbuf_alloc(log, file_pool, (struct mbuf **)fpp);
 	if (rc == 0) {
 		fp = *fpp;
-		gt_file_init(fp, type);
-		DBG(log, alloc, 0, "ok; fp=%p, fd=%d", fp, gt_file_get_fd(fp));
+		file_init(fp, type);
+		DBG(log, LOG_MSG(alloc), 0, "ok; fp=%p, fd=%d",
+		    fp, file_get_fd(fp));
 	} else {
-		DBG(log, alloc, -rc, "failed");
+		DBG(log, LOG_MSG(alloc), -rc, "failed");
 	}
 	return rc;
 }
-
 int
-gt_file_alloc4(struct gt_log *log, struct gt_file **fpp, int type, int fd)
+file_alloc4(struct log *log, struct file **fpp, int type, int fd)
 {
 	int rc;
 	uint32_t m_id;
-	struct gt_file *fp;
-
+	struct file *fp;
 	LOG_TRACE(log);
-	if (fd < gt_file_first_fd) {
+	if (fd < current_mod->file_first_fd) {
 		rc = -EBADF;
 	} else {
-		m_id = fd - gt_file_first_fd;
-		rc = gt_mbuf_alloc4(log, gt_file_pool, m_id,
-		                    (struct gt_mbuf **)fpp);
+		m_id = fd - current_mod->file_first_fd;
+		rc = mbuf_alloc4(log, file_pool, m_id,
+		                 (struct mbuf **)fpp);
 	}
 	if (rc == 0) {
 		fp = *fpp;
-		gt_file_init(fp, type);
-		DBG(log, alloc, 0, "ok; fp=%p, fd=%d", fp, gt_file_get_fd(fp));
+		file_init(fp, type);
+		DBG(log, LOG_MSG(alloc), 0, "ok; fp=%p, fd=%d",
+		    fp, file_get_fd(fp));
 	} else {
-		DBG(log, alloc, -rc, "failed");
+		DBG(log, LOG_MSG(alloc), -rc, "failed");
 	}
 	return rc;
 }
-
 int
-gt_file_get(int fd, struct gt_file **fpp)
+file_get(int fd, struct file **fpp)
 {
 	int m_id;
-	struct gt_mbuf *m;
-	struct gt_file *fp;
-
+	struct mbuf *m;
+	struct file *fp;
 	*fpp = NULL;
-	if (fd < gt_file_first_fd) {
+	if (fd < current_mod->file_first_fd) {
 		return -EBADF;
 	}
-	m_id = fd - gt_file_first_fd;
-	m = gt_mbuf_get(gt_file_pool, m_id);
-	fp = (struct gt_file *)m;
+	m_id = fd - current_mod->file_first_fd;
+	m = mbuf_get(file_pool, m_id);
+	fp = (struct file *)m;
 	if (fp == NULL) {
 		return -EBADF;
 	}
@@ -179,39 +167,35 @@ gt_file_get(int fd, struct gt_file **fpp)
 	*fpp = fp;
 	return 0;
 }
-
 void
-gt_file_free(struct gt_file *fp)
+file_free(struct file *fp)
 {
-	struct gt_log *log;
-
+	struct log *log;
 	log = log_trace0();
-	DBG(log, free, 0, "hit; fp=%p, fd=%d", fp, gt_file_get_fd(fp));
-	gt_mbuf_free(&fp->fl_mbuf);
+	DBG(log, LOG_MSG(free), 0, "hit; fp=%p, fd=%d",
+	    fp, file_get_fd(fp));
+	mbuf_free(&fp->fl_mbuf);
 }
-
 void
-gt_file_close(struct gt_file *fp, int how)
+file_close(struct file *fp, int how)
 {
 	fp->fl_opened = 0;
-	gt_file_wakeup(fp, POLLNVAL);
+	file_wakeup(fp, POLLNVAL);
 	switch (fp->fl_type) {
-	case GT_FILE_SOCK:
+	case FILE_SOCK:
 		gt_sock_close(fp, GT_SOCK_GRACEFULL);
 		break;
-	case GT_FILE_EPOLL:
+	case FILE_EPOLL:
 		gt_epoll_close(fp);
 		break;
 	default:
 		BUG;
 	}
 }
-
 int
-gt_file_cntl(struct gt_file *fp, int cmd, uintptr_t arg)
+file_cntl(struct file *fp, int cmd, uintptr_t arg)
 {
 	int flags, rc;
-
 	switch (cmd) {
 	case F_GETFD:
 		return O_CLOEXEC;
@@ -239,13 +223,11 @@ gt_file_cntl(struct gt_file *fp, int cmd, uintptr_t arg)
 	}
 	return -ENOTSUP;
 }
-
 int
-gt_file_ioctl(struct gt_file *fp, unsigned long request, uintptr_t arg)
+file_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 {
 	int rc;
-
-	if (fp->fl_type != GT_FILE_SOCK) {
+	if (fp->fl_type != FILE_SOCK) {
 		return -ENOTSUP;
 	}
 	rc = 0;
@@ -270,144 +252,129 @@ gt_file_ioctl(struct gt_file *fp, unsigned long request, uintptr_t arg)
 	}
 	return rc;
 }
-
 void
-gt_file_wakeup(struct gt_file *fp, short events)
+file_wakeup(struct file *fp, short events)
 {
 	short revents;
-	struct gt_log *log;
-	struct gt_file_cb *cb, *tmp;
-
+	struct log *log;
+	struct file_aio *aio, *tmp;
 	ASSERT(events);
 	log = log_trace0();
-	DBG(log, wakeup, 0, "hit; fd=%d, events=%s",
-	    gt_file_get_fd(fp), gt_log_add_poll_events(events));
-	DLLIST_FOREACH_SAFE(cb, &fp->fl_cbq, fcb_mbuf.mb_list, tmp) {
-		ASSERT(cb->fcb_filter);
-		revents = (events & cb->fcb_filter);
+	DBG(log, LOG_MSG(wakeup), 0, "hit; fd=%d, events=%s",
+	    file_get_fd(fp), log_add_poll_events(events));
+	DLIST_FOREACH_SAFE(aio, &fp->fl_aioq, faio_list, tmp) {
+		ASSERT(aio->faio_filter);
+		revents = (events &aio->faio_filter);
 		if (revents) {
-			gt_file_cb_call(cb, revents);
+			file_aio_call(aio, revents);
 		}
 	}
 }
-
-struct gt_file_wait_data {
-	struct gt_file_cb w_cb;
+struct file_wait_data {
+	struct file_aio w_aio;
 	short w_revents;
 };
-
 static void
-gt_file_wait_cb(struct gt_file_cb *cb, int fd, short revents)
+file_wait_cb(struct file_aio *aio, int fd, short revents)
 {
-	struct gt_file_wait_data *data;
-
-	data = container_of(cb, struct gt_file_wait_data, w_cb);
+	struct file_wait_data *data;
+	data = container_of(aio, struct file_wait_data, w_aio);
 	data->w_revents = revents;
 }
-
 int
-gt_file_wait(struct gt_file *fp, short events)
+file_wait(struct file *fp, short events)
 {
 	int rc;
-	struct gt_file_wait_data data;
-
-	gt_mbuf_init(&data.w_cb.fcb_mbuf);
-	gt_file_cb_init(&data.w_cb);
+	struct file_wait_data data;
+	mbuf_init(&data.w_aio.faio_mbuf);
+	file_aio_init(&data.w_aio);
 	data.w_revents = 0;
-	gt_file_cb_set(fp, &data.w_cb, events, gt_file_wait_cb);
+	file_aio_set(fp, &data.w_aio, events, file_wait_cb);
 	do {
 		rc = gt_fd_event_mod_wait();
 	} while (rc == 0 && data.w_revents == 0);
-	gt_file_cb_cancel(&data.w_cb);
+	file_aio_cancel(&data.w_aio);
 	return rc;
 }
-
 short
-gt_file_get_events(struct gt_file *fp, struct gt_file_cb *cb)
+file_get_events(struct file *fp, struct file_aio *aio)
 {
 	short revents;
-	struct gt_log *log;
-
-	if (fp->fl_type == GT_FILE_SOCK) {
+	struct log *log;
+	if (fp->fl_type == FILE_SOCK) {
 		revents = gt_sock_get_events(fp);
 	} else {
 		revents = 0;
 	}
-	revents &= cb->fcb_filter;
+	revents &= aio->faio_filter;
 	log = log_trace0();
-	DBG(log, get_events, 0, "hit; cb=%p, fd=%d, events=%s",
-	    cb, gt_file_get_fd(fp), gt_log_add_poll_events(revents));
+	DBG(log, LOG_MSG(get_events), 0, "hit; aio=%p, fd=%d, events=%s",
+	    aio, file_get_fd(fp), log_add_poll_events(revents));
 	return revents;
 }
-
 void
-gt_file_cb_init(struct gt_file_cb *cb)
+file_aio_init(struct file_aio *aio)
 {
-	cb->fcb_filter = 0;
+	aio->faio_filter = 0;
 }
-
 static void
-gt_file_cb_stub(struct gt_file_cb *cb, int fd, short events)
+file_aio_stub(struct file_aio *aio, int fd, short events)
 {
 }
-
 void
-gt_file_cb_set(struct gt_file *fp, struct gt_file_cb *cb,
-	short events, gt_file_cb_f fn)
+file_aio_set(struct file *fp, struct file_aio *aio, short events,
+	file_aio_f fn)
 {
 	int fd;
 	const char *action;
 	short filter, revents;
-	struct gt_log *log;
-
-	ASSERT(fp->fl_type == GT_FILE_SOCK);
+	struct log *log;
+	ASSERT(fp->fl_type == FILE_SOCK);
 	filter = events|POLLERR|POLLNVAL;
-	if (cb->fcb_filter == filter) {
+	if (aio->faio_filter == filter) {
 		return;
 	}
-	fd = gt_file_get_fd(fp);
-	cb->fcb_fd = fd;
-	cb->fcb_fn = fn;
-	if (cb->fcb_fn == NULL) {
-		cb->fcb_fn = gt_file_cb_stub;
+	fd = file_get_fd(fp);
+	aio->faio_fd = fd;
+	aio->faio_fn = fn;
+	if (aio->faio_fn == NULL) {
+		aio->faio_fn = file_aio_stub;
 	}
-	if (cb->fcb_filter == 0) {
-		DLLIST_INSERT_HEAD(&fp->fl_cbq, cb, fcb_mbuf.mb_list);
+	if (aio->faio_filter == 0) {
+		DLIST_INSERT_HEAD(&fp->fl_aioq, aio, faio_list);
 		action = "add";
 	} else {
 		action = "mod";
 	}
 	UNUSED(action);
 	log = log_trace0();
-	DBG(log, cb_set, 0, "%s; cb=%p, fd=%d, filter=%s",
-	    action, cb, fd, gt_log_add_poll_events(filter));
-	cb->fcb_filter |= filter;
-	revents = gt_file_get_events(fp, cb);
+	DBG(log, LOG_MSG(aio_set), 0, "%s; aio=%p, fd=%d, filter=%s",
+	    action, aio, fd, log_add_poll_events(filter));
+	aio->faio_filter |= filter;
+	revents = file_get_events(fp, aio);
 	if (revents) {
-		gt_file_cb_call(cb, revents);
+		file_aio_call(aio, revents);
 	}
 }
 
 void
-gt_file_cb_cancel(struct gt_file_cb *cb)
+file_aio_cancel(struct file_aio *aio)
 {
-	struct gt_log *log;
-
-	if (cb->fcb_filter) {
+	struct log *log;
+	if (aio->faio_filter) {
 		log = log_trace0();
-		DBG(log, cb_cancel, 0,
-		    "hit; cb=%p, fd=%d, filter=%s",
-		    cb, cb->fcb_fd,
-		    log_add_poll_events(cb->fcb_filter));
-		cb->fcb_filter = 0;
-		DLLIST_REMOVE(cb, fcb_mbuf.mb_list);
+		DBG(log, LOG_MSG(aio_cancel), 0,
+		    "hit; aio=%p, fd=%d, filter=%s",
+		    aio, aio->faio_fd,
+		    log_add_poll_events(aio->faio_filter));
+		aio->faio_filter = 0;
+		DLIST_REMOVE(aio, faio_list);
 	}
 }
-
 int
-gt_file_try_fd(int fd)
+file_try_fd(int fd)
 {
-	if (fd < gt_file_first_fd) {
+	if (fd < current_mod->file_first_fd) {
 		return 0;
 	} else {
 		return -ENFILE;

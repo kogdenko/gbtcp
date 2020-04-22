@@ -2,95 +2,83 @@
 #include "list.h"
 
 void
-dllist_init(struct  dllist *head)
+dlist_init(struct  dlist *head)
 {
 	head->dls_next = head->dls_prev = head;
 }
-
 int
-dllist_size(struct dllist *head)
+dlist_size(struct dlist *head)
 {
 	int size;
-	struct dllist *cur;
-
+	struct dlist *cur;
 	size = 0;
-	dllist_foreach(cur, head) {
+	dlist_foreach(cur, head) {
 		size++;
 	}
 	return size;
 }
-
 int
-dllist_isempty(struct dllist *head)
+dlist_is_empty(struct dlist *head)
 {
 	return head->dls_next == head;
 }
-
-struct dllist *
-dllist_first(struct dllist *head)
+struct dlist *
+dlist_first(struct dlist *head)
 {
 	return head->dls_next;
 }
-
-struct dllist *
-dllist_last(struct dllist *head)
+struct dlist *
+dlist_last(struct dlist *head)
 {
 	return head->dls_prev;
 }
-
 void
-dllist_insert_head(struct dllist *head, struct dllist *l)
+dlist_insert_head(struct dlist *head, struct dlist *l)
 {
 	l->dls_next = head->dls_next;
 	l->dls_prev = head;
 	head->dls_next->dls_prev = l;
 	head->dls_next = l;
 }
-
 void
-dllist_insert_tail(struct dllist *head, struct dllist *l)
+dlist_insert_tail(struct dlist *head, struct dlist *l)
 {
 	l->dls_next = head;
 	l->dls_prev = head->dls_prev;
 	head->dls_prev->dls_next = l;
 	head->dls_prev = l;
 }
-
 void
-dllist_insert_before(struct dllist *b, struct dllist *l)
+dlist_insert_before(struct dlist *b, struct dlist *l)
 {
 	l->dls_next = b;
 	l->dls_prev = b->dls_prev;
 	b->dls_prev = l;
 }
-
 void
-dllist_insert_after(struct dllist *a, struct dllist *l)
+dlist_insert_after(struct dlist *a, struct dlist *l)
 {
 	l->dls_next = a->dls_next;
 	l->dls_prev = a;
 	a->dls_next = l;
 }
-
 void
-dllist_remove(struct dllist *list)
+dlist_remove(struct dlist *list)
 {
 	list->dls_next->dls_prev = list->dls_prev;
 	list->dls_prev->dls_next = list->dls_next;
 }
-
 void
-dllist_replace(struct dllist *old, struct dllist *new)
+dlist_replace(struct dlist *old, struct dlist *new)
 {
 	new->dls_next = old->dls_next;
 	new->dls_next->dls_prev = new;
 	new->dls_prev = old->dls_prev;
 	new->dls_prev->dls_next = new;
 }
-
 void
-dllist_replace_init(struct dllist *old, struct dllist *new)
+dlist_replace_init(struct dlist *old, struct dlist *new)
 {
-	dllist_replace(old, new);
-	dllist_init(old);	
+	dlist_replace(old, new);
+	dlist_init(old);	
 }

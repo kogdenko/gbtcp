@@ -1,13 +1,4 @@
-#include "arp.h"
-#include "log.h"
-#include "sys.h"
-#include "timer.h"
-#include "htable.h"
-#include "inet.h"
-#include "route.h"
-#include "ctl.h"
-#include "strbuf.h"
-#include "route.h"
+#include "internals.h"
 
 #define GT_ARP_REACHABLE_TIME (30 * GT_SEC)
 #define GT_ARP_RETRANS_TIMER GT_SEC
@@ -16,15 +7,8 @@
 #define GT_ARP_MAX_RANDOM_FACTOR 1.5
 
 #define ARP_LOG_MSG_FOREACH(x) \
-	x(mod_init) \
-	x(mod_deinit) \
-	x(alloc) \
-	x(del) \
-	x(probe_timeout) \
 	x(set_state) \
-	x(resolve) \
 	x(update) \
-	x(add) \
 
 struct arp_mod {
 	struct log_scope log_scope;
@@ -40,7 +24,7 @@ enum gt_arp_state {
 };
 
 struct gt_arp_entry {
-	struct gt_mbuf ae_mbuf;
+	struct mbuf ae_mbuf;
 #define ae_list ae_mbuf.mb_list
 	be32_t ae_next_hop;
 	short ae_state;
@@ -48,22 +32,22 @@ struct gt_arp_entry {
 	short ae_nprobes;
 	gt_time_t ae_confirmed;
 	struct gt_timer ae_timer;
-	struct gt_eth_addr ae_addr;
+	struct ethaddr ae_addr;
 	struct gt_dev_pkt *ae_incq;
 };
 
-static struct gt_mbuf_pool *gt_arp_entry_pool;
-static struct gt_mbuf_pool *gt_arp_pkt_pool;
-static gt_htable_t gt_arp_htable;
+static struct mbuf_pool *gt_arp_entry_pool;
+static struct mbuf_pool *gt_arp_pkt_pool;
+static htable_t gt_arp_htable;
 static gt_time_t gt_arp_reachable_time;
 static struct gt_timer gt_arp_timer_calc_reachable_time;
-static struct arp_mod *this_mod;
+static struct arp_mod *current_mod;
 
 static void gt_arp_probe_timeout(struct gt_timer *timer);
 
 static void gt_arp_calc_reachable_time_timeout(struct gt_timer *timer);
 
-static void gt_arp_entry_del(struct gt_log *log, struct gt_arp_entry *e);
+static void gt_arp_entry_del(struct log *log, struct gt_arp_entry *e);
 
 static const char *
 gt_arp_state_str(int state)
@@ -91,7 +75,7 @@ gt_arp_set_eth_hdr(struct gt_arp_entry *e, struct gt_route_if *ifp,
 }
 
 static void
-gt_arp_entry_add_incomplete(struct gt_log *log, struct gt_arp_entry *e,
+gt_arp_entry_add_incomplete(struct log *log, struct gt_arp_entry *e,
 	struct gt_dev_pkt *pkt)
 {
 	int rc;
@@ -102,8 +86,8 @@ gt_arp_entry_add_incomplete(struct gt_log *log, struct gt_arp_entry *e,
 		e->ae_incq = NULL;
 		gt_arps.arps_dropped++;
 	} else {
-		rc = gt_mbuf_alloc(log, gt_arp_pkt_pool,
-		                   (struct gt_mbuf **)&cp);
+		rc = mbuf_alloc(log, gt_arp_pkt_pool,
+		                (struct mbuf **)&cp);
 		if (rc) {
 			gt_arps.arps_dropped++;
 			return;
@@ -140,7 +124,7 @@ arp_txincq(struct gt_arp_entry *e)
 	next_hop = gt_route_get_next_hop4(&route);
 	if (e->ae_next_hop != next_hop) {
 drop:
-		gt_mbuf_free(&x->pkt_mbuf);
+		mbuf_free(&x->pkt_mbuf);
 		gt_arps.arps_dropped++;
 		return;
 	}
@@ -153,7 +137,7 @@ drop:
 		gt_arp_set_eth_hdr(e, route.rt_ifp, pkt.pkt_data);
 		gt_route_if_tx(route.rt_ifp, &pkt);
 	}
-	gt_mbuf_free(&x->pkt_mbuf);
+	mbuf_free(&x->pkt_mbuf);
 }
 
 static int
@@ -166,7 +150,7 @@ gt_arp_fill_probe4(struct gt_eth_hdr *eh, be32_t sip, be32_t dip)
 	memset(&eh->ethh_daddr, 0xff, sizeof(eh->ethh_daddr));
 	arp_h->arph_hrd = GT_ARP_HRD_ETH_BE;
 	arp_h->arph_pro = GT_ETH_TYPE_IP4_BE;
-	arp_h->arph_hlen = GT_ETH_ADDR_LEN;
+	arp_h->arph_hlen = ETHADDR_LEN;
 	arp_h->arph_plen = 4;
 	arp_h->arph_op = GT_ARP_OP_REQUEST_BE;
 	arp_h->arph_data.arpip_sha = eh->ethh_saddr;
@@ -253,12 +237,12 @@ gt_arp_calc_reachable_time_timeout(struct gt_timer *timer)
 }
 
 static int
-gt_arp_ctl_add(struct gt_log *log, void *udata, const char *new,
-	struct gt_strbuf *out)
+gt_arp_ctl_add(struct log *log, void *udata, const char *new,
+	struct strbuf *out)
 {
 	int rc;
-	struct gt_ip_addr next_hop;
-	struct gt_eth_addr addr;
+	struct ipaddr next_hop;
+	struct ethaddr addr;
 	char next_hop_buf[64];
 	char addr_buf[64];
 
@@ -269,11 +253,11 @@ gt_arp_ctl_add(struct gt_log *log, void *udata, const char *new,
 	if (rc != 2) {
 		return -EINVAL;
 	}
-	rc = gt_ip_addr_pton(AF_INET, &next_hop, next_hop_buf);
+	rc = ipaddr_pton(AF_INET, &next_hop, next_hop_buf);
 	if (rc) {
 		return rc;
 	}
-	rc = gt_eth_addr_aton(&addr, addr_buf);
+	rc = ethaddr_aton(&addr, addr_buf);
 	if (rc) {
 		return rc;
 	}
@@ -285,88 +269,108 @@ static int
 gt_arp_ctl_list_next(void *udata, int id)
 {
 	int mbuf_id;
-	struct gt_mbuf *mbuf;
+	struct mbuf *mbuf;
 
-	mbuf = gt_mbuf_next(gt_arp_entry_pool, id);
+	mbuf = mbuf_next(gt_arp_entry_pool, id);
 	if (mbuf == NULL) {
 		return -EINVAL;
 	} else {
-		mbuf_id = gt_mbuf_get_id(gt_arp_entry_pool, mbuf);
+		mbuf_id = mbuf_get_id(gt_arp_entry_pool, mbuf);
 		return mbuf_id;
 	}
 }
 
 static int
-gt_arp_ctl_list(void *udata, int id, const char *new, struct gt_strbuf *out)
+gt_arp_ctl_list(void *udata, int id, const char *new, struct strbuf *out)
 {
 	const char *str;
 	struct gt_arp_entry *e;
 
-	e = (struct gt_arp_entry *)gt_mbuf_get(gt_arp_entry_pool, id);
+	e = (struct gt_arp_entry *)mbuf_get(gt_arp_entry_pool, id);
 	if (e == NULL) {
 		return -EINVAL;
 	}
-	gt_strbuf_add_ip_addr(out, AF_INET, &e->ae_next_hop);
-	gt_strbuf_add_ch(out, ',');
-	gt_strbuf_add_eth_addr(out, &e->ae_addr);
-	gt_strbuf_add_ch(out, ',');
+	strbuf_add_ipaddr(out, AF_INET, &e->ae_next_hop);
+	strbuf_add_ch(out, ',');
+	strbuf_add_ethaddr(out, &e->ae_addr);
+	strbuf_add_ch(out, ',');
 	str = gt_arp_state_str(e->ae_state);
-	gt_strbuf_add_str(out, str);
+	strbuf_add_str(out, str);
 	return 0;
 }
 
 int
-gt_arp_mod_init()
+arp_mod_init(struct log *log, void **pp)
 {
 	int rc;
-	struct gt_log *log;
+	struct arp_mod *mod;
+	LOG_TRACE(log);
+	rc = mm_alloc(log, pp, sizeof(*mod));
+	if (rc) {
+		return rc;
+	}
+	mod = *pp;
+	log_scope_init(&mod->log_scope, "arp");
+	rc = htable_create(log, &gt_arp_htable, 32, gt_arp_hash);
+	if (rc) {
+		return rc;
+	}
+	sysctl_add(log, "arp.add", SYSCTL_WR,
+	           NULL, NULL, gt_arp_ctl_add);
+	sysctl_add_list(log, "arp.list", SYSCTL_RD, NULL,
+	                gt_arp_ctl_list_next, gt_arp_ctl_list);
+	return 0;
+}
 
-	log_scope_init(&this_mod->log_scope, "arp");
-	log = log_trace0();
-	rc = gt_htable_create(log, &gt_arp_htable, 32, gt_arp_hash);
+int
+arp_mod_attach(struct log *log, void *raw_mod)
+{
+	int rc;
+	LOG_TRACE(log);
+	current_mod = raw_mod;
+	rc = mbuf_pool_alloc(log, &gt_arp_entry_pool,
+	                     sizeof(struct gt_arp_entry));
 	if (rc) {
 		return rc;
 	}
-	rc = gt_mbuf_pool_new(log, &gt_arp_entry_pool,
-	                      sizeof(struct gt_arp_entry));
+	rc = mbuf_pool_alloc(log, &gt_arp_pkt_pool, GT_DEV_PKT_SIZE);
 	if (rc) {
-		gt_htable_free(&gt_arp_htable);
-		return rc;
-	}
-	rc = gt_mbuf_pool_new(log, &gt_arp_pkt_pool, GT_DEV_PKT_SIZE);
-	if (rc) {
-		gt_mbuf_pool_del(gt_arp_entry_pool);
-		gt_htable_free(&gt_arp_htable);
 		return rc;
 	}
 	gt_arp_reachable_time = gt_arp_calc_reachable_time();
 	gt_timer_init(&gt_arp_timer_calc_reachable_time);
 	gt_arp_timer_set_calc_reachable_time();
-	gt_ctl_add(log, "arp.add", GT_CTL_WR,
-	           NULL, NULL, gt_arp_ctl_add);
-	gt_ctl_add_list(log, ".arp.list", GT_CTL_RD, NULL,
-	                gt_arp_ctl_list_next, gt_arp_ctl_list);
 	return 0;
 }
 
 void
-gt_arp_mod_deinit(struct gt_log *log)
+arp_mod_deinit(struct log *log, void *raw_mod)
 {
-	log = log_trace0();
-	gt_ctl_del(log, "arp.add");
-	gt_ctl_del(log, "arp.list");
-	gt_htable_free(&gt_arp_htable);
-	gt_mbuf_pool_del(gt_arp_pkt_pool);
-	gt_mbuf_pool_del(gt_arp_entry_pool);
+	struct arp_mod *mod;
+	LOG_TRACE(log);
+	mod = raw_mod;
+	sysctl_del(log, "arp.add");
+	sysctl_del(log, "arp.list");
+	htable_free(&gt_arp_htable);
+	log_scope_deinit(log, &mod->log_scope);
+	mm_free(mod);
+}
+
+void
+arp_mod_detach(struct log *log)
+{
+	mbuf_pool_free(gt_arp_pkt_pool);
+	mbuf_pool_free(gt_arp_entry_pool);
 	gt_timer_del(&gt_arp_timer_calc_reachable_time);
-	log_scope_deinit(log, &this_mod->log_scope);
+	current_mod = NULL;
 }
 
 static inline void
-gt_arp_set_state(struct gt_log *log, struct gt_arp_entry *e, int state)
+gt_arp_set_state(struct log *log, struct gt_arp_entry *e, int state)
 {
 	LOG_TRACE(log);
-	LOGF(log, set_state, LOG_INFO, 0, "hit; state=%s->%s, next_hop=%s",
+	LOGF(log, LOG_MSG(set_state), LOG_INFO, 0,
+	     "hit; state=%s->%s, next_hop=%s",
 	     gt_arp_state_str(e->ae_state), gt_arp_state_str(state),
 	     log_add_ipaddr(AF_INET, &e->ae_next_hop));
 	e->ae_state = state;
@@ -378,14 +382,13 @@ gt_arp_set_state(struct gt_log *log, struct gt_arp_entry *e, int state)
 }
 
 static int
-gt_arp_entry_alloc(struct gt_log *log, struct gt_arp_entry **ep,
+gt_arp_entry_alloc(struct log *log, struct gt_arp_entry **ep,
 	be32_t next_hop)
 {
 	int rc;
 	struct gt_arp_entry *e;
-
 	LOG_TRACE(log);
-	rc = gt_mbuf_alloc(log, gt_arp_entry_pool, (struct gt_mbuf **)ep);
+	rc = mbuf_alloc(log, gt_arp_entry_pool, (struct mbuf **)ep);
 	if (rc) {
 		return rc;
 	}
@@ -396,19 +399,19 @@ gt_arp_entry_alloc(struct gt_log *log, struct gt_arp_entry **ep,
 	e->ae_admin = 0;
 	gt_timer_init(&e->ae_timer);
 	e->ae_next_hop = next_hop;
-	gt_htable_add(&gt_arp_htable, (struct dllist *)e);
+	htable_add(&gt_arp_htable, (struct dlist *)e);
 	return 0;
 }
 
 static void
-gt_arp_entry_del(struct gt_log *log,struct gt_arp_entry *e)
+gt_arp_entry_del(struct log *log,struct gt_arp_entry *e)
 {
 	LOG_TRACE(log);
-	gt_htable_del(&gt_arp_htable, (struct dllist *)e);
+	htable_del(&gt_arp_htable, (struct dlist *)e);
 	gt_timer_del(&e->ae_timer);
 	gt_arp_set_state(log, e, GT_ARP_NONE);
-	gt_mbuf_free(&e->ae_incq->pkt_mbuf);
-	gt_mbuf_free(&e->ae_mbuf);
+	mbuf_free(&e->ae_incq->pkt_mbuf);
+	mbuf_free(&e->ae_mbuf);
 }
 
 
@@ -417,12 +420,12 @@ static struct gt_arp_entry *
 gt_arp_entry_get(be32_t next_hop)
 {
 	uint32_t hash;
-	struct dllist *bucket;
+	struct dlist *bucket;
 	struct gt_arp_entry *e;
 
 	hash = gt_custom_hash32(next_hop, 0);
-	bucket = gt_htable_bucket(&gt_arp_htable, hash);
-	DLLIST_FOREACH(e, bucket, ae_list) {
+	bucket = htable_bucket(&gt_arp_htable, hash);
+	DLIST_FOREACH(e, bucket, ae_list) {
 		if (e->ae_next_hop == next_hop) {
 			return e;
 		}
@@ -439,7 +442,7 @@ gt_arp_is_probeing(int state)
 static void
 gt_arp_probe_timeout(struct gt_timer *timer)
 {
-	struct gt_log *log;
+	struct log *log;
 	struct gt_arp_entry *e;
 
 	gt_arps.arps_timeouts++;
@@ -473,14 +476,14 @@ gt_arp_resolve(struct gt_route_if *ifp, be32_t next_hop,
 {
 	int rc;
 	uint32_t hash;
-	struct dllist *bucket;
-	struct gt_log *log;
+	struct dlist *bucket;
+	struct log *log;
 	struct gt_arp_entry *e, *tmp;
 
 	log = log_trace0();
 	hash = gt_custom_hash32(next_hop, 0);
-	bucket = gt_htable_bucket(&gt_arp_htable, hash);
-	DLLIST_FOREACH_SAFE(e, bucket, ae_list, tmp) {
+	bucket = htable_bucket(&gt_arp_htable, hash);
+	DLIST_FOREACH_SAFE(e, bucket, ae_list, tmp) {
 		if (gt_arp_entry_is_reachable_timeouted(e)) {
 			gt_arp_set_state(log, e, GT_ARP_STALE);
 		}
@@ -515,16 +518,16 @@ void
 gt_arp_update(struct gt_arp_advert_msg *msg)
 {
 	int rc, same_addr;
-	struct gt_log *log;
+	struct log *log;
 	struct gt_arp_entry *e;
 
 	log = log_trace0();
-	LOGF(log, update, LOG_INFO, 0, "hit; next_hop=%s",
-	     gt_log_add_ip_addr(AF_INET, &msg->arpam_next_hop));
+	LOGF(log, LOG_MSG(update), LOG_INFO, 0, "hit; next_hop=%s",
+	     log_add_ipaddr(AF_INET, &msg->arpam_next_hop));
 	// RFC-4861
 	// 7.2.5.  Receipt of Neighbor Advertisements
 	// Appendix C: State Machine for the Reachability State
-	if (!gt_eth_addr_is_ucast(msg->arpam_addr.etha_bytes)) {
+	if (!ethaddr_is_ucast(msg->arpam_addr.etha_bytes)) {
 		return;
 	}
 	e = gt_arp_entry_get(msg->arpam_next_hop);
@@ -585,10 +588,10 @@ gt_arp_update(struct gt_arp_advert_msg *msg)
 }
 
 int
-gt_arp_add(be32_t next_hop, struct gt_eth_addr *addr)
+gt_arp_add(be32_t next_hop, struct ethaddr *addr)
 {
 	int rc;
-	struct gt_log *log;
+	struct log *log;
 	struct gt_arp_entry *e;
 
 	log = log_trace0();
@@ -628,7 +631,7 @@ gt_arp_reply(struct gt_route_if *ifp, struct gt_arp_hdr *in_arp_h)
 	eh->ethh_daddr = in_arp_h->arph_data.arpip_sha;
 	arp_h->arph_hrd = GT_ARP_HRD_ETH_BE;
 	arp_h->arph_pro = GT_ETH_TYPE_IP4_BE;
-	arp_h->arph_hlen = sizeof(struct gt_eth_addr);
+	arp_h->arph_hlen = sizeof(struct ethaddr);
 	arp_h->arph_plen = sizeof(be32_t);
 	arp_h->arph_op = GT_ARP_OP_REPLY_BE;
 	arp_h->arph_data.arpip_sha = ifp->rif_hwaddr;

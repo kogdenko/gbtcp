@@ -1,7 +1,13 @@
-#include "subr.h"
-#include "log.h"
-#include "sys.h"
-#include "global.h"
+#include "internals.h"
+
+#define SUBR_LOG_MSG_FOREACH(x) \
+	x(read_pidfile) \
+	x(read_rsskey)
+
+struct subr_mod {
+	struct log_scope log_scope;
+	SUBR_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+};
 
 union gt_tsc {
 	uint64_t tsc_64;
@@ -11,10 +17,6 @@ union gt_tsc {
 	};
 };
 
-struct subr_mod {
-	struct log_scope log_scope;
-};
-
 uint64_t gt_nsec;
 uint64_t gt_mHZ;
 __thread int gbtcp_errno;
@@ -22,9 +24,9 @@ int gt_application_pid;
 const char *gt_application_name;
 char gt_application_name_buf[32];
 
-static struct subr_mod *this_mod;
+static struct subr_mod *current_mod;
 
-#define GT_MURMUR_MMIX(h,k) \
+#define MURMUR_MMIX(h,k) \
 do { \
 	k *= m; \
 	k ^= k >> r; \
@@ -48,7 +50,7 @@ gt_murmur(const void * key, unsigned int len, uint32_t init_val)
 	data = (uint8_t *)key;
 	while (len >= 4) {
 		k = *(u_int *)data;
-		GT_MURMUR_MMIX(h, k);
+		MURMUR_MMIX(h, k);
 		data += 4;
 		len -= 4;
 	}
@@ -60,8 +62,8 @@ gt_murmur(const void * key, unsigned int len, uint32_t init_val)
 	case 1:
 		t ^= data[0];
 	}
-	GT_MURMUR_MMIX(h, t);
-	GT_MURMUR_MMIX(h, l);
+	MURMUR_MMIX(h, t);
+	MURMUR_MMIX(h, l);
 	h ^= h >> 13;
 	h *= m;
 	h ^= h >> 15;
@@ -77,12 +79,12 @@ gt_application_name_init()
 	FILE *file;
 	char *s;
 	char tmpbuf[1000];
-	struct gt_log *log;
+	struct log *log;
 
 	log = log_trace0();
 	snprintf(tmpbuf, sizeof(tmpbuf), "/proc/%d/status",
 		 gt_application_pid);
-	rc = gt_sys_fopen(log, &file, tmpbuf, "r");
+	rc = sys_fopen(log, &file, tmpbuf, "r");
 	if (rc) {
 		return rc;
 	}
@@ -112,41 +114,63 @@ gt_application_name_init()
 		GT_ASSERT(rc);
 		return rc;
 	}
-	gt_strzcpy(gt_application_name_buf, info->ki_comm,
-	           sizeof(gt_application_name_buf));
+	strzcpy(gt_application_name_buf, info->ki_comm,
+	        sizeof(gt_application_name_buf));
 	free(info);
 	gt_application_name = gt_application_name_buf;
 	return 0;
 }
 #endif /* __linux__ */
 
-int
-gt_subr_mod_init()
-{
-	struct gt_log *log;
+//service {
+//	svc_app_name
+//};
 
+int
+subr_mod_init(struct log *log, void **pp)
+{
+	int rc;
+	struct subr_mod *mod;
+	LOG_TRACE(log);
+	rc = mm_alloc(log, pp, sizeof(*mod));
+	if (rc) {
+		return rc;
+	}
+	mod = *pp;
+	log_scope_init(&mod->log_scope, "subr");
+	return 0;
+}
+
+int
+subr_mod_attach(struct log *log, void *raw_mod)
+{
+	current_mod = raw_mod;
 	srand48(time(NULL));
 	gt_application_pid = getpid();
 	gt_application_name_init();
-	log_scope_init(&this_mod->log_scope, "subr");
-	log = log_trace0();
-	LOGF(log, mod_init, LOG_INFO, 0, "app=%s, HZ=%"PRIu64,
-	     gt_application_name, 1000000 * gt_mHZ);
 	return 0;
 }
 
 void
-gt_subr_mod_deinit(struct gt_log *log)
+subr_mod_deinit(struct log *log, void *raw_mod)
 {
-	log = log_trace0();
-	log_scope_deinit(log, &this_mod->log_scope);
+	struct subr_mod *mod;
+	LOG_TRACE(log);
+	mod = raw_mod;
+	log_scope_deinit(log, &mod->log_scope);
+}
+
+void
+subr_mod_detach(struct log *log)
+{
+	current_mod = NULL;
 }
 
 int
-gt_eth_addr_aton(struct gt_eth_addr *a, const char *s)
+ethaddr_aton(struct ethaddr *a, const char *s)
 {
 	int rc;
-	struct gt_eth_addr x;
+	struct ethaddr x;
 
 	rc = sscanf(s, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
 	            x.etha_bytes + 0, x.etha_bytes + 1, x.etha_bytes + 2,
@@ -161,26 +185,26 @@ gt_eth_addr_aton(struct gt_eth_addr *a, const char *s)
 
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 int
-gt_eth_addr_is_mcast(const uint8_t *addr)
+ethaddr_is_mcast(const uint8_t *addr)
 {
 	return 0x01 & (addr >> ((sizeof(addr) * 8) - 8));
 }
 #else /* __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ */
 int
-gt_eth_addr_is_mcast(const uint8_t *addr)
+ethaddr_is_mcast(const uint8_t *addr)
 {
 	return 0x01 & addr[0];
 }
 #endif /* __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ */
 
 int
-gt_eth_addr_is_ucast(const uint8_t *addr)
+ethaddr_is_ucast(const uint8_t *addr)
 {
-	return !gt_eth_addr_is_mcast(addr);
+	return !ethaddr_is_mcast(addr);
 }
 
 void
-gt_eth_addr_make_ip6_mcast(struct gt_eth_addr *addr, const uint8_t *ip6) 
+ethaddr_make_ip6_mcast(struct ethaddr *addr, const uint8_t *ip6) 
 {   
 	addr->etha_bytes[0] = 0x33;
 	addr->etha_bytes[1] = 0x33;
@@ -313,7 +337,7 @@ gt_strsplit(const char *str, const char *delim, struct iovec *iovec,
 }
 
 char *
-gt_strzcpy(char *dest, const char *src, size_t n)
+strzcpy(char *dest, const char *src, size_t n)
 {
 	size_t i;
 
@@ -340,7 +364,7 @@ gt_custom_hash(const void *data, size_t cnt, uint32_t initval)
 }
 
 uint32_t
-gt_toeplitz_hash(const uint8_t *data, int cnt, const uint8_t *key)
+toeplitz_hash(const uint8_t *data, int cnt, const uint8_t *key)
 {   
 	uint32_t h, v;
 	int i, b;
@@ -353,7 +377,7 @@ gt_toeplitz_hash(const uint8_t *data, int cnt, const uint8_t *key)
 				h ^= v;
 			}
 			v <<= 1;
-			if ((i + 4) < GT_RSS_KEY_SIZE &&
+			if ((i + 4) < RSSKEYSIZ &&
 			    (key[i + 4] & (1 << (7 - b)))) {
 				v |= 1;
 			}
@@ -413,7 +437,7 @@ gt_lower_pow_of_2_64(uint64_t x)
 }
 
 int
-gt_flock_pidfile(struct gt_log *log, int pid, const char *filename)
+gt_flock_pidfile(struct log *log, int pid, const char *filename)
 {
 	int rc, fd, len;
 	char buf[32];
@@ -421,12 +445,12 @@ gt_flock_pidfile(struct gt_log *log, int pid, const char *filename)
 
 	LOG_TRACE(log);
 	snprintf(path, sizeof(path), "%s/pid/%s", GT_PREFIX, filename);
-	rc = gt_sys_open(log, path, O_CREAT|O_RDWR, 0666);
+	rc = sys_open(log, path, O_CREAT|O_RDWR, 0666);
 	if (rc < 0) {
 		return rc;
 	}
 	fd = rc;
-	rc = gt_sys_flock(log, fd, LOCK_EX|LOCK_NB);
+	rc = sys_flock(log, fd, LOCK_EX|LOCK_NB);
 	if (rc == 0) {
 		len = snprintf(buf, sizeof(buf), "%d", pid);
 		rc = gt_write_all(log, fd, buf, len);
@@ -434,12 +458,12 @@ gt_flock_pidfile(struct gt_log *log, int pid, const char *filename)
 			return fd;
 		}
 	}
-	gt_sys_close(log, fd);
+	sys_close(log, fd);
 	return rc;
 }
 
 int
-gt_read_pidfile(struct gt_log *log, int fd, const char *filename)
+read_pidfile(struct log *log, int fd, const char *filename)
 {
 	int rc, pid;
 	char buf[32];
@@ -447,14 +471,14 @@ gt_read_pidfile(struct gt_log *log, int fd, const char *filename)
 
 	LOG_TRACE(log);
 	snprintf(path, sizeof(path), "%s/pid/%s", GT_PREFIX, filename);
-	rc = gt_sys_read(log, fd, buf, sizeof(buf) - 1);
+	rc = sys_read(log, fd, buf, sizeof(buf) - 1);
 	if (rc < 0) {
 		return rc;
 	}
 	buf[rc] = '\0';
 	rc = sscanf(buf, "%d", &pid);
 	if (rc != 1 || pid <= 0) {
-		LOGF(log, read_pidfile, LOG_ERR, 0,
+		LOGF(log, LOG_MSG(read_pidfile), LOG_ERR, 0,
 		     "pidfile='%s' bad format", path);
 		return -EINVAL;
 	} else {
@@ -463,11 +487,11 @@ gt_read_pidfile(struct gt_log *log, int fd, const char *filename)
 }
 
 int
-gt_set_nonblock(struct gt_log *log, int fd)
+gt_set_nonblock(struct log *log, int fd)
 {
 	int rc, flags;
 
-	rc = gt_sys_fcntl(log, fd, F_GETFL, 0);
+	rc = sys_fcntl(log, fd, F_GETFL, 0);
 	if (rc < 0) {
 		return rc;
 	}
@@ -476,12 +500,12 @@ gt_set_nonblock(struct gt_log *log, int fd)
 		return 0;
 	}
 	flags |= O_NONBLOCK;
-	rc = gt_sys_fcntl(log, fd, F_SETFL, flags);
+	rc = sys_fcntl(log, fd, F_SETFL, flags);
 	return rc;
 }
 
 int
-gt_connect_timed(struct gt_log *log, int fd, const struct sockaddr *addr,
+gt_connect_timed(struct log *log, int fd, const struct sockaddr *addr,
 	socklen_t addrlen, gt_time_t to)
 {
 	int rc, eno, flags;
@@ -490,23 +514,23 @@ gt_connect_timed(struct gt_log *log, int fd, const struct sockaddr *addr,
 	struct timespec ts;
 	struct pollfd pfd;
 
-	rc = gt_sys_fcntl(log, fd, F_GETFL, 0);
+	rc = sys_fcntl(log, fd, F_GETFL, 0);
 	if (rc < 0) {
 		return rc;
 	}
 	flags = rc;
 	if (!(flags & O_NONBLOCK)) {
-		rc = gt_sys_fcntl(log, fd, F_SETFL, flags | O_NONBLOCK);
+		rc = sys_fcntl(log, fd, F_SETFL, flags | O_NONBLOCK);
 		if (rc) {
 			return rc;
 		}
 	}
 	do {
-		rc = gt_sys_connect(NULL, fd, addr, addrlen);
+		rc = sys_connect(NULL, fd, addr, addrlen);
 		eno = -rc;
 	} while (addr->sa_family == AF_UNIX && eno == EAGAIN);
 	if (!(flags & O_NONBLOCK)) {
-		rc = gt_sys_fcntl(log, fd, F_SETFL, flags & ~O_NONBLOCK);
+		rc = sys_fcntl(log, fd, F_SETFL, flags & ~O_NONBLOCK);
 		if (rc) {
 			return rc;
 		}
@@ -530,14 +554,14 @@ restart:
 		ts.tv_sec = rem / GT_SEC;
 		ts.tv_nsec = rem % GT_SEC;
 	}
-	rc = gt_sys_ppoll(log, &pfd, 1, &ts, NULL);
+	rc = sys_ppoll(log, &pfd, 1, &ts, NULL);
 	switch (rc) {
 	case 0:
 		return -ETIMEDOUT;
 	case 1:
 		opt_len = sizeof(eno);
-		rc = gt_sys_getsockopt(log, fd, SOL_SOCKET, SO_ERROR,
-		                       &eno, &opt_len);
+		rc = sys_getsockopt(log, fd, SOL_SOCKET, SO_ERROR,
+		                    &eno, &opt_len);
 		if (rc) {
 			return rc;
 		}
@@ -551,14 +575,14 @@ restart:
 }
 
 int
-gt_write_all(struct gt_log *log, int fd, const void *buf, size_t cnt)
+gt_write_all(struct log *log, int fd, const void *buf, size_t cnt)
 {
 	int rc, off;
 
 	for (off = 0; off < cnt; off += rc) {
-		rc = gt_sys_write(log, fd,
-		                  (const uint8_t *)buf + off,
-		                  cnt - off);
+		rc = sys_write(log, fd,
+		               (const uint8_t *)buf + off,
+		               cnt - off);
 		if (rc < 0) {
 			return rc;
 		}
@@ -568,33 +592,33 @@ gt_write_all(struct gt_log *log, int fd, const void *buf, size_t cnt)
 
 #ifdef __linux__
 int
-read_rsskey(struct gt_log *log, const char *ifname, uint8_t *rss_key)
+read_rsskey(struct log *log, const char *ifname, uint8_t *rss_key)
 {
 	int fd, rc, size, off;
 	struct ifreq ifr;
 	struct ethtool_rxfh rss, *rss2;
 
 	LOG_TRACE(log);
-	rc = gt_sys_socket(log, AF_INET, SOCK_DGRAM, 0);
+	rc = sys_socket(log, AF_INET, SOCK_DGRAM, 0);
 	if (rc < 0) {
 		return rc;
 	}
 	fd = rc;
-	gt_strzcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
+	strzcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 	rss.cmd = ETHTOOL_GRSSH;
 	ifr.ifr_data = (void *)&rss;
-	rc = gt_sys_ioctl(log, fd, SIOCETHTOOL, (uintptr_t)&ifr);
+	rc = sys_ioctl(log, fd, SIOCETHTOOL, (uintptr_t)&ifr);
 	if (rc < 0) {
 		goto out;
 	}
-	if (rss.key_size != GT_RSS_KEY_SIZE) {
-		LOGF(log, read_rsskey, LOG_ERR, 0,
+	if (rss.key_size != RSSKEYSIZ) {
+		LOGF(log, LOG_MSG(read_rsskey), LOG_ERR, 0,
 		     "invalid rss key_size; key_size=%d", rss.key_size);
 		goto out;
 	}
 	size = (sizeof(rss) + rss.key_size +
 	       rss.indir_size * sizeof(rss.rss_config[0]));
-	rc = gt_sys_malloc(log, (void **)&rss2, size);
+	rc = sys_malloc(log, (void **)&rss2, size);
 	if (rc) {
 		goto out;
 	}
@@ -603,21 +627,21 @@ read_rsskey(struct gt_log *log, const char *ifname, uint8_t *rss_key)
 	rss2->indir_size = rss.indir_size;
 	rss2->key_size = rss.key_size;
 	ifr.ifr_data = (void *)rss2;
-	rc = gt_sys_ioctl(log, fd, SIOCETHTOOL, (uintptr_t)&ifr);
+	rc = sys_ioctl(log, fd, SIOCETHTOOL, (uintptr_t)&ifr);
 	if (rc) {
 		goto out2;
 	}
 	off = rss2->indir_size * sizeof(rss2->rss_config[0]);
-	memcpy(rss_key, (uint8_t *)rss2->rss_config + off, GT_RSS_KEY_SIZE);
+	memcpy(rss_key, (uint8_t *)rss2->rss_config + off, RSSKEYSIZ);
 out2:
 	free(rss2);
 out:
-	gt_sys_close(log, fd);
+	sys_close(log, fd);
 	return rc;
 }
 #else /* __linux__ */
 int
-read_rsskey(struct gt_log *log, const char *ifname, uint8_t *rss_key)
+read_rsskey(struct log *log, const char *ifname, uint8_t *rss_key)
 {
 	return 0;
 }
@@ -845,7 +869,7 @@ gt_epoll_op_str(int op)
 #endif /* __linux__ */
 
 int
-gt_iovec_len(const struct iovec *iov, int iovcnt)
+iovec_len(const struct iovec *iov, int iovcnt)
 {
 	int i, len;
 
@@ -857,14 +881,14 @@ gt_iovec_len(const struct iovec *iov, int iovcnt)
 }
 
 void
-gt_print_backtrace(int depth_off)
+print_backtrace(int depth_off)
 {
 	char buf[4096];
 	char *s;
-	struct gt_strbuf sb;
+	struct strbuf sb;
 
-	gt_strbuf_init(&sb, buf, sizeof(buf));
-	gt_strbuf_add_backtrace(&sb, depth_off);
-	s = gt_strbuf_cstr(&sb);
+	strbuf_init(&sb, buf, sizeof(buf));
+	strbuf_add_backtrace(&sb, depth_off);
+	s = strbuf_cstr(&sb);
 	printf("%s", s);
 }

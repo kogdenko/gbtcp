@@ -15,20 +15,20 @@ struct gt_service_msg {
 extern int gt_service_pid;
 extern int gt_service_ctl_polling;
 
-int gt_service_mod_init();
-
-void gt_service_mod_deinit(struct gt_log *log);
+int service_mod_init(struct log *, void **);
+int service_mod_attach(struct log *, void *);
+void service_mod_deinit(struct log *, void *);
+void service_mod_detach(struct log *);
 
 const char *gt_service_status_str(int status);
 
-int gt_service_init(struct gt_log *log);
+int service_start(struct log *);
 
-int gt_service_fork(struct gt_log *log);
+int gt_service_fork(struct log *);
 
 #ifdef __linux__
-int gt_service_clone(int (*fn)(void *), void *child_stack,
-                     int flags, void *arg,
-                     void *ptid, void *tls, void *ctid);
+int gt_service_clone(int (*)(void *), void *, int, void *,
+	void *, void *, void *);
 #endif /* __linux__ */
 
 #endif /* GBTCP_SERVICE_H */

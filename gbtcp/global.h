@@ -1,10 +1,11 @@
-#ifndef GBTCP_GLOBAL_H
-#define GBTCP_GLOBAL_H
+/* GPL2 license */
+#ifndef GBTCP_INIT_H
+#define GBTCP_INIT_H
 
 #include "subr.h"
 
 extern int gt_global_epoch;
-extern int gt_global_inited;
+extern int service_inited;
 extern struct gt_spinlock gt_global_lock;
 
 #define GT_GLOBAL_LOCK gt_spinlock_lock(&gt_global_lock) 
@@ -13,14 +14,14 @@ extern struct gt_spinlock gt_global_lock;
 
 int gt_global_mod_init();
 
-void gt_global_mod_deinit(struct gt_log *log);
+void gt_global_mod_deinit(struct log *log);
 
-int gt_global_init();
+int service_init();
 
-void gt_global_deinit(struct gt_log *log);
+void service_deinit(struct log *log);
 
 gt_time_t gt_global_get_time();
 
 void gt_global_set_time();
 
-#endif /* GBTCP_GLOBAL_H */
+#endif /* GBTCP_INIT_H */

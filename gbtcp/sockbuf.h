@@ -6,12 +6,13 @@
 struct gt_sockbuf {
 	int sob_max;
 	int sob_len;
-	struct dllist sob_head;
+	struct dlist sob_head;
 };
 
-int gt_sockbuf_mod_init();
-
-void gt_sockbuf_mod_deinit(struct gt_log *err);
+int sockbuf_mod_init(struct log *, void **);
+int sockbuf_mod_attach(struct log *, void *);
+void sockbuf_mod_deinit(struct log *, void *);
+void sockbuf_mod_detach(struct log *);
 
 void gt_sockbuf_init(struct gt_sockbuf *b, int max);
 

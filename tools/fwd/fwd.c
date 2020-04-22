@@ -1,4 +1,4 @@
-#include <gbtcp/gbtcp_lib.h>
+#include <gbtcp/internals.h>
 
 #define ETH_ADDR_LEN 6
 #define ETH_TYPE_IP4 0x0800
@@ -6,13 +6,9 @@
 typedef uint16_t be16_t;
 typedef uint32_t be32_t;
 
-struct eth_addr {
-	uint8_t bytes[ETH_ADDR_LEN];
-} __attribute__((packed));
-
 struct eth_hdr {
-	struct eth_addr daddr;
-	struct eth_addr saddr;
+	struct ethaddr daddr;
+	struct ethaddr saddr;
 	be16_t type;
 };
 
@@ -59,8 +55,8 @@ struct pdu {
 	int len;
 };
 
-static struct eth_addr eth_saddr;
-static struct eth_addr eth_daddr;
+static struct ethaddr eth_saddr;
+static struct ethaddr eth_daddr;
 static int Tflag;
 static int Mflag;
 static int burst_size;
@@ -71,13 +67,13 @@ static int zero_copy;
 static int echo;
 static int sock_hash_size;
 static int sock_hash_mask;
-static struct dllist txq;
+static struct dlist txq;
 static int nr_socks;
 static int nr_socks_max;
-static struct gt_mbuf_pool *sock_pool;
-static struct dllist free_socks;
-static struct dllist used_socks;
-static struct dllist *sock_hash;
+static struct mbuf_pool *sock_pool;
+static struct dlist free_socks;
+static struct dlist used_socks;
+static struct dlist *sock_hash;
 static unsigned long long cnt_not_an_UDP;
 static unsigned long long cnt_bad_cksum;
 
@@ -129,23 +125,6 @@ print_usage()
 	for (; i <= (dev)->nmd->last_tx_ring && \
 		((txr = NETMAP_TXRING((dev)->nmd->nifp, i)), 1); \
 		++i)
-
-static int
-eth_aton(struct eth_addr *a, const char *s)
-{
-	int rc;
-	struct eth_addr x;
-
-	rc = sscanf(s, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
-	            x.bytes + 0, x.bytes + 1, x.bytes + 2,
-	            x.bytes + 3, x.bytes + 4, x.bytes + 5);
-	if (rc == 6) {
-		*a = x;
-		return 0;
-	} else {
-		return -EINVAL;
-	}
-}
 
 static uint64_t
 cksum_add(uint64_t sum, uint64_t x)
@@ -322,34 +301,34 @@ not_empty_txr(struct dev *dev)
 static void
 so_del(struct gt_sock *so)
 {
-	DLLIST_REMOVE(so, so_list);
-	DLLIST_REMOVE(so, so_bindl);
+	DLIST_REMOVE(so, so_list);
+	DLIST_REMOVE(so, so_bindl);
 	if (Mflag) {
-		gt_mbuf_free(&so->so_file.fl_mbuf);
+		mbuf_free(&so->so_file.fl_mbuf);
 	} else {
-		DLLIST_INSERT_HEAD(&free_socks, so, so_bindl);
+		DLIST_INSERT_HEAD(&free_socks, so, so_bindl);
 	}
 	nr_socks--;
 }
 
 static struct gt_sock *
-so_alloc(struct dllist *bucket)
+so_alloc(struct dlist *bucket)
 {
 	struct gt_sock *so;
 
 	if (nr_socks == nr_socks_max) {
-		so = DLLIST_LAST(&used_socks, struct gt_sock, so_bindl);
+		so = DLIST_LAST(&used_socks, struct gt_sock, so_bindl);
 		so_del(so);
 	}
 	if (Mflag) {
-		gt_mbuf_alloc(NULL, sock_pool, (struct gt_mbuf **)&so);
+		mbuf_alloc(NULL, sock_pool, (struct mbuf **)&so);
 	} else {
-		assert(dllist_isempty(&free_socks));
-		so = DLLIST_LAST(&free_socks, struct gt_sock, so_bindl);
-		DLLIST_REMOVE(so, so_bindl);
+		assert(dlist_is_empty(&free_socks));
+		so = DLIST_LAST(&free_socks, struct gt_sock, so_bindl);
+		DLIST_REMOVE(so, so_bindl);
 	}
-	DLLIST_INSERT_HEAD(&used_socks, so, so_bindl);
-	DLLIST_INSERT_HEAD(bucket, so, so_list);
+	DLIST_INSERT_HEAD(&used_socks, so, so_bindl);
+	DLIST_INSERT_HEAD(bucket, so, so_list);
 	so->so_flags = 0;
 	so->so_ssnt = 0;
 	nr_socks++;
@@ -412,7 +391,7 @@ fwd(struct dev *src, struct dev *dst)
 	uint32_t tmp, hash;
 	struct netmap_slot *rx_slot, *tx_slot;
 	struct netmap_ring *rxr, *txr;
-	struct dllist *bucket;
+	struct dlist *bucket;
 	struct gt_sock_tuple tuple;
 	struct gt_sock *so;
 	struct pdu pdu;
@@ -474,7 +453,7 @@ fwd(struct dev *src, struct dev *dst)
 				hash = gt_custom_hash(&tuple, sizeof(tuple), 0);
 				bucket = sock_hash + (hash & sock_hash_mask);
 				found = 0;
-				DLLIST_FOREACH(so, bucket, so_list) {
+				DLIST_FOREACH(so, bucket, so_list) {
 					if (!memcmp(&so->so_tuple, &tuple, sizeof(tuple))) {
 						found = so_process(so);
 						break;
@@ -486,7 +465,7 @@ fwd(struct dev *src, struct dev *dst)
 				}
 				if (Tflag) {
 					if (so->so_ssnt == 0) {
-						DLLIST_INSERT_HEAD(&txq, so, so_txl);
+						DLIST_INSERT_HEAD(&txq, so, so_txl);
 					}
 					so->so_ssnt++;
 					so->so_lmss = pdu.len;
@@ -528,8 +507,8 @@ next:
 		}
 	}
 	if (Tflag) {
-		while (!dllist_isempty(&txq)) {
-			so = DLLIST_FIRST(&txq, struct gt_sock, so_txl);
+		while (!dlist_is_empty(&txq)) {
+			so = DLIST_FIRST(&txq, struct gt_sock, so_txl);
 			assert(so->so_ssnt);
 			txr = not_empty_txr(dst);
 			if (txr == NULL) {
@@ -537,7 +516,7 @@ next:
 			}
 			so->so_ssnt--;
 			if (so->so_ssnt == 0) {
-				DLLIST_REMOVE(so, so_txl);
+				DLIST_REMOVE(so, so_txl);
 			}
 			tx_slot = txr->slot + txr->cur;
 			tx_slot->len = so_fill(so, NETMAP_BUF(txr, tx_slot->buf_idx), so->so_lmss);
@@ -577,17 +556,17 @@ main(int argc, char **argv)
 	struct pollfd pfds[2];
 	struct gt_sock *so_buf;
 
-	rc = gt_global_init();
+	rc = service_init();
 	if (rc) {
 		fprintf(stderr, "Initialization failed\n");
 		return 1;
 	}
-	dllist_init(&txq);
+	dlist_init(&txq);
 	burst_size = 512;
 	nr_devs = 0;
 	memset(devs, 0, sizeof(devs));
-	eth_aton(&eth_saddr, "ff:ff:ff:ff:f:ff");
-	eth_aton(&eth_daddr, "ff:ff:ff:ff:f:ff");
+	ethaddr_aton(&eth_saddr, "ff:ff:ff:ff:f:ff");
+	ethaddr_aton(&eth_daddr, "ff:ff:ff:ff:f:ff");
 	while ((opt = getopt(argc, argv, "hi:S:D:TMrtzea:b:c:")) != -1) {
 		switch (opt) {
 		case 'h':
@@ -608,13 +587,13 @@ main(int argc, char **argv)
 			nr_devs++;
 			break;
 		case 'S':
-			rc = eth_aton(&eth_saddr, optarg);
+			rc = ethaddr_aton(&eth_saddr, optarg);
 			if (rc) {
 				invalid_arg(opt, optarg);
 			}
 			break;
 		case 'D':
-			rc = eth_aton(&eth_daddr, optarg);
+			rc = ethaddr_aton(&eth_daddr, optarg);
 			if (rc) {
 				invalid_arg(opt, optarg);
 			}
@@ -658,20 +637,20 @@ main(int argc, char **argv)
 	}
 	if (nr_socks_max) {
 		if (Mflag) {
-			gt_mbuf_pool_new(NULL, &sock_pool, sizeof(struct gt_sock));
+			mbuf_pool_alloc(NULL, &sock_pool, sizeof(struct gt_sock));
 		} else {
-			dllist_init(&free_socks);
+			dlist_init(&free_socks);
 			so_buf = malloc(nr_socks_max * sizeof(struct gt_sock));
 			for (i = 0; i < nr_socks_max; ++i) {
-				DLLIST_INSERT_HEAD(&free_socks, so_buf + i, so_bindl);
+				DLIST_INSERT_HEAD(&free_socks, so_buf + i, so_bindl);
 			}
 		}
-		dllist_init(&used_socks);
+		dlist_init(&used_socks);
 		sock_hash_size = gt_upper_pow_of_2_32(nr_socks_max * 3 / 2);
-		sock_hash = malloc(sock_hash_size * sizeof(struct dllist));
+		sock_hash = malloc(sock_hash_size * sizeof(struct dlist));
 		sock_hash_mask = sock_hash_size - 1;
 		for (i = 0; i < sock_hash_size; ++i) {
-			dllist_init(sock_hash + i);
+			dlist_init(sock_hash + i);
 		}
 	}
 	if (burst_size < 1 || burst_size > 4096) {

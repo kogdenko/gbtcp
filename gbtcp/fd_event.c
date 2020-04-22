@@ -1,16 +1,8 @@
-#include "fd_event.h"
-#include "subr.h"
-#include "sys.h"
-#include "log.h"
-#include "timer.h"
-#include "poll.h"
-#include "tcp.h"
-#include "signal.h"
-#include "ctl.h"
-#include "global.h"
+#include "internals.h"
 
 #define FD_EVENT_LOG_MSG_FOREACH(x) \
-	x(new) \
+	x(alloc) \
+	x(free)
 
 struct fd_event_mod {
 	struct log_scope log_scope;
@@ -20,13 +12,13 @@ struct fd_event_mod {
 uint64_t gt_fd_event_epoch;
 
 static gt_time_t gt_fd_event_time;
-static int gt_fd_event_nr_used;
+static int fdevent_nused;
 static int gt_fd_event_in_cb;
 static struct gt_fd_event *gt_fd_event_used[GT_FD_EVENTS_MAX];
 static struct gt_fd_event gt_fd_event_buf[GT_FD_EVENTS_MAX];
-static struct fd_event_mod *this_mod;
+static struct fd_event_mod *current_mod;
 
-static void gt_fd_event_ctl_init_stat_entry(struct gt_log * log,
+static void gt_fd_event_ctl_init_stat_entry(struct log * log,
 	const char *event_name, uint64_t *val, const char *stat_name);
 
 static void gt_fd_event_free(struct gt_fd_event *e);
@@ -36,15 +28,28 @@ static int gt_fd_event_unref(struct gt_fd_event *e);
 static int gt_fd_event_call(struct gt_fd_event *e, short revents);
 
 int
-gt_fd_event_mod_init()
+fd_event_mod_init(struct log *log, void **pp)
+{
+	int rc;
+	struct fd_event_mod *mod;
+	LOG_TRACE(log);
+	rc = mm_alloc(log, pp, sizeof(*mod));
+	if (rc)
+		return rc;
+	mod = *pp;
+	log_scope_init(&mod->log_scope, "fd_event");
+	return 0;
+}
+
+int
+fd_event_mod_attach(struct log *log, void *raw_mod)
 {
 	int i;
 	struct gt_fd_event *e;
-
-	log_scope_init(&this_mod->log_scope, "fd_event");
-	gt_fd_event_nr_used = 0;
+	current_mod = raw_mod;
+	fdevent_nused = 0;
 	memset(gt_fd_event_buf, 0, sizeof(gt_fd_event_buf));
-	for (i = 0; i < GT_ARRAY_SIZE(gt_fd_event_buf); ++i) {
+	for (i = 0; i < ARRAY_SIZE(gt_fd_event_buf); ++i) {
 		e = gt_fd_event_buf + i;
 		e->fde_fd = -1;
 	}
@@ -52,17 +57,26 @@ gt_fd_event_mod_init()
 }
 
 void
-gt_fd_event_mod_deinit(struct gt_log *log)
+fd_event_mod_deinit(struct log *log, void *raw_mod)
 {
+	struct fd_event_mod *mod;
 	LOG_TRACE(log);
-	gt_fd_event_nr_used = 0;
-	log_scope_deinit(log, &this_mod->log_scope);
+	mod = raw_mod;
+	log_scope_deinit(log, &mod->log_scope);
+	mm_free(mod);
+}
+
+void
+fd_event_mod_detach(struct log *log)
+{
+	fdevent_nused = 0;
+	current_mod = NULL;
 }
 
 void
 gt_fd_event_mod_check()
 {
-	struct gt_log *log;
+	struct log *log;
 	struct gt_fd_event_set set;
 	struct pollfd pfds[GT_FD_EVENTS_MAX];
 
@@ -70,7 +84,7 @@ gt_fd_event_mod_check()
 	do {
 		set.fdes_to = 0;
 		gt_fd_event_set_init(&set, pfds);
-		gt_sys_ppoll(log, pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
+		sys_ppoll(log, pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
 		gt_fd_event_set_call(&set, pfds);
 	} while (set.fdes_again);
 }
@@ -115,7 +129,7 @@ int
 gt_fd_event_mod_wait()
 {
 	int rc, epoch;
-	struct gt_log *log;
+	struct log *log;
 	struct gt_fd_event_set set;
 	struct pollfd pfds[GT_FD_EVENTS_MAX];
 
@@ -124,7 +138,7 @@ gt_fd_event_mod_wait()
 	gt_fd_event_set_init(&set, pfds);
 	epoch = gt_global_epoch;
 	GT_GLOBAL_UNLOCK;
-	rc = gt_sys_ppoll(log, pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
+	rc = sys_ppoll(log, pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
 	GT_GLOBAL_LOCK;
 	if (epoch == gt_global_epoch) {
 		gt_fd_event_set_call(&set, pfds);
@@ -133,21 +147,21 @@ gt_fd_event_mod_wait()
 }
 
 static void
-gt_fd_event_ctl_init_stat_entry(struct gt_log * log, const char *event_name,
+gt_fd_event_ctl_init_stat_entry(struct log * log, const char *event_name,
 	uint64_t *val, const char *stat_name)
 {
 	char path[PATH_MAX];
 	
 	snprintf(path, sizeof(path), "fd_event.list.%s.stat.%s",
 	         event_name, stat_name);
-	gt_ctl_add_uint64(log, path, GT_CTL_RD, val, 0, 0);
+	sysctl_add_uint64(log, path, SYSCTL_RD, val, 0, 0);
 }
 
 #define GT_FD_EVENT_INIT_CTL_STAT_ENTRY(x) \
 	gt_fd_event_ctl_init_stat_entry(log, e->fde_name, &e->fde_cnt_##x, #x)
 
 void
-gt_fd_event_ctl_init(struct gt_log *log, struct gt_fd_event *e)
+gt_fd_event_ctl_init(struct log *log, struct gt_fd_event *e)
 {
 	if (e->fde_has_cnt) {
 		return;
@@ -164,7 +178,7 @@ gt_fd_event_ctl_init(struct gt_log *log, struct gt_fd_event *e)
 }
 
 int
-gt_fd_event_new(struct gt_log *log, struct gt_fd_event **pe,
+gt_fd_event_new(struct log *log, struct gt_fd_event **pe,
 	int fd, const char *name, gt_fd_event_f fn, void *udata)
 {
 	int i, id;
@@ -173,18 +187,18 @@ gt_fd_event_new(struct gt_log *log, struct gt_fd_event **pe,
 	ASSERT(fd != -1);
 	ASSERT(fn != NULL);
 	LOG_TRACE(log);
-	if (gt_fd_event_nr_used == GT_ARRAY_SIZE(gt_fd_event_used)) {
-		LOGF(log, LOG_MSG(new), LOG_ERR, 0,
+	if (fdevent_nused == ARRAY_SIZE(gt_fd_event_used)) {
+		LOGF(log, LOG_MSG(alloc), LOG_ERR, 0,
 		     "limit exceeded; limit=%zu",
-		     GT_ARRAY_SIZE(gt_fd_event_used));
+		     ARRAY_SIZE(gt_fd_event_used));
 		return -ENOMEM;
 	}
 	id = -1;
-	for (i = 0; i < GT_ARRAY_SIZE(gt_fd_event_buf); ++i) {
+	for (i = 0; i < ARRAY_SIZE(gt_fd_event_buf); ++i) {
 		e = gt_fd_event_buf + i;
 		if (e->fde_fd != -1) {
 			if (!strcmp(e->fde_name, name)) {
-				LOGF(log, LOG_MSG(new), LOG_ERR, 0,
+				LOGF(log, LOG_MSG(alloc), LOG_ERR, 0,
 				     "already exists; event='%s'",
 				     name);
 				return -EEXIST;
@@ -204,13 +218,13 @@ gt_fd_event_new(struct gt_log *log, struct gt_fd_event **pe,
 	e->fde_ref_cnt = 1;
 	e->fde_events = 0;
 	e->fde_fn = fn;
-	gt_strzcpy(e->fde_name, name, sizeof(e->fde_name));
+	strzcpy(e->fde_name, name, sizeof(e->fde_name));
 	e->fde_udata = udata;
-	e->fde_id = gt_fd_event_nr_used;
+	e->fde_id = fdevent_nused;
 	gt_fd_event_used[e->fde_id] = e;
-	gt_fd_event_nr_used++;
+	fdevent_nused++;
 	*pe = e;
-	DBG(log, LOG_MSG(new), 0, "ok; event='%s'", e->fde_name);
+	DBG(log, LOG_MSG(alloc), 0, "ok; event='%s'", e->fde_name);
 	return 0;
 }
 
@@ -218,22 +232,22 @@ static void
 gt_fd_event_free(struct gt_fd_event *e)
 {
 	char path[PATH_MAX];
-	struct gt_log *log;
+	struct log *log;
 	struct gt_fd_event *last;
 
 	log = log_trace0();
 	DBG(log, LOG_MSG(free), 0, "hit; event='%s'", e->fde_name);
-	ASSERT(e->fde_id < gt_fd_event_nr_used);
+	ASSERT(e->fde_id < fdevent_nused);
 	if (e->fde_has_cnt) {
 		snprintf(path, sizeof(path), "event.list.%s", e->fde_name);
-		gt_ctl_del(log, path);
+		sysctl_del(log, path);
 	}
-	if (e->fde_id != gt_fd_event_nr_used - 1) {
-		last = gt_fd_event_used[gt_fd_event_nr_used - 1];
+	if (e->fde_id != fdevent_nused - 1) {
+		last = gt_fd_event_used[fdevent_nused - 1];
 		gt_fd_event_used[e->fde_id] = last;
 		gt_fd_event_used[e->fde_id]->fde_id = e->fde_id;
 	}
-	gt_fd_event_nr_used--;
+	fdevent_nused--;
 }
 
 static int
@@ -253,14 +267,14 @@ gt_fd_event_unref(struct gt_fd_event *e)
 void
 gt_fd_event_del(struct gt_fd_event *e)
 {
-	struct gt_log *log;
+	struct log *log;
 
 	if (e != NULL) {
 		log = log_trace0();
-		DBG(log, LOG_MSG(del), 0, "hit; event='%s'", e->fde_name);
-		ASSERT(gt_fd_event_nr_used);
+		DBG(log, LOG_MSG(free), 0, "hit; event='%s'", e->fde_name);
+		ASSERT(fdevent_nused);
 		ASSERT(e->fde_fd != -1);
-		ASSERT(e->fde_id < gt_fd_event_nr_used);
+		ASSERT(e->fde_id < fdevent_nused);
 		ASSERT(e == gt_fd_event_used[e->fde_id]);
 		e->fde_fd = -1;
 		gt_fd_event_unref(e);
@@ -274,7 +288,7 @@ gt_fd_event_set(struct gt_fd_event *e, short events)
 	ASSERT((events & ~(POLLIN|POLLOUT)) == 0);
 	ASSERT(e != NULL);
 	ASSERT(e->fde_fd != -1);
-	ASSERT(e->fde_id < gt_fd_event_nr_used);
+	ASSERT(e->fde_id < fdevent_nused);
 	ASSERT(e == gt_fd_event_used[e->fde_id]);
 	if (e->fde_events != events) {
 		if (events & POLLIN) {
@@ -292,7 +306,7 @@ gt_fd_event_clear(struct gt_fd_event *e, short events)
 {
 	ASSERT(events);
 	ASSERT(e != NULL);
-	ASSERT(e->fde_id < gt_fd_event_nr_used);
+	ASSERT(e->fde_id < fdevent_nused);
 	ASSERT(e == gt_fd_event_used[e->fde_id]);
 	ASSERT((events & ~(POLLIN|POLLOUT)) == 0);
 	e->fde_events &= ~events;
@@ -317,7 +331,7 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 	set->fdes_nr_used = 0;
 	set->fdes_epoch = gt_global_epoch;
 	gt_sock_tx_flush();
-	for (i = 0; i < gt_fd_event_nr_used; ++i) {
+	for (i = 0; i < fdevent_nused; ++i) {
 		e = gt_fd_event_used[i];
 		if (e->fde_fd == -1 || e->fde_events == 0) {
 			continue;

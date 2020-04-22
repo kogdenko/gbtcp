@@ -1,3 +1,4 @@
+/* GPL2 license */
 #ifndef GBTCP_H
 #define GBTCP_H
 
@@ -29,7 +30,7 @@
 #define GT_TCP_S_TIME_WAIT 10
 #define GT_TCP_NSTATES 11
 
-#define GT_CTL_BUFSIZ 16384
+#define GT_SYSCTL_BUFSIZ 16384
 #define GT_SERVICES_MAX 32
 #define GT_GROUP_NAME "gbtcp"
 
@@ -212,7 +213,7 @@ int gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout);
 int gbtcp_ppoll(struct pollfd *fds, nfds_t nfds,
 	const struct timespec *timeout_ts, const sigset_t *sigmask);
 
-int gbtcp_ctl(int pid, const char *name, char *old, int len, const char *new);
+int gt_sysctl(int pid, const char *name, char *old, int len, const char *new);
 
 /* Return all running pids of gbtcp services (include 0 - rsstcpd) */
 int gbtcp_ctl_get_pids(int *pids, int cnt);

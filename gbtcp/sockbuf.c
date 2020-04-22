@@ -1,4 +1,5 @@
 #include "log.h"
+#include "mm.h"
 #include "mbuf.h"
 #include "sockbuf.h"
 
@@ -17,17 +18,17 @@ struct gt_uio {
 };
 
 struct sbchunk {
-	struct gt_mbuf ch_mbuf;
+	struct mbuf ch_mbuf;
 #define ch_list ch_mbuf.mb_list
 	int ch_len;
 	int ch_off;
 };
 
-static struct gt_mbuf_pool *gt_sockbuf_chunk_pool;
-static struct sockbuf_mod *this_mod;
+static struct mbuf_pool *sockbuf_chunk_pool;
+static struct sockbuf_mod *current_mod;
 
 static int
-gt_uio_copyin(struct gt_uio *uio, void *buf, int cnt)
+uio_copyin(struct gt_uio *uio, void *buf, int cnt)
 {
 	int off;
 	size_t n;
@@ -68,16 +69,15 @@ static struct sbchunk *
 gt_sockbuf_chunk_alloc(struct gt_sockbuf *b)
 {
 	int rc;
-	struct gt_log *log;
+	struct log *log;
 	struct sbchunk *chunk;
 
 	log = log_trace0();
-	rc = gt_mbuf_alloc(log, gt_sockbuf_chunk_pool,
-	                   (struct gt_mbuf **)&chunk);
+	rc = mbuf_alloc(log, sockbuf_chunk_pool, (struct mbuf **)&chunk);
 	if (rc == 0) {
 		chunk->ch_len = 0;
 		chunk->ch_off = 0;
-		DLLIST_INSERT_TAIL(&b->sob_head, chunk, ch_list);
+		DLIST_INSERT_TAIL(&b->sob_head, chunk, ch_list);
 	}
 	return chunk;
 }
@@ -87,7 +87,7 @@ gt_sockbuf_init(struct gt_sockbuf *b, int max)
 {
 	b->sob_len = 0;
 	b->sob_max = max;
-	dllist_init(&b->sob_head);
+	dlist_init(&b->sob_head);
 }
 
 int
@@ -102,10 +102,10 @@ gt_sockbuf_free(struct gt_sockbuf *b)
 	struct sbchunk *chunk;
 
 	b->sob_len = 0;
-	while (!dllist_isempty(&b->sob_head)) {
-		chunk = DLLIST_FIRST(&b->sob_head, struct sbchunk, ch_list);
-		DLLIST_REMOVE(chunk, ch_list);
-		gt_mbuf_free(&chunk->ch_mbuf);
+	while (!dlist_is_empty(&b->sob_head)) {
+		chunk = DLIST_FIRST(&b->sob_head, struct sbchunk, ch_list);
+		DLIST_REMOVE(chunk, ch_list);
+		mbuf_free(&chunk->ch_mbuf);
 	}
 }
 
@@ -122,10 +122,10 @@ gt_sockbuf_free_n(struct gt_sockbuf *b, int nr_chunks)
 	struct sbchunk *chunk;
 
 	for (i = 0; i < nr_chunks; ++i) {
-		ASSERT(!dllist_isempty(&b->sob_head));
-		chunk = DLLIST_LAST(&b->sob_head, struct sbchunk, ch_list);
-		DLLIST_REMOVE(chunk, ch_list);
-		gt_mbuf_free(&chunk->ch_mbuf);
+		ASSERT(!dlist_is_empty(&b->sob_head));
+		chunk = DLIST_LAST(&b->sob_head, struct sbchunk, ch_list);
+		DLIST_REMOVE(chunk, ch_list);
+		mbuf_free(&chunk->ch_mbuf);
 	}
 }
 
@@ -145,7 +145,7 @@ gt_sockbuf_write(struct gt_sockbuf *b, struct sbchunk *pos,
 
 	ptr = src;
 	rem = cnt;
-	DLLIST_FOREACH_CONTINUE(pos, &b->sob_head, ch_list) {
+	DLIST_FOREACH_CONTINUE(pos, &b->sob_head, ch_list) {
 		ASSERT(rem > 0);
 		space = gt_sockbuf_chunk_space(pos);
 		n = MIN(rem, space);
@@ -178,14 +178,14 @@ gt_sockbuf_add(struct gt_sockbuf *b, const void *buf, int cnt, int atomic)
 		}
 	}
 	n = 0;
-	if (dllist_isempty(&b->sob_head)) {
+	if (dlist_is_empty(&b->sob_head)) {
 		chunk = gt_sockbuf_chunk_alloc(b);
 		if (chunk == NULL) {
 			return -ENOMEM;
 		}
 		n++;
 	} else {
-		chunk = DLLIST_LAST(&b->sob_head, struct sbchunk, ch_list);
+		chunk = DLIST_LAST(&b->sob_head, struct sbchunk, ch_list);
 	}
 	pos = chunk;
 	rem = added;
@@ -212,14 +212,14 @@ gt_sockbuf_send_direct(struct gt_sockbuf *b, int off, uint8_t *dst, int cnt)
 	size_t n;
 	struct sbchunk *chunk;
 
-	DLLIST_FOREACH(chunk, &b->sob_head, ch_list) {
+	DLIST_FOREACH(chunk, &b->sob_head, ch_list) {
 		ASSERT(chunk->ch_len);
 		if (off < chunk->ch_len) {
 			break;
 		}
 		off -= chunk->ch_len;
 	}
-	for (; cnt != 0; chunk = DLLIST_NEXT(chunk, ch_list)) {
+	for (; cnt != 0; chunk = DLIST_NEXT(chunk, ch_list)) {
 		ASSERT(&chunk->ch_list != &b->sob_head);
 		n = MIN(cnt, chunk->ch_len - off);
 		data = gt_sockbuf_chunk_data(chunk);
@@ -264,7 +264,7 @@ gt_sockbuf_readv(struct gt_sockbuf *b,
 	uio.uio_iovcnt = iovcnt;
 	uio.uio_off = 0;
 	off = 0;
-	DLLIST_FOREACH_SAFE(pos, &b->sob_head, ch_list, tmp) {
+	DLIST_FOREACH_SAFE(pos, &b->sob_head, ch_list, tmp) {
 		ASSERT(pos->ch_len);
 		ASSERT(b->sob_len >= pos->ch_len);
 		ptr = gt_sockbuf_chunk_data(pos);
@@ -275,15 +275,15 @@ gt_sockbuf_readv(struct gt_sockbuf *b,
 				break;
 			}
 		}
-		n = gt_uio_copyin(&uio, ptr + pos->ch_off, n);
+		n = uio_copyin(&uio, ptr + pos->ch_off, n);
 		if (n == 0) {
 			break;
 		}
 		if (peek == 0) {
 			b->sob_len -= n;
 			if (pos->ch_len == n) {
-				DLLIST_REMOVE(pos, ch_list);
-				gt_mbuf_free(&pos->ch_mbuf);
+				DLIST_REMOVE(pos, ch_list);
+				mbuf_free(&pos->ch_mbuf);
 			} else {
 				pos->ch_len -= n;
 				pos->ch_off += n;
@@ -323,7 +323,7 @@ gt_sockbuf_pop(struct gt_sockbuf *b, int cnt)
 	struct sbchunk *pos, *tmp;
 
 	off = 0;
-	DLLIST_FOREACH_SAFE(pos, &b->sob_head, ch_list, tmp) {
+	DLIST_FOREACH_SAFE(pos, &b->sob_head, ch_list, tmp) {
 		ASSERT(pos->ch_len);
 		ASSERT(b->sob_len >= pos->ch_len);
 		n = pos->ch_len;
@@ -334,8 +334,8 @@ gt_sockbuf_pop(struct gt_sockbuf *b, int cnt)
 		pos->ch_off += n;
 		pos->ch_len -= n;
 		if (pos->ch_len == 0) {
-			DLLIST_REMOVE(pos, ch_list);
-			gt_mbuf_free(&pos->ch_mbuf);
+			DLIST_REMOVE(pos, ch_list);
+			mbuf_free(&pos->ch_mbuf);
 		}
 		off += n;
 		if (off == cnt) {
@@ -353,7 +353,7 @@ gt_sockbuf_rewrite(struct gt_sockbuf *b, const void *dst, int cnt)
 	struct sbchunk *chunk;
 
 	pos = 0;
-	DLLIST_FOREACH(chunk, &b->sob_head, ch_list) {
+	DLIST_FOREACH(chunk, &b->sob_head, ch_list) {
 		ASSERT(chunk->ch_len);
 		ASSERT(b->sob_len <= chunk->ch_len);
 		n = MIN(cnt - pos, chunk->ch_len);
@@ -368,24 +368,46 @@ gt_sockbuf_rewrite(struct gt_sockbuf *b, const void *dst, int cnt)
 }
 
 int
-gt_sockbuf_mod_init()
+sockbuf_mod_init(struct log *log, void **pp)
 {
 	int rc;
-	struct gt_log *log;
+	struct sockbuf_mod *mod;
+	LOG_TRACE(log);
+	rc = mm_alloc(log, pp, sizeof(*mod));
+	if (rc) {
+		return rc;
+	}
+	mod = *pp;
+	log_scope_init(&mod->log_scope, "sockbuf");
+	return rc;
+}
 
-	log_scope_init(&this_mod->log_scope, "sockbuf");
-	log = log_trace0();
-	rc = gt_mbuf_pool_new(log, &gt_sockbuf_chunk_pool,
-	                      GT_SOCKBUF_CHUNK_SIZE);
+int
+sockbuf_mod_attach(struct log *log, void *raw_mod)
+{
+	int rc;
+	LOG_TRACE(log);
+	current_mod = raw_mod;
+	rc = mbuf_pool_alloc(log, &sockbuf_chunk_pool,
+	                     GT_SOCKBUF_CHUNK_SIZE);
 	return rc;
 }
 
 void
-gt_sockbuf_mod_deinit(struct gt_log *log)
+sockbuf_mod_deinit(struct log *log, void *raw_mod)
 {
+	struct sockbuf_mod *mod;
 	LOG_TRACE(log);
+	mod = raw_mod;
+	log_scope_deinit(log, &mod->log_scope);
+	mm_free(mod);
+}
+
+void
+sockbuf_mod_detach(struct log *log)
+{
 	// TODO:
-	//ASSERT(gt_mbuf_pool_is_empty(gt_sockbuf_chunk_pool));
-	gt_mbuf_pool_del(gt_sockbuf_chunk_pool);
-	log_scope_deinit(log, &this_mod->log_scope);
+	//ASSERT(mbuf_pool_is_empty(sockbuf_chunk_pool));
+	mbuf_pool_free(sockbuf_chunk_pool);
+	current_mod = NULL;
 }

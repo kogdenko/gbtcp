@@ -51,8 +51,8 @@
 #define GT_INET_BCAST 3
 
 struct gt_eth_hdr {
-	struct gt_eth_addr ethh_daddr;
-	struct gt_eth_addr ethh_saddr;
+	struct ethaddr ethh_daddr;
+	struct ethaddr ethh_saddr;
 	be16_t ethh_type;
 } __attribute__((packed));
 
@@ -74,8 +74,8 @@ struct gt_ip6_hdr {
 	be16_t ip6h_payload_len;
 	uint8_t ip6h_next_hdr;
 	uint8_t ip6h_hop_limit;
-	uint8_t ip6h_saddr[GT_IP6_ADDR_LEN];
-	uint8_t ip6h_daddr[GT_IP6_ADDR_LEN];
+	uint8_t ip6h_saddr[IP6ADDR_LEN];
+	uint8_t ip6h_daddr[IP6ADDR_LEN];
 } __attribute__((packed));
 
 struct gt_udp_hdr {
@@ -132,19 +132,19 @@ struct gt_icmp6_opt_hdr {
 struct gt_icmp6_opt {
 	uint8_t icmp6o_type;
 	uint8_t icmp6o_len;
-	struct gt_eth_addr icmp6o_lladdr;
+	struct ethaddr icmp6o_lladdr;
 } __attribute__((packed));
 
 struct icmp6_nd {
 	uint8_t icmp6nd_flags;
 	uint32_t icmp6nd_reserved : 24;
-	uint8_t icmp6nd_target[GT_IP6_ADDR_LEN];
+	uint8_t icmp6nd_target[IP6ADDR_LEN];
 } __attribute__((packed));
 
 struct gt_arp_ip4 {
-	struct gt_eth_addr arpip_sha;
+	struct ethaddr arpip_sha;
 	be32_t arpip_sip;
-	struct gt_eth_addr arpip_tha;
+	struct ethaddr arpip_tha;
 	be32_t arpip_tip;
 } __attribute__((packed));
 
@@ -248,9 +248,10 @@ extern struct gt_arp_stat gt_arps;
 
 #define GT_TCP_HDR_LEN(data_off) ((data_off & 0xf0) >> 2)
 
-int gt_inet_mod_init();
-
-void gt_inet_mod_deinit(struct gt_log *log);
+int inet_mod_init(struct log *log, void **);
+int inet_mod_attach(struct log *, void *);
+void inet_mod_deinit(struct log *, void *);
+void inet_mod_detach(struct log *);
 
 int gt_inet_eth_in(struct gt_inet_context *ctx, struct gt_route_if *ifp,
 	void *buf, int cnt);

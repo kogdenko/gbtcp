@@ -1,7 +1,4 @@
-#include "htable.h"
-#include "log.h"
-#include "sys.h"
-#include "list.h"
+#include "internals.h"
 
 #define HTABLE_LOG_MSG_FOREACH(x) \
 	x(mod_deinit) \
@@ -13,112 +10,116 @@ struct htable_mod {
 	HTABLE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
-static struct htable_mod *this_mod;
-
-static struct gt_htable_static *gt_htable_dynamic_new(
-	struct gt_htable_dynamic *t);
-static void gt_htable_dynamic_resize(struct gt_htable_dynamic *t);
+static struct htable_mod *current_mod;
 
 int
-gt_htable_mod_init()
+htable_mod_init(struct log *log, void **pp)
 {
-	log_scope_init(&this_mod->log_scope, "htable");
+	int rc;
+	struct htable_mod *mod;
+	LOG_TRACE(log);
+	rc = mm_alloc(log, pp, sizeof(*mod));
+	if (rc)
+		return rc;
+	mod = *pp;
+	log_scope_init(&mod->log_scope, "htable");
 	return 0;
 }
-
-void
-gt_htable_mod_deinit(struct gt_log *log)
-{
-	LOG_TRACE(log);
-	log_scope_deinit(log, &this_mod->log_scope);
-}
-
 int
-gt_htable_static_create(struct gt_log *log, struct gt_htable_static *t,
-                        int size, gt_htable_hash_f hash_fn)
+htable_mod_attach(struct log *log, void *raw_mod)
+{
+	current_mod = raw_mod;
+	return 0;
+}
+void
+htable_mod_deinit(struct log *log, void *raw_mod)
+{
+	struct htable_mod *mod;
+	mod = raw_mod;
+	LOG_TRACE(log);
+	log_scope_deinit(log, &mod->log_scope);
+	mm_free(mod);
+}
+void
+htable_mod_detach(struct log *log)
+{
+	current_mod = NULL;
+}
+int
+htable_static_create(struct log *log, struct htable_static *t,
+	int size, htable_hash_f hash_fn)
 {
 	int i, rc;
-
 	LOG_TRACE(log);
 	t->hts_size = size;
 	t->hts_mask = size - 1;
 	t->hts_hash_fn = hash_fn;
-	rc = gt_sys_malloc(log, (void **)&t->hts_array,
-	                   size * sizeof(struct dllist));
+	rc = sys_malloc(log, (void **)&t->hts_array,
+	                size * sizeof(struct dlist));
 	if (rc) {
 		return rc;
 	}
 	t->hts_size = size;
 	t->hts_mask = size - 1;
 	for (i = 0; i < size; ++i) {
-		dllist_init(t->hts_array + i);
+		dlist_init(t->hts_array + i);
 	}
 	return 0;
 }
-
 void
-gt_htable_static_free(struct gt_htable_static *t)
+htable_static_free(struct htable_static *t)
 {
 	free(t->hts_array);
 	t->hts_array = NULL;
 }
 
-struct dllist *
-gt_htable_static_bucket(struct gt_htable_static *t, uint32_t h) 
+struct dlist *
+htable_static_bucket(struct htable_static *t, uint32_t h) 
 {
 	return t->hts_array + ((h) & (t)->hts_mask);
 }
-
 void
-gt_htable_static_add(struct gt_htable_static *t, struct dllist *elem)
+htable_static_add(struct htable_static *t, struct dlist *elem)
 {
 	uint32_t h;
-	struct dllist *bucket;
-
+	struct dlist *bucket;
 	h = (*t->hts_hash_fn)(elem);
-	bucket = gt_htable_static_bucket(t, h);
-	dllist_insert_tail(bucket, elem);
+	bucket = htable_static_bucket(t, h);
+	dlist_insert_tail(bucket, elem);
 }
-
 void
-gt_htable_static_del(struct gt_htable_static *t, struct dllist *elem)
+htable_static_del(struct htable_static *t, struct dlist *elem)
 {
-	dllist_remove(elem);
+	dlist_remove(elem);
 }
-
 int
-gt_htable_dynamic_create(struct gt_log *log, struct gt_htable_dynamic *t,
-                         int size, gt_htable_hash_f hash_fn)
+htable_dynamic_create(struct log *log, struct htable_dynamic *t,
+	int size, htable_hash_f hash_fn)
 {
 	int rc;
-
 	t->htd_size_min = size;
 	t->htd_nr_elems = 0;
 	t->htd_resize_discard = 0;
 	t->htd_old = NULL;
 	t->htd_new = t->htd_tables + 0;
 	t->htd_tables[1].hts_array = NULL;
-	rc = gt_htable_static_create(log, t->htd_new, size, hash_fn);
+	rc = htable_static_create(log, t->htd_new, size, hash_fn);
 	return rc;
 }
-
 void
-gt_htable_dynamic_free(struct gt_htable_dynamic *t)
+htable_dynamic_free(struct htable_dynamic *t)
 {
 	int i;
-
 	for (i = 0; i < 2; ++i) {
-		gt_htable_static_free(t->htd_tables + i);
+		htable_static_free(t->htd_tables + i);
 	}
 }
-
-struct dllist *
-gt_htable_dynamic_bucket(struct gt_htable_dynamic *t, uint32_t h) 
+struct dlist *
+htable_dynamic_bucket(struct htable_dynamic *t, uint32_t h) 
 {
 	int i;
-	struct dllist *bucket;
-	struct gt_htable_static *ts;
-
+	struct dlist *bucket;
+	struct htable_static *ts;
 	if (t->htd_old == NULL) {
 		ts = t->htd_new;
 	} else {
@@ -129,38 +130,14 @@ gt_htable_dynamic_bucket(struct gt_htable_dynamic *t, uint32_t h)
 			ts = t->htd_old;
 		}
 	}
-	bucket = gt_htable_static_bucket(ts, h);
+	bucket = htable_static_bucket(ts, h);
 	return bucket;
 }
-
-void
-gt_htable_dynamic_add(struct gt_htable_dynamic *t, struct dllist *elem)
-{
-	uint32_t h;
-	struct dllist *bucket;
-
-	h = (*t->htd_new->hts_hash_fn)(elem);
-	bucket = gt_htable_dynamic_bucket(t, h);
-	dllist_insert_tail(bucket, elem);
-	t->htd_nr_elems++;
-	gt_htable_dynamic_resize(t);
-}
-
-void
-gt_htable_dynamic_del(struct gt_htable_dynamic *t, struct dllist *elem)
-{
-	ASSERT(t->htd_nr_elems > 0);
-	dllist_remove(elem);
-	t->htd_nr_elems--;
-	gt_htable_dynamic_resize(t);
-}
-
-static struct gt_htable_static *
-gt_htable_dynamic_new(struct gt_htable_dynamic *t)
+static struct htable_static *
+htable_dynamic_new(struct htable_dynamic *t)
 {
 	int i;
-
-	for (i = 0; i < GT_ARRAY_SIZE(t->htd_tables); ++i) {
+	for (i = 0; i < ARRAY_SIZE(t->htd_tables); ++i) {
 		if (t->htd_tables[i].hts_array == NULL) {
 			return t->htd_tables + i;
 		}
@@ -168,15 +145,13 @@ gt_htable_dynamic_new(struct gt_htable_dynamic *t)
 	BUG;
 	return 0;
 }
-
 static void
-gt_htable_dynamic_resize(struct gt_htable_dynamic *t)
+htable_dynamic_resize(struct htable_dynamic *t)
 {
 	int rc, size, new_size;
-	struct dllist *elem, *bucket;
-	struct gt_log *log;
-	struct gt_htable_static *tmp;
-
+	struct dlist *elem, *bucket;
+	struct log *log;
+	struct htable_static *tmp;
 	if (t->htd_old == NULL) {
 		new_size = 0;
 		size = t->htd_new->hts_size;
@@ -195,9 +170,9 @@ gt_htable_dynamic_resize(struct gt_htable_dynamic *t)
 			t->htd_resize_discard--;
 			return;
 		}
-		tmp = gt_htable_dynamic_new(t);
+		tmp = htable_dynamic_new(t);
 		log = log_trace0();
-		rc = gt_htable_static_create(log, tmp, new_size,
+		rc = htable_static_create(log, tmp, new_size,
 		                             t->htd_new->hts_hash_fn);
 		if (rc) {
 			t->htd_resize_discard = new_size;
@@ -213,18 +188,37 @@ gt_htable_dynamic_resize(struct gt_htable_dynamic *t)
 	} else {
 		ASSERT(t->htd_old->hts_size > t->htd_resize_progress);
 		bucket = t->htd_old->hts_array + t->htd_resize_progress;
-		while (!dllist_isempty(bucket)) {
-			elem = dllist_first(bucket);
-			dllist_remove(elem);
-			gt_htable_static_add(t->htd_new, elem);
+		while (!dlist_is_empty(bucket)) {
+			elem = dlist_first(bucket);
+			dlist_remove(elem);
+			htable_static_add(t->htd_new, elem);
 		}
 		t->htd_resize_progress++;
 		if (t->htd_old->hts_size == t->htd_resize_progress) {
-			gt_htable_static_free(t->htd_old);
+			htable_static_free(t->htd_old);
 			t->htd_old = NULL;
 			log = log_trace0();
 			LOGF(log, LOG_MSG(resize), LOG_INFO, 0,
 			     "done; elements=%d", t->htd_nr_elems);
 		}
 	}
+}
+void
+htable_dynamic_add(struct htable_dynamic *t, struct dlist *elem)
+{
+	uint32_t h;
+	struct dlist *bucket;
+	h = (*t->htd_new->hts_hash_fn)(elem);
+	bucket = htable_dynamic_bucket(t, h);
+	dlist_insert_tail(bucket, elem);
+	t->htd_nr_elems++;
+	htable_dynamic_resize(t);
+}
+void
+htable_dynamic_del(struct htable_dynamic *t, struct dlist *elem)
+{
+	ASSERT(t->htd_nr_elems > 0);
+	dlist_remove(elem);
+	t->htd_nr_elems--;
+	htable_dynamic_resize(t);
 }
