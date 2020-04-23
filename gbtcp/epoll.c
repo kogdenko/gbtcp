@@ -76,7 +76,7 @@ epoll_mod_init(struct log *log, void **pp)
 	int rc;
 	struct epoll_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
+	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
@@ -99,6 +99,7 @@ epoll_mod_deinit(struct log *log, void *raw_mod)
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
+	shm_free(mod);
 }
 
 void

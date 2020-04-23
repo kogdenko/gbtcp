@@ -85,7 +85,7 @@ inet_mod_init(struct log *log, void **pp)
 	int rc;
 	struct inet_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
+	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
@@ -119,7 +119,7 @@ inet_mod_deinit(struct log *log, void *raw_mod)
 	sysctl_del(log, GT_CTL_INET_RX_CKSUM_OFFLOAD);
 	sysctl_del(log, GT_CTL_INET_TX_CKSUM_OFFLOAD);
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 
 void

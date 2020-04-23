@@ -57,6 +57,7 @@ struct gt_sockbuf_msg {
 struct tcp_mod {
 	struct log_scope log_scope;
 	TCP_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+	uint64_t tcp_fin_timeout;
 };
 
 int gt_sock_nr_opened;
@@ -64,7 +65,6 @@ void (*gt_sock_no_opened_fn)();
 struct dlist gt_sock_binded[65536];
 
 static htable_t gt_sock_htable;
-static gt_time_t gt_tcp_fin_timeout;
 static struct tcp_mod *current_mod;
 
 // subr
@@ -264,22 +264,17 @@ static int gt_sock_ctl_tcp_fin_timeout(const long long *new, long long *old);
 int
 tcp_mod_init(struct log *log, void **pp)
 {
-	int i, rc;
+	int rc;
 	struct tcp_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
-	if (rc)
+	rc = shm_alloc(log, pp, sizeof(*mod));
+	if (rc) {
 		return rc;
+	}
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "tcp");
-	gt_sock_nr_opened = 0;
-	rc = htable_create(log, &gt_sock_htable, 2048, gt_sock_hash);
-	if (rc)
-		return rc;
-	for (i = 0; i < ARRAY_SIZE(gt_sock_binded); ++i)
-		dlist_init(gt_sock_binded + i);
 	gt_sock_ctl_init_sock_list(log);
-	gt_tcp_fin_timeout = GT_SEC;
+	mod->tcp_fin_timeout = GT_SEC;
 	sysctl_add_intfn(log, "tcp.fin_timeout", SYSCTL_WR,
 	                 &gt_sock_ctl_tcp_fin_timeout, 1, 24 * 60 * 60);
 	return 0;
@@ -288,7 +283,14 @@ tcp_mod_init(struct log *log, void **pp)
 int
 tcp_mod_attach(struct log *log, void *raw_mod)
 {
+	int i, rc;
 	current_mod = raw_mod;
+	gt_sock_nr_opened = 0;
+	rc = htable_create(log, &gt_sock_htable, 2048, gt_sock_hash);
+	if (rc)
+		return rc;
+	for (i = 0; i < ARRAY_SIZE(gt_sock_binded); ++i)
+		dlist_init(gt_sock_binded + i);
 	return 0;
 }
 
@@ -306,7 +308,7 @@ tcp_mod_deinit(struct log *log, void *raw_mod)
 	htable_free(&gt_sock_htable);
 	sysctl_del(log, GT_CTL_SOCK_LIST);
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 
 void
@@ -1295,7 +1297,7 @@ gt_tcp_timer_set_tcp_fin_timeout(struct gt_sock *so)
 	ASSERT(so->so_rexmit == 0);
 	ASSERT(so->so_wprobe == 0);
 	ASSERT(!gt_timer_is_running(&so->so_timer));
-	gt_timer_set(&so->so_timer, gt_tcp_fin_timeout,
+	gt_timer_set(&so->so_timer, current_mod->tcp_fin_timeout,
 	             gt_tcp_timeout_tcp_fin_timeout); 
 }
 
@@ -2829,9 +2831,9 @@ gt_sock_ctl_init_sock_list(struct log *log)
 static int
 gt_sock_ctl_tcp_fin_timeout(const long long *new, long long *old)
 {
-	*old = gt_tcp_fin_timeout / GT_SEC;
+	*old = current_mod->tcp_fin_timeout / GT_SEC;
 	if (new != NULL) {
-		gt_tcp_fin_timeout = (*new) * GT_SEC;
+		current_mod->tcp_fin_timeout = (*new) * GT_SEC;
 	}
 	return 0;
 }

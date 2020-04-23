@@ -45,7 +45,7 @@ file_mod_init(struct log *log, void **pp)
 	int rc;
 	struct file_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
+	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc == 0) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "file");
@@ -72,7 +72,7 @@ file_mod_deinit(struct log *log, void *raw_mod)
 	mod = raw_mod;
 	sysctl_del(log, SYSCTL_FILE_FIRST_FD);
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 void
 file_mod_detach(struct log *log)

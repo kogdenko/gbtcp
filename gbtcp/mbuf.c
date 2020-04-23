@@ -1,8 +1,4 @@
-#include "log.h"
-#include "sys.h"
-#include "subr.h"
-#include "mbuf.h"
-#include "mm.h"
+#include "internals.h"
 
 #define MBUF_MAGIC 0xcafe
 
@@ -38,7 +34,7 @@ mbuf_mod_init(struct log *log, void **pp)
 	int rc;
 	struct mbuf_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
+	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "mbuf");
@@ -58,7 +54,7 @@ mbuf_mod_deinit(struct log *log, void *raw_mod)
 	mod = raw_mod;
 	LOG_TRACE(log);
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 void
 mbuf_mod_detach(struct log *log)
@@ -97,8 +93,8 @@ mbuf_chunk_alloc(struct log *log, struct mbuf_pool *p,
 		LOGF(log, LOG_MSG(chunk_alloc), LOG_ERR, 0, "no chunk slots");
 		return -ENOMEM;
 	}
-	rc = sys_posix_memalign(log, (void **)pchunk,
-	                        MBUF_CHUNK_SIZE, MBUF_CHUNK_SIZE);
+	rc = shm_alloc_page(log, (void **)pchunk,
+	                    MBUF_CHUNK_SIZE, MBUF_CHUNK_SIZE);
 	if (rc) {
 		return rc;
 	}
@@ -125,7 +121,7 @@ static void
 mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 {
 	DLIST_REMOVE(chunk, c_list);
-	free(chunk);
+	shm_free_page(chunk, MBUF_CHUNK_SIZE);
 }
 int
 mbuf_pool_alloc(struct log *log, struct mbuf_pool **pp, int mbuf_size)
@@ -134,7 +130,7 @@ mbuf_pool_alloc(struct log *log, struct mbuf_pool **pp, int mbuf_size)
 	struct mbuf_pool *p;
 	ASSERT(mbuf_size >= sizeof(struct mbuf));
 	LOG_TRACE(log);
-	mbuf_size = ROUND_UP(mbuf_size, CACHELINESIZ);
+	mbuf_size = ROUND_UP(mbuf_size, CACHE_LINE_SIZE);
 	for (i = 0; i < ARRAY_SIZE(mbuf_pools); ++i) {
 		if (mbuf_pools[i] == NULL) {
 			goto found;

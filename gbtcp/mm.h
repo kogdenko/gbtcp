@@ -1,12 +1,14 @@
 /* GPL2 license */
-#ifndef GBTCP_MM_H
-#define GBTCP_MM_H
+#ifndef GBTCP_SHM_H
+#define GBTCP_SHM_H
 
 struct log;
 
-int mm_create();
-int mm_open();
-int mm_alloc(struct log *, void **, int);
-void mm_free(void *);
+int shm_init(void **, int);
+int shm_attach(void **);
+int shm_alloc(struct log *, void **, int);
+void shm_free(void *);
+int shm_alloc_page(struct log *, void **, int, int);
+void shm_free_page(void *, int);
 
-#endif /* GBTCP_MM_H */
+#endif /* GBTCP_SHM_H */

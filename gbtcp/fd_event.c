@@ -33,12 +33,12 @@ fd_event_mod_init(struct log *log, void **pp)
 	int rc;
 	struct fd_event_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
-	if (rc)
-		return rc;
-	mod = *pp;
-	log_scope_init(&mod->log_scope, "fd_event");
-	return 0;
+	rc = shm_alloc(log, pp, sizeof(*mod));
+	if (!rc) {
+		mod = *pp;
+		log_scope_init(&mod->log_scope, "fd_event");
+	}
+	return rc;
 }
 
 int
@@ -63,7 +63,7 @@ fd_event_mod_deinit(struct log *log, void *raw_mod)
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 
 void
@@ -102,27 +102,6 @@ gt_fd_event_mod_try_check()
 	if (dt >= GT_FD_EVENT_TIMEOUT) {
 		gt_fd_event_mod_check();
 	}
-}
-
-void
-gt_fd_event_mod_trylock_check()
-{
-	uint64_t t, dt;
-	struct timespec ts;
-
-	t = gt_global_get_time();
-	dt = t - gt_fd_event_time;
-	if (dt < GT_FD_EVENT_TIMEOUT) {
-		ts.tv_nsec = GT_FD_EVENT_TIMEOUT - dt;
-	} else {
-		if (gt_spinlock_trylock(&gt_global_lock)) {
-			gt_fd_event_mod_check();
-			GT_GLOBAL_UNLOCK;
-		}
-		ts.tv_nsec = GT_FD_EVENT_TIMEOUT;
-	}
-	ts.tv_sec = 0;
-	nanosleep(&ts, NULL);
 }
 
 int

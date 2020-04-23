@@ -52,8 +52,6 @@ void gt_fd_event_mod_check();
 
 void gt_fd_event_mod_try_check();
 
-void gt_fd_event_mod_trylock_check();
-
 int gt_fd_event_mod_wait();
 
 void gt_fd_event_ctl_init(struct log *log, struct gt_fd_event *e);

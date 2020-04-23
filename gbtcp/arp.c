@@ -305,16 +305,12 @@ arp_mod_init(struct log *log, void **pp)
 	int rc;
 	struct arp_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
+	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "arp");
-	rc = htable_create(log, &gt_arp_htable, 32, gt_arp_hash);
-	if (rc) {
-		return rc;
-	}
 	sysctl_add(log, "arp.add", SYSCTL_WR,
 	           NULL, NULL, gt_arp_ctl_add);
 	sysctl_add_list(log, "arp.list", SYSCTL_RD, NULL,
@@ -337,6 +333,10 @@ arp_mod_attach(struct log *log, void *raw_mod)
 	if (rc) {
 		return rc;
 	}
+	rc = htable_create(log, &gt_arp_htable, 32, gt_arp_hash);
+	if (rc) {
+		return rc;
+	}
 	gt_arp_reachable_time = gt_arp_calc_reachable_time();
 	gt_timer_init(&gt_arp_timer_calc_reachable_time);
 	gt_arp_timer_set_calc_reachable_time();
@@ -353,7 +353,7 @@ arp_mod_deinit(struct log *log, void *raw_mod)
 	sysctl_del(log, "arp.list");
 	htable_free(&gt_arp_htable);
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 
 void

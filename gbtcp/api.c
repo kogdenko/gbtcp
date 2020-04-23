@@ -87,7 +87,7 @@ api_mod_init(struct log *log, void **pp)
 	int rc;
 	struct api_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
+	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
@@ -112,7 +112,7 @@ api_mod_deinit(struct log *log, void *raw_mod)
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 
 void
@@ -1088,8 +1088,6 @@ api_lock()
 {
 	int rc;
 	ptrdiff_t stack_off;
-	struct log *log;
-
 	stack_off = (u_char *)&rc - (u_char *)gt_signal_stack;
 	if (stack_off < gt_signal_stack_size) {
 		// Called from signal handler
@@ -1100,10 +1098,7 @@ api_lock()
 		gt_global_set_time();
 	} else {
 		rc = service_init();
-		if (rc == 0) {
-			log = log_trace0();
-			sysctl_read_file(log, NULL);
-		} else {
+		if (rc) {
 			GT_GLOBAL_UNLOCK;
 			API_RETURN(ECANCELED);
 		}

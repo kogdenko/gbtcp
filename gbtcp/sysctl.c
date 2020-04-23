@@ -256,21 +256,33 @@ sysctl_init_sockaddr_un(struct sockaddr_un *addr, int pid)
 	         "%s/sock/%d.sock", GT_PREFIX, pid);
 }
 
+void
+init_root()
+{
+	int rc;
+	if (sysctl_root)
+		return;
+	rc = sysctl_node_alloc(NULL, &sysctl_root, NULL, NULL, 0);
+	if (rc) {
+		return;
+	}
+	sysctl_root->n_is_added = 1;
+
+}
+
 int
 sysctl_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct sysctl_mod *mod;
 	LOG_TRACE(log);
-	rc = sysctl_node_alloc(log, &sysctl_root, NULL, NULL, 0);
-	if (rc)
+	rc = shm_alloc(log, pp, sizeof(*mod));
+	if (rc) {
 		return rc;
-	sysctl_root->n_is_added = 1;
-	rc = mm_alloc(log, pp, sizeof(*mod));
-	if (rc)
-		return rc;
+	}
 	mod = *pp;
-	log_scope_init(&mod->log_scope, "ctl");
+	init_root();
+	log_scope_init(&mod->log_scope, "sysctl");
 	return 0;
 }
 
@@ -278,6 +290,7 @@ int
 sysctl_mod_attach(struct log *log, void *raw_mod)
 {
 	current_mod = raw_mod;
+	init_root();
 	return 0;
 }
 
@@ -288,7 +301,7 @@ sysctl_mod_deinit(struct log *log, void *raw_mod)
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 
 void

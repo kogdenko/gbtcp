@@ -25,7 +25,7 @@ dev_mod_init(struct log *log, void **pp)
 	int rc;
 	struct dev_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
+	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
@@ -49,7 +49,7 @@ dev_mod_deinit(struct log *log, void *raw_mod)
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 
 void
@@ -104,6 +104,7 @@ dev_nm_open(struct log *log, struct gt_dev *dev)
 	// nm_open called socket API ~ ioctl or something
 	dev->dev_nmd = nm_open(dev->dev_name, &nmr, flags, NULL);
 	GT_GLOBAL_LOCK;
+	printf("dev=%p, nmd=%p\n", dev, dev->dev_nmd);
 	if (epoch != gt_global_epoch) {
 		if (dev->dev_nmd != NULL) {
 			dev_nm_close(log, dev);

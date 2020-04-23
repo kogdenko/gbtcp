@@ -123,7 +123,7 @@ log_mod_init(struct log *log, void **pp)
 	int rc;
 	struct log_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
+	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
@@ -159,7 +159,7 @@ log_mod_deinit(struct log *log, void *raw_mod)
 	sysctl_del(log, "log.out");
 	sysctl_del(log, "log.level");
 	sysctl_del(log, "log.stdout");
-	mm_free(mod);
+	shm_free(mod);
 }
 void
 log_mod_detach(struct log *log)
@@ -302,10 +302,10 @@ log_write(struct strbuf *sb, int force)
 	int len;
 	len = MIN(sb->sb_len, sb->sb_cap);
 	if (log_fd != -1) {
-		gt_write_all(NULL, log_fd, sb->sb_buf, len);
+		write_all(NULL, log_fd, sb->sb_buf, len);
 	}
 	if ((current_mod->log_stdout || force) && log_stdout_fd != -1) {
-		gt_write_all(NULL, log_stdout_fd, sb->sb_buf, len);
+		write_all(NULL, log_stdout_fd, sb->sb_buf, len);
 	}
 }
 void

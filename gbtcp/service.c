@@ -132,7 +132,7 @@ service_mod_init(struct log *log, void **pp)
 	int rc;
 	struct service_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
+	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
@@ -162,7 +162,7 @@ service_mod_deinit(struct log *log, void *raw_mod)
 	sysctl_del(log, GT_CTL_SERVICE_CHILD_CLOSE_LISTEN_SOCKS);
 	sysctl_del(log, GT_CTL_SERVICE_STATUS);
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 
 void
@@ -521,6 +521,7 @@ service_start(struct log *log)
 	gt_service_pid = gt_application_pid;
 	snprintf(buf, sizeof(buf), "gbtcp.%d}0", gt_service_pid);
 	rc = gt_dev_init(log, &gt_service_pipe, buf, service_pipe_rxtx);
+	printf("service pipe inited %d\n", rc);
 	if (rc) {
 		goto err1;
 	}
@@ -709,7 +710,6 @@ gt_service_in_child(struct log *log)
 	gt_service_clean(log);
 	service_deinit(log);
 	service_init();
-	sysctl_read_file(log, NULL);
 	log = log_trace0();
 	gt_service_listen(log, &so_head);
 	while (!dlist_is_empty(&so_head)) {

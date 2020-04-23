@@ -1,4 +1,4 @@
-#include <gbtcp/internals.h>
+#include "internals.h"
 
 struct gtd_net_stat_entry {
 	const char *nse_name;
@@ -767,26 +767,13 @@ gtd_ctl_service_list(void *udata, int id, const char *new,
 }
 
 int
-main(int argc, char **argv)
+controller_run(int fd[2])
 {
-	int rc, opt;
-	const char *path;
+	int rc;
 	struct log *log;
 
-	path = NULL;
-	while ((opt = getopt(argc, argv, "hc:")) != -1) {
-		switch (opt) {
-		case 'h':
-			printf("Usage: gbtcpd [-h] [-c path]\n");
-		case 'c':
-			path = optarg;
-			break;
-		}
-	}
-	GT_GLOBAL_LOCK;
-	rc = service_init();
+	rc = controller_init();
 	if (rc) {
-		GT_GLOBAL_UNLOCK;
 		fprintf(stderr, "Initialization failed\n");
 		return 1;
 	}
@@ -794,11 +781,13 @@ main(int argc, char **argv)
 	rc = sys_malloc(NULL, (void **)&current_mod, sizeof(*current_mod));
 	log_scope_init(&current_mod->log_scope, "gbtcpd");
 	log = log_trace0();
-	sysctl_read_file(log, path);
+	sysctl_read_file(log, NULL);
 	rc = sysctl_bind(log, 0);
 	if (rc) {
+		printf("!!!!!!!!!!!!!!!!!!!!\n");
 		return 1;
 	}
+	printf("OK\n");
 	log_backtrace(0);
 	sysctl_sub_fn = gtd_service_sub_handler;
 	sysctl_add(log, GT_CTL_SERVICE_ADD, SYSCTL_WR,
@@ -812,6 +801,5 @@ main(int argc, char **argv)
 		gt_fd_event_mod_wait();
 	}
 	gtd_deinit(log);
-	GT_GLOBAL_UNLOCK;
 	return 0;
 }

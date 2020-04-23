@@ -902,11 +902,20 @@ route_mod_init(struct log *log, void **pp)
 	int rc;
 	struct route_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
-	if (rc)
+	rc = shm_alloc(log, pp, sizeof(*mod));
+	if (rc) {
 		return rc;
+	}
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "route");
+	return 0;
+}
+
+int
+route_mod_attach(struct log *log, void *raw_mod)
+{
+	int rc;
+	current_mod = raw_mod;
 	gt_route_default.rtl_af = AF_UNSPEC;
 	dlist_init(&gt_route_if_head);
 	dlist_init(&gt_route_addr_head);
@@ -946,13 +955,7 @@ route_mod_init(struct log *log, void **pp)
 	           NULL, NULL,  gt_route_ctl_del);
 	sysctl_add(log, GT_CTL_ROUTE_MONITOR, SYSCTL_WR,
 	           NULL, NULL, gt_route_ctl_monitor);
-	return 0;
-}
 
-int
-route_mod_attach(struct log *log, void *raw_mod)
-{
-	current_mod = raw_mod;
 	return 0;
 }
 
@@ -979,7 +982,7 @@ route_mod_deinit(struct log *log, void *raw_mod)
 	gt_route_mod_clean(log);
 	lptree_deinit(&gt_route_lptree);
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 
 void

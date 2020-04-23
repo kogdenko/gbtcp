@@ -18,7 +18,7 @@ struct mod {
 
 int gt_global_epoch;
 int service_inited;
-struct gt_spinlock gt_global_lock;
+struct spinlock gt_global_lock;
 static struct init_mod *current_mod;
 
 #define INIT_MOD(name) \
@@ -47,9 +47,10 @@ init_mod_init(struct log *log, void **pp)
 	int rc;
 	struct init_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
-	if (rc)
+	rc = shm_alloc(log, pp, sizeof(*mod));
+	if (rc) {
 		return rc;
+	}
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "init");
 	return 0;
@@ -69,7 +70,7 @@ init_mod_deinit(struct log *log, void *raw_mod)
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 
 void
@@ -78,29 +79,40 @@ init_mod_detach(struct log *log)
 	current_mod = NULL;
 }
 
-static struct mod gt_global_modules[] = {
-	INIT_MOD(sysctl),
-	INIT_MOD(log),
-	INIT_MOD(init),
-	INIT_MOD(subr),
-	INIT_MOD(poll),
-	INIT_MOD(epoll),
-	INIT_MOD(sys),
-	INIT_MOD(mbuf),
-	INIT_MOD(htable),
-	INIT_MOD(timer),
-	INIT_MOD(fd_event),
-	INIT_MOD(signal),
-	INIT_MOD(dev),
-	INIT_MOD(api),
-	INIT_MOD(service),
-	INIT_MOD(lptree),
-	INIT_MOD(route),
-	INIT_MOD(arp),
-	INIT_MOD(file),
-	INIT_MOD(inet),
-	INIT_MOD(sockbuf),
-	INIT_MOD(tcp),
+#define MOD_FOREACH(x) \
+	x(sysctl) \
+	x(log) \
+	x(init) \
+	x(subr) \
+	x(poll) \
+	x(epoll) \
+	x(sys) \
+	x(mbuf) \
+	x(htable) \
+	x(timer) \
+	x(fd_event) \
+	x(signal) \
+	x(dev) \
+	x(api) \
+	x(service) \
+	x(lptree) \
+	x(route) \
+	x(arp) \
+	x(file) \
+	x(inet) \
+	x(sockbuf) \
+	x(tcp)
+
+#define MOD_ENUM(name) MOD_##name,
+#define MOD_INIT(name) \
+	printf("Init %s\n", #name); \
+	name##_mod_init(NULL, mods + MOD_##name);
+	
+#define MOD_ATTACH(name) name##_mod_attach(NULL, mods[MOD_##name]);
+
+enum {
+	MOD_FOREACH(MOD_ENUM)
+	NMODULES
 };
 
 static int
@@ -131,51 +143,90 @@ restart:
 }
 
 int
-service_init()
+common_init(int is_service, void **mods)
 {
-	int i, rc;
-	struct mod *mod;
-
+	int rc;
 	assert(service_inited == 0);
 	service_inited = 1;
 	gt_global_epoch++;
 	assert(sizeof(struct gt_sock_tuple) == 12);
 	assert(AF_UNIX == AF_LOCAL);
-	sys_mod_dlsym();
 	rc = compute_HZ();
 	if (rc) {
 		return rc;
 	}
 	gt_global_set_time();
-	for (i = 0; i < ARRAY_SIZE(gt_global_modules); ++i) {
-		mod = gt_global_modules + i;
-		rc = (*mod->m_init)(NULL, &mod->m_data);
-		if (rc)
-			return rc;		
-		mod->m_inited = 1;
-		rc = (*mod->m_attach)(NULL, mod->m_data);
-		if (rc)
-			return rc;
-		mod->m_attached = 1;
+	if (is_service == 0) {
+		printf("init modules\n");
+		MOD_FOREACH(MOD_INIT);
+		printf("init dodules done\n");
 	}
+	MOD_FOREACH(MOD_ATTACH);
 	return 0;
+}
+
+int controller_run(int[2]);
+
+int
+service_init()
+{
+	int rc;
+	void *mods;
+//	int fd[2];
+	dlsym_all();
+//	pipe
+	rc = sys_fork(NULL);
+	if (rc == 0) {
+		rc = controller_run(NULL);
+	} else if (rc > 0) {
+		sleep(1);
+		rc = shm_attach(&mods);
+		if (rc) {
+			printf("MM attach failed\n");
+			return rc;
+		}
+		printf("MM attach ok %p\n", mods);
+		rc = common_init(1, mods);
+	}
+	return rc;
+}
+
+int
+controller_init()
+{
+	int rc, pid;
+	void *mods;
+	dlsym_all();
+	pid = getpid();
+	rc = flock_pidfile(NULL, pid, "controller.pid");
+	printf("rc=%d\n", rc);
+	if (rc >= 0) {
+		rc = shm_init(&mods, NMODULES * sizeof(void *));
+		if (rc) {
+			printf("MM init failed\n");
+			return rc;
+		}
+		printf("MM init ok %p\n", mods);
+		rc = common_init(0, mods);
+	}
+	return rc;
 }
 
 void
 service_deinit(struct log *log)
 {
-	int i;
-	struct mod *mod;
+//	int i;
+//	struct mod *mod;
 
 	assert(service_inited);
 	LOG_TRACE(log);
-	for (i = ARRAY_SIZE(gt_global_modules) - 1; i >= 0; --i) {
-		mod = gt_global_modules + i;
+/*	for (i = ARRAY_SIZE(modules) - 1; i >= 0; --i) {
+		mod = modules + i;
 		if (mod->m_inited) {
 			mod->m_inited = 0;
 			(*mod->m_deinit)(log, mod->m_data);
 		}
-	}
+	}*/
 	service_inited = 0;
 }
 

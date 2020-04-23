@@ -132,7 +132,7 @@ subr_mod_init(struct log *log, void **pp)
 	int rc;
 	struct subr_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
+	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
@@ -158,6 +158,7 @@ subr_mod_deinit(struct log *log, void *raw_mod)
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
+	shm_free(mod);
 }
 
 void
@@ -215,13 +216,13 @@ ethaddr_make_ip6_mcast(struct ethaddr *addr, const uint8_t *ip6)
 }
 
 void
-gt_spinlock_init(struct gt_spinlock *sl)
+spinlock_init(struct spinlock *sl)
 {
 	sl->spinlock_locked = 0;
 }
 
 void
-gt_spinlock_lock(struct gt_spinlock *sl)
+spinlock_lock(struct spinlock *sl)
 {
 	while (__sync_lock_test_and_set(&sl->spinlock_locked, 1)) {
 		while (sl->spinlock_locked) {
@@ -232,13 +233,13 @@ gt_spinlock_lock(struct gt_spinlock *sl)
 
 // Return 1 if locked
 int
-gt_spinlock_trylock(struct gt_spinlock *sl)
+spinlock_trylock(struct spinlock *sl)
 {
 	return __sync_lock_test_and_set(&sl->spinlock_locked, 1) == 0;
 }
 
 void
-gt_spinlock_unlock(struct gt_spinlock *sl)
+spinlock_unlock(struct spinlock *sl)
 {
 	__sync_lock_release(&sl->spinlock_locked);
 }
@@ -437,12 +438,11 @@ gt_lower_pow_of_2_64(uint64_t x)
 }
 
 int
-gt_flock_pidfile(struct log *log, int pid, const char *filename)
+flock_pidfile(struct log *log, int pid, const char *filename)
 {
 	int rc, fd, len;
 	char buf[32];
 	char path[PATH_MAX];
-
 	LOG_TRACE(log);
 	snprintf(path, sizeof(path), "%s/pid/%s", GT_PREFIX, filename);
 	rc = sys_open(log, path, O_CREAT|O_RDWR, 0666);
@@ -453,7 +453,7 @@ gt_flock_pidfile(struct log *log, int pid, const char *filename)
 	rc = sys_flock(log, fd, LOCK_EX|LOCK_NB);
 	if (rc == 0) {
 		len = snprintf(buf, sizeof(buf), "%d", pid);
-		rc = gt_write_all(log, fd, buf, len);
+		rc = write_all(log, fd, buf, len);
 		if (rc == 0) {
 			return fd;
 		}
@@ -468,7 +468,6 @@ read_pidfile(struct log *log, int fd, const char *filename)
 	int rc, pid;
 	char buf[32];
 	char path[PATH_MAX];
-
 	LOG_TRACE(log);
 	snprintf(path, sizeof(path), "%s/pid/%s", GT_PREFIX, filename);
 	rc = sys_read(log, fd, buf, sizeof(buf) - 1);
@@ -575,7 +574,7 @@ restart:
 }
 
 int
-gt_write_all(struct log *log, int fd, const void *buf, size_t cnt)
+write_all(struct log *log, int fd, const void *buf, size_t cnt)
 {
 	int rc, off;
 

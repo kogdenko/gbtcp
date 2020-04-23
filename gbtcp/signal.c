@@ -14,9 +14,10 @@ signal_mod_init(struct log *log, void **pp)
 	int rc;
 	struct signal_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
-	if (rc)
+	rc = shm_alloc(log, pp, sizeof(*mod));
+	if (rc) {
 		return rc;
+	}
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "signal");
 	rc = sys_malloc(log, &gt_signal_stack, SIGSTKSZ);
@@ -42,6 +43,7 @@ signal_mod_deinit(struct log *log, void *raw_mod)
 	free(gt_signal_stack);
 	gt_signal_stack = NULL;
 	gt_signal_stack_size = 0;
+	shm_free(mod);
 }
 
 void

@@ -112,12 +112,12 @@ sys_mod_init(struct log *log, void **pp)
 	int rc;
 	struct sys_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
-	if (rc)
-		return rc;
-	mod = *pp;
-	log_scope_init(&mod->log_scope, "sys");
-	return 0;
+	rc = shm_alloc(log, pp, sizeof(*mod));
+	if (!rc) {
+		mod = *pp;
+		log_scope_init(&mod->log_scope, "sys");
+	}
+	return rc;
 }
 int
 sys_mod_attach(struct log *log, void *raw_mod)
@@ -132,7 +132,7 @@ sys_mod_deinit(struct log *log, void *raw_mod)
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 void
 sys_mod_detach(struct log *log)
@@ -141,7 +141,7 @@ sys_mod_detach(struct log *log)
 }
 #ifdef __linux__
 static void
-sys_mod_dlsym_os()
+dlsym_all_os()
 {
 	SYS_DLSYM(clone);
 	SYS_DLSYM(epoll_create1);
@@ -151,14 +151,14 @@ sys_mod_dlsym_os()
 }
 #else /* __linux__ */
 static void
-sys_mod_dlsym_os()
+dlsym_all_os()
 {
 	SYS_DLSYM(kqueue);
 	SYS_DLSYM(kevent);
 }
 #endif /* __linux__ */
 void
-sys_mod_dlsym()
+dlsym_all()
 {
 	SYS_DLSYM(open);
 	SYS_DLSYM(socket);
@@ -193,7 +193,7 @@ sys_mod_dlsym()
 	SYS_DLSYM(signal);
 	SYS_DLSYM(sigaction);
 	SYS_DLSYM(sigprocmask);
-	sys_mod_dlsym_os();
+	dlsym_all_os();
 }
 static void
 sys_log_addrfn_failed(struct log *log, int log_msg_level,

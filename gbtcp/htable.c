@@ -18,12 +18,12 @@ htable_mod_init(struct log *log, void **pp)
 	int rc;
 	struct htable_mod *mod;
 	LOG_TRACE(log);
-	rc = mm_alloc(log, pp, sizeof(*mod));
-	if (rc)
-		return rc;
-	mod = *pp;
-	log_scope_init(&mod->log_scope, "htable");
-	return 0;
+	rc = shm_alloc(log, pp, sizeof(*mod));
+	if (!rc) {
+		mod = *pp;
+		log_scope_init(&mod->log_scope, "htable");
+	}
+	return rc;
 }
 int
 htable_mod_attach(struct log *log, void *raw_mod)
@@ -38,7 +38,7 @@ htable_mod_deinit(struct log *log, void *raw_mod)
 	mod = raw_mod;
 	LOG_TRACE(log);
 	log_scope_deinit(log, &mod->log_scope);
-	mm_free(mod);
+	shm_free(mod);
 }
 void
 htable_mod_detach(struct log *log)

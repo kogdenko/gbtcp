@@ -81,7 +81,9 @@
 #define GT_TCP_CORK TCP_NOPUSH
 #endif /* __linux__ */
 
-#define CACHELINESIZ 64
+#define CACHE_LINE_SIZE 64
+#define PAGE_SHIFT 12
+#define PAGE_SIZE (1 << PAGE_SHIFT)
 
 #define ETHADDR_STRLEN 18
 #define ETHADDR_LEN 6
@@ -118,7 +120,7 @@ struct gt_sock_tuple {
 	be16_t sot_fport;
 };
 
-struct gt_spinlock {
+struct spinlock {
 	volatile int spinlock_locked;
 };
 
@@ -246,13 +248,10 @@ int ethaddr_is_ucast(const uint8_t *);
 
 void ethaddr_make_ip6_mcast(struct ethaddr *, const uint8_t *);
 
-void gt_spinlock_init(struct gt_spinlock *);
-
-void gt_spinlock_lock(struct gt_spinlock *);
-
-int gt_spinlock_trylock(struct gt_spinlock *);
-
-void gt_spinlock_unlock(struct gt_spinlock *);
+void spinlock_init(struct spinlock *);
+void spinlock_lock(struct spinlock *);
+int spinlock_trylock(struct spinlock *);
+void spinlock_unlock(struct spinlock *);
 
 void gt_profiler_enter(struct gt_profiler *);
 
@@ -285,16 +284,16 @@ uint32_t gt_lower_pow_of_2_32(uint32_t x);
 uint64_t gt_lower_pow_of_2_64(uint64_t x);
 
 // wrapper
-int gt_flock_pidfile(struct log *, int pid, const char *filename);
+int flock_pidfile(struct log *, int, const char *);
 
-int read_pidfile(struct log *, int fd, const char *filename);
+int read_pidfile(struct log *, int, const char *);
 
 int gt_set_nonblock(struct log *, int fd);
 
 int gt_connect_timed(struct log *, int fd, const struct sockaddr *addr,
 	socklen_t addrlen, gt_time_t to);
 
-int gt_write_all(struct log *log, int fd, const void *buf, size_t count);
+int write_all(struct log *log, int fd, const void *buf, size_t count);
 
 int read_rsskey(struct log *log, const char *ifname, uint8_t *rss_key);
 

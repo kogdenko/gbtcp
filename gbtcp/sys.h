@@ -167,7 +167,7 @@ int sys_mod_attach(struct log *, void *);
 void sys_mod_deinit(struct log *, void *);
 void sys_mod_detach(struct log *);
 
-void sys_mod_dlsym();
+void dlsym_all();
 
 int sys_fork(struct log *);
 int sys_open(struct log *, const char *, int, mode_t);
