@@ -6,7 +6,7 @@
 
 struct gt_route_if;
 struct gt_arp_hdr;
-struct gt_dev_pkt;
+struct dev_pkt;
 
 struct gt_arp_advert_msg {
 	int arpam_af;
@@ -23,7 +23,7 @@ void arp_mod_deinit(struct log *, void *);
 void arp_mod_detach(struct log *);
 
 void gt_arp_resolve(struct gt_route_if *ifp, be32_t next_hop,
-	struct gt_dev_pkt *pkt);
+	struct dev_pkt *pkt);
 
 void gt_arp_update(struct gt_arp_advert_msg *msg);
 

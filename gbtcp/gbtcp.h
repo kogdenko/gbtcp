@@ -31,7 +31,8 @@
 #define GT_TCP_NSTATES 11
 
 #define GT_SYSCTL_BUFSIZ 16384
-#define GT_SERVICES_MAX 32
+#define GT_RSSQ_COUNT_MAX 32
+#define GT_SERVICE_COUNT_MAX (GT_RSSQ_COUNT_MAX << 1)
 #define GT_GROUP_NAME "gbtcp"
 
 #define GT_TCP_STAT(x) \

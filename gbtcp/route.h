@@ -4,6 +4,7 @@
 #include "subr.h"
 #include "arp.h"
 #include "dev.h"
+#include "lptree.h"
 
 #define GT_EPHEMERAL_PORT_MIN 10000
 #define GT_EPHEMERAL_PORT_MAX 65535
@@ -29,9 +30,26 @@ struct log;
 	x(handle_addr) \
 	x(handle_route) \
 
+struct gt_route_entry_long {
+	struct lprule rtl_rule;
+	struct dlist rtl_list;
+	int rtl_af;
+	struct gt_route_if *rtl_ifp;
+	struct ipaddr rtl_via;
+	int rtl_nr_saddrs;
+	struct gt_route_if_addr **rtl_saddrs;
+};
+
+
+
 struct route_mod {
 	struct log_scope log_scope;
 	ROUTE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+	struct lptree route_lptree;
+	struct mbuf_pool *route_pool;
+	struct dlist route_if_head;
+	struct gt_route_entry_long route_default;
+	struct dlist route_addr_head;
 };
 
 struct gt_route_if_addr {
@@ -39,6 +57,11 @@ struct gt_route_if_addr {
 	struct ipaddr ria_addr;
 	int ria_ref_cnt;
 	uint16_t ria_cur_ephemeral_port;
+};
+
+struct route_if_rss {
+	struct dev rifrss_dev;
+	struct dlist rifrss_txq;
 };
 
 struct gt_route_if {
@@ -49,11 +72,11 @@ struct gt_route_if {
 	int rif_mtu;
 	int rif_nr_addrs;
 	int rif_name_len[2];
-	struct dlist rif_txq;
 	struct gt_route_if_addr **rif_addrs;
 	struct ethaddr rif_hwaddr;
 	struct dlist rif_routes;
-	struct gt_dev rif_dev;
+	struct dev rif_host_dev;
+	struct route_if_rss rif_rss[GT_RSSQ_COUNT_MAX];
 	uint64_t rif_cnt_rx_pkts;
 	uint64_t rif_cnt_rx_bytes;
 	uint64_t rif_cnt_rx_drop;
@@ -115,23 +138,10 @@ struct gt_route_msg {
 
 typedef void (*gt_route_msg_f)(struct gt_route_msg *msg);
 
-extern struct dlist gt_route_if_head;
 extern int gt_route_rss_q_id;
 extern int gt_route_rss_q_cnt;
 extern int gt_route_port_pairity;
 extern uint8_t gt_route_rss_key[RSSKEYSIZ];
-extern int (*gt_route_if_set_link_status_fn)(struct log *log,
-	struct gt_route_if *ifp, int add);
-extern int (*gt_route_if_not_empty_txr_fn)(struct gt_route_if *ifp,
-	struct gt_dev_pkt *pkt);
-extern void (*gt_route_if_tx_fn)(struct gt_route_if *ifp,
-	struct gt_dev_pkt *pkt);
-
-#define GT_ROUTE_IF_FOREACH(ifp) \
-	DLIST_FOREACH(ifp, &gt_route_if_head, rif_list)
-
-#define GT_ROUTE_IF_FOREACH_SAFE(ifp, tmp) \
-	DLIST_FOREACH_SAFE(ifp, &gt_route_if_head, rif_list, tmp)
 
 int route_mod_init(struct log *, void **);
 int route_mod_attach(struct log *, void *);
@@ -155,11 +165,11 @@ int gt_route_get(int af, struct ipaddr *pref_src,
 
 int gt_route_get4(be32_t pref_src, struct gt_route_entry *route);
 
-int gt_route_if_not_empty_txr(struct gt_route_if *ifp, struct gt_dev_pkt *pkt);
+int gt_route_if_not_empty_txr(struct gt_route_if *ifp, struct dev_pkt *pkt);
 
 void gt_route_if_rxr_next(struct gt_route_if *ifp, struct netmap_ring *rxr);
 
-void gt_route_if_tx(struct gt_route_if *ifp, struct gt_dev_pkt *pkt);
+void gt_route_if_tx(struct gt_route_if *ifp, struct dev_pkt *pkt);
 
 int gt_route_if_tx3(struct gt_route_if *ifp, void *data, int len);
 

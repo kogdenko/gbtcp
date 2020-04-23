@@ -7,6 +7,7 @@ struct log;
 int shm_init(void **, int);
 int shm_attach(void **);
 int shm_alloc(struct log *, void **, int);
+int shm_realloc(struct log *, void **, int);
 void shm_free(void *);
 int shm_alloc_page(struct log *, void **, int, int);
 void shm_free_page(void *, int);

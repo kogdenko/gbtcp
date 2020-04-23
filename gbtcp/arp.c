@@ -33,7 +33,7 @@ struct gt_arp_entry {
 	gt_time_t ae_confirmed;
 	struct gt_timer ae_timer;
 	struct ethaddr ae_addr;
-	struct gt_dev_pkt *ae_incq;
+	struct dev_pkt *ae_incq;
 };
 
 static struct mbuf_pool *gt_arp_entry_pool;
@@ -76,10 +76,10 @@ gt_arp_set_eth_hdr(struct gt_arp_entry *e, struct gt_route_if *ifp,
 
 static void
 gt_arp_entry_add_incomplete(struct log *log, struct gt_arp_entry *e,
-	struct gt_dev_pkt *pkt)
+	struct dev_pkt *pkt)
 {
 	int rc;
-	struct gt_dev_pkt *cp;
+	struct dev_pkt *cp;
 
 	if (e->ae_incq != NULL) {
 		cp = e->ae_incq;
@@ -108,7 +108,7 @@ arp_txincq(struct gt_arp_entry *e)
 	be32_t next_hop;
 	struct gt_ip4_hdr *ip4_h;
 	struct gt_route_entry route;
-	struct gt_dev_pkt pkt, *x;
+	struct dev_pkt pkt, *x;
 
 	x = e->ae_incq;
 	e->ae_incq = NULL;
@@ -166,7 +166,7 @@ gt_arp_tx_probe(struct gt_arp_entry *e)
 	int rc, len;
 	struct gt_eth_hdr *eh;
 	struct gt_route_entry route;
-	struct gt_dev_pkt pkt;
+	struct dev_pkt pkt;
 
 	if (gt_timer_is_running(&e->ae_timer)) {
 		return;
@@ -329,7 +329,7 @@ arp_mod_attach(struct log *log, void *raw_mod)
 	if (rc) {
 		return rc;
 	}
-	rc = mbuf_pool_alloc(log, &gt_arp_pkt_pool, GT_DEV_PKT_SIZE);
+	rc = mbuf_pool_alloc(log, &gt_arp_pkt_pool, DEV_PKT_SIZE_MAX);
 	if (rc) {
 		return rc;
 	}
@@ -472,7 +472,7 @@ gt_arp_entry_is_reachable_timeouted(struct gt_arp_entry *e)
 
 void
 gt_arp_resolve(struct gt_route_if *ifp, be32_t next_hop,
-	struct gt_dev_pkt *pkt)
+	struct dev_pkt *pkt)
 {
 	int rc;
 	uint32_t hash;
@@ -615,7 +615,7 @@ gt_arp_reply(struct gt_route_if *ifp, struct gt_arp_hdr *in_arp_h)
 	int rc;
 	struct gt_eth_hdr *eh;
 	struct gt_arp_hdr *arp_h;
-	struct gt_dev_pkt pkt;
+	struct dev_pkt pkt;
 
 	rc = gt_route_if_not_empty_txr(ifp, &pkt);
 	if (rc) {

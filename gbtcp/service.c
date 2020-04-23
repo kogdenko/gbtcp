@@ -46,7 +46,7 @@ struct gt_service_sock {
 
 int gt_service_pid;
 
-static struct gt_dev gt_service_pipe;
+static struct dev gt_service_pipe;
 static int gt_service_ctl_child_close_listen_socks;
 static int gt_service_subscribed;
 static int gt_service_status = GT_SERVICE_NONE;
@@ -67,23 +67,23 @@ static void gt_service_if_in(struct gt_route_if *ifp, uint8_t *data, int len);
 
 static int gt_service_pipe_in(uint8_t *data, int len);
 
-static void service_pipe_rxtx(struct gt_dev *dev, short revents);
+static void service_pipe_rxtx(struct dev *dev, short revents);
 
-static void gt_service_rxtx(struct gt_dev *dev, short revents);
+void gt_service_rxtx(struct dev *dev, short revents);
 
-static int gt_service_dev_init(struct log *log, struct gt_route_if *ifp);
+//static int gt_service_dev_init(struct log *log, struct gt_route_if *ifp);
 
-static int gt_service_route_if_set_link_status(struct log *log,
-	struct gt_route_if *ifp, int add);
+//static int gt_service_route_if_set_link_status(struct log *log,
+//	struct gt_route_if *ifp, int add);
 
-static int gt_service_route_if_not_empty_txr(struct gt_route_if *ifp,
-	struct gt_dev_pkt *pkt);
+//static int gt_service_route_if_not_empty_txr(struct gt_route_if *ifp,
+//	struct dev_pkt *pkt);
 
 static int gt_service_set_status(struct log *log, int status);
 
 static int gt_service_sub(struct log *log);
 
-static int gt_service_sync(struct log *log);
+//static int gt_service_sync(struct log *log);
 
 static int gt_service_add(struct log *log);
 
@@ -231,7 +231,7 @@ gt_service_if_in(struct gt_route_if *ifp, uint8_t *data, int len)
 		msg.svcm_if_idx = ifp->rif_idx;
 		memcpy(data + len, &msg, sizeof(msg));
 		len += sizeof(msg);
-		gt_dev_tx3(&gt_service_pipe, data, len);
+		dev_tx3(&gt_service_pipe, data, len);
 		break;
 	default:
 		BUG;
@@ -258,7 +258,7 @@ gt_service_pipe_in(uint8_t *data, int len)
 	cmd = msg->svcm_cmd;
 	switch (cmd) {
 	case GT_INET_BYPASS:
-		gt_dev_tx3(&ifp->rif_dev, data, len);
+//		dev_tx3(&ifp->rif_dev, data, len);
 		return 0;
 	case GT_INET_BCAST:
 		gt_service_in(ifp, data, len);
@@ -269,26 +269,26 @@ gt_service_pipe_in(uint8_t *data, int len)
 }
 
 static void
-service_pipe_rxtx(struct gt_dev *dev, short revents)
+service_pipe_rxtx(struct dev *dev, short revents)
 {
 	int i, n;
 	void *data;
 	struct netmap_slot *slot;
 	struct netmap_ring *rxr;
 
-	GT_DEV_FOREACH_RXRING(rxr, dev) {
-		n = gt_dev_rxr_space(dev, rxr);
+	DEV_FOREACH_RXRING(rxr, dev) {
+		n = dev_rxr_space(dev, rxr);
 		for (i = 0; i < n; ++i) {
 			slot = rxr->slot + rxr->cur;
 			data = NETMAP_BUF(rxr, slot->buf_idx);
 			gt_service_pipe_in(data, slot->len);
-			GT_DEV_RXR_NEXT(rxr);
+			DEV_RXR_NEXT(rxr);
 		}
 	}
 }
 
-static void
-gt_service_rxtx(struct gt_dev *dev, short revents)
+void
+gt_service_rxtx(struct dev *dev, short revents)
 {
 	int i, n, len;
 	void *data;
@@ -296,9 +296,9 @@ gt_service_rxtx(struct gt_dev *dev, short revents)
 	struct netmap_slot *slot;
 	struct gt_route_if *ifp;
 
-	ifp = container_of(dev, struct gt_route_if, rif_dev);
-	GT_DEV_FOREACH_RXRING(rxr, dev) {
-		n = gt_dev_rxr_space(dev, rxr);
+	ifp = dev->dev_udata;
+	DEV_FOREACH_RXRING(rxr, dev) {
+		n = dev_rxr_space(dev, rxr);
 		for (i = 0; i < n; ++i) {
 			//DEV_RX_PREFETCH(rxr);
 			slot = rxr->slot + rxr->cur;
@@ -310,18 +310,7 @@ gt_service_rxtx(struct gt_dev *dev, short revents)
 	}
 }
 
-static int
-gt_service_dev_init(struct log *log, struct gt_route_if *ifp)
-{
-	int rc;
-	char buf[NM_IFNAMSIZ];
-
-	snprintf(buf, sizeof(buf), "%s-%d", ifp->rif_name, gt_route_rss_q_id);
-	rc = gt_dev_init(log, &ifp->rif_dev, buf, gt_service_rxtx);
-	return rc;
-}
-
-static int
+/*static int
 gt_service_route_if_set_link_status(struct log *log,
 	struct gt_route_if *ifp, int add)
 {
@@ -334,22 +323,22 @@ gt_service_route_if_set_link_status(struct log *log,
 			rc = gt_service_dev_init(log, ifp);
 		}
 	} else {
-		gt_dev_deinit(&ifp->rif_dev);
+		dev_deinit(&ifp->rif_dev);
 	}
 	return rc;
 }
 
 static int
-gt_service_route_if_not_empty_txr(struct gt_route_if *ifp, struct gt_dev_pkt *pkt)
+gt_service_route_if_not_empty_txr(struct gt_route_if *ifp, struct dev_pkt *pkt)
 {
 	int rc;
 
-	rc = gt_dev_not_empty_txr(&gt_service_pipe, pkt);
+	rc = dev_not_empty_txr(&gt_service_pipe, pkt);
 	return rc;
 }
 
 void
-gt_service_route_if_tx(struct gt_route_if *ifp, struct gt_dev_pkt *pkt)
+gt_service_route_if_tx(struct gt_route_if *ifp, struct dev_pkt *pkt)
 {
 	struct gt_service_msg *msg;
 
@@ -357,14 +346,14 @@ gt_service_route_if_tx(struct gt_route_if *ifp, struct gt_dev_pkt *pkt)
 	msg->svcm_cmd = GT_INET_OK;
 	msg->svcm_if_idx = ifp->rif_idx;
 	pkt->pkt_len += sizeof(*msg);
-}
+}*/
 
 static int
 gt_service_set_status(struct log *log, int status)
 {
 	int rc, tmp_fd;
 	struct file *fp;
-	struct gt_route_if *ifp;
+//	struct gt_route_if *ifp;
 
 	if (gt_service_status == status) {
 		return 0;
@@ -384,26 +373,14 @@ gt_service_set_status(struct log *log, int status)
 				file_close(fp, GT_SOCK_GRACEFULL);
 			}
 		}
-		GT_ROUTE_IF_FOREACH(ifp) {
-			gt_dev_deinit(&ifp->rif_dev);
-		}
+//		GT_ROUTE_IF_FOREACH(ifp) {
+//			dev_deinit(&ifp->rif_dev);
+//		}
 		gt_service_status = GT_SERVICE_SHADOW;
 		return 0;
 	} else {
 		rc = 0;
-		GT_ROUTE_IF_FOREACH(ifp) {
-			rc = gt_service_dev_init(log, ifp);
-			if (rc) {
-				break;
-			}
-		}
-		if (rc) {
-			GT_ROUTE_IF_FOREACH(ifp) {
-				gt_dev_deinit(&ifp->rif_dev);
-			}
-		} else {
-			gt_service_status = GT_SERVICE_ACTIVE;
-		}
+		gt_service_status = GT_SERVICE_ACTIVE;
 		return rc;
 	}
 }
@@ -422,7 +399,7 @@ gt_service_sub(struct log *log)
 	return rc;
 }
 
-static int
+/*static int
 gt_service_sync(struct log *log)
 {
 	int i, rc;
@@ -441,7 +418,7 @@ gt_service_sync(struct log *log)
 		}
 	}
 	return 0;
-}
+}*/
 
 static int
 gt_service_add(struct log *log)
@@ -486,7 +463,7 @@ gt_service_add(struct log *log)
 		gt_route_rss_key[i] = arg;
 	}
 	
-	if (rss_q_cnt == 0 || rss_q_cnt > GT_SERVICES_MAX ||
+	if (rss_q_cnt == 0 || rss_q_cnt > GT_SERVICE_COUNT_MAX ||
 	    rss_q_id > rss_q_cnt ||
 	    port_pairity > 1) {
 		LOGF(log, 7, LOG_ERR, 0,
@@ -514,13 +491,13 @@ service_start(struct log *log)
 	}
 	LOG_TRACE(log);
 	LOGF(log, 7, LOG_INFO, 0, "hit; epoch=%d", gt_service_epoch);
-	gt_route_if_set_link_status_fn = gt_service_route_if_set_link_status;
-	gt_route_if_not_empty_txr_fn = gt_service_route_if_not_empty_txr;
-	gt_route_if_tx_fn = gt_service_route_if_tx;
+//	gt_route_if_set_link_status_fn = gt_service_route_if_set_link_status;
+	//gt_route_if_not_empty_txr_fn = gt_service_route_if_not_empty_txr;
+	//gt_route_if_tx_fn = gt_service_route_if_tx;
 	gt_service_status = GT_SERVICE_ACTIVE;
 	gt_service_pid = gt_application_pid;
 	snprintf(buf, sizeof(buf), "gbtcp.%d}0", gt_service_pid);
-	rc = gt_dev_init(log, &gt_service_pipe, buf, service_pipe_rxtx);
+	rc = dev_init(log, &gt_service_pipe, buf, service_pipe_rxtx);
 	printf("service pipe inited %d\n", rc);
 	if (rc) {
 		goto err1;
@@ -537,7 +514,7 @@ service_start(struct log *log)
 	if (rc) {
 		goto err4;
 	}
-	gt_service_sync(log);
+	//gt_service_sync(log);
 	gt_sock_no_opened_fn = gt_service_del;
 	LOGF(log, 7, LOG_INFO, 0,
 	     "ok; pid=%d, rss_q_id=%d, rss_q_cnt=%d, port_pairity=%d",
@@ -549,13 +526,13 @@ err4:
 err3:
 	sysctl_unbind();
 err2:
-	gt_dev_deinit(&gt_service_pipe);
+	dev_deinit(&gt_service_pipe);
 err1:
 	gt_service_pid = 0;
 	gt_service_status = GT_SERVICE_NONE;
-	gt_route_if_set_link_status_fn = NULL;
-	gt_route_if_not_empty_txr_fn = NULL;
-	gt_route_if_tx_fn = NULL;
+	//gt_route_if_set_link_status_fn = NULL;
+	//gt_route_if_not_empty_txr_fn = NULL;
+	//gt_route_if_tx_fn = NULL;
 	return rc;
 }
 
@@ -565,16 +542,16 @@ gt_service_clean(struct log *log)
 	LOG_TRACE(log);
 	LOGF(log, 7, LOG_INFO, 0, "hit");
 	gt_service_epoch++;
-	gt_dev_deinit(&gt_service_pipe);
+	dev_deinit(&gt_service_pipe);
 	sysctl_unbind();
 	sysctl_unsub_me();
 	gt_route_mod_clean(log);
 	gt_service_pid = 0;
 	gt_service_subscribed = 0;
 	gt_service_status = GT_SERVICE_NONE;
-	gt_route_if_set_link_status_fn = NULL;
-	gt_route_if_not_empty_txr_fn = NULL;
-	gt_route_if_tx_fn = NULL;
+	//gt_route_if_set_link_status_fn = NULL;
+	//gt_route_if_not_empty_txr_fn = NULL;
+	//gt_route_if_tx_fn = NULL;
 }
 
 static int

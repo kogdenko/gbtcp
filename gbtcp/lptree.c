@@ -9,10 +9,9 @@ struct lptree_mod {
 };
 
 static struct lptree_mod *current_mod;
-	struct mbuf_pool *lpnode_pool;
-
-#define lpnode_dynamic_cast(m) \
-	((m)->mb_pool_id == lpnode_pool->mbp_id)
+	
+#define lpnode_dynamic_cast(tree, m) \
+	((m)->mb_pool_id == (tree)->lpt_pool->mbp_id)
 
 static void
 lpnode_init(struct lpnode *node, struct lpnode *parent)
@@ -23,11 +22,12 @@ lpnode_init(struct lpnode *node, struct lpnode *parent)
 	node->lpn_parent = parent;
 }
 static int
-lpnode_alloc(struct log *log, struct lpnode *parent, struct lpnode **pnode)
+lpnode_alloc(struct log *log, struct lptree *tree, struct lpnode *parent,
+	struct lpnode **pnode)
 {
 	int rc;
 	LOG_TRACE(log);
-	rc = mbuf_alloc(log, lpnode_pool, (struct mbuf **)pnode);
+	rc = mbuf_alloc(log, tree->lpt_pool, (struct mbuf **)pnode);
 	if (!rc) {
 		lpnode_init(*pnode, parent);
 	}
@@ -69,11 +69,8 @@ lptree_mod_init(struct log *log, void **pp)
 int
 lptree_mod_attach(struct log *log, void *raw_mod)
 {
-	int rc;
 	current_mod = raw_mod;
-	rc = mbuf_pool_alloc(log, &lpnode_pool,
-	                     sizeof(struct lpnode));
-	return rc;
+	return 0;
 }
 void
 lptree_mod_deinit(struct log *log, void *raw_mod)
@@ -81,8 +78,6 @@ lptree_mod_deinit(struct log *log, void *raw_mod)
 	struct lptree_mod *mod;
 	LOG_TRACE(log);
 	mod = raw_mod;
-	mbuf_pool_free(lpnode_pool);
-	lpnode_pool = NULL;
 	log_scope_deinit(log, &mod->log_scope);
 	shm_free(mod);
 }
@@ -92,31 +87,52 @@ lptree_mod_detach(struct log *log)
 	current_mod = NULL;
 }
 int
-lptree_init(struct log *log, struct lpnode *root)
+lptree_init(struct log *log, struct lptree *tree)
 {
-	lpnode_init(root, NULL);
-	return 0;
+	int rc;
+	LOG_TRACE(log);
+	gt_dbg("a");
+	rc = mbuf_pool_alloc(log, &tree->lpt_pool,
+	                     sizeof(struct lpnode));
+	gt_dbg("b");
+	if (rc) {
+		return rc;
+	}
+	rc = lpnode_alloc(log, tree, NULL, &tree->lpt_root);
+	if (rc) {
+		mbuf_pool_free(tree->lpt_pool);
+		tree->lpt_pool = NULL;
+	}
+	return rc;
 }
 void
-lptree_deinit(struct lpnode *root)
+lptree_deinit(struct lptree *tree)
 {
-	ASSERT(lpnode_is_empty(root));
+	if (tree->lpt_root != NULL) {
+		ASSERT(lpnode_is_empty(tree->lpt_root));
+		lpnode_free(tree->lpt_root);
+		tree->lpt_root = NULL;
+	}
+	if (tree->lpt_pool != NULL) {
+		mbuf_pool_free(tree->lpt_pool);
+		tree->lpt_pool = NULL;
+	}
 }
 struct lprule *
-lptree_search(struct lpnode *root, uint32_t key)
+lptree_search(struct lptree *tree, uint32_t key)
 {
 	int i;
 	uint32_t idx;
 	struct mbuf *m;
 	struct lpnode *node;
 	struct lprule *rule;
-	node = root;
+	node = tree->lpt_root;
 	for (i = 0; i < 4; ++i) {
 		idx = (key >> ((3 - i) << 3)) & 0x000000FF;
 		m = node->lpn_children[idx];
 		if (m == NULL) {
 			break;
-		} else if (lpnode_dynamic_cast(m)) {
+		} else if (lpnode_dynamic_cast(tree, m)) {
 			node = (struct lpnode *)m;
 		} else {
 			rule = (struct lprule *)m;
@@ -129,7 +145,7 @@ lptree_search(struct lpnode *root, uint32_t key)
 	return NULL;
 }
 static int
-lpnode_set(struct log *log,struct lpnode *parent,
+lpnode_set(struct log *log, struct lptree *tree, struct lpnode *parent,
 	int idx, struct lpnode **pnode)
 {
 	int rc;
@@ -137,16 +153,16 @@ lpnode_set(struct log *log,struct lpnode *parent,
 	struct lprule *rule;
 	m = parent->lpn_children[idx];
 	if (m == NULL) {
-		rc = lpnode_alloc(log, parent, pnode);
+		rc = lpnode_alloc(log, tree, parent, pnode);
 		if (rc) {
 			return rc;
 		}
-	} else if (lpnode_dynamic_cast(m))  {
+	} else if (lpnode_dynamic_cast(tree, m))  {
 		*pnode = (struct lpnode *)m;
 		return 0;
 	} else {
 		rule = (struct lprule *)m;
-		rc = lpnode_alloc(log, parent, pnode);
+		rc = lpnode_alloc(log, tree, parent, pnode);
 		if (rc) {
 			return rc;
 		}
@@ -175,7 +191,7 @@ lpnode_unset(struct lpnode *node)
 	}
 }
 static void
-lprule_set(struct lprule *rule)
+lprule_set(struct lptree *tree, struct lprule *rule)
 {
 	int i, n;
 	uint32_t idx;
@@ -191,7 +207,7 @@ lprule_set(struct lprule *rule)
 		m = (struct mbuf *)(*slot);
 		if (m == NULL) {
 			*slot = rule;
-		} else if (lpnode_dynamic_cast(m)) {
+		} else if (lpnode_dynamic_cast(tree, m)) {
 			node = (struct lpnode *)m;
 			tmp = node->lpn_hidden;
 			if (tmp == NULL || rule->lpr_depth > tmp->lpr_depth) {
@@ -206,7 +222,7 @@ lprule_set(struct lprule *rule)
 	}
 }
 static void
-lprule_unset(struct lprule *rule)
+lprule_unset(struct lptree *tree, struct lprule *rule)
 {
 	int i;
 	struct mbuf *m;
@@ -218,7 +234,7 @@ lprule_unset(struct lprule *rule)
 		}
 		if (m == (struct mbuf *)rule) {
 			rule->lpr_parent->lpn_children[i] = NULL;
-		} else if (lpnode_dynamic_cast(m)) {
+		} else if (lpnode_dynamic_cast(tree, m)) {
 			node = (struct lpnode *)m;
 			if (node->lpn_hidden == rule) {
 				node->lpn_hidden = NULL;
@@ -227,16 +243,16 @@ lprule_unset(struct lprule *rule)
 	}
 }
 void
-lptree_del(struct lprule *rule)
+lptree_del(struct lptree *tree, struct lprule *rule)
 {
 	struct lpnode *node, *parent;
 	struct lprule *cur;
 	DLIST_REMOVE(rule, lpr_list);
 	node = rule->lpr_parent;
-	lprule_unset(rule);
+	lprule_unset(tree, rule);
 	DLIST_FOREACH(cur, &node->lpn_rules, lpr_list) {
 		if (cur->lpr_depth < rule->lpr_depth) {
-			lprule_set(cur);
+			lprule_set(tree, cur);
 		} else {
 			break;
 		}
@@ -254,7 +270,7 @@ lptree_del(struct lprule *rule)
 	}
 }
 static int
-lptree_operate(struct log *log, struct lpnode *root,
+lptree_operate(struct log *log, struct lptree *tree,
 	struct lprule **prule, uint32_t key, int depth)
 {
 	int i, d, rc;
@@ -263,7 +279,7 @@ lptree_operate(struct log *log, struct lpnode *root,
 	struct lprule *rule, *after;
 	ASSERT(depth > 0);
 	ASSERT(depth <= 32);
-	parent = root;
+	parent = tree->lpt_root;
 	for (i = 0; i < 4; ++i) {
 		k = (key >> ((3 - i) << 3)) & 0x000000FF;
 		d = depth - (i << 3);
@@ -276,7 +292,7 @@ lptree_operate(struct log *log, struct lpnode *root,
 					return -ESRCH;
 				}
 			} else {
-				rc = lpnode_set(log, parent, k, &node);
+				rc = lpnode_set(log, tree, parent, k, &node);
 				if (rc) {
 					return rc;
 				}
@@ -311,7 +327,7 @@ lptree_operate(struct log *log, struct lpnode *root,
 	rule->lpr_key_rem = k;
 	rule->lpr_depth_rem = d;
 	rule->lpr_parent = parent;
-	lprule_set(rule);
+	lprule_set(tree, rule);
 	if (after == NULL) {
 		DLIST_INSERT_HEAD(&parent->lpn_rules, rule, lpr_list);
 	} else {
@@ -320,12 +336,13 @@ lptree_operate(struct log *log, struct lpnode *root,
 	return 0;
 }
 struct lprule *
-lptree_get(struct lpnode *root, uint32_t key, int depth)
+lptree_get(struct log *log, struct lptree *tree, uint32_t key, int depth)
 {
 	int rc;
 	struct lprule *rule;
+	LOG_TRACE(log);
 	rule = NULL;
-	rc = lptree_operate(NULL, root, &rule, key, depth);
+	rc = lptree_operate(log, tree, &rule, key, depth);
 	ASSERT(rc);
 	if (rc == -EEXIST) {
 		return rule;
@@ -334,11 +351,11 @@ lptree_get(struct lpnode *root, uint32_t key, int depth)
 	}
 }
 int
-lptree_set(struct log *log, struct lpnode *root,
+lptree_set(struct log *log, struct lptree *tree,
 	struct lprule *rule, uint32_t key, int depth)
 {
 	int rc;
 	LOG_TRACE(log);
-	rc = lptree_operate(log, root, &rule, key, depth);
+	rc = lptree_operate(log, tree, &rule, key, depth);
 	return rc;
 }

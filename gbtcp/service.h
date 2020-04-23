@@ -13,7 +13,6 @@ struct gt_service_msg {
 } __attribute__((packed));
 
 extern int gt_service_pid;
-extern int gt_service_ctl_polling;
 
 int service_mod_init(struct log *, void **);
 int service_mod_attach(struct log *, void *);

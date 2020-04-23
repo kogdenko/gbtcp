@@ -13,7 +13,7 @@ struct gtd_service {
 	int s_port_pairity;
 	int s_ref_cnt;
 	gt_time_t s_ctime;
-	struct gt_dev s_pipe;
+	struct dev s_pipe;
 	struct gtd_net_stat_entry *s_req;
 };
 
@@ -30,6 +30,7 @@ struct gtd_service {
 	x(service_free) \
 	x(service_start) \
 
+#if 0
 #define GTD_TCP_STAT(n) \
 	{ \
 		.nse_name = "tcp."#n, \
@@ -79,55 +80,53 @@ static struct gtd_net_stat_entry gtd_net_stat_entries[] = {
 #undef GTD_UDP_STAT
 #undef GTD_IP_STAT
 #undef GTD_ARP_STAT
+#endif
 
 struct gtd_mod {
 	struct log_scope log_scope;
 	GTD_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
-static struct gtd_service *gtd_services[2][GT_SERVICES_MAX];
+static struct gtd_service *gtd_services[2][GT_SERVICE_COUNT_MAX];
 static struct gtd_mod *current_mod;
 
 static void gtd_service_unref(struct log *log, struct gtd_service *s);
 
-static int gtd_service_get_net_stat_cb(struct log *log, void *udata,
-	int eno, char *old);
+//static int gtd_service_get_net_stat_cb(struct log *log, void *udata,
+//	int eno, char *old);
 
-static int gtd_service_get_net_stat(struct gtd_service *s);
+//static int gtd_service_get_net_stat(struct gtd_service *s);
 
 static void gtd_tx_to_host(struct gt_route_if *ifp, void *data, int len);
 
 static void gtd_tx_to_net(struct gt_route_if *ifp, void *data, int len);
 
-static void gtd_host_rxtx(struct gt_dev *dev, short revents);
+void gtd_host_rxtx(struct dev *dev, short revents);
 
 static void gtd_tx_bcast(struct gtd_service *from, struct gt_route_if *ifp,
 	void *data, int len);
 
 static int gtd_pipe_in(struct gtd_service *s, uint8_t *data, int len);
 
-static void gtd_pipe_rxtx(struct gt_dev *dev, short revents);
+static void gtd_pipe_rxtx(struct dev *dev, short revents);
 
-static int gtd_service_get_if_stat_cb(struct log *log, void *udata,
-	int eno, char *old);
+//static int gtd_service_get_if_stat_cb(struct log *log, void *udata,
+//	int eno, char *old);
 
-static int gtd_service_get_if_stat(struct gtd_service *s,
-	struct gt_route_if *ifp);
+//static int gtd_service_get_if_stat(struct gtd_service *s,
+//	struct gt_route_if *ifp);
 
 static void gtd_service_set_status(struct log *log, struct gtd_service *s,
 	int status);
 
 static void gtd_deinit(struct log *log);
 
-static void gtd_service_start(struct log *log);
+//static void gtd_service_start(struct log *log);
 
-static int gtd_set_rss_conf(struct log *log, int rss_q_cnt,
-	const uint8_t *rss_key);
+//static int gtd_if_add(struct log *log, struct gt_route_if *ifp);
 
-static int gtd_if_add(struct log *log, struct gt_route_if *ifp);
-
-static int gtd_if_set_link_status(struct log * log, struct gt_route_if *ifp,
-	int add);
+//static int gtd_if_set_link_status(struct log * log, struct gt_route_if *ifp,
+//	int add);
 
 static struct gtd_service *gtd_service_find(int pid);
 
@@ -165,12 +164,13 @@ gtd_service_unref(struct log *log, struct gtd_service *s)
 		LOG_TRACE(log);
 		LOGF(log, 7, LOG_INFO, 0,
 		     "hit; pid=%d", s->s_pid);
-		gt_dev_deinit(&s->s_pipe);
+		dev_deinit(&s->s_pipe);
 		sysctl_unsub(log, s->s_pid);
 		free(s);
 	}
 }
 
+#if 0
 static int
 gtd_service_get_net_stat_cb(struct log *log, void *udata, int eno,
 	char *old)
@@ -189,7 +189,7 @@ gtd_service_get_net_stat_cb(struct log *log, void *udata, int eno,
 		} else {
 			*s->s_req->nse_ptr += x;
 			s->s_req++;
-			gtd_service_get_net_stat(s);
+			//gtd_service_get_net_stat(s);
 		}
 	}
 	gtd_service_unref(log, s);
@@ -217,12 +217,13 @@ gtd_service_get_net_stat(struct gtd_service *s)
 	}
 	return 0;
 }
+#endif
 
 static void
 gtd_tx_to_host(struct gt_route_if *ifp, void *data, int len)
 {
 	len -= sizeof(struct gt_service_msg);
-	gt_dev_tx3(&ifp->rif_dev, data, len);
+	dev_tx3(&ifp->rif_host_dev, data, len);
 }
 
 static void
@@ -230,14 +231,14 @@ gtd_tx_to_net(struct gt_route_if *ifp, void *data, int len)
 {
 	int i, rc;
 	struct gt_service_msg *msg;
-	struct gt_dev_pkt pkt;
+	struct dev_pkt pkt;
 	struct gtd_service *s;
 
 	rc = -ENOBUFS;
 	for (i = 0; i < gt_route_rss_q_cnt; ++i) {
 		s = gtd_services[GT_SERVICE_ACTIVE][i];
 		if (s != NULL) {
-			rc = gt_dev_not_empty_txr(&s->s_pipe, &pkt);
+			rc = dev_not_empty_txr(&s->s_pipe, &pkt);
 			if (rc == 0) {
 				break;
 			}
@@ -252,11 +253,11 @@ gtd_tx_to_net(struct gt_route_if *ifp, void *data, int len)
 	msg->svcm_if_idx = ifp->rif_idx;
 	GT_PKT_COPY(pkt.pkt_data, data, len);
 	pkt.pkt_len = len;
-	gt_dev_tx(&pkt);
+	dev_tx(&pkt);
 }
 
-static void
-gtd_host_rxtx(struct gt_dev *dev, short revents)
+void
+gtd_host_rxtx(struct dev *dev, short revents)
 {
 	int i, n, len;
 	uint8_t *data;
@@ -264,15 +265,15 @@ gtd_host_rxtx(struct gt_dev *dev, short revents)
 	struct netmap_slot *slot;
 	struct gt_route_if *ifp;
 
-	ifp = container_of(dev, struct gt_route_if, rif_dev);
-	GT_DEV_FOREACH_RXRING(rxr, dev) {
-		n = gt_dev_rxr_space(dev, rxr);
+	ifp = container_of(dev, struct gt_route_if, rif_host_dev);
+	DEV_FOREACH_RXRING(rxr, dev) {
+		n = dev_rxr_space(dev, rxr);
 		for (i = 0; i < n; ++i) {
 			slot = rxr->slot + rxr->cur;
 			data = (uint8_t *)NETMAP_BUF(rxr, slot->buf_idx);
 			len = slot->len;
 			gtd_tx_to_net(ifp, data, len);
-			GT_DEV_RXR_NEXT(rxr);
+			DEV_RXR_NEXT(rxr);
 		}
 	}
 }
@@ -285,7 +286,7 @@ gtd_tx_bcast(struct gtd_service *from, struct gt_route_if *ifp, void *data,
 
 	GTD_SERVICE_FOREACH(s) {
 		if (s != from) {
-			gt_dev_tx3(&s->s_pipe, data, len);
+			dev_tx3(&s->s_pipe, data, len);
 		}
 	}
 	gtd_tx_to_host(ifp, data, len);
@@ -322,7 +323,7 @@ gtd_pipe_in(struct gtd_service *s, uint8_t *data, int len)
 }
 
 static void
-gtd_pipe_rxtx(struct gt_dev *dev, short revents)
+gtd_pipe_rxtx(struct dev *dev, short revents)
 {
 	int i, n, len;
 	void *data;
@@ -331,19 +332,19 @@ gtd_pipe_rxtx(struct gt_dev *dev, short revents)
 	struct gtd_service *s;
 
 	s = container_of(dev, struct gtd_service, s_pipe);
-	GT_DEV_FOREACH_RXRING(rxr, dev) {
-		n = gt_dev_rxr_space(dev, rxr);
+	DEV_FOREACH_RXRING(rxr, dev) {
+		n = dev_rxr_space(dev, rxr);
 		for (i = 0; i < n; ++i) {
 			slot = rxr->slot + rxr->cur;
 			data = NETMAP_BUF(rxr, slot->buf_idx);
 			len = slot->len;
 			gtd_pipe_in(s, data, len);
-			GT_DEV_RXR_NEXT(rxr);
+			DEV_RXR_NEXT(rxr);
 		}
 	}
 }
 
-static int
+/*static int
 gtd_service_get_if_stat_cb(struct log *log, void *udata, int eno, char *old)
 {
 	int rc, if_idx, tmpx;
@@ -395,7 +396,7 @@ gtd_service_get_if_stat(struct gtd_service *s, struct gt_route_if *ifp)
 		gtd_service_unref(log, s);
 	}
 	return rc;
-}
+}*/
 
 static int
 gtd_service_set_status_cb(struct log *log, void *udata, int eno, char *old)
@@ -441,7 +442,7 @@ gtd_deinit(struct log *log)
 	service_deinit(log);
 }
 
-static void
+/*static void
 gtd_service_start(struct log *log)
 {
 	int rc;
@@ -455,7 +456,6 @@ gtd_service_start(struct log *log)
 		gtd_deinit(log);
 		service_init();
 		LOG_TRACE(log);
-		gt_service_ctl_polling = 0;
 		rc = service_start(log);
 		if (rc) {
 			return;
@@ -465,84 +465,9 @@ gtd_service_start(struct log *log)
 		}
 	}
 }
+*/
 
-static int
-gtd_set_rss_conf(struct log *log, int rss_q_cnt, const uint8_t *rss_key)
-{
-	int i;
-	struct gtd_service *s;
-
-	LOG_TRACE(log);
-	GTD_SERVICE_FOREACH(s) {
-		gtd_service_del(log, s);
-	}
-	memset(gtd_services, 0, sizeof(gtd_services));
-	gt_route_rss_q_cnt = rss_q_cnt;
-	if (gt_route_rss_q_cnt > 1) {
-		memcpy(gt_route_rss_key, rss_key, sizeof(gt_route_rss_key));
-	}
-	for (i = 0; i < gt_route_rss_q_cnt; ++i) {
-		gtd_service_start(log);
-	}
-	LOGF(log, 7777777, LOG_INFO, 0,
-	     "ok; rss_q_cnt=%d", gt_route_rss_q_cnt);
-	return 0;
-}
-
-static int
-gtd_if_add(struct log *log, struct gt_route_if *ifp)
-{
-	int rc, nr_rx_rings, nr_tx_rings;
-	char ifname[NM_IFNAMSIZ];
-	uint8_t rss_key[RSSKEYSIZ];
-	struct nmreq *req;
-
-	LOG_TRACE(log);
-	if (ifp->rif_is_pipe == 0) {
-		snprintf(ifname, sizeof(ifname), "%s^", ifp->rif_name);
-		rc = gt_dev_init(log, &ifp->rif_dev, ifname, gtd_host_rxtx);
-		if (rc) {
-			return rc;
-		}
-	}
-	req = &ifp->rif_dev.dev_nmd->req;
-	nr_rx_rings = req->nr_rx_rings; 
-	nr_tx_rings = req->nr_tx_rings;
-	ASSERT(nr_rx_rings > 0);
-	if (nr_rx_rings > GT_SERVICES_MAX) {
-		LOGF(log, 7, LOG_ERR, 0,
-		     "invalid nr_rx_rings; if='%s', nr_rx_rings=%d, max=%d",
-		     ifp->rif_name, nr_rx_rings, GT_SERVICES_MAX);
-		return -EINVAL;
-	}
-	if (nr_tx_rings < nr_rx_rings) {
-		LOGF(log, 7, LOG_ERR, 0,
-		     "invalid nr_tx_rings; if='%s', nr_tx_rings=%d, min=%d",
-		     ifp->rif_name, nr_tx_rings, nr_rx_rings);
-		return -EINVAL;
-	}
-	if (nr_rx_rings > 1) {
-		rc = read_rsskey(log, ifp->rif_name, rss_key);
-		if (rc) {
-			return rc;
-		}
-	}
-	if (gt_route_rss_q_cnt == 0) {
-		gtd_set_rss_conf(log, nr_rx_rings, rss_key);
-	} else if (nr_rx_rings != gt_route_rss_q_cnt) {
-		LOGF(log, 7, LOG_ERR, 0,
-		     "invalid nr_rx_rings; if='%s', nr_rx_rings=%d, rss_q_cnt=%d",
-		     ifp->rif_name, nr_rx_rings, gt_route_rss_q_cnt);
-		return -EINVAL;
-	} else if (gt_route_rss_q_cnt > 1 &&
-	           memcmp(gt_route_rss_key, rss_key, RSSKEYSIZ)) {
-		LOGF(log, 7, LOG_ERR, 0,
-		     "invalid rss_key - all interfaces must have same rss_key; if=%s",
-		     ifp->rif_name);
-	}
-	return 0;
-}
-
+#if 0
 static int
 gtd_if_set_link_status(struct log *log, struct gt_route_if *ifp, int add)
 {
@@ -551,17 +476,18 @@ gtd_if_set_link_status(struct log *log, struct gt_route_if *ifp, int add)
 	if (add) {
 		rc = gtd_if_add(log, ifp);
 		if (rc) {
-			gt_dev_deinit(&ifp->rif_dev);
+			dev_deinit(&ifp->rif_dev);
 		}
 		return rc;
 	} else {
-		gt_dev_deinit(&ifp->rif_dev);
+		dev_deinit(&ifp->rif_dev);
 		if (dlist_is_empty(&gt_route_if_head)) {
 			gtd_set_rss_conf(log, 0, NULL);
 		}
 		return 0;
 	}
 }
+#endif
 
 static struct gtd_service *
 gtd_service_find(int pid)
@@ -602,7 +528,7 @@ gtd_service_add(struct log *log, int pid, struct gtd_service **ps)
 	}
 	memset(s, 0, sizeof(*s));
 	snprintf(ifname, sizeof(ifname), "gbtcp.%d{0", pid);
-	rc = gt_dev_init(log, &s->s_pipe, ifname, gtd_pipe_rxtx);
+	rc = dev_init(log, &s->s_pipe, ifname, gtd_pipe_rxtx);
 	if (rc) {
 		free(s);
 		return rc;
@@ -690,15 +616,16 @@ gtd_ctl_service_add(struct log *log, void *udata, const char *new,
 static void
 gtd_service_del(struct log *log, struct gtd_service *s)
 {
-	int rc;
-	struct gt_route_if *ifp;
+//	int rc;
+//	struct gt_route_if *ifp;
 
 	ASSERT(s->s_status < 2);
 	LOG_TRACE(log);
 	gtd_services[s->s_status][s->s_qid] = NULL;
 	LOGF(log, 7, LOG_INFO, 0,
 	     "hit; pid=%d", s->s_pid);
-	GT_ROUTE_IF_FOREACH(ifp) {
+#if 0
+	ROUTE_IF_FOREACH(ifp) {
 		rc = gtd_service_get_if_stat(s, ifp);
 		if (rc) {
 			return;
@@ -706,6 +633,7 @@ gtd_service_del(struct log *log, struct gtd_service *s)
 	}
 	s->s_req = gtd_net_stat_entries;
 	gtd_service_get_net_stat(s);
+#endif
 	gtd_service_unref(log, s);
 }
 
@@ -777,7 +705,6 @@ controller_run(int fd[2])
 		fprintf(stderr, "Initialization failed\n");
 		return 1;
 	}
-	gt_route_if_set_link_status_fn = gtd_if_set_link_status;
 	rc = sys_malloc(NULL, (void **)&current_mod, sizeof(*current_mod));
 	log_scope_init(&current_mod->log_scope, "gbtcpd");
 	log = log_trace0();

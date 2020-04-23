@@ -105,10 +105,16 @@ init_mod_detach(struct log *log)
 
 #define MOD_ENUM(name) MOD_##name,
 #define MOD_INIT(name) \
-	printf("Init %s\n", #name); \
-	name##_mod_init(NULL, mods + MOD_##name);
+	printf("Init { %s\n", #name); \
+	name##_mod_init(NULL, mods + MOD_##name); \
+	printf("Init %s - %p\n", #name, mods + MOD_##name); \
+	printf("Attach %s [%d]%p\n", #name, MOD_##name,  mods[MOD_##name]); \
+	name##_mod_attach(NULL, mods[MOD_##name]);
+
 	
-#define MOD_ATTACH(name) name##_mod_attach(NULL, mods[MOD_##name]);
+#define MOD_ATTACH(name) \
+	printf("Attach %s [%d]%p\n", #name, MOD_##name,  mods[MOD_##name]); \
+	name##_mod_attach(NULL, mods[MOD_##name]);
 
 enum {
 	MOD_FOREACH(MOD_ENUM)
@@ -160,12 +166,19 @@ common_init(int is_service, void **mods)
 		printf("init modules\n");
 		MOD_FOREACH(MOD_INIT);
 		printf("init dodules done\n");
+	} else {
+		MOD_FOREACH(MOD_ATTACH);
 	}
-	MOD_FOREACH(MOD_ATTACH);
 	return 0;
 }
 
 int controller_run(int[2]);
+
+void
+sigchild(int f)
+{
+	printf("CHILD\n");
+}
 
 int
 service_init()
@@ -175,11 +188,14 @@ service_init()
 //	int fd[2];
 	dlsym_all();
 //	pipe
+	sys_signal(NULL, SIGCHLD, sigchild);
+	//rc = controller_run(NULL);
+	//assert(0);
 	rc = sys_fork(NULL);
 	if (rc == 0) {
 		rc = controller_run(NULL);
 	} else if (rc > 0) {
-		sleep(1);
+		sleep(5);
 		rc = shm_attach(&mods);
 		if (rc) {
 			printf("MM attach failed\n");

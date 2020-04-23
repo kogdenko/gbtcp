@@ -103,7 +103,7 @@ struct sysctl_node {
 static struct sysctl_node *sysctl_root;
 static struct sysctl_conn *sysctl_binded;
 static struct sysctl_conn *sysctl_publisher;
-static struct sysctl_conn *sysctl_subscribers[GT_SERVICES_MAX];
+static struct sysctl_conn *sysctl_subscribers[GT_SERVICE_COUNT_MAX];
 static int sysctl_nr_subscribers;
 sysctl_sub_f sysctl_sub_fn;
 static void (*sysctl_publisher_close_fn)();
@@ -158,8 +158,8 @@ static void sysctl_subscriber_close_cb(struct sysctl_conn *cp);
 
 static void sysctl_publisher_close_mediator(struct sysctl_conn *cp);
 
-static void sysctl_publish(struct log *log, struct sysctl_node *node,
-	const char *new, int new_len);
+//static void sysctl_publish(struct log *log, struct sysctl_node *node,
+//	const char *new, int new_len);
 
 static void sysctl_unsub1(int eno);
 
@@ -170,7 +170,7 @@ static int sysctl_in(struct log *log, const char *path, int load,
 static int sysctl_in_pdu(struct sysctl_conn *cp, char *data, int data_len);
 
 // node
-static int sysctl_node_get_path(struct sysctl_node *node, char *buf);
+//static int sysctl_node_get_path(struct sysctl_node *node, char *buf);
 
 void sysctl_strbuf_add_node(struct strbuf *sb, struct sysctl_node *node);
 
@@ -1145,6 +1145,7 @@ sysctl_publisher_close_mediator(struct sysctl_conn *cp)
 	}
 }
 
+#if 0
 static void
 sysctl_publish(struct log *log, struct sysctl_node *node,
 	const char *new, int new_len)
@@ -1169,6 +1170,7 @@ sysctl_publish(struct log *log, struct sysctl_node *node,
 		}
 	}
 }
+#endif
 
 static void
 sysctl_unsub1(int errnum)
@@ -1370,7 +1372,7 @@ unknown_cmd:
 	return -EPROTO;
 }
 
-static int
+/*static int
 sysctl_node_get_path(struct sysctl_node *node, char *buf)
 {
 	struct strbuf sb;
@@ -1380,7 +1382,7 @@ sysctl_node_get_path(struct sysctl_node *node, char *buf)
 	ASSERT(sb.sb_len < PATH_MAX);
 	strbuf_cstr(&sb);
 	return sb.sb_len;
-}
+}*/
 
 void
 sysctl_strbuf_add_node(struct strbuf *sb, struct sysctl_node *node)
@@ -1665,7 +1667,7 @@ static int
 sysctl_node_process_leaf(struct log *log, struct sysctl_node *node,
 	const char *new, struct strbuf *out)
 {
-	int rc, off, new_len;
+	int rc, off/*, new_len*/;
 	char *old;
 
 	off = out->sb_len;
@@ -1686,14 +1688,14 @@ sysctl_node_process_leaf(struct log *log, struct sysctl_node *node,
 			return -EINVAL;
 		}
 	}	 
-	if (new == NULL) {
-		new_len = 0;
-	} else {
-		new_len = strlen(new);
-	}
-	if (new_len && node->n_has_subscribers) {
-		sysctl_publish(log, node, new, new_len);
-	}	
+//	if (new == NULL) {
+//		new_len = 0;
+//	} else {
+//		new_len = strlen(new);
+//	}
+//	if (new_len && node->n_has_subscribers) {
+//		sysctl_publish(log, node, new, new_len);
+//	}	
 	return 0;
 }
 

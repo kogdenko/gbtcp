@@ -24,16 +24,21 @@ struct lprule {
 	uint8_t lpr_depth_rem;
 };
 
+struct lptree {
+	struct lpnode *lpt_root;
+	struct mbuf_pool *lpt_pool;
+};
+
 int lptree_mod_init(struct log *, void **);
 int lptree_mod_attach(struct log *, void *);
 void lptree_mod_deinit(struct log *, void *);
 void lptree_mod_detach(struct log *);
 
-int lptree_init(struct log *, struct lpnode *);
-void lptree_deinit(struct lpnode *);
-struct lprule *lptree_search(struct lpnode *, uint32_t);
-void lptree_del(struct lprule *);
-struct lprule *lptree_get(struct lpnode *, uint32_t, int);
-int lptree_set(struct log *, struct lpnode *, struct lprule *, uint32_t, int);
+int lptree_init(struct log *, struct lptree *);
+void lptree_deinit(struct lptree *);
+struct lprule *lptree_search(struct lptree *, uint32_t);
+void lptree_del(struct lptree *, struct lprule *);
+struct lprule *lptree_get(struct log *, struct lptree *, uint32_t, int);
+int lptree_set(struct log *, struct lptree *, struct lprule *, uint32_t, int);
 
 #endif /* GBTCP_LPTREE_H */

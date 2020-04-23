@@ -66,7 +66,7 @@ static const char *tcpstates[GT_TCP_NSTATES] = {
 	[GT_TCP_S_TIME_WAIT] = "TIME_WAIT"
 };
 
-static int pids[GT_SERVICES_MAX + 1];
+static int pids[GT_SERVICE_COUNT_MAX + 1];
 static int nr_pids;
 
 void print_sockaddr(be32_t, be16_t, const char *, int);

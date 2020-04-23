@@ -40,7 +40,7 @@ struct udp_hdr {
 	uint16_t cksum;
 } __attribute__((packed));
 
-struct dev {
+struct fwd_dev {
 	struct nm_desc *nmd;
 	int tx_full;
 	int cur_tx_ring_epoch;
@@ -115,13 +115,13 @@ print_usage()
 #define UNIQV_CAT(x, y, z) UNIQV_CAT2(x, y, z)
 #define UNIQV(n) UNIQV_CAT(n, _uniqv_, __LINE__)
 
-#define DEV_FOREACH_RXRING(rxr, dev) \
+#define FWD_DEV_FOREACH_RXRING(rxr, dev) \
 	for (int UNIQV(i) = (dev)->nmd->first_rx_ring; \
 		UNIQV(i) <= (dev)->nmd->last_rx_ring && \
 		((rxr = NETMAP_RXRING((dev)->nmd->nifp, UNIQV(i))), 1); \
 		++UNIQV(i))
 
-#define DEV_FOREACH_TXRING_CONTINUE(i, txr, dev) \
+#define FWD_DEV_FOREACH_TXRING_CONTINUE(i, txr, dev) \
 	for (; i <= (dev)->nmd->last_tx_ring && \
 		((txr = NETMAP_TXRING((dev)->nmd->nifp, i)), 1); \
 		++i)
@@ -278,7 +278,7 @@ parse(void *data, unsigned int len, struct pdu *pdu)
 }
 
 static struct netmap_ring *
-not_empty_txr(struct dev *dev)
+not_empty_txr(struct fwd_dev *dev)
 {
 	struct netmap_ring *txr;
 
@@ -289,7 +289,7 @@ not_empty_txr(struct dev *dev)
 		dev->cur_tx_ring_epoch = epoch;
 		dev->cur_tx_ring = dev->nmd->first_tx_ring;
 	}
-	DEV_FOREACH_TXRING_CONTINUE(dev->cur_tx_ring, txr, dev) {
+	FWD_DEV_FOREACH_TXRING_CONTINUE(dev->cur_tx_ring, txr, dev) {
 		if (!nm_ring_empty(txr)) {
 			return txr;
 		}
@@ -385,7 +385,7 @@ so_fill(struct gt_sock *so, void *buf, int pay_len)
 }
 
 static int
-fwd(struct dev *src, struct dev *dst)
+fwd(struct fwd_dev *src, struct fwd_dev *dst)
 {
 	int i, n, rc, more, found;
 	uint32_t tmp, hash;
@@ -397,7 +397,7 @@ fwd(struct dev *src, struct dev *dst)
 	struct pdu pdu;
 
 	more = 0;
-	DEV_FOREACH_RXRING(rxr, src) {
+	FWD_DEV_FOREACH_RXRING(rxr, src) {
 		n = nm_ring_space(rxr);
 		if (n > burst_size) {
 			more = 1;
@@ -552,7 +552,7 @@ main(int argc, char **argv)
 {
 	int opt, i, rc, cpu, more, nr_devs;
 	char ifname[IFNAMSIZ + 16];
-	struct dev devs[2];
+	struct fwd_dev devs[2];
 	struct pollfd pfds[2];
 	struct gt_sock *so_buf;
 

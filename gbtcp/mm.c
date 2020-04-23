@@ -17,6 +17,18 @@ struct shm_region {
 
 static struct shm_hdr *shm;
 
+static int
+roundup_page(int size)
+{
+	int ret;
+	ret = size & ~(PAGE_SIZE - 1);
+	if (size & (PAGE_SIZE - 1)) {
+		ret += PAGE_SIZE;
+	}
+	assert(ret >= size);
+	return ret;
+}
+
 int
 shm_init(void **pp, int size)
 {
@@ -44,13 +56,12 @@ shm_init(void **pp, int size)
 	shm->shm_npages = npages;
 	shm->shm_pageset = (u_char *)(shm + 1);
 	memset(shm->shm_pageset, 0, npages);
-	n = (sizeof(*shm) + npages + size) >> PAGE_SHIFT;
-	if (n == 0)
-		n = 1;
+	n = roundup_page(sizeof(*shm) + npages + size) >> PAGE_SHIFT;
 	for (i = 0; i < n; ++i) {
 		shm->shm_pageset[i] = 1;
 	}
 	*pp  = ((u_char *)shm) + sizeof(*shm) + npages;
+	memset(*pp, 0, size);
 	printf("INIT2 %d\n", n);
 	return 0;
 }
@@ -95,7 +106,7 @@ int
 shm_alloc_page_locked(struct log *log, void **pp, int alignment, int size)
 {
 	int i, j, alignment_n, size_n;
-	uintptr_t addr, shm_addr;
+	uintptr_t addr;
 	if (alignment & (PAGE_SIZE - 1)) {
 		return -EINVAL;
 	}
@@ -104,13 +115,12 @@ shm_alloc_page_locked(struct log *log, void **pp, int alignment, int size)
 	}
 	alignment_n = alignment >> PAGE_SHIFT;
 	size_n = size >> PAGE_SHIFT;
-	shm_addr = (uintptr_t)shm->shm_addr;
-	addr = shm_addr & ~(alignment - 1);
-	if (addr < (uintptr_t)shm->shm_addr) {
+	addr = shm->shm_addr & ~(alignment - 1);
+	if (addr < shm->shm_addr) {
 		addr += alignment;
-		assert(addr > shm_addr);
+		assert(addr > shm->shm_addr);
 	}
-	for (i = (addr - shm_addr) >> PAGE_SHIFT;
+	for (i = (addr - shm->shm_addr) >> PAGE_SHIFT;
 	     i <= shm->shm_npages - size_n; i += alignment_n) {
 		for (j = i; j < i + size_n; ++j) {
 			if (shm->shm_pageset[j]) {
@@ -121,7 +131,7 @@ shm_alloc_page_locked(struct log *log, void **pp, int alignment, int size)
 			for (j = i; j < i + size_n; ++j) {
 				shm->shm_pageset[j] = 1;
 			}
-			*pp = (void *)(shm_addr + (i << PAGE_SHIFT));
+			*pp = (void *)(shm->shm_addr + (i << PAGE_SHIFT));
 			return 0;
 		}
 	}
@@ -129,13 +139,14 @@ shm_alloc_page_locked(struct log *log, void **pp, int alignment, int size)
 }
 
 int
-shm_alloc_locked(void **pp, int size)
+shm_alloc_locked(struct log *log, void **pp, int size)
 {
-	int n, i, s, rem;
+	int rc, rem, size2, size3;
 	struct shm_region *r, *r2;
 	r2 = NULL;
+	size2 = size + sizeof(*r2);
 	DLIST_FOREACH(r, &shm->shm_free_region_head, shmr_list) {
-		if (r->shmr_size >= size + sizeof(*r)) {
+		if (r->shmr_size >= size2) {
 			if (r2 == NULL || r2->shmr_size > r->shmr_size) {
 				r2 = r;
 			}
@@ -146,29 +157,16 @@ shm_alloc_locked(void **pp, int size)
 		DLIST_REMOVE(r, shmr_list);
 		goto out;
 	}
-	n = (size + sizeof(*r)) >> PAGE_SHIFT;
-	if (!n) {
-		n = 1;
+	size3 = roundup_page(size2);
+	rc = shm_alloc_page_locked(log, (void **)&r, PAGE_SIZE, size3);
+	if (rc) {
+		return rc;
 	}
-	s = 0;
-	for (i = 0; i < shm->shm_npages; ++i) {
-		if (shm->shm_pageset[i]) {
-			s = i + 1;
-		} else if (i - s == n) {
-			goto _1;			
-		}
-	}
-	return -ENOMEM;
-_1:
-	for (i = s; i < s + n; ++i) {
-		shm->shm_pageset[i] = 1;
-	}
-	r = (struct shm_region *)(((u_char *)shm) + s * PAGE_SIZE);
-	r->shmr_size = n * PAGE_SIZE;
+	r->shmr_size = size3;
 out:
-	rem = r->shmr_size - (size + sizeof(*r));
+	rem = r->shmr_size - size2;
 	if (rem > 128) {
-		r->shmr_size = size + sizeof(*r);
+		r->shmr_size = size2;
 		r2 = (struct shm_region *)(((u_char *)r) + r->shmr_size);
 		r2->shmr_size = rem;
 		DLIST_INSERT_HEAD(&shm->shm_free_region_head, r2, shmr_list);
@@ -185,10 +183,13 @@ shm_alloc(struct log *log, void **pp, int size)
 {
 	int rc;
 	SHM_LOCK;
-	rc = shm_alloc_locked(pp, size);
+	rc = shm_alloc_locked(log, pp, size);
 	SHM_UNLOCK;
 	if (rc) {
 		printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+	} else {
+//		printf("A %p %d\n", *pp, size);
+		memset(*pp, 0, size);
 	}
 
 //	if (log != NULL rc < 0) {
@@ -196,6 +197,27 @@ shm_alloc(struct log *log, void **pp, int size)
 //		LOGF(
 //	}
 	return rc;
+}
+int
+shm_realloc(struct log *log, void **pp, int size)
+{
+	int rc, old_size;
+	struct shm_region *r;
+	void *new;
+	if (*pp == NULL) {
+		old_size = 0;
+	} else {
+		r = *pp;
+		r--;
+		old_size = r->shmr_size;
+	}
+	rc = shm_alloc(log, &new, size);
+	if (rc) {
+		return rc;
+	}
+	memcpy(new, *pp, old_size);
+	*pp = new;
+	return 0;
 }
 void
 shm_free(void *p)
@@ -212,6 +234,8 @@ shm_alloc_page(struct log *log, void **pp, int alignment, int size)
 	SHM_UNLOCK;
 	if (rc) {
 		printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+	} else {
+//		printf("A %p %d\n", *pp, size);
 	}
 	return rc;
 }

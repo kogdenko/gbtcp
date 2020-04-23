@@ -163,15 +163,13 @@ static int gt_tcp_send(struct gt_sock *so, const struct iovec *iov,
 static int gt_tcp_sender(struct gt_sock *so, int cnt);
 
 static int gt_tcp_xmit_established(struct gt_route_if *ifp,
-	struct gt_dev_pkt *pkt, struct gt_sock *so);
+	struct dev_pkt *pkt, struct gt_sock *so);
 
-static int gt_tcp_xmit(struct gt_route_if *ifp, struct gt_dev_pkt *pkt,
+static int gt_tcp_xmit(struct gt_route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so);
 
 static int gt_tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h,
 	struct gt_tcpcb *tcb, uint8_t tcp_flags, u_int len);
-
-static void gt_tcp_flush_if(struct gt_route_if *ifp);
 
 // udp
 static int gt_udp_rcvbuf_recv(struct gt_sock *so, const struct iovec *iov,
@@ -233,10 +231,10 @@ static int gt_sock_rcvbuf_add(struct gt_sock *so, const void *src, int cnt,
 static int gt_sock_on_rcv(struct gt_sock *so, void *buf, int len,
 	struct gt_sock_tuple *so_tuple);
 
-static int gt_sock_xmit(struct gt_route_if *ifp, struct gt_dev_pkt *pkt,
+static int gt_sock_xmit(struct gt_route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so);
 
-static void gt_sock_xmit_data(struct gt_route_if *ifp, struct gt_dev_pkt *pkt,
+static void gt_sock_xmit_data(struct gt_route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so, uint8_t tcp_flags, u_int len);
 
 static int gt_sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt);
@@ -534,16 +532,6 @@ gt_sock_in_err(int ipproto, struct gt_sock_tuple *so_tuple, int eno)
 	err = gt_sock_err_from_errno(eno);
 	ASSERT(err);
 	gt_sock_set_err(so, err);
-}
-
-void
-gt_sock_tx_flush()
-{
-	struct gt_route_if *ifp;
-
-	GT_ROUTE_IF_FOREACH(ifp) {
-		gt_tcp_flush_if(ifp);
-	}
 }
 
 int
@@ -1850,7 +1838,7 @@ gt_tcp_sender(struct gt_sock *so, int cnt)
 }
 
 static int
-gt_tcp_xmit_established(struct gt_route_if *ifp, struct gt_dev_pkt *pkt,
+gt_tcp_xmit_established(struct gt_route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so)
 {
 	int cnt, snt;
@@ -1900,7 +1888,7 @@ gt_tcp_xmit_established(struct gt_route_if *ifp, struct gt_dev_pkt *pkt,
 //  0 - can send more
 //  1 - sent all
 static int
-gt_tcp_xmit(struct gt_route_if *ifp, struct gt_dev_pkt *pkt, struct gt_sock *so)
+gt_tcp_xmit(struct gt_route_if *ifp, struct dev_pkt *pkt, struct gt_sock *so)
 {
 	int rc;
 
@@ -2027,16 +2015,20 @@ gt_tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h, struct gt_tcpcb *tcb,
 	return total_len;
 }
 
-static void
+void
 gt_tcp_flush_if(struct gt_route_if *ifp)
 {
 	int rc, n;
-	struct gt_dev_pkt pkt;
+	struct dev_pkt pkt;
 	struct gt_sock *so;
+	struct dlist *txq;
 
+	if (gt_route_rss_q_id < 0 || gt_route_rss_q_id > 3)
+		return; 
 	n = 0;
-	while (!dlist_is_empty(&ifp->rif_txq) && n < 128) {
-		so = DLIST_FIRST(&ifp->rif_txq, struct gt_sock, so_txl);
+	txq = &ifp->rif_rss[gt_route_rss_q_id].rifrss_txq;
+	while (!dlist_is_empty(txq) && n < 128) {
+		so = DLIST_FIRST(txq, struct gt_sock, so_txl);
 		do {
 			rc = gt_route_if_not_empty_txr(ifp, &pkt);
 			if (rc) {
@@ -2102,10 +2094,10 @@ gt_udp_sendto(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 	void *payload;
 	const uint8_t *buf;
 	struct netmap_ring *txr;
-	struct gt_dev *dev;
+	struct dev *dev;
 	struct ip4_hdr *ip4_h;
 	struct udp_hdr *udp_h;
-	struct gt_dev_pkt pkt;
+	struct dev_pkt pkt;
 	struct msg_hdr *hdr;
 
 	if (iovcnt > 1) {
@@ -2514,7 +2506,12 @@ gt_sock_in_txq(struct gt_sock *so)
 static void
 gt_sock_add_txq(struct gt_route_if *ifp, struct gt_sock *so)
 {
-	DLIST_INSERT_TAIL(&ifp->rif_txq, so, so_txl);
+	struct dlist *txq;
+	if (gt_route_rss_q_id < 0 || gt_route_rss_q_id > 3)
+		return; 
+	txq = &ifp->rif_rss[gt_route_rss_q_id].rifrss_txq;
+
+	DLIST_INSERT_TAIL(txq, so, so_txl);
 }
 
 static void
@@ -2672,7 +2669,7 @@ gt_sock_on_rcv(struct gt_sock *so, void *buf, int len,
 }
 
 static int
-gt_sock_xmit(struct gt_route_if *ifp, struct gt_dev_pkt *pkt,
+gt_sock_xmit(struct gt_route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so)
 {
 	int rc;
@@ -2697,7 +2694,7 @@ gt_sock_xmit(struct gt_route_if *ifp, struct gt_dev_pkt *pkt,
 }
 
 static void
-gt_sock_xmit_data(struct gt_route_if *ifp, struct gt_dev_pkt *pkt,
+gt_sock_xmit_data(struct gt_route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so, uint8_t tcp_flags, u_int len)
 {
 	int delack, sndwinup, total_len;
