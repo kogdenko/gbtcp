@@ -1,3 +1,4 @@
+/* GPL2 license */
 #ifndef GBTCP_ROUTE_H
 #define GBTCP_ROUTE_H
 
@@ -6,13 +7,12 @@
 #include "dev.h"
 #include "lptree.h"
 
-#define GT_EPHEMERAL_PORT_MIN 10000
-#define GT_EPHEMERAL_PORT_MAX 65535
-#define GT_NR_EPHEMERAL_PORTS \
-	(GT_EPHEMERAL_PORT_MAX - GT_EPHEMERAL_PORT_MIN + 1)
+#define EPHEMERAL_PORT_MIN 10000
+#define EPHEMERAL_PORT_MAX 65535
+#define NEPHEMERAL_PORTS (EPHEMERAL_PORT_MAX - EPHEMERAL_PORT_MIN + 1)
 
-#define GT_ROUTE_IF_NAME_NETMAP 0 // pipe1{0
-#define GT_ROUTE_IF_NAME_OS 1 // pipe1
+#define ROUTE_IFNAME_NM 0 // pipe1{0
+#define ROUTE_IFNAME_OS 1 // pipe1
 
 struct log;
 
@@ -34,17 +34,16 @@ struct gt_route_entry_long {
 	struct lprule rtl_rule;
 	struct dlist rtl_list;
 	int rtl_af;
-	struct gt_route_if *rtl_ifp;
+	struct route_if *rtl_ifp;
 	struct ipaddr rtl_via;
 	int rtl_nr_saddrs;
 	struct gt_route_if_addr **rtl_saddrs;
 };
 
-
-
 struct route_mod {
 	struct log_scope log_scope;
 	ROUTE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
+	int route_rssq_cnt;
 	struct lptree route_lptree;
 	struct mbuf_pool *route_pool;
 	struct dlist route_if_head;
@@ -64,7 +63,7 @@ struct route_if_rss {
 	struct dlist rifrss_txq;
 };
 
-struct gt_route_if {
+struct route_if {
 	struct dlist rif_list;
 	int rif_idx;
 	int rif_flags;
@@ -107,7 +106,7 @@ struct gt_route_entry {
 	unsigned int rt_pfx;
 	struct ipaddr rt_dst;
 	struct ipaddr rt_via;
-	struct gt_route_if *rt_ifp;
+	struct route_if *rt_ifp;
 	struct gt_route_if_addr *rt_ifa;
 };
 
@@ -139,7 +138,6 @@ struct gt_route_msg {
 typedef void (*gt_route_msg_f)(struct gt_route_msg *msg);
 
 extern int gt_route_rss_q_id;
-extern int gt_route_rss_q_cnt;
 extern int gt_route_port_pairity;
 extern uint8_t gt_route_rss_key[RSSKEYSIZ];
 
@@ -150,9 +148,9 @@ void route_mod_detach(struct log *);
 
 void gt_route_mod_clean(struct log *log);
 
-struct gt_route_if *gt_route_if_get_by_idx(int if_idx);
+struct route_if *gt_route_if_get_by_idx(int if_idx);
 
-struct gt_route_if *gt_route_if_get_by_name(const char *if_name,
+struct route_if *gt_route_if_get_by_name(const char *if_name,
 	int if_name_len, int if_name_type);
 
 struct gt_route_if_addr *route_ifaddr_get(int af,
@@ -165,13 +163,13 @@ int gt_route_get(int af, struct ipaddr *pref_src,
 
 int gt_route_get4(be32_t pref_src, struct gt_route_entry *route);
 
-int gt_route_if_not_empty_txr(struct gt_route_if *ifp, struct dev_pkt *pkt);
+int gt_route_if_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt);
 
-void gt_route_if_rxr_next(struct gt_route_if *ifp, struct netmap_ring *rxr);
+void gt_route_if_rxr_next(struct route_if *ifp, struct netmap_ring *rxr);
 
-void gt_route_if_tx(struct gt_route_if *ifp, struct dev_pkt *pkt);
+void gt_route_if_tx(struct route_if *ifp, struct dev_pkt *pkt);
 
-int gt_route_if_tx3(struct gt_route_if *ifp, void *data, int len);
+int gt_route_if_tx3(struct route_if *ifp, void *data, int len);
 
 int gt_route_read(int fd, gt_route_msg_f fn);
 

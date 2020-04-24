@@ -162,10 +162,10 @@ static int gt_tcp_send(struct gt_sock *so, const struct iovec *iov,
 
 static int gt_tcp_sender(struct gt_sock *so, int cnt);
 
-static int gt_tcp_xmit_established(struct gt_route_if *ifp,
+static int gt_tcp_xmit_established(struct route_if *ifp,
 	struct dev_pkt *pkt, struct gt_sock *so);
 
-static int gt_tcp_xmit(struct gt_route_if *ifp, struct dev_pkt *pkt,
+static int gt_tcp_xmit(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so);
 
 static int gt_tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h,
@@ -211,7 +211,7 @@ static int gt_sock_route(struct gt_sock *so, struct gt_route_entry *r);
 
 static int gt_sock_in_txq(struct gt_sock *so);
 
-static void gt_sock_add_txq(struct gt_route_if *ifp, struct gt_sock *so);
+static void gt_sock_add_txq(struct route_if *ifp, struct gt_sock *so);
 
 static void gt_sock_del_txq(struct gt_sock *so);
 
@@ -231,10 +231,10 @@ static int gt_sock_rcvbuf_add(struct gt_sock *so, const void *src, int cnt,
 static int gt_sock_on_rcv(struct gt_sock *so, void *buf, int len,
 	struct gt_sock_tuple *so_tuple);
 
-static int gt_sock_xmit(struct gt_route_if *ifp, struct dev_pkt *pkt,
+static int gt_sock_xmit(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so);
 
-static void gt_sock_xmit_data(struct gt_route_if *ifp, struct dev_pkt *pkt,
+static void gt_sock_xmit_data(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so, uint8_t tcp_flags, u_int len);
 
 static int gt_sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt);
@@ -581,6 +581,7 @@ gt_sock_connect(struct file *fp, const struct sockaddr_in *faddr_in,
 	struct gt_route_entry r;
 	struct gt_sock *so;
 
+	gt_dbg("CONN");
 	so = (struct gt_sock *)fp;
 	if (faddr_in->sin_port == 0 || faddr_in->sin_addr.s_addr == 0) {
 		return -EINVAL;
@@ -599,11 +600,15 @@ gt_sock_connect(struct file *fp, const struct sockaddr_in *faddr_in,
 	if (rc) {
 		return rc;
 	}
+	gt_dbg("CONN 6");
+
 	so->so_tuple.sot_laddr = r.rt_ifa->ria_addr.ipa_4;
 	rc = gt_sock_bind_ephemeral_port(so, r.rt_ifa);
 	if (rc < 0) {
 		return rc;
 	}
+	gt_dbg("CONN 7");
+
 	log = log_trace0();
 	DBG(log, LOG_MSG(connect), 0, "ok; tuple=%s:%hu>%s:%hu, fd=%d",
 	    log_add_ipaddr(AF_INET, &so->so_tuple.sot_laddr),
@@ -976,21 +981,6 @@ gt_tcp_flags_str(struct strbuf *sb, int proto, uint8_t tcp_flags)
 	GT_TCP_FLAG_FOREACH(GT_TCP_FLAG_ADD);
 	s = strbuf_cstr(sb);
 	return s;
-}
-
-int
-gt_calc_rss_q_id(struct gt_sock_tuple *so_tuple)
-{
-	uint32_t h;
-	struct gt_sock_tuple tmp;
-
-	tmp.sot_laddr = so_tuple->sot_faddr;
-	tmp.sot_faddr = so_tuple->sot_laddr;
-	tmp.sot_lport = so_tuple->sot_fport;
-	tmp.sot_fport = so_tuple->sot_lport;
-	h = toeplitz_hash((uint8_t *)&tmp, sizeof(tmp), gt_route_rss_key);
-	h &= 0x0000007F;
-	return h % gt_route_rss_q_cnt;
 }
 
 void
@@ -1838,7 +1828,7 @@ gt_tcp_sender(struct gt_sock *so, int cnt)
 }
 
 static int
-gt_tcp_xmit_established(struct gt_route_if *ifp, struct dev_pkt *pkt,
+gt_tcp_xmit_established(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so)
 {
 	int cnt, snt;
@@ -1888,7 +1878,7 @@ gt_tcp_xmit_established(struct gt_route_if *ifp, struct dev_pkt *pkt,
 //  0 - can send more
 //  1 - sent all
 static int
-gt_tcp_xmit(struct gt_route_if *ifp, struct dev_pkt *pkt, struct gt_sock *so)
+gt_tcp_xmit(struct route_if *ifp, struct dev_pkt *pkt, struct gt_sock *so)
 {
 	int rc;
 
@@ -2016,7 +2006,7 @@ gt_tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h, struct gt_tcpcb *tcb,
 }
 
 void
-gt_tcp_flush_if(struct gt_route_if *ifp)
+gt_tcp_flush_if(struct route_if *ifp)
 {
 	int rc, n;
 	struct dev_pkt pkt;
@@ -2429,27 +2419,35 @@ gt_sock_get_binded(int proto, struct gt_sock_tuple *so_tuple)
 	return binded;
 }
 
+int get_rssq_cnt();
+
 static int
 gt_sock_bind_ephemeral_port(struct gt_sock *so, struct gt_route_if_addr *ifa)
 {
 	int i, n, rss_q_id, ephemeral_port;
+	int rssq_cnt;
 	struct gt_sock *x;
 
-	n = GT_EPHEMERAL_PORT_MAX - GT_EPHEMERAL_PORT_MIN + 1;
+	rssq_cnt = get_rssq_cnt();
+	gt_dbg("ephemeral cnt=%d, id=%d pid=%d", rssq_cnt,   gt_route_rss_q_id, getpid());
+
+
+	n = EPHEMERAL_PORT_MAX - EPHEMERAL_PORT_MIN + 1;
 	for (i = 0; i < n; ++i) {
 		ephemeral_port = ifa->ria_cur_ephemeral_port;
 		so->so_tuple.sot_lport = GT_HTON16(ephemeral_port);
-		if (gt_route_rss_q_cnt > 1) {
+		if (rssq_cnt > 1) {
 			rss_q_id = gt_calc_rss_q_id(&so->so_tuple);
 		} else {
 			rss_q_id = 0;
 		}
-		if (ephemeral_port == GT_EPHEMERAL_PORT_MAX) {
-			ifa->ria_cur_ephemeral_port = GT_EPHEMERAL_PORT_MIN;
+		if (ephemeral_port == EPHEMERAL_PORT_MAX) {
+			ifa->ria_cur_ephemeral_port = EPHEMERAL_PORT_MIN;
 		} else {
 			ifa->ria_cur_ephemeral_port++;
 		}
 		if (rss_q_id == gt_route_rss_q_id) {
+			gt_dbg("??");
 			x = gt_sock_find(so->so_proto, &so->so_tuple);
 			if (x == NULL) {
 				return 0;
@@ -2504,7 +2502,7 @@ gt_sock_in_txq(struct gt_sock *so)
 }
 
 static void
-gt_sock_add_txq(struct gt_route_if *ifp, struct gt_sock *so)
+gt_sock_add_txq(struct route_if *ifp, struct gt_sock *so)
 {
 	struct dlist *txq;
 	if (gt_route_rss_q_id < 0 || gt_route_rss_q_id > 3)
@@ -2669,7 +2667,7 @@ gt_sock_on_rcv(struct gt_sock *so, void *buf, int len,
 }
 
 static int
-gt_sock_xmit(struct gt_route_if *ifp, struct dev_pkt *pkt,
+gt_sock_xmit(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so)
 {
 	int rc;
@@ -2694,7 +2692,7 @@ gt_sock_xmit(struct gt_route_if *ifp, struct dev_pkt *pkt,
 }
 
 static void
-gt_sock_xmit_data(struct gt_route_if *ifp, struct dev_pkt *pkt,
+gt_sock_xmit_data(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so, uint8_t tcp_flags, u_int len)
 {
 	int delack, sndwinup, total_len;

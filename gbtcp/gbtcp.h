@@ -216,9 +216,6 @@ int gbtcp_ppoll(struct pollfd *fds, nfds_t nfds,
 
 int gt_sysctl(int pid, const char *name, char *old, int len, const char *new);
 
-/* Return all running pids of gbtcp services (include 0 - rsstcpd) */
-int gbtcp_ctl_get_pids(int *pids, int cnt);
-
 int gbtcp_try_fd(int fd);
 
 gt_sighandler_t gbtcp_signal(int signum, gt_sighandler_t new_sa_handler);

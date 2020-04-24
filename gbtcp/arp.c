@@ -63,7 +63,7 @@ gt_arp_state_str(int state)
 }
 
 static inline void
-gt_arp_set_eth_hdr(struct gt_arp_entry *e, struct gt_route_if *ifp,
+gt_arp_set_eth_hdr(struct gt_arp_entry *e, struct route_if *ifp,
 	uint8_t *data)
 {
 	struct gt_eth_hdr *eh;
@@ -471,7 +471,7 @@ gt_arp_entry_is_reachable_timeouted(struct gt_arp_entry *e)
 }
 
 void
-gt_arp_resolve(struct gt_route_if *ifp, be32_t next_hop,
+gt_arp_resolve(struct route_if *ifp, be32_t next_hop,
 	struct dev_pkt *pkt)
 {
 	int rc;
@@ -610,7 +610,7 @@ gt_arp_add(be32_t next_hop, struct ethaddr *addr)
 }
 
 void
-gt_arp_reply(struct gt_route_if *ifp, struct gt_arp_hdr *in_arp_h)
+gt_arp_reply(struct route_if *ifp, struct gt_arp_hdr *in_arp_h)
 {
 	int rc;
 	struct gt_eth_hdr *eh;

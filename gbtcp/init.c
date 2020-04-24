@@ -152,8 +152,6 @@ int
 common_init(int is_service, void **mods)
 {
 	int rc;
-	assert(service_inited == 0);
-	service_inited = 1;
 	gt_global_epoch++;
 	assert(sizeof(struct gt_sock_tuple) == 12);
 	assert(AF_UNIX == AF_LOCAL);
@@ -185,6 +183,11 @@ service_init()
 {
 	int rc;
 	void *mods;
+
+	assert(service_inited == 0);
+	service_inited = 1;
+
+	printf("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII\n");
 //	int fd[2];
 	dlsym_all();
 //	pipe
@@ -195,7 +198,7 @@ service_init()
 	if (rc == 0) {
 		rc = controller_run(NULL);
 	} else if (rc > 0) {
-		sleep(5);
+		sleep(1);
 		rc = shm_attach(&mods);
 		if (rc) {
 			printf("MM attach failed\n");
@@ -213,6 +216,7 @@ controller_init()
 	int rc, pid;
 	void *mods;
 	dlsym_all();
+	printf("controler init \n");
 	pid = getpid();
 	rc = flock_pidfile(NULL, pid, "controller.pid");
 	printf("rc=%d\n", rc);

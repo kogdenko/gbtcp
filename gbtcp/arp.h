@@ -4,7 +4,7 @@
 #include "mbuf.h"
 #include "ip_addr.h"
 
-struct gt_route_if;
+struct route_if;
 struct gt_arp_hdr;
 struct dev_pkt;
 
@@ -22,13 +22,9 @@ int arp_mod_attach(struct log *, void *);
 void arp_mod_deinit(struct log *, void *);
 void arp_mod_detach(struct log *);
 
-void gt_arp_resolve(struct gt_route_if *ifp, be32_t next_hop,
-	struct dev_pkt *pkt);
-
-void gt_arp_update(struct gt_arp_advert_msg *msg);
-
-int gt_arp_add(be32_t next_hop, struct ethaddr *addr);
-
-void gt_arp_reply(struct gt_route_if *ifp, struct gt_arp_hdr *in_arp_h);
+void gt_arp_resolve(struct route_if *, be32_t,	struct dev_pkt *);
+void gt_arp_update(struct gt_arp_advert_msg *);
+int gt_arp_add(be32_t, struct ethaddr *);
+void gt_arp_reply(struct route_if *, struct gt_arp_hdr *);
 
 #endif /* GBTCP_ARP_H */

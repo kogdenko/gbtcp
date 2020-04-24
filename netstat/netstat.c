@@ -66,9 +66,6 @@ static const char *tcpstates[GT_TCP_NSTATES] = {
 	[GT_TCP_S_TIME_WAIT] = "TIME_WAIT"
 };
 
-static int pids[GT_SERVICE_COUNT_MAX + 1];
-static int nr_pids;
-
 void print_sockaddr(be32_t, be16_t, const char *, int);
 
 struct netif {
@@ -111,19 +108,19 @@ strzcpy(char *dest, const char *src, size_t n)
 }
 
 int
-xsysctl(int pid, const char *path, char *old, const char *new)
+xsysctl(const char *path, char *old, const char *new)
 {
 	int rc;
 
-	rc = gt_sysctl(pid, path, old, GT_SYSCTL_BUFSIZ, new);
+	rc = gt_sysctl(0, path, old, GT_SYSCTL_BUFSIZ, new);
 	if (rc >= 0) {
 		return 0;
 	} else {
 		rc = -gbtcp_errno;
 		assert(rc < 0);
 		if (rc != -ENOENT) {
-			warnx("gt_sysctl(%d, '%s') failed (%s)",
-			      pid, path, strerror(-rc));
+			warnx("gt_sysctl('%s') failed (%s)",
+			      path, strerror(-rc));
 		}
 		return rc;
 	}
@@ -142,29 +139,9 @@ xmalloc(int size)
 }
 
 static void
-bad_format(int pid, const char *path)
+bad_format(const char *path)
 {
-	warnx("sysctl(%d, '%s') bad format", pid, path);
-}
-
-static void
-get_pids()
-{
-	int i;
-
-	nr_pids = gbtcp_ctl_get_pids(pids, ARRAY_SIZE(pids));
-	if (Pflag != -1) {
-		for (i = 0; i < nr_pids; ++i) {
-			if (pids[i] == Pflag) {
-				pids[0] = Pflag;
-				nr_pids = 1;
-				return;
-			}
-		}
-		errx(1, "process %d not found.", Pflag);
-	} else if (nr_pids == 0) {
-		errx(1, "no process found.");
-	}
+	warnx("sysctl('%s') bad format", path);
 }
 
 // Interfaces
@@ -247,7 +224,7 @@ get_if(struct netif_head *head, const char *ifname)
 }
 
 static void
-get_ifs_pid(int pid, struct netif_head *head)
+get_ifs(struct netif_head *head)
 {
 	int rc, tmpd, tmpx;
 	char ifname[64], id[64], tmp32[32];
@@ -255,12 +232,12 @@ get_ifs_pid(int pid, struct netif_head *head)
 	char path[PATH_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
 	struct netif *ifp;
-
-	rc = xsysctl(pid, "route.if.list", buf, NULL);
+	LIST_INIT(head);
+	rc = xsysctl("route.if.list", buf, NULL);
 	while (rc == 0 && buf[0] == ',') {
 		strzcpy(id, buf + 1, sizeof(id));
 		snprintf(path, sizeof(path), "route.if.list.%s", id);
-		rc = xsysctl(pid, path, buf, NULL);
+		rc = xsysctl(path, buf, NULL);
 		if (rc) {
 			break;
 		}
@@ -268,7 +245,7 @@ get_ifs_pid(int pid, struct netif_head *head)
 		            ifname, &tmpd, &tmpx, tmp32,
 		            &ipackets, &ibytes, &opackets, &obytes, &odrops);
 		if (rc != 9) {
-			bad_format(0, path);
+			bad_format(path);
 			goto next;
 		}
 		if (interface != NULL && strcmp(interface, ifname)) {
@@ -288,18 +265,7 @@ get_ifs_pid(int pid, struct netif_head *head)
 		ifp->odrops += odrops;
 next:
 		snprintf(path, sizeof(path), "route.if.list.%s+", id);
-		rc = xsysctl(0, path, buf, NULL);
-	}
-}
-
-static void
-get_ifs(struct netif_head *head)
-{
-	int i;
-
-	LIST_INIT(head);
-	for (i = 0; i < nr_pids; ++i) {
-		get_ifs_pid(pids[i], head);
+		rc = xsysctl(path, buf, NULL);
 	}
 }
 
@@ -398,14 +364,14 @@ struct conn {
 };
 
 static int
-sysctl_sock_list_get(struct conn *cp, int pid, int fd)
+sysctl_sock_list_get(struct conn *cp, int fd)
 {
 	int rc;
 	char path[PATH_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
 
 	snprintf(path, sizeof(path), "sock.list.%d", fd);
-	rc = xsysctl(pid, path, buf, NULL);
+	rc = xsysctl(path, buf, NULL);
 	if (rc) {
 		return rc;
 	}
@@ -419,7 +385,7 @@ sysctl_sock_list_get(struct conn *cp, int pid, int fd)
 	            &cp->c_faddr, &cp->c_fport,
 	            &cp->c_q_len, &cp->c_inc_q_len, &cp->c_q_lim);
 	if (rc != 10) {
-		bad_format(pid, path);
+		bad_format(path);
 		return -EPROTO;
 	}
 	cp->c_laddr = htonl(cp->c_laddr);
@@ -430,7 +396,7 @@ sysctl_sock_list_get(struct conn *cp, int pid, int fd)
 }
 
 static int
-sysctl_sock_list_next(int pid, int fd)
+sysctl_sock_list_next(int fd)
 {
 	int rc, next_fd;
 	char *endptr;
@@ -438,7 +404,7 @@ sysctl_sock_list_next(int pid, int fd)
 	char buf[32];
 
 	snprintf(path, sizeof(path), "sock.list.%d+", fd);
-	rc = xsysctl(pid, path, buf, NULL);
+	rc = xsysctl(path, buf, NULL);
 	if (rc) {
 		return rc;
 	}
@@ -453,7 +419,7 @@ sysctl_sock_list_next(int pid, int fd)
 	}
 	return next_fd;
 err:
-	bad_format(pid, path);
+	bad_format(path);
 	return -EPROTO;
 }
 
@@ -478,7 +444,7 @@ print_conn_banner()
 }
 
 void
-print_conn_pid(int pid, const char *name, int proto)
+print_conn(const char *name, int proto)
 {
 	int rc, fd, is_tcp;
 	char buf1[33];
@@ -488,12 +454,12 @@ print_conn_pid(int pid, const char *name, int proto)
 	cp = &buf;
 	is_tcp = proto == IPPROTO_TCP;
 	while (1) {
-		rc = sysctl_sock_list_next(pid, fd);
+		rc = sysctl_sock_list_next(fd);
 		if (rc < 0) {
 			return;
 		}
 		fd = rc;
-		rc = sysctl_sock_list_get(cp, pid, fd);
+		rc = sysctl_sock_list_get(cp, fd);
 		if (rc == -ENOENT) {
 			continue;
 		} else if (rc < 0) {
@@ -532,18 +498,6 @@ print_conn_pid(int pid, const char *name, int proto)
 			}
 		}
 		printf("\n");
-	}
-}
-
-void
-print_conn(const char *name, int proto)
-{
-	int i;
-
-	for (i = 0; i < nr_pids; ++i) {
-		if (pids[i]) {
-			print_conn_pid(pids[i], name, proto);
-		}
 	}
 }
 
@@ -619,23 +573,20 @@ struct stat_entry stat_arp_entries[] = {
 static int
 sysctl_net_stat(const char *name, struct stat_entry *e)
 {
-	int i, rc;
+	int rc;
 	char *endptr;
 	char path[PATH_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
-
-	for (i = 0; i < nr_pids; ++i) {
-		snprintf(path, sizeof(path), "inet.stat.%s.%s", name, e->name);
-		rc = xsysctl(pids[i], path, buf, NULL);
-		if (rc) {
-			*e->ptr = 0;
-			return rc;
-		}
-		*e->ptr += strtoul(buf, &endptr, 10);
-		if (*endptr != '\0') {
-			*e->ptr = 0;
-			return -EINVAL;
-		}
+	snprintf(path, sizeof(path), "inet.stat.%s.%s", name, e->name);
+	rc = xsysctl(path, buf, NULL);
+	if (rc) {
+		*e->ptr = 0;
+		return rc;
+	}
+	*e->ptr += strtoul(buf, &endptr, 10);
+	if (*endptr != '\0') {
+		*e->ptr = 0;
+		return -EINVAL;
 	}
 	return 0;
 }
@@ -970,7 +921,6 @@ main(int argc, char **argv)
 			break;
 		}
 	}
-	get_pids();
 	if (iflag) {
 		print_if();
 		return 0;

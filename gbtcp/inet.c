@@ -129,7 +129,7 @@ inet_mod_detach(struct log *log)
 }
 
 int
-gt_inet_eth_in(struct gt_inet_context *ctx, struct gt_route_if *ifp, void *buf,
+gt_inet_eth_in(struct gt_inet_context *ctx, struct route_if *ifp, void *buf,
 	int cnt)
 {
 	int rc;

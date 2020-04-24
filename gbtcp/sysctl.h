@@ -66,49 +66,30 @@ int usysctl(struct log *log, int pid, const char *path,
 int usysctl_r(struct log *log, int pid, const char *path,
 	void *udata, sysctl_f fn, const char *new);
 
-int sysctl_me(struct log *log, const char *path,
-	const char *new, struct strbuf *old);
-
-int sysctl_get_pids(int *pids, int cnt);
-
 int sysctl_bind(struct log *log, int pid);
 
 void sysctl_unbind();
 
-int sysctl_binded_pid(struct log *log);
+void sysctl_add(struct log *, const char *, int, void *,
+	void (*)(void *), sysctl_node_f fn);
 
-int sysctl_sub(struct log *log, void (*close_fn)());
+void sysctl_add_intfn(struct log *, const char *, int mode,
+	int (*intfn)(const long long *, long long *), int, int);
 
-void sysctl_unsub(struct log *log, int pid);
-
-void sysctl_unsub_me();
-
-int sysctl_sync(struct log *log, const char *path);
-
-int sysctl_syncf(struct log *log, const char *fmt, ...)
-	__attribute__((format(printf, 2, 3)));
-
-void sysctl_add(struct log *log, const char *path, int mode, void *udata,
-	void (*free_fn)(void *), sysctl_node_f fn);
-
-void sysctl_add_intfn(struct log *log, const char *path, int mode,
-	int (*intfn)(const long long *, long long *), int min, int max);
-
-void sysctl_add_int(struct log *log, const char *path, int mode,
-	int *ptr, int min, int max);
+void sysctl_add_int(struct log *log, const char *, int,	int *, int, int);
 
 void sysctl_add_int64(struct log *log, const char *path, int mode,
 	int64_t *ptr, int64_t min, int64_t max);
 
-void sysctl_add_uint64(struct log *log, const char *path, int mode,
-	uint64_t *ptr, int64_t min, int64_t max);
+void sysctl_add_uint64(struct log *, const char *, int,
+	uint64_t *, int64_t, int64_t);
 
-void sysctl_add_list(struct log *log, const char *path, int mode,
-	void *udata, sysctl_list_next_f next_fn, sysctl_list_f fn);
+void sysctl_add_list(struct log *, const char *, int, void *,
+	sysctl_list_next_f, sysctl_list_f);
 
-int sysctl_del(struct log *log, const char *path);
+int sysctl_del(struct log *, const char *);
 
-int sysctl_delf(struct log *log, const char *fmt, ...)
+int sysctl_delf(struct log *, const char *, ...)
 	__attribute__((format(printf, 2, 3)));
 
 #endif /* GBTCP_SYSCTL_H */

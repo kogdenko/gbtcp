@@ -179,7 +179,7 @@ struct gt_tcpcb {
 };
 
 struct gt_inet_context {
-	struct gt_route_if *inp_ifp;
+	struct route_if *inp_ifp;
 	uint8_t *inp_cur;
 	int inp_rem;
 	int inp_eno;
@@ -253,7 +253,7 @@ int inet_mod_attach(struct log *, void *);
 void inet_mod_deinit(struct log *, void *);
 void inet_mod_detach(struct log *);
 
-int gt_inet_eth_in(struct gt_inet_context *ctx, struct gt_route_if *ifp,
+int gt_inet_eth_in(struct gt_inet_context *ctx, struct route_if *ifp,
 	void *buf, int cnt);
 
 void gt_inet_ip4_set_cksum(struct gt_ip4_hdr *ip4_h, void *l4_h);

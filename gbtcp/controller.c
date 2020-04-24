@@ -5,6 +5,7 @@ struct gtd_net_stat_entry {
 	uint64_t *nse_ptr;
 };
 
+#if 0
 struct gtd_service {
 	struct dlist s_list;
 	int s_pid;
@@ -16,6 +17,7 @@ struct gtd_service {
 	struct dev s_pipe;
 	struct gtd_net_stat_entry *s_req;
 };
+#endif
 
 #define GTD_LOG_MSG_FOREACH(x) \
 	x(service_get_net_stat) \
@@ -87,28 +89,28 @@ struct gtd_mod {
 	GTD_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
-static struct gtd_service *gtd_services[2][GT_SERVICE_COUNT_MAX];
+//static struct gtd_service *gtd_services[2][GT_SERVICE_COUNT_MAX];
 static struct gtd_mod *current_mod;
 
-static void gtd_service_unref(struct log *log, struct gtd_service *s);
+//static void gtd_service_unref(struct log *log, struct gtd_service *s);
 
 //static int gtd_service_get_net_stat_cb(struct log *log, void *udata,
 //	int eno, char *old);
 
 //static int gtd_service_get_net_stat(struct gtd_service *s);
 
-static void gtd_tx_to_host(struct gt_route_if *ifp, void *data, int len);
+//static void gtd_tx_to_host(struct gt_route_if *ifp, void *data, int len);
 
-static void gtd_tx_to_net(struct gt_route_if *ifp, void *data, int len);
+//static void gtd_tx_to_net(struct gt_route_if *ifp, void *data, int len);
 
-void gtd_host_rxtx(struct dev *dev, short revents);
+//void gtd_host_rxtx(struct dev *dev, short revents);
 
-static void gtd_tx_bcast(struct gtd_service *from, struct gt_route_if *ifp,
-	void *data, int len);
+//static void gtd_tx_bcast(struct gtd_service *from, struct gt_route_if *ifp,
+//	void *data, int len);
 
-static int gtd_pipe_in(struct gtd_service *s, uint8_t *data, int len);
+//static int gtd_pipe_in(struct gtd_service *s, uint8_t *data, int len);
 
-static void gtd_pipe_rxtx(struct dev *dev, short revents);
+//static void gtd_pipe_rxtx(struct dev *dev, short revents);
 
 //static int gtd_service_get_if_stat_cb(struct log *log, void *udata,
 //	int eno, char *old);
@@ -116,8 +118,8 @@ static void gtd_pipe_rxtx(struct dev *dev, short revents);
 //static int gtd_service_get_if_stat(struct gtd_service *s,
 //	struct gt_route_if *ifp);
 
-static void gtd_service_set_status(struct log *log, struct gtd_service *s,
-	int status);
+//static void gtd_service_set_status(struct log *log, struct gtd_service *s,
+//	int status);
 
 static void gtd_deinit(struct log *log);
 
@@ -128,20 +130,20 @@ static void gtd_deinit(struct log *log);
 //static int gtd_if_set_link_status(struct log * log, struct gt_route_if *ifp,
 //	int add);
 
-static struct gtd_service *gtd_service_find(int pid);
+//static struct gtd_service *gtd_service_find(int pid);
 
-static int gtd_service_add(struct log *log, int pid, struct gtd_service **ps);
+//static int gtd_service_add(struct log *log, int pid, struct gtd_service **ps);
 
-static void gtd_service_sub_handler(int pid, int action);
+//static void gtd_service_sub_handler(int pid, int action);
 
-static int gtd_ctl_service_add(struct log *log, void *udata,
-	const char *new, struct strbuf *out);
+//static int gtd_ctl_service_add(struct log *log, void *udata,
+//	const char *new, struct strbuf *out);
 
-static void gtd_service_del(struct log *log, struct gtd_service *s);
+//static void gtd_service_del(struct log *log, struct gtd_service *s);
 
-static int gtd_ctl_service_del(struct log *log, void *udata,
-	const char *new, struct strbuf *out);
-
+//static int gtd_ctl_service_del(struct log *log, void *udata,
+//	const char *new, struct strbuf *out);
+#if 0
 static int gtd_ctl_service_list_next(void *udata, int pid);
 
 static int gtd_ctl_service_list(void *udata, int id, const char *new,
@@ -169,6 +171,7 @@ gtd_service_unref(struct log *log, struct gtd_service *s)
 		free(s);
 	}
 }
+#endif
 
 #if 0
 static int
@@ -219,16 +222,19 @@ gtd_service_get_net_stat(struct gtd_service *s)
 }
 #endif
 
+#if 0
 static void
 gtd_tx_to_host(struct gt_route_if *ifp, void *data, int len)
 {
 	len -= sizeof(struct gt_service_msg);
 	dev_tx3(&ifp->rif_host_dev, data, len);
 }
+#endif
 
 static void
-gtd_tx_to_net(struct gt_route_if *ifp, void *data, int len)
+gtd_tx_to_net(struct route_if *ifp, void *data, int len)
 {
+#if 0
 	int i, rc;
 	struct gt_service_msg *msg;
 	struct dev_pkt pkt;
@@ -254,6 +260,7 @@ gtd_tx_to_net(struct gt_route_if *ifp, void *data, int len)
 	GT_PKT_COPY(pkt.pkt_data, data, len);
 	pkt.pkt_len = len;
 	dev_tx(&pkt);
+#endif
 }
 
 void
@@ -263,9 +270,9 @@ gtd_host_rxtx(struct dev *dev, short revents)
 	uint8_t *data;
 	struct netmap_ring *rxr;
 	struct netmap_slot *slot;
-	struct gt_route_if *ifp;
+	struct route_if *ifp;
 
-	ifp = container_of(dev, struct gt_route_if, rif_host_dev);
+	ifp = container_of(dev, struct route_if, rif_host_dev);
 	DEV_FOREACH_RXRING(rxr, dev) {
 		n = dev_rxr_space(dev, rxr);
 		for (i = 0; i < n; ++i) {
@@ -278,6 +285,7 @@ gtd_host_rxtx(struct dev *dev, short revents)
 	}
 }
 
+#if 0
 static void
 gtd_tx_bcast(struct gtd_service *from, struct gt_route_if *ifp, void *data,
 	int len)
@@ -291,7 +299,9 @@ gtd_tx_bcast(struct gtd_service *from, struct gt_route_if *ifp, void *data,
 	}
 	gtd_tx_to_host(ifp, data, len);
 }
+#endif
 
+#if 0
 static int
 gtd_pipe_in(struct gtd_service *s, uint8_t *data, int len)
 {
@@ -308,20 +318,22 @@ gtd_pipe_in(struct gtd_service *s, uint8_t *data, int len)
 	}
 	switch (msg->svcm_cmd) {
 	case GT_INET_OK:
-		gtd_tx_to_net(ifp, data, len);
+		//gtd_tx_to_net(ifp, data, len);
 		break;
 	case GT_INET_BYPASS:
-		gtd_tx_to_host(ifp, data, len);
+		//gtd_tx_to_host(ifp, data, len);
 		break;
 	case GT_INET_BCAST:
-		gtd_tx_bcast(s, ifp, data, len);
+		//gtd_tx_bcast(s, ifp, data, len);
 		break;
 	default:
 		return -ENOMSG;
 	}
 	return 0;
 }
+#endif
 
+#if 0
 static void
 gtd_pipe_rxtx(struct dev *dev, short revents)
 {
@@ -343,6 +355,7 @@ gtd_pipe_rxtx(struct dev *dev, short revents)
 		}
 	}
 }
+#endif
 
 /*static int
 gtd_service_get_if_stat_cb(struct log *log, void *udata, int eno, char *old)
@@ -398,6 +411,7 @@ gtd_service_get_if_stat(struct gtd_service *s, struct gt_route_if *ifp)
 	return rc;
 }*/
 
+#if 0
 static int
 gtd_service_set_status_cb(struct log *log, void *udata, int eno, char *old)
 {
@@ -433,6 +447,7 @@ gtd_service_set_status(struct log *log, struct gtd_service *s, int status)
 		s->s_ref_cnt++;
 	}
 }
+#endif
 
 static void
 gtd_deinit(struct log *log)
@@ -489,6 +504,7 @@ gtd_if_set_link_status(struct log *log, struct gt_route_if *ifp, int add)
 }
 #endif
 
+#if 0
 static struct gtd_service *
 gtd_service_find(int pid)
 {
@@ -574,8 +590,9 @@ out:
 	LOGF(log, 7, LOG_INFO, 0, "ok; pid=%d, qid=%d", pid, qid);
 	return 0;
 }
+#endif
 
-static void
+/*static void
 gtd_service_sub_handler(int pid, int action)
 {
 	struct log *log;
@@ -587,8 +604,9 @@ gtd_service_sub_handler(int pid, int action)
 		LOGF(log, 7, LOG_ERR, 0, "unexpected unsubscribe; pid=%d", pid);
 		gtd_service_del(log, s);
 	}
-}
+}*/
 
+#if 0
 static int
 gtd_ctl_service_add(struct log *log, void *udata, const char *new,
 	struct strbuf *out)
@@ -636,7 +654,8 @@ gtd_service_del(struct log *log, struct gtd_service *s)
 #endif
 	gtd_service_unref(log, s);
 }
-
+#endif
+#if 0
 static int
 gtd_ctl_service_del(struct log *log, void *udata, const char *new,
 	struct strbuf *out)
@@ -658,7 +677,9 @@ gtd_ctl_service_del(struct log *log, void *udata, const char *new,
 	gtd_service_del(log, s);
 	return 0;
 }
+#endif
 
+#if 0
 static int
 gtd_ctl_service_list_next(void *udata, int pid)
 {
@@ -693,6 +714,7 @@ gtd_ctl_service_list(void *udata, int id, const char *new,
 	            gt_service_status_str(s->s_status));
 	return 0;	
 }
+#endif
 
 int
 controller_run(int fd[2])
@@ -716,14 +738,14 @@ controller_run(int fd[2])
 	}
 	printf("OK\n");
 	log_backtrace(0);
-	sysctl_sub_fn = gtd_service_sub_handler;
-	sysctl_add(log, GT_CTL_SERVICE_ADD, SYSCTL_WR,
-	           NULL, NULL, gtd_ctl_service_add);
-	sysctl_add(log, GT_CTL_SERVICE_DEL, SYSCTL_WR,
-	           NULL, NULL, gtd_ctl_service_del);
-	sysctl_add_list(log, GT_CTL_SERVICE_LIST, SYSCTL_RD, NULL,
-	                gtd_ctl_service_list_next,
-	                gtd_ctl_service_list);
+///	sysctl_sub_fn = gtd_service_sub_handler;
+//	sysctl_add(log, GT_CTL_SERVICE_ADD, SYSCTL_WR,
+//	           NULL, NULL, gtd_ctl_service_add);
+//	sysctl_add(log, GT_CTL_SERVICE_DEL, SYSCTL_WR,
+//	           NULL, NULL, gtd_ctl_service_del);
+///	sysctl_add_list(log, GT_CTL_SERVICE_LIST, SYSCTL_RD, NULL,
+//	                gtd_ctl_service_list_next,
+//	                gtd_ctl_service_list);
 	while (1) {
 		gt_fd_event_mod_wait();
 	}

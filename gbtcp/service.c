@@ -46,11 +46,11 @@ struct gt_service_sock {
 
 int gt_service_pid;
 
-static struct dev gt_service_pipe;
-static int gt_service_ctl_child_close_listen_socks;
-static int gt_service_subscribed;
-static int gt_service_status = GT_SERVICE_NONE;
-static int gt_service_epoch;
+//static struct dev gt_service_pipe;
+//static int gt_service_ctl_child_close_listen_socks;
+//static int gt_service_subscribed;
+//static int gt_service_status = GT_SERVICE_NONE;
+//static int gt_service_epoch;
 static struct service_mod *current_mod;
 
 #ifdef __linux__
@@ -58,52 +58,32 @@ static int (*gt_service_clone_fn)(void *);
 #else /* __linux__ */
 #endif /* __linux__ */
 
-static int gt_service_ctl_status(struct log *log, void *udata,
-	const char *new, struct strbuf *out);
+static int gt_service_in(struct route_if *ifp, uint8_t *data, int len);
 
-static int gt_service_in(struct gt_route_if *ifp, uint8_t *data, int len);
-
-static void gt_service_if_in(struct gt_route_if *ifp, uint8_t *data, int len);
-
-static int gt_service_pipe_in(uint8_t *data, int len);
-
-static void service_pipe_rxtx(struct dev *dev, short revents);
+static void gt_service_if_in(struct route_if *ifp, uint8_t *data, int len);
 
 void gt_service_rxtx(struct dev *dev, short revents);
 
-//static int gt_service_dev_init(struct log *log, struct gt_route_if *ifp);
+//static int gt_service_dev_init(struct log *log, struct route_if *ifp);
 
 //static int gt_service_route_if_set_link_status(struct log *log,
-//	struct gt_route_if *ifp, int add);
+//	struct route_if *ifp, int add);
 
-//static int gt_service_route_if_not_empty_txr(struct gt_route_if *ifp,
+//static int gt_service_route_if_not_empty_txr(struct route_if *ifp,
 //	struct dev_pkt *pkt);
 
-static int gt_service_set_status(struct log *log, int status);
-
-static int gt_service_sub(struct log *log);
 
 //static int gt_service_sync(struct log *log);
 
-static int gt_service_add(struct log *log);
-
-static void gt_service_clean(struct log *log);
-
-static int gt_service_del_cb(struct log *log, void *udata, int eno,
-	char *old);
-
-static void gt_service_del();
-
-static void gt_service_unsub_handler();
+//static void gt_service_clean(struct log *log);
 
 static void gt_service_in_parent();
-
-static void gt_service_listen(struct log *log, struct dlist *head);
 
 static void gt_service_in_child(struct log *log);
 
 static int gt_service_clone_fn_locked(void *arg);
 
+#if 0
 static int
 gt_service_ctl_status(struct log *log, void *udata, const char *new,
 	struct strbuf *out)
@@ -125,6 +105,7 @@ gt_service_ctl_status(struct log *log, void *udata, const char *new,
 	rc = gt_service_set_status(log, status);
 	return rc;
 }
+#endif
 
 int
 service_mod_init(struct log *log, void **pp)
@@ -138,10 +119,10 @@ service_mod_init(struct log *log, void **pp)
 	}
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "service");
-	sysctl_add_int(log, GT_CTL_SERVICE_CHILD_CLOSE_LISTEN_SOCKS, SYSCTL_LD,
-	               &gt_service_ctl_child_close_listen_socks, 0, 1);
-	sysctl_add(log, GT_CTL_SERVICE_STATUS, SYSCTL_WR,
-	           NULL, NULL, gt_service_ctl_status);	
+//	sysctl_add_int(log, GT_CTL_SERVICE_CHILD_CLOSE_LISTEN_SOCKS, SYSCTL_LD,
+//	               &gt_service_ctl_child_close_listen_socks, 0, 1);
+//	sysctl_add(log, GT_CTL_SERVICE_STATUS, SYSCTL_WR,
+//	           NULL, NULL, gt_service_ctl_status);	
 	return 0;
 }
 
@@ -185,7 +166,7 @@ gt_service_status_str(int status)
 }
 
 static int
-gt_service_in(struct gt_route_if *ifp, uint8_t *data, int len)
+gt_service_in(struct route_if *ifp, uint8_t *data, int len)
 {
 	int rc;
 	struct gt_sock_tuple so_tuple;
@@ -215,10 +196,10 @@ gt_service_in(struct gt_route_if *ifp, uint8_t *data, int len)
 }
 
 static void
-gt_service_if_in(struct gt_route_if *ifp, uint8_t *data, int len)
+gt_service_if_in(struct route_if *ifp, uint8_t *data, int len)
 {
 	int rc;
-	struct gt_service_msg msg;
+//	struct gt_service_msg msg;
 
 	rc = gt_service_in(ifp, data, len);
 	switch (rc) {
@@ -227,11 +208,11 @@ gt_service_if_in(struct gt_route_if *ifp, uint8_t *data, int len)
 		break;
 	case GT_INET_BYPASS:
 	case GT_INET_BCAST:
-		msg.svcm_cmd = rc;
-		msg.svcm_if_idx = ifp->rif_idx;
-		memcpy(data + len, &msg, sizeof(msg));
-		len += sizeof(msg);
-		dev_tx3(&gt_service_pipe, data, len);
+//		msg.svcm_cmd = rc;
+//		msg.svcm_if_idx = ifp->rif_idx;
+//		memcpy(data + len, &msg, sizeof(msg));
+//		len += sizeof(msg);
+//		dev_tx3(&gt_service_pipe, data, len);
 		break;
 	default:
 		BUG;
@@ -239,12 +220,13 @@ gt_service_if_in(struct gt_route_if *ifp, uint8_t *data, int len)
 	}
 }
 
+#if 0
 static int
 gt_service_pipe_in(uint8_t *data, int len)
 {
 	int cmd;
 	struct gt_service_msg *msg;
-	struct gt_route_if *ifp;
+	struct route_if *ifp;
 
 	if (len < sizeof(*msg)) {
 		return -EINVAL;
@@ -267,7 +249,9 @@ gt_service_pipe_in(uint8_t *data, int len)
 		return -EINVAL;
 	}
 }
+#endif
 
+#if 0
 static void
 service_pipe_rxtx(struct dev *dev, short revents)
 {
@@ -286,6 +270,7 @@ service_pipe_rxtx(struct dev *dev, short revents)
 		}
 	}
 }
+#endif
 
 void
 gt_service_rxtx(struct dev *dev, short revents)
@@ -294,7 +279,7 @@ gt_service_rxtx(struct dev *dev, short revents)
 	void *data;
 	struct netmap_ring *rxr;
 	struct netmap_slot *slot;
-	struct gt_route_if *ifp;
+	struct route_if *ifp;
 
 	ifp = dev->dev_udata;
 	DEV_FOREACH_RXRING(rxr, dev) {
@@ -312,7 +297,7 @@ gt_service_rxtx(struct dev *dev, short revents)
 
 /*static int
 gt_service_route_if_set_link_status(struct log *log,
-	struct gt_route_if *ifp, int add)
+	struct route_if *ifp, int add)
 {
 	int rc;
 
@@ -329,7 +314,7 @@ gt_service_route_if_set_link_status(struct log *log,
 }
 
 static int
-gt_service_route_if_not_empty_txr(struct gt_route_if *ifp, struct dev_pkt *pkt)
+gt_service_route_if_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt)
 {
 	int rc;
 
@@ -338,7 +323,7 @@ gt_service_route_if_not_empty_txr(struct gt_route_if *ifp, struct dev_pkt *pkt)
 }
 
 void
-gt_service_route_if_tx(struct gt_route_if *ifp, struct dev_pkt *pkt)
+gt_service_route_if_tx(struct route_if *ifp, struct dev_pkt *pkt)
 {
 	struct gt_service_msg *msg;
 
@@ -348,12 +333,13 @@ gt_service_route_if_tx(struct gt_route_if *ifp, struct dev_pkt *pkt)
 	pkt->pkt_len += sizeof(*msg);
 }*/
 
+#if 0
 static int
 gt_service_set_status(struct log *log, int status)
 {
 	int rc, tmp_fd;
 	struct file *fp;
-//	struct gt_route_if *ifp;
+//	struct route_if *ifp;
 
 	if (gt_service_status == status) {
 		return 0;
@@ -384,7 +370,9 @@ gt_service_set_status(struct log *log, int status)
 		return rc;
 	}
 }
+#endif
 
+#if 0
 static int
 gt_service_sub(struct log *log)
 {
@@ -398,6 +386,7 @@ gt_service_sub(struct log *log)
 	}
 	return rc;
 }
+#endif
 
 /*static int
 gt_service_sync(struct log *log)
@@ -420,6 +409,7 @@ gt_service_sync(struct log *log)
 	return 0;
 }*/
 
+#if 0
 static int
 gt_service_add(struct log *log)
 {
@@ -479,10 +469,26 @@ err:
 	LOGF(log, 7, LOG_ERR, 0, "invalid rpl; rpl=%s", buf);
 	return -EINVAL;
 }
+#endif
+
+int route_create_devs(struct log *log);
+
 
 int
 service_start(struct log *log)
 {
+#if 1
+	printf("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS %d\n", getpid());
+	if (gt_route_rss_q_id != -1)
+		return 0;
+	assert(gt_route_rss_q_id == -1);
+	gt_route_rss_q_id = 0;
+	printf("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOKKKKKKKKKKKKKKKKKKKKKKKK %d\n", gt_route_rss_q_id);
+	route_create_devs(log);
+
+//	     gt_route_rss_q_cnt, gt_route_port_pairity);
+	return 0;
+#else
 	int rc;
 	char buf[NM_IFNAMSIZ];
 
@@ -534,8 +540,10 @@ err1:
 	//gt_route_if_not_empty_txr_fn = NULL;
 	//gt_route_if_tx_fn = NULL;
 	return rc;
+#endif
 }
 
+#if 0
 static void
 gt_service_clean(struct log *log)
 {
@@ -553,7 +561,9 @@ gt_service_clean(struct log *log)
 	//gt_route_if_not_empty_txr_fn = NULL;
 	//gt_route_if_tx_fn = NULL;
 }
+#endif
 
+#if 0
 static int
 gt_service_del_cb(struct log *log, void *udata, int eno, char *old)
 {
@@ -567,7 +577,9 @@ gt_service_del_cb(struct log *log, void *udata, int eno, char *old)
 	}
 	return 0;
 }
+#endif
 
+#if 0
 static void
 gt_service_del()
 {
@@ -595,7 +607,9 @@ gt_service_del()
 		gt_service_clean(log);
 	}
 }
+#endif
 
+#if 0
 static void
 gt_service_unsub_handler()
 {
@@ -616,12 +630,14 @@ gt_service_unsub_handler()
 		gt_service_clean(log);
 	}
 }
+#endif
 
 static void
 gt_service_in_parent()
 {
 }
 
+#if 0
 static void
 gt_service_listen(struct log *log, struct dlist *head)
 {
@@ -655,10 +671,12 @@ gt_service_listen(struct log *log, struct dlist *head)
 		}
 	}
 }
+#endif
 
 static void
 gt_service_in_child(struct log *log)
 {
+#if 0
 	int rc;
 	struct dlist so_head;
 	struct gt_sock *so;
@@ -694,6 +712,8 @@ gt_service_in_child(struct log *log)
 		DLIST_REMOVE(sso, ss_list);
 		free(sso);
 	}
+#endif
+	assert(0);
 }
 
 int

@@ -411,20 +411,6 @@ usysctl_r(struct log *log, int pid, const char *path,
 }
 
 int
-sysctl_me(struct log *log, const char *path,
-	const char *new, struct strbuf *old)
-{
-	int rc;
-
-	ASSERT(path != NULL);
-	ASSERT(sysctl_is_valid_token(path));
-	ASSERT(new == NULL || sysctl_is_valid_token(new));
-	LOG_TRACE(log);
-	rc = sysctl_in(log, path, 0, new, old);
-	return rc;
-}
-
-int
 sysctl_get_pids(int *pids, int cnt)
 {
 	const char *path;

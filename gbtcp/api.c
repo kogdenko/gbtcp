@@ -909,24 +909,6 @@ gt_sysctl(int pid, const char *path, char *old, int len, const char *new)
 	API_RETURN(rc);
 }
 int
-gbtcp_ctl_get_pids(int *pids, int count)
-{
-	int rc;
-	struct log *log;
-
-	GT_API_LOCK;
-	log = log_trace0();
-	LOGF(log, 7, LOG_INFO, 0, "hit");
-	rc = sysctl_get_pids(pids, count);
-	if (rc < 0) {
-		LOGF(log, 7, LOG_INFO, -rc, "failed");
-	} else {
-		LOGF(log, 7, LOG_INFO, 0, "ok");
-	}
-	GT_API_UNLOCK;
-	API_RETURN(rc);
-}
-int
 gbtcp_try_fd(int fd)
 {
 	int rc;

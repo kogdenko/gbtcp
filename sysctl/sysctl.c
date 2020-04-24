@@ -15,7 +15,7 @@ static int qflag;
 static int Hflag;
 static int Lflag = INT_MAX;
 
-static int sysctl_r(int pid, char *path, int path_len,
+static int sysctl_r(char *path, int path_len,
                     char *buf, const char *new, int depth);
 
 #ifndef ARRAY_SIZE
@@ -89,7 +89,7 @@ print_human_num(unsigned long long ull)
 }
 
 static void
-print_sysctl(int pid, const char *path, char *old)
+print_sysctl(const char *path, char *old)
 {
 	int i, zero;
 	unsigned long long ull;
@@ -110,7 +110,7 @@ print_sysctl(int pid, const char *path, char *old)
 	while (*path == '.') {
 		path++;
 	}
-	printf("%d %s=", pid, path);
+	printf("%s=", path);
 	if (!Hflag) {
 		printf("%s\n", old);
 		return;
@@ -141,7 +141,7 @@ print_sysctl(int pid, const char *path, char *old)
 }
 
 static int
-sysctl_list_r(int pid, char *path, int path_len, char *buf, int depth)
+sysctl_list_r(char *path, int path_len, char *buf, int depth)
 {
 	int i, rc, len;
 
@@ -161,14 +161,14 @@ sysctl_list_r(int pid, char *path, int path_len, char *buf, int depth)
 		}
 		path[len - 1] = '\0';
 		// path: A.B.list.C
-		rc = sysctl_r(pid, path, len - 1, buf, NULL, depth + 1);
+		rc = sysctl_r(path, len - 1, buf, NULL, depth + 1);
 		if (rc < 0 && rc != -ENOENT) {
 			return rc;
 		}
 		path[len - 1] = '+';
 		path[len] = '\0';
 		// path: A.B.list.C+
-		rc = gt_sysctl(pid, path, buf, GT_SYSCTL_BUFSIZ, NULL);
+		rc = gt_sysctl(0, path, buf, GT_SYSCTL_BUFSIZ, NULL);
 		if (rc == -1) {
 			rc = -gbtcp_errno;
 			return rc;
@@ -183,12 +183,11 @@ sysctl_list_r(int pid, char *path, int path_len, char *buf, int depth)
 }
 
 static int
-sysctl_r(int pid, char *path, int path_len,
-         char *buf, const char *new, int depth)
+sysctl_r(char *path, int path_len, char *buf, const char *new, int depth)
 {
 	int rc;
 
-	rc = gt_sysctl(pid, path, buf, GT_SYSCTL_BUFSIZ, new);
+	rc = gt_sysctl(0, path, buf, GT_SYSCTL_BUFSIZ, new);
 	if (rc == -1) {
 		rc = -gbtcp_errno;
 		return rc;
@@ -202,16 +201,16 @@ sysctl_r(int pid, char *path, int path_len,
 				path_len--;
 			}
 		}
-		rc = sysctl_list_r(pid, path, path_len, buf, depth + 1);
+		rc = sysctl_list_r(path, path_len, buf, depth + 1);
 		return rc;
 	} else {
-		print_sysctl(pid, path, buf);
+		print_sysctl(path, buf);
 	}
 	return 0;
 }
 
 static int
-sysctl_raw(int pid, const char *arg, int line_num)
+sysctl_raw(const char *arg, int line_num)
 {
 	int rc;
 	char *path, *new, *eql;
@@ -229,7 +228,7 @@ sysctl_raw(int pid, const char *arg, int line_num)
 		new = trim(eql + 1, " \r\n\t");
 	}
 	path = trim(arg_buf, " .\r\n\t");
-	rc = sysctl_r(pid, path, strlen(path), buf, new, 0);
+	rc = sysctl_r(path, strlen(path), buf, new, 0);
 	if (rc < 0) {
 		if (rc == -ENOENT) {
 			if (iflag) {
@@ -243,13 +242,13 @@ sysctl_raw(int pid, const char *arg, int line_num)
 		} else {
 			line[0] = '\0';
 		}
-		warnx("%d '%s'%s: %s", pid, path, line, strerror(-rc));
+		warnx("'%s'%s: %s", path, line, strerror(-rc));
 	}
 	return rc;
 }
 
 static int
-read_file(int pid, const char *path)
+read_file(const char *path)
 {	
 	char buf[BUFSIZ];
 	int rc, line_num;
@@ -270,7 +269,7 @@ read_file(int pid, const char *path)
 		if (x != NULL) {
 			*x = '\0';
 		}
-		sysctl_raw(pid, s, line_num);
+		sysctl_raw(s, line_num);
 	}
 	fclose(file);
 	return 0;
@@ -283,7 +282,6 @@ usage()
 	"Usage: sysctl [options] [variable[=name] ...]\n"
 	"\n"
 	"\t-h             Print this help\n"
-	"\t-p pid         \n"
 	"\t-f path        Apply file\n"
 	"\t-a             Display all variables\n"
 	"\t-i             Ignore unknown variables\n"
@@ -293,21 +291,15 @@ usage()
 int
 main(int argc, char **argv)
 {
-	int pids[32];
-	int i, j, rc, opt, nr_pids;
+	int i, rc, opt;
 	const char *path;
 
-	nr_pids = 0;
 	path = NULL;
-	while ((opt = getopt(argc, argv, "hp:f:aniQHL:")) != -1) {
+	while ((opt = getopt(argc, argv, "hf:aniQHL:")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
 			return 0;
-		case 'p':
-			pids[0] = strtoul(optarg, NULL, 10);
-			nr_pids = 1;
-			break;
 		case 'f':
 			path = optarg;
 			break;
@@ -331,20 +323,10 @@ main(int argc, char **argv)
 			break;
 		}
 	}
-	if (nr_pids == 0) {
-		rc = gbtcp_ctl_get_pids(pids, ARRAY_SIZE(pids));
-		if (rc < 0) {
-			warnx("get_pids() (%s)", strerror(gbtcp_errno));
-			return EXIT_FAILURE;
-		}
-		nr_pids = rc;
-	}
 	if (path != NULL) {
-		for (i = 0; i < nr_pids; ++i) {
-			rc = read_file(pids[i], path);
-			if (rc < 0) {
-				return EXIT_FAILURE;
-			}
+		rc = read_file(path);
+		if (rc < 0) {
+			return EXIT_FAILURE;
 		}
 	}
 	if (optind == argc && aflag == 0) {
@@ -356,14 +338,10 @@ main(int argc, char **argv)
 		}
 	}
 	for (i = optind; i < argc; ++i) {
-		for (j = 0; j < nr_pids; ++j) {
-			sysctl_raw(pids[j], argv[i], 0);
-		}
+		sysctl_raw(argv[i], 0);
 	}
 	if (aflag && optind == argc) {
-		for (i = 0; i < nr_pids; ++i) {
-			sysctl_raw(pids[i], "", 0);
-		}
+		sysctl_raw("", 0);
 	}
 	return EXIT_SUCCESS;
 }
