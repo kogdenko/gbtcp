@@ -28,13 +28,6 @@
 #define GT_CTL_ROUTE_ROUTE_LIST "route.route.list"
 #define GT_CTL_ROUTE_ROUTE_ADD "route.route.add"
 #define GT_CTL_ROUTE_ROUTE_DEL "route.route.del"
-#define GT_CTL_SERVICE_ADD "service.add"
-#define GT_CTL_SERVICE_DEL "service.del"
-#define GT_CTL_SERVICE_LIST "service.list"
-#define GT_CTL_SERVICE_STATUS "service.status"
-#define GT_CTL_SERVICE_CHILD_CLOSE_LISTEN_SOCKS \
-	"service.child_close_listen_socks"
-#define GT_CTL_SERVICE_POLLING "service.polling"
 #define GT_CTL_SOCK_LIST "sock.list"
 
 struct strbuf;

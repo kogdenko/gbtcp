@@ -2,13 +2,11 @@
 #define GBTCP_INTERNALS_H
 
 #include "gbtcp.h"
-
-
-
 #include "subr.h"
 #include "list.h"
 #include "strbuf.h"
 #include "ip_addr.h"
+#include "pid.h"
 #include "global.h"
 #include "sys.h"
 #include "mm.h"
@@ -31,8 +29,8 @@
 #include "arp.h"
 #include "file.h"
 #include "sockbuf.h"
-
 #include "api.h"
 #include "service.h"
+#include "proc.h"
 
 #endif /* GBTCP_INETRNALS_H */

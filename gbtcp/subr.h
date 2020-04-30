@@ -46,6 +46,7 @@
 #include <syscall.h>
 #include <execinfo.h>
 #include <sys/epoll.h>
+#include <sys/inotify.h>
 #include <asm/types.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
@@ -104,7 +105,6 @@
 typedef uint16_t be16_t;
 typedef uint32_t be32_t;
 typedef uint64_t be64_t;
-typedef uint64_t gt_time_t;
 
 struct log;
 struct gt_strbuf;
@@ -133,6 +133,7 @@ struct gt_profiler {
 };
 
 
+
 #ifndef field_off
 #define field_off(type, field) ((intptr_t)&((type *)0)->field)
 #endif /* field_off */
@@ -154,7 +155,11 @@ struct gt_profiler {
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif /* MAX */
 
+#ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
+#endif /* ARRAY_SIZE */
+
+#define ARRAY_REMOVE(a, i, n) ((a)[i] = (a)[--(n)])
 
 #define STRSZ(s) (s), (sizeof(s) - 1)
 
@@ -186,6 +191,10 @@ struct gt_profiler {
 #define GT_NTOH16(x) ((uint16_t)GT_BSWAP16(x))
 #define GT_NTOH32(x) ((uint32_t)GT_BSWAP32(x))
 #endif // __BIG_ENDIAN
+
+#define mb _mm_mfence
+#define rmb _mm_sfence
+#define wmb _mm_lfence
 
 #if 1
 #define GT_PKT_COPY(d, s, len) nm_pkt_copy(s, d, len)
@@ -230,7 +239,7 @@ do { \
 #define GT_PRF_LEAVE(x) profiler_leave(&prf_##x)
 #endif
 
-extern uint64_t gt_nsec;
+extern uint64_t nanoseconds;
 extern uint64_t gt_mHZ;
 extern int gt_application_pid;
 extern const char *gt_application_name;
@@ -283,19 +292,16 @@ uint32_t gt_lower_pow_of_2_32(uint32_t x);
 
 uint64_t gt_lower_pow_of_2_64(uint64_t x);
 
-// wrapper
-int flock_pidfile(struct log *, int, const char *);
 
-int read_pidfile(struct log *, int, const char *);
 
 int gt_set_nonblock(struct log *, int fd);
 
-int gt_connect_timed(struct log *, int fd, const struct sockaddr *addr,
-	socklen_t addrlen, gt_time_t to);
+int connect_timed(struct log *, int fd, const struct sockaddr *addr,
+	socklen_t addrlen, uint64_t to);
 
 int write_all(struct log *log, int fd, const void *buf, size_t count);
 
-int read_rsskey(struct log *log, const char *ifname, uint8_t *rss_key);
+int read_rsskey(struct log *, const char *, u_char *);
 
 long gt_gettid();
 

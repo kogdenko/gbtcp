@@ -186,7 +186,7 @@ file_close(struct file *fp, int how)
 		gt_sock_close(fp, GT_SOCK_GRACEFULL);
 		break;
 	case FILE_EPOLL:
-		gt_epoll_close(fp);
+		uepoll_close(fp);
 		break;
 	default:
 		BUG;
@@ -356,7 +356,6 @@ file_aio_set(struct file *fp, struct file_aio *aio, short events,
 		file_aio_call(aio, revents);
 	}
 }
-
 void
 file_aio_cancel(struct file_aio *aio)
 {

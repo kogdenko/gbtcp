@@ -139,9 +139,6 @@ service_mod_deinit(struct log *log, void *raw_mod)
 	struct service_mod *mod;
 	LOG_TRACE(log);
 	mod = raw_mod;
-	sysctl_del(log, GT_CTL_SERVICE_POLLING);
-	sysctl_del(log, GT_CTL_SERVICE_CHILD_CLOSE_LISTEN_SOCKS);
-	sysctl_del(log, GT_CTL_SERVICE_STATUS);
 	log_scope_deinit(log, &mod->log_scope);
 	shm_free(mod);
 }
@@ -720,7 +717,6 @@ int
 gt_service_fork(struct log *log)
 {
 	int rc, pid;
-
 	LOG_TRACE(log);
 	rc = sys_fork(log);
 	if (rc >= 0) {

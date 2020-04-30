@@ -2,7 +2,7 @@
 
 CC=${CC:-cc}
 PREFIX="/usr/local"
-CFLAGS="$CFLAGS -g -Wall -Werror -I. -std=gnu99 -pipe"
+CFLAGS="$CFLAGS -g -Wall -Werror -Wstrict-overflow -I. -std=gnu99 -pipe"
 CFLAGS="$CFLAGS -finline-functions -pthread -fPIC"
 CFLAGS="$CFLAGS -D_LIBC_REENTRANT"
 CFLAGS="$CFLAGS -Wunused-variable"

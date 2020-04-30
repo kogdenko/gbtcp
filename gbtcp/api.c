@@ -815,7 +815,7 @@ gbtcp_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 	const sigset_t *sigmask)
 {
 	int rc;
-	gt_time_t to;
+	uint64_t to;
 	struct log *log;
 
 	if (timeout == NULL) {
@@ -959,7 +959,7 @@ gbtcp_epoll_create()
 		ASSERT(rc);
 	} else {
 		fd = rc;
-		rc = gt_epoll_create(fd);
+		rc = uepoll_create(fd);
 		if (rc < 0) {
 			(*sys_close_fn)(fd);
 		}
@@ -983,7 +983,7 @@ gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	    "hit; epfd=%d, op=%s, fd=%d, events={%s}",
 	    epfd, log_add_epoll_op(op), fd,
 	    log_add_epoll_event_events(event->events));
-	rc = gt_epoll_ctl(epfd, op, fd, event);
+	rc = uepoll_ctl(epfd, op, fd, event);
 	if (rc) {
 		DBG(log, LOG_MSG(epoll_ctl), -rc, "failed");
 	} else {
@@ -1007,7 +1007,7 @@ gbtcp_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 	GT_API_LOCK;
 	log = log_trace0();
 	DBG(log, LOG_MSG(epoll_pwait), 0, "hit; epfd=%d", epfd);
-	rc = gt_epoll_pwait(epfd, events, maxevents, to, sigmask);
+	rc = uepoll_pwait(epfd, events, maxevents, to, sigmask);
 	if (rc < 0) {
 		DBG(log, LOG_MSG(epoll_pwait), -rc, "failed");
 	} else {
@@ -1076,8 +1076,8 @@ api_lock()
 		API_RETURN(ENOTSUP);
 	}
 	GT_GLOBAL_LOCK;
-	if (service_inited) {
-		gt_global_set_time();
+	if (current != NULL) {
+		rdtsc_update_time();
 	} else {
 		rc = service_init();
 		if (rc) {

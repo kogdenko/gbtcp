@@ -94,10 +94,11 @@ dev_nm_open(struct log *log, struct dev *dev)
 	memset(&nmr, 0, sizeof(nmr));
 	flags = 0;
 	epoch = gt_global_epoch;
-	GT_GLOBAL_UNLOCK;
+	gt_dbg("vefor nm_open");
+	//GT_GLOBAL_UNLOCK;
 	// nm_open called socket API ~ ioctl or something
 	dev->dev_nmd = nm_open(dev->dev_name, &nmr, flags, NULL);
-	GT_GLOBAL_LOCK;
+	//GT_GLOBAL_LOCK;
 	printf("dev=%p, nmd=%p\n", dev, dev->dev_nmd);
 	if (epoch != gt_global_epoch) {
 		if (dev->dev_nmd != NULL) {
@@ -132,8 +133,7 @@ dev_init(struct log *log, struct dev *dev, const char *ifname, dev_f dev_fn)
 	ASSERT(dev_fn != NULL);
 	LOG_TRACE(log);
 	memset(dev, 0, sizeof(*dev));
-	snprintf(dev->dev_name, sizeof(dev->dev_name), "%s%s",
-	         NETMAP_PFX, ifname);
+	snprintf(dev->dev_name, NM_IFNAMSIZ, "%s%s", NETMAP_PFX, ifname);
 	rc = dev_nm_open(log, dev);
 	if (rc) {
 		return rc;

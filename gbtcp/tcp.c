@@ -584,20 +584,24 @@ gt_sock_connect(struct file *fp, const struct sockaddr_in *faddr_in,
 	gt_dbg("CONN");
 	so = (struct gt_sock *)fp;
 	if (faddr_in->sin_port == 0 || faddr_in->sin_addr.s_addr == 0) {
+		gt_dbg("CONN1");	
 		return -EINVAL;
 	}
 	rc = gt_sock_connect_check_state(so);
 	if (rc) {
+		gt_dbg("CONN2");
 		return rc;
 	}
 	ASSERT(!gt_sock_in_txq(so));
 	if (so->so_tuple.sot_lport) {
+		gt_dbg("CONN3");
 		return -ENOTSUP;
 	}
 	so->so_tuple.sot_faddr = faddr_in->sin_addr.s_addr;
 	so->so_tuple.sot_fport = faddr_in->sin_port;
 	rc = gt_sock_route(so, &r);
 	if (rc) {
+		gt_dbg("CONN4");	
 		return rc;
 	}
 	gt_dbg("CONN 6");
@@ -1140,7 +1144,7 @@ gt_tcp_open(struct gt_sock *so)
 	so->so_nagle_acked = 1;
 	// Must not overlap in 2 minutes (MSL)
 	// Increment 1 seq at 16 ns (like in Linux)
-	so->so_sack = gt_nsec >> 6;
+	so->so_sack = nanoseconds >> 6;
 	so->so_ssnt = 0;
 	so->so_swnd = 0;
 	so->so_rwnd = 0;

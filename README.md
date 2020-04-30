@@ -127,3 +127,8 @@ nginx (ixgbe):
 | 6  | 540|3340|
 | 7  | 630|4060|
 | 8  | 700|4390|
+
+
+
+---
+echo 0 > /proc/sys/kernel/randomize_va_space

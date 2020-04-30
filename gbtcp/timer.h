@@ -29,9 +29,9 @@ void gt_timer_init(struct gt_timer *timer);
 
 int gt_timer_is_running(struct gt_timer *timer);
 
-gt_time_t gt_timer_timeout(struct gt_timer *timer);
+uint64_t gt_timer_timeout(struct gt_timer *timer);
 
-void gt_timer_set(struct gt_timer *timer, gt_time_t expire, gt_timer_f fn);
+void gt_timer_set(struct gt_timer *timer, uint64_t expire, gt_timer_f fn);
 
 void gt_timer_del(struct gt_timer *timer);
 

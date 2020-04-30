@@ -135,7 +135,7 @@ poll_fill(struct gt_poll *poll, struct pollfd *pfds, int npfds)
 }
 
 int
-gt_poll(struct pollfd *pfds, int npfds, gt_time_t to, const sigset_t *sigmask)
+gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 {
 	int n, m, a, b, sys, rc, epoch;
 	struct gt_poll poll;

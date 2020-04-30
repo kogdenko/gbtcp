@@ -30,7 +30,7 @@ struct gt_arp_entry {
 	short ae_state;
 	short ae_admin;
 	short ae_nprobes;
-	gt_time_t ae_confirmed;
+	uint64_t ae_confirmed;
 	struct gt_timer ae_timer;
 	struct ethaddr ae_addr;
 	struct dev_pkt *ae_incq;
@@ -39,7 +39,7 @@ struct gt_arp_entry {
 static struct mbuf_pool *gt_arp_entry_pool;
 static struct mbuf_pool *gt_arp_pkt_pool;
 static htable_t gt_arp_htable;
-static gt_time_t gt_arp_reachable_time;
+static uint64_t gt_arp_reachable_time;
 static struct gt_timer gt_arp_timer_calc_reachable_time;
 static struct arp_mod *current_mod;
 
@@ -215,7 +215,7 @@ gt_arp_timer_set_calc_reachable_time()
 	             gt_arp_calc_reachable_time_timeout);
 }
 
-static gt_time_t
+static uint64_t
 gt_arp_calc_reachable_time()
 {
 	double x, min, max;
@@ -376,7 +376,7 @@ gt_arp_set_state(struct log *log, struct gt_arp_entry *e, int state)
 	e->ae_state = state;
 	if (state == GT_ARP_REACHABLE) {
 		gt_timer_del(&e->ae_timer);
-		e->ae_confirmed = gt_nsec;
+		e->ae_confirmed = nanoseconds;
 		e->ae_nprobes = 0;
 	}
 }
@@ -467,7 +467,7 @@ gt_arp_entry_is_reachable_timeouted(struct gt_arp_entry *e)
 	if (e->ae_admin) {
 		return 0;
 	}
-	return gt_nsec - e->ae_confirmed > gt_arp_reachable_time;
+	return nanoseconds - e->ae_confirmed > gt_arp_reachable_time;
 }
 
 void

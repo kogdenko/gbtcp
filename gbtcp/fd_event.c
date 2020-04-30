@@ -11,7 +11,7 @@ struct fd_event_mod {
 
 uint64_t gt_fd_event_epoch;
 
-static gt_time_t gt_fd_event_time;
+static uint64_t gt_fd_event_time;
 static int fdevent_nused;
 static int gt_fd_event_in_cb;
 static struct gt_fd_event *gt_fd_event_used[GT_FD_EVENTS_MAX];
@@ -98,7 +98,7 @@ gt_fd_event_mod_try_check()
 		// Occured in dev_init -- nm_open called inside callback
 		return;
 	}
-	dt = gt_nsec - gt_fd_event_time;
+	dt = nanoseconds - gt_fd_event_time;
 	if (dt >= GT_FD_EVENT_TIMEOUT) {
 		gt_fd_event_mod_check();
 	}
@@ -304,9 +304,9 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 	struct gt_fd_event *e;
 
 	ASSERT3(0, gt_fd_event_in_cb == 0, "recursive wait");
-	gt_global_set_time();
+	rdtsc_update_time();
 	set->fdes_again = 0;
-	set->fdes_time = gt_nsec;
+	set->fdes_time = nanoseconds;
 	set->fdes_nr_used = 0;
 	set->fdes_epoch = gt_global_epoch;
 	gt_sock_tx_flush();
@@ -367,8 +367,8 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 		return 0;
 	}
 	gt_fd_event_epoch++;
-	gt_global_set_time();
-	dt = gt_nsec - set->fdes_time;
+	rdtsc_update_time();
+	dt = nanoseconds - set->fdes_time;
 	if (dt > set->fdes_to) {
 		set->fdes_to = 0;
 	} else {
@@ -394,7 +394,7 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 	}
 	gt_fd_event_in_cb = 0;
 	if (set->fdes_again == 0) {
-		gt_fd_event_time = gt_nsec;
+		gt_fd_event_time = nanoseconds;
 	}
 	return n;
 }

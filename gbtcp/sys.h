@@ -12,114 +12,66 @@ do { \
 
 
 typedef pid_t (*sys_fork_f)();
-
-typedef int (*sys_open_f)(const char *path, int flags, mode_t mode);
-
-typedef int (*sys_socket_f)(int domain, int type, int protocol);
-
-typedef int (*sys_connect_f)(int fd, const struct sockaddr *addr,
-	socklen_t addrlen);
-
-typedef int (*sys_bind_f)(int fd, const struct sockaddr *addr,
-	socklen_t addrlen);
-
-typedef int (*sys_listen_f)(int fd, int backlog);
-
-typedef int (*sys_accept4_f)(int fd, struct sockaddr *addr, socklen_t *addrlen,
-	int flags);
-
-typedef int (*sys_shutdown_f)(int fd, int how);
-
-typedef int (*sys_close_f)(int fd);
-
-typedef ssize_t (*sys_read_f)(int fd, void *buf, size_t count);
-
-typedef ssize_t (*sys_readv_f)(int fd, const struct iovec *iov, int iovcnt);
-
-typedef ssize_t (*sys_recv_f)(int fd, void *buf, size_t len, int flags);
-
-typedef ssize_t (*sys_recvfrom_f)(int fd, void *buf, size_t len, int flags,
-	struct sockaddr *src_addr, socklen_t *addrlen);
-
-typedef ssize_t (*sys_recvmsg_f)(int fd, struct msghdr *msg, int flags);
-
-typedef ssize_t (*sys_write_f)(int fd, const void *buf, size_t count);
-
-typedef ssize_t (*sys_writev_f)(int fd, const struct iovec *iov, int iovcnt);
-
-typedef ssize_t (*sys_send_f)(int fd, const void *buf, size_t len, int flags);
-
-typedef ssize_t (*sys_sendto_f)(int fd, const void *buf, size_t len, int flags,
-	const struct sockaddr *dest_addr, socklen_t addrlen);
-
-typedef ssize_t (*sys_sendmsg_f)(int fd, const struct msghdr *msg, int flags);
-
-typedef ssize_t (*sys_sendfile_f)(int out_fd, int in_fd, off_t *offset,
-	size_t count);
-
-typedef int (*sys_dup_f)(int oldfd);
-
-typedef int (*sys_dup2_f)(int oldfd, int newfd);
-
-typedef int (*sys_fcntl_f)(int fd, int cmd, ...);
-
-typedef int (*sys_ioctl_f)(int fd, unsigned long request, ...);
-
-typedef int (*sys_getsockopt_f)(int fd, int level, int optname, void *optval,
-	socklen_t *optlen);
-
-typedef int (*sys_setsockopt_f)(int fd, int level, int optname,
-	const void *optval, socklen_t optlen);
-
-typedef int (*sys_getpeername_f)(int fd, struct sockaddr *addr,
-	socklen_t *addrlen);
-
-typedef int (*sys_getsockname_f)(int fd, struct sockaddr *addr,
-	socklen_t *addrlen);
-
-typedef int (*sys_ppoll_f)(struct pollfd *fds, nfds_t nfds,
-	const struct timespec *timeout_ts, const sigset_t *sigmask);
-
-typedef void *(*sys_signal_f)(int signum, void (*new_sa_handler)(int));
-
-typedef int (*sys_sigaction_f)(int signum, const struct sigaction *act,
-	struct sigaction *oldact);
-
-typedef int (*sys_sigprocmask_f)(int how, const sigset_t *set,
-	sigset_t *oldset);
-
-typedef int (*sys_flock_f)(int fd, int operations);
-
-typedef struct group *(*sys_getgrnam_f)(const char *name);
-
-typedef int (*sys_chown_f)(const char *path, uid_t owner, gid_t group);
+typedef int (*sys_open_f)(const char *, int, mode_t);
+typedef int (*sys_unlink_f)(const char *);
+typedef int (*sys_pipe_f)(int [2]);
+typedef int (*sys_socket_f)(int, int, int);
+typedef int (*sys_connect_f)(int, const struct sockaddr *, socklen_t);
+typedef int (*sys_bind_f)(int, const struct sockaddr *,	socklen_t);
+typedef int (*sys_listen_f)(int, int);
+typedef int (*sys_accept4_f)(int fd, struct sockaddr *, socklen_t *, int);
+typedef int (*sys_shutdown_f)(int, int);
+typedef int (*sys_close_f)(int);
+typedef ssize_t (*sys_read_f)(int, void *, size_t);
+typedef ssize_t (*sys_readv_f)(int, const struct iovec *, int);
+typedef ssize_t (*sys_recv_f)(int, void *, size_t, int);
+typedef ssize_t (*sys_recvfrom_f)(int, void *, size_t, int,
+	struct sockaddr *, socklen_t *);
+typedef ssize_t (*sys_recvmsg_f)(int fd, struct msghdr *msg, int);
+typedef ssize_t (*sys_write_f)(int, const void *, size_t);
+typedef ssize_t (*sys_writev_f)(int, const struct iovec *, int);
+typedef ssize_t (*sys_send_f)(int, const void *, size_t, int);
+typedef ssize_t (*sys_sendto_f)(int, const void *, size_t, int,
+	const struct sockaddr *, socklen_t);
+typedef ssize_t (*sys_sendmsg_f)(int, const struct msghdr *, int);
+typedef ssize_t (*sys_sendfile_f)(int, int, off_t *, size_t);
+typedef int (*sys_dup_f)(int);
+typedef int (*sys_dup2_f)(int, int);
+typedef int (*sys_fcntl_f)(int, int, ...);
+typedef int (*sys_ioctl_f)(int, unsigned long, ...);
+typedef int (*sys_getsockopt_f)(int, int, int, void *, socklen_t *);
+typedef int (*sys_setsockopt_f)(int, int, int, const void *, socklen_t);
+typedef int (*sys_getpeername_f)(int, struct sockaddr *, socklen_t *);
+typedef int (*sys_getsockname_f)(int, struct sockaddr *, socklen_t *);
+typedef int (*sys_ppoll_f)(struct pollfd *, nfds_t, const struct timespec *,
+	const sigset_t *);
+typedef void *(*sys_signal_f)(int, void (*)(int));
+typedef int (*sys_sigaction_f)(int, const struct sigaction *,
+	struct sigaction *);
+typedef int (*sys_sigprocmask_f)(int, const sigset_t *, sigset_t *);
+typedef int (*sys_flock_f)(int, int);
+typedef struct group *(*sys_getgrnam_f)(const char *);
+typedef int (*sys_chown_f)(const char *, uid_t, gid_t);
 
 #ifdef __linux__
-typedef int (*sys_clone_f)(int (*fn)(void *), void *child_stack,
-	int flags, void *arg, void *ptid, void *tls, void *ctid);
-
-typedef int (*sys_epoll_create1_f)(int flags);
-
-typedef int (*sys_epoll_ctl_f)(int epfd, int op, int fd,
-	struct epoll_event *event);
-
-typedef int (*sys_epoll_wait_f)(int epfd, struct epoll_event *events,
-	int maxevents, int timeout);
-
-typedef int (*sys_epoll_pwait_f)(int epfd, struct epoll_event *events,
-	int maxevents, int timeout, const sigset_t *sigmask);
-
-typedef int (*sys_dup3_f)(int oldfd, int newfd, int flags);
+typedef int (*sys_clone_f)(int (*)(void *), void *, int, void *,
+	void *, void *, void *);
+typedef int (*sys_epoll_create1_f)(int);
+typedef int (*sys_epoll_ctl_f)(int , int, int, struct epoll_event *);
+typedef int (*sys_epoll_wait_f)(int, struct epoll_event *, int, int);
+typedef int (*sys_epoll_pwait_f)(int, struct epoll_event *, int, int,
+	const sigset_t *);
+typedef int (*sys_dup3_f)(int, int, int);
 #else /* __linux__ */
 typedef int (*sys_kqueue_f)();
-
-typedef int (*sys_kevent_f)(int kq, const struct kevent *changelist,
-	int nchanges, struct kevent *eventlist, int nevents,
-	const struct timespec *timeout);
+typedef int (*sys_kevent_f)(int kq, const struct kevent *, int ,
+	struct kevent *, int, const struct timespec *);
 #endif /* __linux__ */
 
 extern sys_fork_f sys_fork_fn;
 extern sys_open_f sys_open_fn;
+extern sys_unlink_f sys_unlink_fn;
+extern sys_pipe_f sys_pipe_fn;
 extern sys_socket_f sys_socket_fn;
 extern sys_connect_f sys_connect_fn;
 extern sys_bind_f sys_bind_fn;
@@ -171,6 +123,8 @@ void dlsym_all();
 
 int sys_fork(struct log *);
 int sys_open(struct log *, const char *, int, mode_t);
+int sys_unlink(struct log *, const char *);
+int sys_pipe(struct log *, int [2]);
 int sys_socket(struct log *, int, int, int);
 void sys_log_connect_failed(struct log *, int, int,
 	const struct sockaddr *, socklen_t);
@@ -210,8 +164,13 @@ int sys_getifaddrs(struct log *, struct ifaddrs **);
 int sys_if_indextoname(struct log *, int, char *);
 int sys_kill(struct log *, int, int);
 int sys_waitpid(struct log *, pid_t, int *, int);
+int sys_inotify_init1(struct log *, int);
+int sys_inotify_add_watch(struct log *, int, const char *, uint32_t);
+int sys_inotify_rm_watch(struct log *, int, int);
 
 #ifdef __linux__
+int sys_epoll_pwait(struct log *, int, struct epoll_event *, int, int,
+	const sigset_t *);
 int sys_clone(struct log *, int (*)(void *), void *, int , void *,
 	void *, void *, void *);
 #else /* __linux__ */

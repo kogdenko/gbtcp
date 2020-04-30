@@ -1,8 +1,7 @@
 #include "internals.h"
 
 #define SUBR_LOG_MSG_FOREACH(x) \
-	x(read_pidfile) \
-	x(read_rsskey)
+	x(rsskey)
 
 struct subr_mod {
 	struct log_scope log_scope;
@@ -17,7 +16,7 @@ union gt_tsc {
 	};
 };
 
-uint64_t gt_nsec;
+uint64_t nanoseconds;
 uint64_t gt_mHZ;
 __thread int gbtcp_errno;
 int gt_application_pid;
@@ -133,12 +132,11 @@ subr_mod_init(struct log *log, void **pp)
 	struct subr_mod *mod;
 	LOG_TRACE(log);
 	rc = shm_alloc(log, pp, sizeof(*mod));
-	if (rc) {
-		return rc;
+	if (!rc) {
+		mod = *pp;
+		log_scope_init(&mod->log_scope, "subr");
 	}
-	mod = *pp;
-	log_scope_init(&mod->log_scope, "subr");
-	return 0;
+	return rc;
 }
 
 int
@@ -436,55 +434,6 @@ gt_lower_pow_of_2_64(uint64_t x)
 	x = x | (x >> 32llu);
 	return x - (x >> 1);
 }
-
-int
-flock_pidfile(struct log *log, int pid, const char *filename)
-{
-	int rc, fd, len;
-	char buf[32];
-	char path[PATH_MAX];
-	LOG_TRACE(log);
-	snprintf(path, sizeof(path), "%s/pid/%s", GT_PREFIX, filename);
-	rc = sys_open(log, path, O_CREAT|O_RDWR, 0666);
-	if (rc < 0) {
-		return rc;
-	}
-	fd = rc;
-	rc = sys_flock(log, fd, LOCK_EX|LOCK_NB);
-	if (rc == 0) {
-		len = snprintf(buf, sizeof(buf), "%d", pid);
-		rc = write_all(log, fd, buf, len);
-		if (rc == 0) {
-			return fd;
-		}
-	}
-	sys_close(log, fd);
-	return rc;
-}
-
-int
-read_pidfile(struct log *log, int fd, const char *filename)
-{
-	int rc, pid;
-	char buf[32];
-	char path[PATH_MAX];
-	LOG_TRACE(log);
-	snprintf(path, sizeof(path), "%s/pid/%s", GT_PREFIX, filename);
-	rc = sys_read(log, fd, buf, sizeof(buf) - 1);
-	if (rc < 0) {
-		return rc;
-	}
-	buf[rc] = '\0';
-	rc = sscanf(buf, "%d", &pid);
-	if (rc != 1 || pid <= 0) {
-		LOGF(log, LOG_MSG(read_pidfile), LOG_ERR, 0,
-		     "pidfile='%s' bad format", path);
-		return -EINVAL;
-	} else {
-		return pid;
-	}
-}
-
 int
 gt_set_nonblock(struct log *log, int fd)
 {
@@ -504,20 +453,21 @@ gt_set_nonblock(struct log *log, int fd)
 }
 
 int
-gt_connect_timed(struct log *log, int fd, const struct sockaddr *addr,
-	socklen_t addrlen, gt_time_t to)
+connect_timed(struct log *log, int fd, const struct sockaddr *addr,
+	socklen_t addrlen, uint64_t to)
 {
-	int rc, eno, flags;
+	int rc, errnum, flags;
 	uint64_t t, rem;
 	socklen_t opt_len;
 	struct timespec ts;
 	struct pollfd pfd;
-
+	LOG_TRACE(log);
 	rc = sys_fcntl(log, fd, F_GETFL, 0);
 	if (rc < 0) {
 		return rc;
 	}
 	flags = rc;
+	// Unblock if blocked
 	if (!(flags & O_NONBLOCK)) {
 		rc = sys_fcntl(log, fd, F_SETFL, flags | O_NONBLOCK);
 		if (rc) {
@@ -526,26 +476,27 @@ gt_connect_timed(struct log *log, int fd, const struct sockaddr *addr,
 	}
 	do {
 		rc = sys_connect(NULL, fd, addr, addrlen);
-		eno = -rc;
-	} while (addr->sa_family == AF_UNIX && eno == EAGAIN);
+		errnum = -rc;
+	} while (addr->sa_family == AF_UNIX && errnum == EAGAIN);
+	// Repair blocking flag
 	if (!(flags & O_NONBLOCK)) {
 		rc = sys_fcntl(log, fd, F_SETFL, flags & ~O_NONBLOCK);
 		if (rc) {
 			return rc;
 		}
 	}
-	if (eno == 0) {
+	if (errnum == 0) {
 		return 0;
-	} else if (eno != EINPROGRESS) {
-		sys_log_connect_failed(log, eno, fd, addr, addrlen);
-		return -eno;
+	} else if (errnum != EINPROGRESS) {
+		sys_log_connect_failed(log, errnum, fd, addr, addrlen);
+		return -errnum;
 	}
 	pfd.events = POLLOUT;
 	pfd.fd = fd;
-	t = gt_nsec;
+	t = nanoseconds;
 restart:
-	rem = to - (t - gt_nsec);
-	t = gt_nsec;
+	rem = to - (t - nanoseconds);
+	t = nanoseconds;
 	if (rem < GT_SEC) {
 		ts.tv_sec = 0;
 		ts.tv_nsec = rem;
@@ -558,15 +509,15 @@ restart:
 	case 0:
 		return -ETIMEDOUT;
 	case 1:
-		opt_len = sizeof(eno);
+		opt_len = sizeof(errnum);
 		rc = sys_getsockopt(log, fd, SOL_SOCKET, SO_ERROR,
-		                    &eno, &opt_len);
+		                    &errnum, &opt_len);
 		if (rc) {
 			return rc;
 		}
-		return -eno;
+		return -errnum;
 	case EINTR:
-		gt_global_set_time();
+		rdtsc_update_time();
 		goto restart;
 	default:
 		return rc;
@@ -611,7 +562,7 @@ read_rsskey(struct log *log, const char *ifname, uint8_t *rss_key)
 		goto out;
 	}
 	if (rss.key_size != RSSKEYSIZ) {
-		LOGF(log, LOG_MSG(read_rsskey), LOG_ERR, 0,
+		LOGF(log, LOG_MSG(rsskey), LOG_ERR, 0,
 		     "invalid rss key_size; key_size=%d", rss.key_size);
 		goto out;
 	}
@@ -891,3 +842,6 @@ print_backtrace(int depth_off)
 	s = strbuf_cstr(&sb);
 	printf("%s", s);
 }
+
+
+

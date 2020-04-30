@@ -32,8 +32,8 @@ struct gt_fd_event {
 };
 
 struct gt_fd_event_set {
-	gt_time_t fdes_to;
-	gt_time_t fdes_time;
+	uint64_t fdes_to;
+	uint64_t fdes_time;
 	struct timespec fdes_ts;
 	int fdes_nr_used;
 	int fdes_again; // For repeted `rxtx` call
