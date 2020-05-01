@@ -2,10 +2,10 @@
 
 
 #define ROUTE_IF_FOREACH(ifp) \
-	DLIST_FOREACH(ifp, &current_mod->route_if_head, rif_list)
+	DLIST_FOREACH(ifp, &curmod->route_if_head, rif_list)
 
 #define ROUTE_IF_FOREACH_SAFE(ifp, tmp) \
-	DLIST_FOREACH_SAFE(ifp, &current_mod->route_if_head, rif_list, tmp)
+	DLIST_FOREACH_SAFE(ifp, &curmod->route_if_head, rif_list, tmp)
 
 
 
@@ -13,7 +13,7 @@ int gt_route_rss_q_id = -1;
 int gt_route_port_pairity;
 uint8_t gt_route_rss_key[RSSKEYSIZ];
 
-static struct route_mod *current_mod;
+static struct route_mod *curmod;
 
 static struct gt_fd_event *gt_route_monitor_event;
 static int route_monfd = -1;
@@ -109,14 +109,14 @@ gtd_set_rss_conf(struct log *log, int rss_q_cnt, const uint8_t *rss_key)
 ///		gtd_service_del(log, s);
 //	}
 //	memset(gtd_services, 0, sizeof(gtd_services));
-	current_mod->route_rssq_cnt = rss_q_cnt;
-	if (current_mod->route_rssq_cnt > 1) {
+	curmod->route_rssq_cnt = rss_q_cnt;
+	if (curmod->route_rssq_cnt > 1) {
 		memcpy(gt_route_rss_key, rss_key, sizeof(gt_route_rss_key));
 	}
 //	for (i = 0; i < gt_route_rss_q_cnt; ++i) {
 //		gtd_service_start(log);
 //	}
-	LOGF(log, LOG_INFO, 0, "ok; rss_q_cnt=%d", current_mod->route_rssq_cnt);
+	LOGF(log, LOG_INFO, 0, "ok; rss_q_cnt=%d", curmod->route_rssq_cnt);
 	return 0;
 }
 
@@ -146,14 +146,14 @@ route_if_init_nm(struct log *log, struct route_if *ifp)
 		     ifp->rif_name, nr_rx_rings, nr_tx_rings);
 		return -EINVAL;
 	}
-	if (current_mod->route_rssq_cnt == 0) {
+	if (curmod->route_rssq_cnt == 0) {
 		gtd_set_rss_conf(log, nr_rx_rings, rss_key);
-	} else if (nr_rx_rings != current_mod->route_rssq_cnt) {
+	} else if (nr_rx_rings != curmod->route_rssq_cnt) {
 		LOGF(log, LOG_ERR, 0,
 		     "invalid nr_rx_rings; if='%s', nr_rx_rings=%d, rss_q_cnt=%d",
-		     ifp->rif_name, nr_rx_rings, current_mod->route_rssq_cnt);
+		     ifp->rif_name, nr_rx_rings, curmod->route_rssq_cnt);
 		return -EINVAL;
-	} else if (current_mod->route_rssq_cnt > 1 &&
+	} else if (curmod->route_rssq_cnt > 1 &&
 	           memcmp(gt_route_rss_key, rss_key, RSSKEYSIZ)) {
 		LOGF(log, LOG_ERR, 0,
 		     "invalid rsskey - all interfaces must have same rss_key; if=%s",
@@ -172,6 +172,7 @@ route_if_init_dev(struct log *log, struct route_if *ifp)
 	int i, rc;
 	char buf[NM_IFNAMSIZ];
 	struct dev *dev;
+
 	i = gt_route_rss_q_id;
 	snprintf(buf, sizeof(buf), "%s-%d", ifp->rif_name, i);
 	dev = &ifp->rif_rss[i].rifrss_dev;
@@ -251,7 +252,7 @@ route_if_add(struct log *log, const char *ifname, struct route_if **ifpp)
 		shm_free(ifp);
 		return rc;
 	}
-	DLIST_INSERT_HEAD(&current_mod->route_if_head, ifp, rif_list);
+	DLIST_INSERT_HEAD(&curmod->route_if_head, ifp, rif_list);
 	if (route_monfd != -1) {
 		// TODO: DELETE OLD ROUTES...
 		gt_route_dump(route_on_msg);
@@ -277,7 +278,7 @@ route_if_del(struct log *log, struct route_if *ifp)
 		route = DLIST_FIRST(&ifp->rif_routes,
 		                     struct gt_route_entry_long,
 		                     rtl_list);
-		if (route == &current_mod->route_default) {
+		if (route == &curmod->route_default) {
 			pfx = 0;
 			dst = 0;
 		} else {
@@ -313,7 +314,7 @@ route_ifaddr_add(struct log *log, struct gt_route_if_addr **ifap,
 		ifa->ria_ref_cnt = 0;
 		i = gt_rand32() % NEPHEMERAL_PORTS;
 		ifa->ria_cur_ephemeral_port = EPHEMERAL_PORT_MIN + i;
-		DLIST_INSERT_HEAD(&current_mod->route_addr_head, ifa, ria_list);
+		DLIST_INSERT_HEAD(&curmod->route_addr_head, ifa, ria_list);
 	}
 	for (i = 0; i < ifp->rif_nr_addrs; ++i) {
 		tmp = ifp->rif_addrs[i];
@@ -382,7 +383,7 @@ gt_route_saddr_compar(const void *a, const void *b, void *arg)
 	struct gt_route_if_addr *ifa_a, *ifa_b;
 
 	route = arg;
-	if (route == &current_mod->route_default) {
+	if (route == &curmod->route_default) {
 		key = 0;
 	} else {
 		key = route->rtl_rule.lpr_key;
@@ -422,10 +423,10 @@ gt_route_alloc(struct log *log, struct gt_route_entry_long **proute,
 {
 	int rc;
 	struct lprule *rule;
-	rc = mbuf_alloc(log, current_mod->route_pool, (struct mbuf **)proute);
+	rc = mbuf_alloc(log, curmod->route_pool, (struct mbuf **)proute);
 	if (rc == 0) {
 		rule = (struct lprule *)*proute;
-		rc = lptree_set(log, &current_mod->route_lptree, rule, key, depth);
+		rc = lptree_set(log, &curmod->route_lptree, rule, key, depth);
 		if (rc) {
 			mbuf_free((struct mbuf *)rule);
 		}
@@ -447,11 +448,11 @@ route_add(struct log *log, struct gt_route_entry *a)
 	if (a->rt_pfx > 32) {
 		rc = -EINVAL;
 	} else if (a->rt_pfx == 0) {
-		route = &current_mod->route_default;
+		route = &curmod->route_default;
 		rc = 0;
 	} else {
 		key = GT_NTOH32(a->rt_dst.ipa_4);
-		rule = lptree_get(log, &current_mod->route_lptree, key, a->rt_pfx);
+		rule = lptree_get(log, &curmod->route_lptree, key, a->rt_pfx);
 		route = (struct gt_route_entry_long *)rule;
 		if (route != NULL) {
 			rc = -EEXIST;
@@ -490,16 +491,16 @@ route_del(struct log *log, be32_t dst, int pfx)
 	if (pfx > 32) {
 		rc = -EINVAL;
 	} else if (pfx == 0) {
-		route = &current_mod->route_default;
+		route = &curmod->route_default;
 		route->rtl_af = AF_UNSPEC;
 		rc = 0;
 	} else {
-		rule = lptree_get(log, &current_mod->route_lptree, GT_NTOH32(dst), pfx);
+		rule = lptree_get(log, &curmod->route_lptree, GT_NTOH32(dst), pfx);
 		route = (struct gt_route_entry_long *)rule;
 		if (route != NULL) {
 			rc = 0;
 			shm_free(route->rtl_saddrs);
-			lptree_del(&current_mod->route_lptree, &route->rtl_rule);
+			lptree_del(&curmod->route_lptree, &route->rtl_rule);
 		} else {
 			rc = -ESRCH;
 		}
@@ -584,7 +585,7 @@ gt_route_monitor_start(struct log *log)
 		return -EALREADY;
 	}
 	LOG_TRACE(log);
-	rc = route_open(current_mod, log);
+	rc = route_open(curmod, log);
 	if (rc < 0) {
 		return rc;
 	}
@@ -827,16 +828,16 @@ gt_route_ctl_list_next(void *udata, int id)
 	struct mbuf *m;
 
 	if (id == 0) {
-		if (current_mod->route_default.rtl_af == AF_INET) {
+		if (curmod->route_default.rtl_af == AF_INET) {
 			return 0;
 		}
 		id++;
 	}
-	m = mbuf_next(current_mod->route_pool, id - 1);
+	m = mbuf_next(curmod->route_pool, id - 1);
 	if (m == NULL) {
 		return -ENOENT;
 	} else {
-		rc = mbuf_get_id(current_mod->route_pool, m);
+		rc = mbuf_get_id(curmod->route_pool, m);
 		return rc + 1;
 	}
 }
@@ -850,17 +851,17 @@ gt_route_ctl_list(void *udata, int id, const char *new, struct strbuf *out)
 	struct gt_route_entry_long *route;
 
 	if (id == 0) {
-		if (current_mod->route_default.rtl_af == AF_INET) {
+		if (curmod->route_default.rtl_af == AF_INET) {
 			dst = 0;
 			pfx = 0;
-			route = &current_mod->route_default;
+			route = &curmod->route_default;
 			goto out;
 		} else {
 			return -ENOENT;
 		}
 	}
 	route = (struct gt_route_entry_long *)
-		mbuf_get(current_mod->route_pool, id - 1);
+		mbuf_get(curmod->route_pool, id - 1);
 	if (route == NULL) {
 		return -ENOENT;
 	}
@@ -1016,8 +1017,7 @@ route_mod_init(struct log *log, void **pp)
 int
 route_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
-	printf("Route attach %p(%p)\n", current_mod, raw_mod);
+	curmod = raw_mod;
 	return 0;
 }
 
@@ -1050,7 +1050,7 @@ route_mod_deinit(struct log *log, void *raw_mod)
 void
 route_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 void
@@ -1083,7 +1083,7 @@ route_ifaddr_get(int af, const struct ipaddr *addr)
 {
 	struct gt_route_if_addr *ifa;
 
-	DLIST_FOREACH(ifa, &current_mod->route_addr_head, ria_list) {
+	DLIST_FOREACH(ifa, &curmod->route_addr_head, ria_list) {
 		if (!ipaddr_cmp(af, &ifa->ria_addr, addr)) {
 			return ifa;
 		}
@@ -1117,11 +1117,11 @@ gt_route_get(int af, struct ipaddr *src, struct gt_route_entry *g)
 		return -ENETUNREACH;
 	}
 	key = GT_NTOH32(g->rt_dst.ipa_4);
-	rule = lptree_search(&current_mod->route_lptree, key);
+	rule = lptree_search(&curmod->route_lptree, key);
 	route = (struct gt_route_entry_long *)rule;
 	if (route == NULL) {
-		if (current_mod->route_default.rtl_af == AF_INET) {
-			route = &current_mod->route_default;
+		if (curmod->route_default.rtl_af == AF_INET) {
+			route = &curmod->route_default;
 		} else {
 			return -ENETUNREACH;
 		}
@@ -1231,11 +1231,11 @@ gt_calc_rss_q_id(struct gt_sock_tuple *so_tuple)
 	tmp.sot_fport = so_tuple->sot_lport;
 	h = toeplitz_hash((uint8_t *)&tmp, sizeof(tmp), gt_route_rss_key);
 	h &= 0x0000007F;
-	return h % current_mod->route_rssq_cnt;
+	return h % curmod->route_rssq_cnt;
 }
 
 int get_rssq_cnt()
 {
-	return current_mod->route_rssq_cnt;
+	return curmod->route_rssq_cnt;
 }
 

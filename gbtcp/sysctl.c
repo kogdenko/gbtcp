@@ -3,6 +3,7 @@
 #define SYSCTL_DEPTH_MAX 32
 #define SYSCTL_NODE_NAME_MAX 128
 
+#define CONTROLLER_SUN_PATH SYSCTL_PATH"/controller.sock"
 
 enum {
 	SYSCTL_CONN_UNDEF,
@@ -20,7 +21,6 @@ struct sysctl_conn;
 typedef void (*sysctl_conn_close_f)(struct sysctl_conn *);
 
 struct sysctl_conn {
-	int c_pid;
 	int c_type;
 	void *c_req_udata;
 	sysctl_f c_req_fn;
@@ -39,14 +39,14 @@ struct sysctl_conn {
 
 struct sysctl_int_data {
 	union {
-		int (*sid_ptr_intfn)(const long long *new, long long *);
-		int32_t *sid_ptr_int32;
-		int64_t *sid_ptr_int64;
-		void *sid_ptr;
+		int (*i_ptr_intfn)(const long long *new, long long *);
+		int32_t *i_ptr_int32;
+		int64_t *i_ptr_int64;
+		void *i_ptr;
 	};
-	int sid_int_sizeof;
-	long long sid_min;
-	long long sid_max;
+	int i_sizeof;
+	long long i_min;
+	long long i_max;
 };
 
 struct sysctl_list_data {
@@ -86,23 +86,15 @@ struct sysctl_node {
 
 static struct sysctl_node *sysctl_root;
 static struct sysctl_conn *sysctl_binded;
-static struct sysctl_mod *current_mod;
+static struct sysctl_mod *curmod;
 
 // conn
-static int sysctl_conn_fd(struct sysctl_conn *cp);
-
 static void sysctl_conn_set_log(struct sysctl_conn *cp, struct log *log);
 
 static int sysctl_conn_open(struct log *log,
 	struct sysctl_conn **cpp, int fd, const char *path);
 
 static void sysctl_conn_close(struct sysctl_conn *cp, int eno);
-
-static int sysctl_conn_connect(struct log *log, struct sysctl_conn **cpp,
-	int pid, const char *path);
-
-static int sysctl_conn_listen(struct log *log, 
-	struct sysctl_conn **cpp, int pid);
 
 static int sysctl_conn_send(struct log *log, struct sysctl_conn *cp);
 
@@ -153,7 +145,7 @@ static int sysctl_node_process(struct log *log,
 static int sysctl_cb(struct log *log, void *udata, int eno, char *old);
 
 static int sysctl_send_req(struct log *log, struct sysctl_conn **cpp,
-	int pid, const char *path, void *udata, sysctl_f fn, const char *new);
+	const char *path, void *udata, sysctl_f fn, const char *new);
 
 // add
 static int sysctl_add6(struct log *log, const char *path,
@@ -243,7 +235,7 @@ sysctl_mod_init(struct log *log, void **pp)
 int
 sysctl_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	init_root();
 	return 0;
 }
@@ -264,7 +256,7 @@ sysctl_mod_detach(struct log *log)
 	LOG_TRACE(log);
 	sysctl_node_del(log, sysctl_root);
 	sysctl_root = NULL;
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 static int
@@ -326,8 +318,7 @@ sysctl_read_file(struct log *log, const char *proc_name)
 }
 
 int
-usysctl(struct log *log, int pid, const char *path,
-	char *old, int cnt, const char *new)
+usysctl(struct log *log, const char *path, char *old, int cnt, const char *new)
 {
 	int rc;
 	struct sysctl_conn *cp;
@@ -336,8 +327,7 @@ usysctl(struct log *log, int pid, const char *path,
 	wait.w_eno = EINPROGRESS;
 	wait.w_old = old;
 	wait.w_cnt = cnt;
-	rc = sysctl_send_req(log, &cp, pid, path,
-	                     &wait, sysctl_cb, new); 
+	rc = sysctl_send_req(log, &cp, path, &wait, sysctl_cb, new); 
 	if (rc == 0) {
 		while (wait.w_eno == EINPROGRESS) {
 			gt_fd_event_mod_wait();
@@ -348,30 +338,39 @@ usysctl(struct log *log, int pid, const char *path,
 }
 
 int
-usysctl_r(struct log *log, int pid, const char *path,
-         void *udata, sysctl_f fn, const char *new)
-{
-	int rc;
-
-	rc = sysctl_send_req(log, NULL, pid, path, udata, fn, new);
-	return rc;
-}
-
-int
 sysctl_bind(struct log *log, int pid)
 {
-	int rc;
-	LOG_TRACE(log);
+	int rc, fd;
+	struct sockaddr_un a;
+	struct sysctl_conn *cp;
 
-	if (sysctl_binded != NULL) {
-		LOGF(log, LOG_ERR, 0, "already");
-		return -EALREADY;
-	}
-	rc = sysctl_conn_listen(log, &sysctl_binded, pid);
-	if (rc) {
+	LOG_TRACE(log);
+	ASSERT(sysctl_binded == NULL);
+	sockaddr_un_from_pid(&a, pid);
+	rc = unix_bind(log, &a);
+	if (rc < 0) {
 		return rc;
 	}
-	return 0;
+	fd = rc;
+	rc = sys_symlink(log, a.sun_path, CONTROLLER_SUN_PATH);
+	if (rc) {
+		goto err;
+	}
+	rc = sys_listen(log, fd, 5);
+	if (rc < 0) {
+		goto err;
+	}
+	rc = sysctl_conn_open(log, &cp, fd, "listen");
+	if (rc < 0) {
+		goto err;
+	}
+	cp->c_type = SYSCTL_CONN_LISTEN;
+	sysctl_conn_set_log(cp, log);
+	sysctl_binded = cp;
+	return rc;
+err:
+	sys_close(log, fd);
+	return rc;
 }
 
 void
@@ -380,20 +379,6 @@ sysctl_unbind()
 	if (sysctl_binded != NULL) {
 		sysctl_conn_close(sysctl_binded, ECONNRESET);
 		sysctl_binded = NULL;
-	}
-}
-
-int
-sysctl_binded_pid(struct log *log)
-{
-	if (sysctl_binded == NULL) {
-		if (log != NULL) {
-			LOG_TRACE(log);
-			LOGF(log, LOG_ERR, 0, "not binded");
-		}
-		return -EBADF;
-	} else {
-		return sysctl_binded->c_pid;
 	}
 }
 
@@ -605,7 +590,6 @@ sysctl_conn_open(struct log *log,
 	cp->c_log = NULL;
 	cp->c_req_fn = NULL;
 	cp->c_close_fn = NULL;
-	cp->c_pid = -1;
 	snprintf(name, sizeof(name), "ctl.%d.%s", fd, path);
 	gt_timer_init(&cp->c_timer);
 	rc = gt_fd_event_new(log, &cp->c_event, fd, name,
@@ -641,12 +625,11 @@ sysctl_conn_close(struct sysctl_conn *cp, int eno)
 }
 
 static int
-sysctl_conn_connect(struct log *log, struct sysctl_conn **cpp,
-	int pid, const char *path)
+sysctl_connect(struct log *log, struct sysctl_conn **cpp, const char *path)
 {
 	int fd, rc;
 	uint64_t to;
-	struct sockaddr_un addr;
+	struct sockaddr_un a;
 	struct sysctl_conn *cp;
 
 	LOG_TRACE(log);
@@ -654,10 +637,10 @@ sysctl_conn_connect(struct log *log, struct sysctl_conn **cpp,
 	if (rc < 0)
 		return rc;
 	fd = rc;
-	sockaddr_un_from_pid(&addr, pid);
+	a.sun_family = AF_UNIX;
+	strzcpy(a.sun_path, CONTROLLER_SUN_PATH, sizeof(a.sun_path));
 	to = 2 * NANOSECONDS_SECOND;
-	rc = connect_timed(log, fd, (struct sockaddr *)&addr,
-	                   sizeof(addr), &to);
+	rc = connect_timed(log, fd, (struct sockaddr *)&a, sizeof(a), &to);
 	if (rc < 0) {
 		sys_close(log, fd);
 		return rc;
@@ -669,7 +652,6 @@ sysctl_conn_connect(struct log *log, struct sysctl_conn **cpp,
 	}
 	cp = *cpp;
 	cp->c_type = SYSCTL_CONN_CLIENT;
-	cp->c_pid = pid;
 	return 0;
 }
 
@@ -704,36 +686,6 @@ unix_bind(struct log *log, const struct sockaddr_un *a)
 	return fd;
 }
 
-static int
-sysctl_conn_listen(struct log *log, struct sysctl_conn **cpp, int pid)
-{
-	int rc, fd;
-	struct sockaddr_un addr;
-	struct sysctl_conn *cp;
-
-	LOG_TRACE(log);
-	sockaddr_un_from_pid(&addr, pid);
-	rc = unix_bind(log, &addr);
-	if (rc < 0) {
-		return rc;
-	}
-	fd = rc;
-	rc = sys_listen(log, fd, 5);
-	if (rc < 0) {
-		sys_close(log, fd);
-		return rc;
-	}
-	rc = sysctl_conn_open(log, cpp, fd, "listen");
-	if (rc < 0) {
-		sys_close(log, fd);
-	} else {
-		cp = *cpp;
-		cp->c_type = SYSCTL_CONN_LISTEN;
-		cp->c_pid = pid;
-		sysctl_conn_set_log(cp, log);
-	}
-	return rc;
-}
 
 static int
 sysctl_conn_send(struct log *log, struct sysctl_conn *cp)
@@ -1343,15 +1295,15 @@ sysctl_node_process_int(struct log *log, void *udata,
 	node = container_of(data, struct sysctl_node, n_udata_buf.n_int_data);
 	UNUSED(node);
 	if (new == NULL) {
-		switch (data->sid_int_sizeof) {
+		switch (data->i_sizeof) {
 		case 0:
-			rc = (*data->sid_ptr_intfn)(NULL, &old);
+			rc = (*data->i_ptr_intfn)(NULL, &old);
 			break;
 		case 4:
-			old = *data->sid_ptr_int32;
+			old = *data->i_ptr_int32;
 			break;
 		case 8:
-			old = *data->sid_ptr_int64;
+			old = *data->i_ptr_int64;
 			break;
 		default:
 			BUG;
@@ -1364,24 +1316,24 @@ sysctl_node_process_int(struct log *log, void *udata,
 			     sysctl_log_add_node(node), new);
 			return -EPROTO;
 		}
-		if (x < data->sid_min || x > data->sid_max) {
+		if (x < data->i_min || x > data->i_max) {
 			LOGF(log, LOG_ERR, 0,
 			     "not in range; path='%s', new=%lld, range=[%lld, %lld]",
 			     sysctl_log_add_node(node), x,
-			     data->sid_min, data->sid_max);
+			     data->i_min, data->i_max);
 			return -ERANGE;
 		}
-		switch (data->sid_int_sizeof) {
+		switch (data->i_sizeof) {
 		case 0:
-			rc = (*data->sid_ptr_intfn)(&x, &old);
+			rc = (*data->i_ptr_intfn)(&x, &old);
 			break;
 		case 4:
-			old = *data->sid_ptr_int32;
-			*data->sid_ptr_int32 = x;
+			old = *data->i_ptr_int32;
+			*data->i_ptr_int32 = x;
 			break;
 		case 8:
-			old = *data->sid_ptr_int64;
-			*data->sid_ptr_int64 = x;
+			old = *data->i_ptr_int64;
+			*data->i_ptr_int64 = x;
 			break;
 		default:
 			BUG;
@@ -1409,23 +1361,21 @@ sysctl_cb(struct log *log, void *udata, int eno, char *old)
 
 static int
 sysctl_send_req(struct log *log, struct sysctl_conn **cpp,
-	int pid, const char *path, void *udata, sysctl_f fn, const char *new)
+	const char *path, void *udata, sysctl_f fn, const char *new)
 {
 	int rc, path_len, new_len;
 	struct sysctl_conn *cp;
+
 	LOG_TRACE(log);
-	ASSERT3(0, sysctl_binded_pid(NULL) != pid, "pid=%d", pid);
 	ASSERT(path != NULL);
 	path_len = strlen(path);
 	if (path_len >= PATH_MAX) {
-		LOGF(log, LOG_ERR, 0 ,
-		     "too long path; path='%s'", path);
+		LOGF(log, LOG_ERR, 0 , "too long path; path='%s'", path);
 		return -EINVAL;
 	}
 	rc = sysctl_is_valid_token(path);
 	if (rc == 0) {
-		LOGF(log, LOG_ERR, 0,
-		     "invalid path; path='%s'", path);
+		LOGF(log, LOG_ERR, 0, "invalid path; path='%s'", path);
 		return -EINVAL;
 	}
 	if (new == NULL) {
@@ -1434,12 +1384,11 @@ sysctl_send_req(struct log *log, struct sysctl_conn **cpp,
 		new_len = strlen(new);
 		rc = sysctl_is_valid_token(new);
 		if (rc == 0) {
-			LOGF(log, LOG_ERR, 0,
-			     "invalid new; new='%s'", new);
+			LOGF(log, LOG_ERR, 0, "invalid new; new='%s'", new);
 			return -EINVAL;
 		}
 	}
-	rc = sysctl_conn_connect(log, &cp, pid, path);
+	rc = sysctl_connect(log, &cp, path);
 	if (rc) {
 		return rc;
 	}
@@ -1480,11 +1429,11 @@ sysctl_add_int_union(struct log *log, const char *path,
 	            sysctl_node_process_int, &node);
 	data = &node->n_udata_buf.n_int_data;
 	node->n_udata = data;
-	data->sid_ptr = ptr;
-	data->sid_min = min;
-	data->sid_max = max;
-	data->sid_int_sizeof = int_sizeof;
-	data->sid_ptr = ptr;
+	data->i_ptr = ptr;
+	data->i_min = min;
+	data->i_max = max;
+	data->i_sizeof = int_sizeof;
+	data->i_ptr = ptr;
 }
 void
 sysctl_add_intfn(struct log *log, const char *path, int mode,

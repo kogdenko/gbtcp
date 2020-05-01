@@ -8,7 +8,7 @@ struct lptree_mod {
 	struct log_scope log_scope;
 };
 
-static struct lptree_mod *current_mod;
+static struct lptree_mod *curmod;
 	
 #define lpnode_dynamic_cast(tree, m) \
 	((m)->mb_pool_id == (tree)->lpt_pool->mbp_id)
@@ -77,7 +77,7 @@ lptree_mod_init(struct log *log, void **pp)
 int
 lptree_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
 
@@ -95,7 +95,7 @@ lptree_mod_deinit(struct log *log, void *raw_mod)
 void
 lptree_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 int

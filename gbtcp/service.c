@@ -24,7 +24,7 @@ int gt_service_pid;
 //static int gt_service_subscribed;
 //static int gt_service_status = GT_SERVICE_NONE;
 //static int gt_service_epoch;
-static struct service_mod *current_mod;
+static struct service_mod *curmod;
 
 #ifdef __linux__
 static int (*gt_service_clone_fn)(void *);
@@ -102,7 +102,7 @@ service_mod_init(struct log *log, void **pp)
 int
 service_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
 
@@ -119,7 +119,7 @@ service_mod_deinit(struct log *log, void *raw_mod)
 void
 service_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 const char *

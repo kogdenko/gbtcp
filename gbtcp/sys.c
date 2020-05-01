@@ -52,7 +52,7 @@ sys_kqueue_f sys_kqueue_fn;
 sys_kevent_f sys_kevent_fn;
 #endif /* __linux__ */
 
-static struct sys_mod *current_mod;
+static struct sys_mod *curmod;
 
 int
 sys_mod_init(struct log *log, void **pp)
@@ -72,7 +72,7 @@ sys_mod_init(struct log *log, void **pp)
 int
 sys_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
 
@@ -90,7 +90,7 @@ sys_mod_deinit(struct log *log, void *raw_mod)
 void
 sys_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 #ifdef __linux__
@@ -188,6 +188,25 @@ restart:
 		} else if (log != NULL) {
 			LOG_TRACE(log);
 			LOGF(log, LOG_ERR, -rc, "failed; path='%s'", path);
+		}
+	}
+	return rc;
+}
+
+int
+sys_symlink(struct log *log, const char *oldpath, const char *newpath)
+{
+	int rc;
+
+	rc = symlink(oldpath, newpath);
+	if (rc == -1) {
+		rc = -errno;
+		ASSERT(rc);
+		if (log != NULL) {
+			LOG_TRACE(log);
+			LOGF(log, LOG_ERR, -rc,
+			     "failed; olpath=%s, newpath=%s",
+			     oldpath, newpath);
 		}
 	}
 	return rc;
@@ -1004,6 +1023,23 @@ sys_inotify_rm_watch(struct log *log, int fd, int wd)
 }
 
 #ifdef __linux__
+int
+sys_epoll_create1(struct log *log, int flags)
+{
+	int rc;
+
+	rc = (*sys_epoll_create1_fn)(flags);
+	if (rc == -1) {
+		rc = -errno;
+		ASSERT(rc);
+		if (log != NULL) {
+			LOG_TRACE(log);
+			LOGF(log, LOG_ERR, -rc, "failed;");	
+		}
+	}
+	return rc;
+}
+
 int
 sys_epoll_pwait(struct log *log, int epfd, struct epoll_event *events,
 	int maxevents, int timeout, const sigset_t *sigmask)

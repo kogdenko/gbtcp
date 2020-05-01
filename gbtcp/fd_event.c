@@ -11,7 +11,7 @@ static int fdevent_nused;
 static int gt_fd_event_in_cb;
 static struct gt_fd_event *gt_fd_event_used[GT_FD_EVENTS_MAX];
 static struct gt_fd_event gt_fd_event_buf[GT_FD_EVENTS_MAX];
-static struct fd_event_mod *current_mod;
+static struct fd_event_mod *curmod;
 
 static void gt_fd_event_ctl_init_stat_entry(struct log * log,
 	const char *event_name, uint64_t *val, const char *stat_name);
@@ -41,7 +41,7 @@ fd_event_mod_attach(struct log *log, void *raw_mod)
 {
 	int i;
 	struct gt_fd_event *e;
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	fdevent_nused = 0;
 	memset(gt_fd_event_buf, 0, sizeof(gt_fd_event_buf));
 	for (i = 0; i < ARRAY_SIZE(gt_fd_event_buf); ++i) {
@@ -65,7 +65,7 @@ void
 fd_event_mod_detach(struct log *log)
 {
 	fdevent_nused = 0;
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 void

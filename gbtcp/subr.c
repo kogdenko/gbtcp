@@ -18,7 +18,7 @@ uint64_t mHZ = 3000000;
 __thread int gbtcp_errno;
 
 
-static struct subr_mod *current_mod;
+static struct subr_mod *curmod;
 
 #define MURMUR_MMIX(h,k) \
 do { \
@@ -139,7 +139,7 @@ subr_mod_init(struct log *log, void **pp)
 int
 subr_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
 
@@ -156,7 +156,7 @@ subr_mod_deinit(struct log *log, void *raw_mod)
 void
 subr_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 int

@@ -3,33 +3,29 @@
 #include "strbuf.h"
 #include "gbtcp.h"
 
-#define preload_dbg if (1) gt_dbg
-
-#define SYS_CALL(func, fd, ...) \
+#define SYS_CALL(func, ...) \
 ({ \
 	ssize_t rc; \
  \
 	if (sys_##func##_fn == NULL) { \
  		SYS_DLSYM(func); \
 	} \
-	rc = (sys_##func##_fn)(fd, ##__VA_ARGS__); \
-	preload_dbg("S %s; fd=%d, ret=%zd (%s)", \
-		#func, fd, rc, rc == -1 ? strerror(errno) : ""); \
+	rc = (sys_##func##_fn)(__VA_ARGS__); \
 	rc; \
 })
 
-
 #define PRELOAD_PASSTHRU(e) ((e) == EBADF || (e) == ENOTSOCK || (e) == ENOTSUP)
-#define PRELOAD_CALL(func, fd, ...) \
+
+#define PRELOAD_CALL2(func, return_fd, ...) \
 ({ \
 	ssize_t rc; \
  \
-	rc = gbtcp_##func(fd, ##__VA_ARGS__); \
-	preload_dbg("P %s; fd=%d, ret=%zd (%s)", \
-	       #func, fd, rc, rc == -1 ? strerror(gbtcp_errno) : ""); \
+	rc = gbtcp_##func(__VA_ARGS__); \
 	if (rc == -1) { \
 		if (PRELOAD_PASSTHRU(gbtcp_errno)) { \
-			rc = SYS_CALL(func, fd, ##__VA_ARGS__); \
+			rc = SYS_CALL(func, ##__VA_ARGS__); \
+			if (return_fd) \
+				rc = preload_return_fd(rc); \
 		} else { \
 			preload_set_errno(gbtcp_errno); \
 		} \
@@ -37,8 +33,10 @@
 	rc; \
 })
 
+#define PRELOAD_CALL(func, ...) PRELOAD_CALL2(func, 0, __VA_ARGS__)
+
 #if 1
-/*#define PRELOAD_FORK fork
+#define PRELOAD_FORK fork
 #define PRELOAD_VFORK vfork
 #define PRELOAD_SOCKET socket
 #define PRELOAD_BIND bind
@@ -48,27 +46,28 @@
 #define PRELOAD_ACCEPT4 accept4
 #define PRELOAD_SHUTDOWN shutdown
 #define PRELOAD_CLOSE close
-#define PRELOAD_READ read*/
-/*#define PRELOAD_READV readv
+#define PRELOAD_READ read
+#define PRELOAD_READV readv
 #define PRELOAD_RECV recv
 #define PRELOAD_RECVFROM recvfrom
 #define PRELOAD_WRITE write
 #define PRELOAD_WRITEV writev
 #define PRELOAD_SEND send
 #define PRELOAD_SENDTO sendto
-#define PRELOAD_SENDMSG sendmsg*/
+#define PRELOAD_SENDMSG sendmsg
 //#define PRELOAD_SENDFILE sendfile
-/*#define PRELOAD_FCNTL fcntl
+#define PRELOAD_FCNTL fcntl
 #define PRELOAD_IOCTL ioctl
 #define PRELOAD_GETSOCKOPT getsockopt
 #define PRELOAD_SETSOCKOPT setsockopt
-#define PRELOAD_GETPEERNAME getpeername*/
+#define PRELOAD_GETPEERNAME getpeername
 #define PRELOAD_PPOLL ppoll
 #define PRELOAD_POLL poll
 #define PRELOAD_PSELECT pselect
 #define PRELOAD_SELECT select
 #define PRELOAD_SIGNAL signal
 #define PRELOAD_SIGACTION sigaction
+
 #ifdef __linux__
 #define PRELOAD_CLONE clone
 #define PRELOAD_EPOLL_CREATE epoll_create
@@ -89,15 +88,28 @@ preload_set_errno(int e)
 	errno = e;
 }
 
+static int
+preload_return_fd(int fd)
+{
+	int first_fd;
+
+	if (fd >= 0) {
+		first_fd = gt_first_fd();
+		if (fd >= first_fd) {
+			SYS_CALL(close, fd);
+			preload_set_errno(ENFILE);
+			return -1;
+		}
+	}
+	return fd;
+}
+
 pid_t
 PRELOAD_FORK()
 {
 	int rc;
 
-	rc = gbtcp_fork();
-	if (rc == -1) {
-		preload_set_errno(gbtcp_errno);
-	}
+	rc = PRELOAD_CALL(fork);
 	return rc;
 }
 
@@ -112,26 +124,10 @@ PRELOAD_VFORK()
 int
 PRELOAD_SOCKET(int domain, int type, int protocol)
 {
-	int rc, fd, first_fd;
+	int rc;
 
-	rc = gbtcp_socket(domain, type, protocol);
-	preload_dbg("P socket; rc=%d", rc);
-	if (rc >= 0) {
-		return rc;
-	}
-	rc = SYS_CALL(socket, domain, type, protocol);
-	if (rc == -1) {
-		return rc;
-	}
-	fd = rc;
-	first_fd = gt_first_fd();
-	if (fd >= first_fd) {
-		SYS_CALL(close, fd);
-		preload_set_errno(ENFILE);
-		return -1;
-	} else {
-		return fd;
-	}
+	rc = PRELOAD_CALL2(socket, 1, domain, type, protocol);
+	return rc;
 }
 
 int
@@ -165,31 +161,10 @@ int
 PRELOAD_ACCEPT4(int fd, struct sockaddr *addr, socklen_t *addrlen,
 	int flags)
 {
-	int rc, first_fd;
+	int rc;
 
-	rc = gbtcp_accept4(fd, addr, addrlen, flags);
-	if (rc == -1) {
-		if (PRELOAD_PASSTHRU(gbtcp_errno)) {
-			rc = SYS_CALL(accept4, fd, addr, addrlen, flags);
-			if (rc == -1) {
-				return rc;
-			}
-			fd = rc;
-			first_fd = gt_first_fd();
-			if (fd >= first_fd) {
-				SYS_CALL(close, fd);
-				preload_set_errno(ENFILE);
-				return -1;
-			} else {
-				return fd;
-			}
-		} else {
-			preload_set_errno(gbtcp_errno);
-			return -1;
-		}
-	} else {
-		return rc;
-	}
+	rc = PRELOAD_CALL2(accept4, 1, fd, addr, addrlen, flags);
+	return rc;
 }
 
 int
@@ -354,10 +329,7 @@ PRELOAD_PPOLL(struct pollfd *pfds, nfds_t npfds, const struct timespec *to,
 {
 	int rc;
 
-	rc = gbtcp_ppoll(pfds, npfds, to, sigmask);
-	if (rc == -1) {
-		preload_set_errno(gbtcp_errno);
-	}
+	rc = PRELOAD_CALL(ppoll, pfds, npfds, to, sigmask);
 	return rc;
 }
 
@@ -581,7 +553,7 @@ PRELOAD_CLONE(int (*fn)(void *), void *child_stack, int flags,
 	tls = va_arg(ap, void *);
 	ctid = va_arg(ap, void *);
 	va_end(ap);
-	rc = gbtcp_clone(fn, child_stack, flags, arg, ptid, tls, ctid);
+	rc = PRELOAD_CALL(clone, fn, child_stack, flags, arg, ptid, tls, ctid);
 	return rc;
 }
 
@@ -590,10 +562,7 @@ PRELOAD_EPOLL_CREATE1(int flags)
 {
 	int rc;
 
-	rc = gbtcp_epoll_create();
-	if (rc == -1) {
-		preload_set_errno(gbtcp_errno);
-	}
+	rc = PRELOAD_CALL2(epoll_create1, 1, flags);
 	return rc;	
 }
 
@@ -611,10 +580,7 @@ PRELOAD_EPOLL_CTL(int epfd, int op, int fd, struct epoll_event *event)
 {
 	int rc;
 
-	rc = gbtcp_epoll_ctl(epfd, op, fd, event);
-	if (rc == -1) {
-		preload_set_errno(gbtcp_errno);
-	}
+	rc = PRELOAD_CALL(epoll_ctl, epfd, op, fd, event);
 	return rc;
 }
 
@@ -624,11 +590,8 @@ PRELOAD_EPOLL_PWAIT(int epfd, struct epoll_event *events, int maxevents,
 {
 	int rc;
 
-	rc = gbtcp_epoll_pwait(epfd, events, maxevents,
-	                       timeout, sigmask);
-	if (rc == -1) {
-		preload_set_errno(gbtcp_errno);
-	}
+	rc = PRELOAD_CALL(epoll_pwait, epfd, events, maxevents,
+	                  timeout, sigmask);
 	return rc;
 }
 
@@ -656,10 +619,7 @@ PRELOAD_KQUEUE()
 {
 	int rc;
 
-	rc = gbtcp_kqueue();
-	if (rc == -1) {
-		preload_set_errno(gbtcp_errno);
-	}
+	rc = PRELOAD_CALL2(kqueue, 1);
 	return rc;
 }
 
@@ -669,11 +629,8 @@ PRELOAD_KEVENT(int kq, const struct kevent *changelist, int nchanges,
 {
 	int rc;
 
-	rc = gbtcp_kevent(kq, changelist, nchanges,
+	rc = PRELOAD_CALL(kevent, kq, changelist, nchanges,
 	                  eventlist, nevents, timeout);
-	if (rc == -1) {
-		preload_set_errno(gbtcp_errno);
-	}
 	return rc;
 }
 #endif /* __linux__ */

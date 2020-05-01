@@ -6,7 +6,7 @@ struct dev_mod {
 	struct log_scope log_scope;
 };
 
-static struct dev_mod *current_mod;
+static struct dev_mod *curmod;
 
 int
 dev_mod_init(struct log *log, void **pp)
@@ -26,7 +26,7 @@ dev_mod_init(struct log *log, void **pp)
 int
 dev_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
 
@@ -44,7 +44,7 @@ dev_mod_deinit(struct log *log, void *raw_mod)
 void
 dev_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 static int

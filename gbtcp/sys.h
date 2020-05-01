@@ -123,6 +123,7 @@ void dlsym_all();
 
 int sys_fork(struct log *);
 int sys_open(struct log *, const char *, int, mode_t);
+int sys_symlink(struct log *, const char *, const char *);
 int sys_unlink(struct log *, const char *);
 int sys_pipe(struct log *, int [2]);
 int sys_socket(struct log *, int, int, int);
@@ -168,6 +169,7 @@ int sys_inotify_add_watch(struct log *, int, const char *, uint32_t);
 int sys_inotify_rm_watch(struct log *, int, int);
 
 #ifdef __linux__
+int sys_epoll_create1(struct log *, int);
 int sys_epoll_pwait(struct log *, int, struct epoll_event *, int, int,
 	const sigset_t *);
 int sys_clone(struct log *, int (*)(void *), void *, int , void *,

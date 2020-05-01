@@ -112,7 +112,7 @@ xsysctl(const char *path, char *old, const char *new)
 {
 	int rc;
 
-	rc = gt_sysctl(0, path, old, GT_SYSCTL_BUFSIZ, new);
+	rc = gt_sysctl(path, old, GT_SYSCTL_BUFSIZ, new);
 	if (rc >= 0) {
 		return 0;
 	} else {

@@ -45,7 +45,7 @@ void (*gt_sock_no_opened_fn)();
 struct dlist gt_sock_binded[65536];
 
 static htable_t gt_sock_htable;
-static struct tcp_mod *current_mod;
+static struct tcp_mod *curmod;
 
 // subr
 static const char *gt_tcp_flags_str(struct strbuf *sb, int proto,
@@ -262,7 +262,7 @@ int
 tcp_mod_attach(struct log *log, void *raw_mod)
 {
 	int i, rc;
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	gt_sock_nr_opened = 0;
 	rc = htable_create(log, &gt_sock_htable, 2048, gt_sock_hash);
 	if (rc)
@@ -292,7 +292,7 @@ tcp_mod_deinit(struct log *log, void *raw_mod)
 void
 tcp_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 const char *
@@ -1256,7 +1256,7 @@ gt_tcp_timer_set_tcp_fin_timeout(struct gt_sock *so)
 	ASSERT(so->so_rexmit == 0);
 	ASSERT(so->so_wprobe == 0);
 	ASSERT(!gt_timer_is_running(&so->so_timer));
-	gt_timer_set(&so->so_timer, current_mod->tcp_fin_timeout,
+	gt_timer_set(&so->so_timer, curmod->tcp_fin_timeout,
 	             gt_tcp_timeout_tcp_fin_timeout); 
 }
 
@@ -2799,9 +2799,9 @@ gt_sock_ctl_init_sock_list(struct log *log)
 static int
 gt_sock_ctl_tcp_fin_timeout(const long long *new, long long *old)
 {
-	*old = current_mod->tcp_fin_timeout / NANOSECONDS_SECOND;
+	*old = curmod->tcp_fin_timeout / NANOSECONDS_SECOND;
 	if (new != NULL) {
-		current_mod->tcp_fin_timeout = (*new) * NANOSECONDS_SECOND;
+		curmod->tcp_fin_timeout = (*new) * NANOSECONDS_SECOND;
 	}
 	return 0;
 }

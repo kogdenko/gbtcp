@@ -42,7 +42,7 @@ struct log {
 #else /* LOG_DISABLED */
 #define LOGF(log, level, err, fmt, ...) \
 do { \
-	if (log_is_enabled(&current_mod->log_scope, level)) { \
+	if (log_is_enabled(&curmod->log_scope, level)) { \
 		log_buf_init(); \
 		log_printf(log, level, err, fmt, ##__VA_ARGS__); \
 	} \

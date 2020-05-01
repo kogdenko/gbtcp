@@ -29,48 +29,16 @@ struct uepoll_entry {
 	};
 };
 
-static struct epoll_mod *current_mod;
-
-// entry
-//static struct uepoll_entry *uepoll_entry_alloc(struct gt_epoll *,
-//	struct file *fp, short filter);
-
-//static struct gt_epoll_entry *gt_epoll_entry_get(struct gt_epoll *ep,
-//	struct file *fp);
-
-//static void gt_epoll_entry_remove(struct gt_epoll_entry *e);
-
-//static void gt_epoll_entry_free(struct gt_epoll_entry *e);
-
-//static void gt_epoll_entry_get_event(struct gt_epoll_entry *e,
-//	gt_epoll_event_t *event, struct file *fp);
-
-//static void gt_epoll_entry_cb(struct file_aio *, int fd, short revents);
-
-//static void gt_epoll_entry_set(struct gt_epoll_entry *e,
-//	struct file *fp, short filter);
-
-// epoll
-//static int gt_epoll_get(int fd, struct gt_epoll **ep);
-
-//static int gt_epoll_get_events(struct gt_epoll *ep,
-//	gt_epoll_event_t *buf, int cnt);
-
-//static int gt_epoll_wait_fd(int fd, gt_epoll_event_t *buf, int cnt);
+static struct epoll_mod *curmod;
 
 static void uepoll_entry_set(struct uepoll_entry *, struct file *, short);
-
-
-#ifndef __linux__
-//static int gt_epoll_kevent_mod(struct gt_epoll *ep, struct file *fp,
-//	struct kevent *event);
-#endif /* __linux__ */
 
 int
 epoll_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct epoll_mod *mod;
+
 	LOG_TRACE(log);
 	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (!rc) {
@@ -79,26 +47,31 @@ epoll_mod_init(struct log *log, void **pp)
 	}
 	return rc;
 }
+
 int
 epoll_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
+
 void
 epoll_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct epoll_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
 	shm_free(mod);
 }
+
 void
 epoll_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
+
 static struct uepoll_entry *
 uepoll_entry_get(struct uepoll *ep, struct file *fp)
 {

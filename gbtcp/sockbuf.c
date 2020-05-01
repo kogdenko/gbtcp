@@ -25,7 +25,7 @@ struct sbchunk {
 };
 
 static struct mbuf_pool *sockbuf_chunk_pool;
-static struct sockbuf_mod *current_mod;
+static struct sockbuf_mod *curmod;
 
 static int
 uio_copyin(struct gt_uio *uio, void *buf, int cnt)
@@ -387,7 +387,7 @@ sockbuf_mod_attach(struct log *log, void *raw_mod)
 {
 	int rc;
 	LOG_TRACE(log);
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	rc = mbuf_pool_alloc(log, &sockbuf_chunk_pool,
 	                     GT_SOCKBUF_CHUNK_SIZE);
 	return rc;
@@ -397,6 +397,7 @@ void
 sockbuf_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct sockbuf_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
@@ -409,5 +410,5 @@ sockbuf_mod_detach(struct log *log)
 	// TODO:
 	//ASSERT(mbuf_pool_is_empty(sockbuf_chunk_pool));
 	mbuf_pool_free(sockbuf_chunk_pool);
-	current_mod = NULL;
+	curmod = NULL;
 }

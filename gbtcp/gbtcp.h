@@ -214,7 +214,7 @@ int gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout);
 int gbtcp_ppoll(struct pollfd *fds, nfds_t nfds,
 	const struct timespec *timeout_ts, const sigset_t *sigmask);
 
-int gt_sysctl(int pid, const char *name, char *old, int len, const char *new);
+int gt_sysctl(const char *, char *, int, const char *);
 
 int gt_first_fd();
 
@@ -228,7 +228,7 @@ int gbtcp_sigaction(int signum, const struct sigaction *act,
 int gbtcp_clone(int (*fn)(void *), void *child_stack,
 	int flags, void *arg, void *ptid, void *tls, void *ctid);
 
-int gbtcp_epoll_create();
+int gbtcp_epoll_create1(int);
 
 int gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
 

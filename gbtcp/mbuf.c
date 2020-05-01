@@ -23,7 +23,7 @@ struct mbuf_chunk {
 	short c_id;
 };
 
-static struct mbuf_mod *current_mod;
+static struct mbuf_mod *curmod;
 
 #define MBUF_GET(p, chunk, i) \
 	(struct mbuf *)(((u_char *)(chunk + 1)) + i * p->mbp_mbuf_size);
@@ -45,7 +45,7 @@ mbuf_mod_init(struct log *log, void **pp)
 int
 mbuf_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
 void
@@ -60,7 +60,7 @@ mbuf_mod_deinit(struct log *log, void *raw_mod)
 void
 mbuf_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 static struct mbuf_chunk *
 mbuf_get_chunk(struct mbuf *m)
@@ -132,15 +132,15 @@ mbuf_pool_alloc(struct log *log, struct mbuf_pool **pp, int mbuf_size)
 	ASSERT(mbuf_size >= sizeof(struct mbuf));
 	LOG_TRACE(log);
 	mbuf_size = ROUND_UP(mbuf_size, CACHE_LINE_SIZE);
-	for (i = 0; i < ARRAY_SIZE(current_mod->mbuf_pools); ++i) {
-		if (current_mod->mbuf_pools[i] == NULL) {
+	for (i = 0; i < ARRAY_SIZE(curmod->mbuf_pools); ++i) {
+		if (curmod->mbuf_pools[i] == NULL) {
 			goto found;
 		}
 	}
 	LOGF(log, LOG_ERR, 0, "no pool slots");
 	return -ENFILE;
 found:
-	p = current_mod->mbuf_pools[i];
+	p = curmod->mbuf_pools[i];
 	rc = shm_alloc(log, (void **)&p, sizeof(*p));
 	if (!rc) {
 		memset(p, 0, sizeof(*p));
@@ -150,7 +150,7 @@ found:
 		dlist_init(&p->mbp_avail_chunkq);
 		dlist_init(&p->mbp_empty_chunkq);
 		p->mbp_nr_chunks = ARRAY_SIZE(p->mbp_chunks);
-		current_mod->mbuf_pools[p->mbp_id] = p;
+		curmod->mbuf_pools[p->mbp_id] = p;
 		*pp = p;
 	}
 	return rc;
@@ -183,7 +183,7 @@ mbuf_pool_free(struct mbuf_pool *p)
 		                    c_list);
 		mbuf_chunk_free(p, chunk);
 	}
-	current_mod->mbuf_pools[p->mbp_id] = NULL;
+	curmod->mbuf_pools[p->mbp_id] = NULL;
 	shm_free(p);
 }
 int
@@ -268,8 +268,8 @@ mbuf_free(struct mbuf *m)
 	}
 	ASSERT(m->mb_magic == MBUF_MAGIC);
 	ASSERT(m->mb_used == 1);
-	ASSERT(m->mb_pool_id < ARRAY_SIZE(current_mod->mbuf_pools));
-	p = current_mod->mbuf_pools[m->mb_pool_id];
+	ASSERT(m->mb_pool_id < ARRAY_SIZE(curmod->mbuf_pools));
+	p = curmod->mbuf_pools[m->mb_pool_id];
 	m->mb_used = 0;
 	chunk = mbuf_get_chunk(m);
 	DLIST_INSERT_HEAD(&chunk->c_freeq, m, mb_list);

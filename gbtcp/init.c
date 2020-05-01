@@ -71,7 +71,7 @@ int gt_global_epoch;
 struct proc *current;
 
 static struct spinlock init_lock;
-static struct init_mod *current_mod;
+static struct init_mod *curmod;
 
 #define IH_VERSION 2
 
@@ -147,7 +147,7 @@ init_mod_init(struct log *log, void **pp)
 int
 init_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
 
@@ -164,7 +164,7 @@ init_mod_deinit(struct log *log, void *raw_mod)
 void
 init_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 static int

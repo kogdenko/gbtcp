@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 license
 #ifndef GBTCP_SYSCTL_H
 #define GBTCP_SYSCTL_H
 
@@ -9,9 +9,6 @@
 #define SYSCTL_WR 2
 
 #define SYSCTL_PATH GT_PREFIX"/sock"
-
-#define GT_CTL_UNSUB 0
-#define GT_CTL_SUB 1
 
 #define SYSCTL_FILE_FIRST_FD "file.first_fd"
 #define GT_CTL_INET_RX_CKSUM_OFFLOAD "inet.rx_cksum_offload"
@@ -34,19 +31,11 @@
 
 struct strbuf;
 
-typedef int (*sysctl_f)(struct log *log, void *udata, int eno, char *old);
-
-typedef int (*sysctl_node_f)(struct log *log, void *udata, const char *new,
-	struct strbuf *out);
-
-typedef int (*sysctl_list_next_f)(void *udata, int id);
-
-typedef int (*sysctl_list_f)(void *udata, int id, const char *new,
-	struct strbuf *out);
-
-typedef void (*sysctl_sub_f)(int pid, int action);
-
-extern sysctl_sub_f sysctl_sub_fn;
+typedef int (*sysctl_f)(struct log *, void *, int, char *);
+typedef int (*sysctl_node_f)(struct log *, void *, const char *,
+	struct strbuf *);
+typedef int (*sysctl_list_next_f)(void *, int);
+typedef int (*sysctl_list_f)(void *, int, const char *, struct strbuf *out);
 
 int sysctl_mod_init(struct log *, void **);
 int sysctl_mod_attach(struct log *, void *);
@@ -58,14 +47,9 @@ int unix_bind(struct log *, const struct sockaddr_un *);
 
 int sysctl_read_file(struct log *, const char *);
 
-int usysctl(struct log *log, int pid, const char *path,
-	char *old, int cnt, const char *new);
-
-int usysctl_r(struct log *log, int pid, const char *path,
-	void *udata, sysctl_f fn, const char *new);
+int usysctl(struct log *, const char *, char *, int, const char *);
 
 int sysctl_bind(struct log *log, int pid);
-
 void sysctl_unbind();
 
 void sysctl_add(struct log *, const char *, int, void *,
@@ -76,8 +60,8 @@ void sysctl_add_intfn(struct log *, const char *, int mode,
 
 void sysctl_add_int(struct log *log, const char *, int,	int *, int, int);
 
-void sysctl_add_int64(struct log *log, const char *path, int mode,
-	int64_t *ptr, int64_t min, int64_t max);
+void sysctl_add_int64(struct log *, const char *, int, int64_t *,
+	int64_t, int64_t);
 
 void sysctl_add_uint64(struct log *, const char *, int,
 	uint64_t *, int64_t, int64_t);
@@ -90,4 +74,4 @@ int sysctl_del(struct log *, const char *);
 int sysctl_delf(struct log *, const char *, ...)
 	__attribute__((format(printf, 2, 3)));
 
-#endif /* GBTCP_SYSCTL_H */
+#endif // GBTCP_SYSCTL_H

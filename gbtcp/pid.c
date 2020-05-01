@@ -4,13 +4,14 @@ struct pid_mod {
 	struct log_scope log_scope;
 };
 
-static struct pid_mod *current_mod;
+static struct pid_mod *curmod;
 
 int
 pid_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct pid_mod *mod;
+
 	LOG_TRACE(log);
 	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (!rc) {
@@ -19,37 +20,44 @@ pid_mod_init(struct log *log, void **pp)
 	}
 	return rc;
 }
+
 int
 pid_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
+
 void
 pid_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct pid_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
 	shm_free(mod);
 }
+
 void
 pid_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
+
 char *
 pidfile_path(char *path, const char *filename)
 {
 	snprintf(path, PATH_MAX, "%s/pid/%s", GT_PREFIX, filename);
 	return path;
 }
+
 int
 pidfile_open(struct log *log, struct pidfile *pf)
 {
 	int rc;
 	char path[PATH_MAX];
+
 	LOG_TRACE(log);
 	pidfile_path(path, pf->pf_name);
 	rc = sys_open(log, path, O_CREAT|O_RDWR, 0666);
@@ -59,20 +67,24 @@ pidfile_open(struct log *log, struct pidfile *pf)
 	pf->pf_fd = rc;
 	return 0;
 }
+
 int
 pidfile_lock(struct log *log, struct pidfile *pf)
 {
 	int rc;
+
 	LOG_TRACE(log);	
 	rc = sys_flock(log, pf->pf_fd, LOCK_EX|LOCK_NB);
 	return rc;
 }
+
 int
 pidfile_read(struct log *log, struct pidfile *pf)
 {
 	int rc, pid;
 	char buf[32];
 	char path[PATH_MAX];
+
 	LOG_TRACE(log);
 	rc = sys_read(log, pf->pf_fd, buf, sizeof(buf) - 1);
 	if (rc < 0) {
@@ -88,11 +100,13 @@ pidfile_read(struct log *log, struct pidfile *pf)
 		return pid;
 	}
 }
+
 int
 pidfile_write(struct log *log, struct pidfile *pf, int pid)
 {
 	int rc, len;
 	char buf[32];
+
 	LOG_TRACE(log);
 	len = snprintf(buf, sizeof(buf), "%d", pid);
 	rc = write_all(log, pf->pf_fd, buf, len);
@@ -107,11 +121,13 @@ pidfile_close(struct log *log, struct pidfile *pf)
 		pf->pf_fd = -1;
 	}
 }
+
 int
 read_pidfile(struct log *log, const char * filename)
 {
 	int rc;
 	struct pidfile pf;
+
 	pf.pf_name = filename;
 	rc = pidfile_open(log, &pf);
 	if (rc) {
@@ -124,6 +140,7 @@ read_pidfile(struct log *log, const char * filename)
 	pidfile_close(log, &pf);
 	return rc;
 }
+
 int
 write_pidfile(struct log * log, const char *filename, int pid)
 {

@@ -32,7 +32,7 @@ struct gt_arp_stat gt_arps;
 
 static int gt_inet_rx_cksum_offload = 0;
 static int gt_inet_tx_cksum_offload = 0;
-static struct inet_mod *current_mod;
+static struct inet_mod *curmod;
 
 static uint64_t gt_inet_cksum_add(uint64_t sum, uint64_t x);
 
@@ -105,7 +105,7 @@ inet_mod_init(struct log *log, void **pp)
 int
 inet_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
 
@@ -125,7 +125,7 @@ inet_mod_deinit(struct log *log, void *raw_mod)
 void
 inet_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 int

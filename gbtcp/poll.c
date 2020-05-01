@@ -28,7 +28,7 @@ struct gt_poll {
 	int p_n;
 };
 
-static struct poll_mod *current_mod;
+static struct poll_mod *curmod;
 
 int
 poll_mod_init(struct log *log, void **pp)
@@ -48,7 +48,7 @@ poll_mod_init(struct log *log, void **pp)
 int
 poll_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
 
@@ -65,7 +65,7 @@ poll_mod_deinit(struct log *log, void *raw_mod)
 void
 poll_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 static void

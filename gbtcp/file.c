@@ -6,7 +6,7 @@ struct file_mod {
 };
 
 static struct mbuf_pool *file_pool;
-static struct file_mod *current_mod;
+static struct file_mod *curmod;
 
 static void
 file_init(struct file *fp, int type)
@@ -16,11 +16,13 @@ file_init(struct file *fp, int type)
 	fp->fl_blocked = 1;
 	dlist_init(&fp->fl_aioq);
 }
+
 static void
 file_aio_call(struct file_aio *aio, short revents)
 {
 	int fd;
 	struct log *log;
+
 	file_aio_f fn;
 	fn = aio->faio_fn;
 	fd = aio->faio_fd;
@@ -29,11 +31,13 @@ file_aio_call(struct file_aio *aio, short revents)
 	    aio, fd, log_add_poll_events(revents));
 	(*fn)(aio, fd, revents);
 }
+
 int
 file_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct file_mod *mod;
+
 	LOG_TRACE(log);
 	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc == 0) {
@@ -45,107 +49,120 @@ file_mod_init(struct log *log, void **pp)
 	}
 	return rc;
 }
+
 int
 file_mod_attach(struct log *log, void *raw_mod)
 {
 	int rc;
-	current_mod = raw_mod;
+
+	curmod = raw_mod;
 	LOG_TRACE(log);
 	rc = mbuf_pool_alloc(log, &file_pool, sizeof(struct gt_sock));
 	return rc;
 }
+
 void
 file_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct file_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	sysctl_del(log, SYSCTL_FILE_FIRST_FD);
 	log_scope_deinit(log, &mod->log_scope);
 	shm_free(mod);
 }
+
 void
 file_mod_detach(struct log *log)
 {
 	//ASSERT(mbuf_pool_is_empty(file_pool));
 	mbuf_pool_free(file_pool);
 	file_pool = NULL;
-	current_mod = NULL;
+	curmod = NULL;
 }
+
 int
 file_get_fd(struct file *fp)
 {
 	int m_id;
+
 	m_id = mbuf_get_id(file_pool, &fp->fl_mbuf);
-	return m_id + current_mod->file_first_fd;
+	return m_id + curmod->file_first_fd;
 }
+
 struct file *
 file_next(int fd)
 {
 	int m_id;
 	struct mbuf *m;
 	struct file *fp;
-	if (fd < current_mod->file_first_fd) {
+
+	if (fd < curmod->file_first_fd) {
 		m_id = 0;
 	} else {
-		m_id = fd - current_mod->file_first_fd;
+		m_id = fd - curmod->file_first_fd;
 	}
 	m = mbuf_next(file_pool, m_id);
 	fp = (struct file *)m;
 	return fp;
 }
+
 int
 file_alloc(struct log *log, struct file **fpp, int type)
 {
 	int rc;
 	struct file *fp;
+
 	LOG_TRACE(log);
 	rc = mbuf_alloc(log, file_pool, (struct mbuf **)fpp);
 	if (rc == 0) {
 		fp = *fpp;
 		file_init(fp, type);
-		DBG(log, 0, "ok; fp=%p, fd=%d",
-		    fp, file_get_fd(fp));
+		DBG(log, 0, "ok; fp=%p, fd=%d", fp, file_get_fd(fp));
 	} else {
 		DBG(log, -rc, "failed");
 	}
 	return rc;
 }
+
 int
 file_alloc4(struct log *log, struct file **fpp, int type, int fd)
 {
 	int rc;
 	uint32_t m_id;
 	struct file *fp;
+
 	LOG_TRACE(log);
-	if (fd < current_mod->file_first_fd) {
+	if (fd < curmod->file_first_fd) {
 		rc = -EBADF;
 	} else {
-		m_id = fd - current_mod->file_first_fd;
+		m_id = fd - curmod->file_first_fd;
 		rc = mbuf_alloc4(log, file_pool, m_id,
 		                 (struct mbuf **)fpp);
 	}
 	if (rc == 0) {
 		fp = *fpp;
 		file_init(fp, type);
-		DBG(log, 0, "ok; fp=%p, fd=%d",
-		    fp, file_get_fd(fp));
+		DBG(log, 0, "ok; fp=%p, fd=%d", fp, file_get_fd(fp));
 	} else {
 		DBG(log, -rc, "failed");
 	}
 	return rc;
 }
+
 int
 file_get(int fd, struct file **fpp)
 {
 	int m_id;
 	struct mbuf *m;
 	struct file *fp;
+
 	*fpp = NULL;
-	if (fd < current_mod->file_first_fd) {
+	if (fd < curmod->file_first_fd) {
 		return -EBADF;
 	}
-	m_id = fd - current_mod->file_first_fd;
+	m_id = fd - curmod->file_first_fd;
 	m = mbuf_get(file_pool, m_id);
 	fp = (struct file *)m;
 	if (fp == NULL) {
@@ -157,6 +174,7 @@ file_get(int fd, struct file **fpp)
 	*fpp = fp;
 	return 0;
 }
+
 void
 file_free(struct file *fp)
 {
@@ -165,6 +183,7 @@ file_free(struct file *fp)
 	DBG(log, 0, "hit; fp=%p, fd=%d", fp, file_get_fd(fp));
 	mbuf_free(&fp->fl_mbuf);
 }
+
 void
 file_close(struct file *fp, int how)
 {
@@ -181,10 +200,12 @@ file_close(struct file *fp, int how)
 		BUG;
 	}
 }
+
 int
 file_cntl(struct file *fp, int cmd, uintptr_t arg)
 {
 	int flags, rc;
+
 	switch (cmd) {
 	case F_GETFD:
 		return O_CLOEXEC;
@@ -212,10 +233,12 @@ file_cntl(struct file *fp, int cmd, uintptr_t arg)
 	}
 	return -ENOTSUP;
 }
+
 int
 file_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 {
 	int rc;
+
 	if (fp->fl_type != FILE_SOCK) {
 		return -ENOTSUP;
 	}
@@ -241,12 +264,14 @@ file_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 	}
 	return rc;
 }
+
 void
 file_wakeup(struct file *fp, short events)
 {
 	short revents;
 	struct log *log;
 	struct file_aio *aio, *tmp;
+
 	ASSERT(events);
 	log = log_trace0();
 	DBG(log, 0, "hit; fd=%d, events=%s",
@@ -259,22 +284,27 @@ file_wakeup(struct file *fp, short events)
 		}
 	}
 }
+
 struct file_wait_data {
 	struct file_aio w_aio;
 	short w_revents;
 };
+
 static void
 file_wait_cb(struct file_aio *aio, int fd, short revents)
 {
 	struct file_wait_data *data;
+
 	data = container_of(aio, struct file_wait_data, w_aio);
 	data->w_revents = revents;
 }
+
 int
 file_wait(struct file *fp, short events)
 {
 	int rc;
 	struct file_wait_data data;
+
 	mbuf_init(&data.w_aio.faio_mbuf);
 	file_aio_init(&data.w_aio);
 	data.w_revents = 0;
@@ -285,11 +315,13 @@ file_wait(struct file *fp, short events)
 	file_aio_cancel(&data.w_aio);
 	return rc;
 }
+
 short
 file_get_events(struct file *fp, struct file_aio *aio)
 {
 	short revents;
 	struct log *log;
+
 	if (fp->fl_type == FILE_SOCK) {
 		revents = gt_sock_get_events(fp);
 	} else {
@@ -301,15 +333,18 @@ file_get_events(struct file *fp, struct file_aio *aio)
 	    aio, file_get_fd(fp), log_add_poll_events(revents));
 	return revents;
 }
+
 void
 file_aio_init(struct file_aio *aio)
 {
 	aio->faio_filter = 0;
 }
+
 static void
 file_aio_stub(struct file_aio *aio, int fd, short events)
 {
 }
+
 void
 file_aio_set(struct file *fp, struct file_aio *aio, short events,
 	file_aio_f fn)
@@ -318,6 +353,7 @@ file_aio_set(struct file *fp, struct file_aio *aio, short events,
 	const char *action;
 	short filter, revents;
 	struct log *log;
+
 	ASSERT(fp->fl_type == FILE_SOCK);
 	filter = events|POLLERR|POLLNVAL;
 	if (aio->faio_filter == filter) {
@@ -345,10 +381,12 @@ file_aio_set(struct file *fp, struct file_aio *aio, short events,
 		file_aio_call(aio, revents);
 	}
 }
+
 void
 file_aio_cancel(struct file_aio *aio)
 {
 	struct log *log;
+
 	if (aio->faio_filter) {
 		log = log_trace0();
 		DBG(log, 0, "hit; aio=%p, fd=%d, filter=%s",
@@ -358,8 +396,9 @@ file_aio_cancel(struct file_aio *aio)
 		DLIST_REMOVE(aio, faio_list);
 	}
 }
+
 int
 file_first_fd()
 {
-	return current_mod->file_first_fd;
+	return curmod->file_first_fd;
 }

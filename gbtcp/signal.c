@@ -6,7 +6,7 @@ struct signal_mod {
 
 void *gt_signal_stack;
 size_t gt_signal_stack_size;
-static struct signal_mod *current_mod;
+static struct signal_mod *curmod;
 
 int
 signal_mod_init(struct log *log, void **pp)
@@ -29,7 +29,7 @@ signal_mod_init(struct log *log, void **pp)
 int
 signal_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
 
@@ -49,7 +49,7 @@ signal_mod_deinit(struct log *log, void *raw_mod)
 void
 signal_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 int

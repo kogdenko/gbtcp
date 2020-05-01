@@ -6,7 +6,7 @@ struct api_mod {
 };
 
 __thread int api_disabled;
-static struct api_mod *current_mod;
+static struct api_mod *curmod;
 
 #define API_RETURN(rc) \
 	do { \
@@ -78,7 +78,7 @@ api_mod_init(struct log *log, void **pp)
 int
 api_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
 
@@ -96,7 +96,7 @@ api_mod_deinit(struct log *log, void *raw_mod)
 void
 api_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 pid_t
@@ -913,15 +913,15 @@ gbtcp_sigaction(int signum, const struct sigaction *act,
 }
 
 int
-gt_sysctl(int pid, const char *path, char *old, int len, const char *new)
+gt_sysctl(const char *path, char *old, int len, const char *new)
 {
 	int rc;
 	struct log *log;
 
 	API_LOCK;
 	log = log_trace0();
-	LOGF(log, LOG_INFO, 0, "hit; pid=%d, path='%s'", pid, path);
-	rc = usysctl(log, pid, path, old, len, new);
+	LOGF(log, LOG_INFO, 0, "hit; path='%s'", path);
+	rc = usysctl(log, path, old, len, new);
 	if (rc < 0) {
 		LOGF(log, LOG_INFO, -rc, "failed");
 	} else {
@@ -967,7 +967,7 @@ gbtcp_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
 }
 
 int
-gbtcp_epoll_create()
+gbtcp_epoll_create1(int flags)
 {
 	int rc, fd;
 	struct log *log;
@@ -975,15 +975,12 @@ gbtcp_epoll_create()
 	API_LOCK;
 	log = log_trace0();
 	LOGF(log, LOG_INFO, 0, "hit");
-	rc = (*sys_epoll_create1_fn)(EPOLL_CLOEXEC);
-	if (rc == -1) {
-		rc = -errno;
-		ASSERT(rc);
-	} else {
+	rc = sys_epoll_create1(log, EPOLL_CLOEXEC);
+	if (rc >= 0) {
 		fd = rc;
 		rc = uepoll_create(fd);
 		if (rc < 0) {
-			(*sys_close_fn)(fd);
+			sys_close(log, fd);
 		}
 	}
 	if (rc < 0) {

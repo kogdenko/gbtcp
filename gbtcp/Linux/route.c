@@ -1,6 +1,5 @@
 #include "../internals.h"
 
-
 struct gt_route_dump_req {
 	struct nlmsghdr rdmp_nlh;
 	struct ifinfomsg rdmp_ifm;
@@ -8,10 +7,7 @@ struct gt_route_dump_req {
 	uint32_t rdmp_ext_filter_mask;
 };
 
-static struct route_mod *current_mod;
-
-static const char *gt_route_nlmsg_type_str(int nlmsg_type)
-	__attribute__ ((unused));
+static struct route_mod *curmod;
 
 static uint32_t gt_route_get_attr_u32(struct rtattr *attr);
 
@@ -26,10 +22,8 @@ static int gt_route_handle_route(struct nlmsghdr *h, struct gt_route_msg *msg);
 
 static int gt_route_rtnl_handler(struct nlmsghdr *h, gt_route_msg_f fn);
 
-static int gt_route_read_all(int fd, gt_route_msg_f fn);
-
-static const char *
-gt_route_nlmsg_type_str(int nlmsg_type)
+const char *
+route_nlmsg_type_str(int nlmsg_type)
 {
 	switch (nlmsg_type) {
 	case RTM_NEWLINK: return "RTM_NEWLINK";
@@ -336,10 +330,10 @@ gt_route_rtnl_handler(struct nlmsghdr *h, gt_route_msg_f fn)
 	}
 	if (rc < 0) {
 		LOGF(log, LOG_ERR, -rc, "failed; nlmsg_type=%s",
-		     gt_route_nlmsg_type_str(h->nlmsg_type));
+		     route_nlmsg_type_str(h->nlmsg_type));
 	} else {
 		LOGF(log, LOG_INFO, 0, "ok; nlmsg_type=%s",
-		     gt_route_nlmsg_type_str(h->nlmsg_type));
+		     route_nlmsg_type_str(h->nlmsg_type));
 	}
 	if (rc == 1 && fn != NULL) {
 		(*fn)(&msg);
@@ -400,7 +394,7 @@ route_open(struct route_mod *mod, struct log *log)
 {
 	int rc, g;
 
-	current_mod = mod;
+	curmod = mod;
 	g = 0;
 	g |= RTMGRP_LINK;
 	g |= RTMGRP_IPV4_IFADDR;

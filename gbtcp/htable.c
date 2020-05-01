@@ -4,13 +4,14 @@ struct htable_mod {
 	struct log_scope log_scope;
 };
 
-static struct htable_mod *current_mod;
+static struct htable_mod *curmod;
 
 int
 htable_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct htable_mod *mod;
+
 	LOG_TRACE(log);
 	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (!rc) {
@@ -19,31 +20,37 @@ htable_mod_init(struct log *log, void **pp)
 	}
 	return rc;
 }
+
 int
 htable_mod_attach(struct log *log, void *raw_mod)
 {
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	return 0;
 }
+
 void
 htable_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct htable_mod *mod;
+
 	mod = raw_mod;
 	LOG_TRACE(log);
 	log_scope_deinit(log, &mod->log_scope);
 	shm_free(mod);
 }
+
 void
 htable_mod_detach(struct log *log)
 {
-	current_mod = NULL;
+	curmod = NULL;
 }
+
 int
 htable_static_create(struct log *log, struct htable_static *t,
 	int size, htable_hash_f hash_fn)
 {
 	int i, rc;
+
 	LOG_TRACE(log);
 	t->hts_size = size;
 	t->hts_mask = size - 1;
@@ -60,6 +67,7 @@ htable_static_create(struct log *log, struct htable_static *t,
 	}
 	return 0;
 }
+
 void
 htable_static_free(struct htable_static *t)
 {
@@ -72,25 +80,30 @@ htable_static_bucket(struct htable_static *t, uint32_t h)
 {
 	return t->hts_array + ((h) & (t)->hts_mask);
 }
+
 void
 htable_static_add(struct htable_static *t, struct dlist *elem)
 {
 	uint32_t h;
 	struct dlist *bucket;
+
 	h = (*t->hts_hash_fn)(elem);
 	bucket = htable_static_bucket(t, h);
 	dlist_insert_tail(bucket, elem);
 }
+
 void
 htable_static_del(struct htable_static *t, struct dlist *elem)
 {
 	dlist_remove(elem);
 }
+
 int
 htable_dynamic_create(struct log *log, struct htable_dynamic *t,
 	int size, htable_hash_f hash_fn)
 {
 	int rc;
+
 	t->htd_size_min = size;
 	t->htd_nr_elems = 0;
 	t->htd_resize_discard = 0;
@@ -100,20 +113,24 @@ htable_dynamic_create(struct log *log, struct htable_dynamic *t,
 	rc = htable_static_create(log, t->htd_new, size, hash_fn);
 	return rc;
 }
+
 void
 htable_dynamic_free(struct htable_dynamic *t)
 {
 	int i;
+
 	for (i = 0; i < 2; ++i) {
 		htable_static_free(t->htd_tables + i);
 	}
 }
+
 struct dlist *
 htable_dynamic_bucket(struct htable_dynamic *t, uint32_t h) 
 {
 	int i;
 	struct dlist *bucket;
 	struct htable_static *ts;
+
 	if (t->htd_old == NULL) {
 		ts = t->htd_new;
 	} else {
@@ -127,10 +144,12 @@ htable_dynamic_bucket(struct htable_dynamic *t, uint32_t h)
 	bucket = htable_static_bucket(ts, h);
 	return bucket;
 }
+
 static struct htable_static *
 htable_dynamic_new(struct htable_dynamic *t)
 {
 	int i;
+
 	for (i = 0; i < ARRAY_SIZE(t->htd_tables); ++i) {
 		if (t->htd_tables[i].hts_array == NULL) {
 			return t->htd_tables + i;
@@ -139,6 +158,7 @@ htable_dynamic_new(struct htable_dynamic *t)
 	BUG;
 	return 0;
 }
+
 static void
 htable_dynamic_resize(struct htable_dynamic *t)
 {
@@ -146,6 +166,7 @@ htable_dynamic_resize(struct htable_dynamic *t)
 	struct dlist *elem, *bucket;
 	struct log *log;
 	struct htable_static *tmp;
+
 	if (t->htd_old == NULL) {
 		new_size = 0;
 		size = t->htd_new->hts_size;
@@ -196,17 +217,20 @@ htable_dynamic_resize(struct htable_dynamic *t)
 		}
 	}
 }
+
 void
 htable_dynamic_add(struct htable_dynamic *t, struct dlist *elem)
 {
 	uint32_t h;
 	struct dlist *bucket;
+
 	h = (*t->htd_new->hts_hash_fn)(elem);
 	bucket = htable_dynamic_bucket(t, h);
 	dlist_insert_tail(bucket, elem);
 	t->htd_nr_elems++;
 	htable_dynamic_resize(t);
 }
+
 void
 htable_dynamic_del(struct htable_dynamic *t, struct dlist *elem)
 {

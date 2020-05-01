@@ -15,8 +15,7 @@ static int qflag;
 static int Hflag;
 static int Lflag = INT_MAX;
 
-static int sysctl_r(char *path, int path_len,
-                    char *buf, const char *new, int depth);
+static int sysctl_r(char *, int,  char *, const char *, int);
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
@@ -168,7 +167,7 @@ sysctl_list_r(char *path, int path_len, char *buf, int depth)
 		path[len - 1] = '+';
 		path[len] = '\0';
 		// path: A.B.list.C+
-		rc = gt_sysctl(0, path, buf, GT_SYSCTL_BUFSIZ, NULL);
+		rc = gt_sysctl(path, buf, GT_SYSCTL_BUFSIZ, NULL);
 		if (rc == -1) {
 			rc = -gbtcp_errno;
 			return rc;
@@ -187,7 +186,7 @@ sysctl_r(char *path, int path_len, char *buf, const char *new, int depth)
 {
 	int rc;
 
-	rc = gt_sysctl(0, path, buf, GT_SYSCTL_BUFSIZ, new);
+	rc = gt_sysctl(path, buf, GT_SYSCTL_BUFSIZ, new);
 	if (rc == -1) {
 		rc = -gbtcp_errno;
 		return rc;

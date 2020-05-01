@@ -36,7 +36,7 @@ static struct mbuf_pool *gt_arp_pkt_pool;
 static htable_t gt_arp_htable;
 static uint64_t gt_arp_reachable_time;
 static struct gt_timer gt_arp_timer_calc_reachable_time;
-static struct arp_mod *current_mod;
+static struct arp_mod *curmod;
 
 static void gt_arp_probe_timeout(struct gt_timer *timer);
 
@@ -299,6 +299,7 @@ arp_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct arp_mod *mod;
+
 	LOG_TRACE(log);
 	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc) {
@@ -317,8 +318,9 @@ int
 arp_mod_attach(struct log *log, void *raw_mod)
 {
 	int rc;
+
 	LOG_TRACE(log);
-	current_mod = raw_mod;
+	curmod = raw_mod;
 	rc = mbuf_pool_alloc(log, &gt_arp_entry_pool,
 	                     sizeof(struct gt_arp_entry));
 	if (rc) {
@@ -342,6 +344,7 @@ void
 arp_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct arp_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	sysctl_del(log, "arp.add");
@@ -357,7 +360,7 @@ arp_mod_detach(struct log *log)
 	mbuf_pool_free(gt_arp_pkt_pool);
 	mbuf_pool_free(gt_arp_entry_pool);
 	gt_timer_del(&gt_arp_timer_calc_reachable_time);
-	current_mod = NULL;
+	curmod = NULL;
 }
 
 static inline void
@@ -381,6 +384,7 @@ gt_arp_entry_alloc(struct log *log, struct gt_arp_entry **ep,
 {
 	int rc;
 	struct gt_arp_entry *e;
+
 	LOG_TRACE(log);
 	rc = mbuf_alloc(log, gt_arp_entry_pool, (struct mbuf **)ep);
 	if (rc) {
@@ -407,8 +411,6 @@ gt_arp_entry_del(struct log *log,struct gt_arp_entry *e)
 	mbuf_free(&e->ae_incq->pkt_mbuf);
 	mbuf_free(&e->ae_mbuf);
 }
-
-
 
 static struct gt_arp_entry *
 gt_arp_entry_get(be32_t next_hop)
