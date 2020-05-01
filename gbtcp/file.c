@@ -1,17 +1,7 @@
 #include "internals.h"
 
-#define FILE_LOG_MSG_FOREACH(x) \
-	x(aio_call) \
-	x(alloc) \
-	x(free) \
-	x(wakeup) \
-	x(get_events) \
-	x(aio_set) \
-	x(aio_cancel) \
-
 struct file_mod {
 	struct log_scope log_scope;
-	FILE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 	int file_first_fd;
 };
 
@@ -35,7 +25,7 @@ file_aio_call(struct file_aio *aio, short revents)
 	fn = aio->faio_fn;
 	fd = aio->faio_fd;
 	log = log_trace0();
-	DBG(log, LOG_MSG(aio_call), 0, "hit; aio=%p, fd=%d, events=%s",
+	DBG(log, 0, "hit; aio=%p, fd=%d, events=%s",
 	    aio, fd, log_add_poll_events(revents));
 	(*fn)(aio, fd, revents);
 }
@@ -114,10 +104,10 @@ file_alloc(struct log *log, struct file **fpp, int type)
 	if (rc == 0) {
 		fp = *fpp;
 		file_init(fp, type);
-		DBG(log, LOG_MSG(alloc), 0, "ok; fp=%p, fd=%d",
+		DBG(log, 0, "ok; fp=%p, fd=%d",
 		    fp, file_get_fd(fp));
 	} else {
-		DBG(log, LOG_MSG(alloc), -rc, "failed");
+		DBG(log, -rc, "failed");
 	}
 	return rc;
 }
@@ -138,10 +128,10 @@ file_alloc4(struct log *log, struct file **fpp, int type, int fd)
 	if (rc == 0) {
 		fp = *fpp;
 		file_init(fp, type);
-		DBG(log, LOG_MSG(alloc), 0, "ok; fp=%p, fd=%d",
+		DBG(log, 0, "ok; fp=%p, fd=%d",
 		    fp, file_get_fd(fp));
 	} else {
-		DBG(log, LOG_MSG(alloc), -rc, "failed");
+		DBG(log, -rc, "failed");
 	}
 	return rc;
 }
@@ -172,8 +162,7 @@ file_free(struct file *fp)
 {
 	struct log *log;
 	log = log_trace0();
-	DBG(log, LOG_MSG(free), 0, "hit; fp=%p, fd=%d",
-	    fp, file_get_fd(fp));
+	DBG(log, 0, "hit; fp=%p, fd=%d", fp, file_get_fd(fp));
 	mbuf_free(&fp->fl_mbuf);
 }
 void
@@ -260,7 +249,7 @@ file_wakeup(struct file *fp, short events)
 	struct file_aio *aio, *tmp;
 	ASSERT(events);
 	log = log_trace0();
-	DBG(log, LOG_MSG(wakeup), 0, "hit; fd=%d, events=%s",
+	DBG(log, 0, "hit; fd=%d, events=%s",
 	    file_get_fd(fp), log_add_poll_events(events));
 	DLIST_FOREACH_SAFE(aio, &fp->fl_aioq, faio_list, tmp) {
 		ASSERT(aio->faio_filter);
@@ -308,7 +297,7 @@ file_get_events(struct file *fp, struct file_aio *aio)
 	}
 	revents &= aio->faio_filter;
 	log = log_trace0();
-	DBG(log, LOG_MSG(get_events), 0, "hit; aio=%p, fd=%d, events=%s",
+	DBG(log, 0, "hit; aio=%p, fd=%d, events=%s",
 	    aio, file_get_fd(fp), log_add_poll_events(revents));
 	return revents;
 }
@@ -348,7 +337,7 @@ file_aio_set(struct file *fp, struct file_aio *aio, short events,
 	}
 	UNUSED(action);
 	log = log_trace0();
-	DBG(log, LOG_MSG(aio_set), 0, "%s; aio=%p, fd=%d, filter=%s",
+	DBG(log, 0, "%s; aio=%p, fd=%d, filter=%s",
 	    action, aio, fd, log_add_poll_events(filter));
 	aio->faio_filter |= filter;
 	revents = file_get_events(fp, aio);
@@ -362,8 +351,7 @@ file_aio_cancel(struct file_aio *aio)
 	struct log *log;
 	if (aio->faio_filter) {
 		log = log_trace0();
-		DBG(log, LOG_MSG(aio_cancel), 0,
-		    "hit; aio=%p, fd=%d, filter=%s",
+		DBG(log, 0, "hit; aio=%p, fd=%d, filter=%s",
 		    aio, aio->faio_fd,
 		    log_add_poll_events(aio->faio_filter));
 		aio->faio_filter = 0;

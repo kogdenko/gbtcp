@@ -20,11 +20,6 @@ struct log {
 	struct log *lg_lower;
 };
 
-#define LOG_MSG_DECLARE(name) int log_level_##name;
-#define LOG_MSG2(mod, name) ((mod)->log_level_##name)
-#define LOG_MSG(name) \
-	(current_mod == NULL ? 0 : LOG_MSG2(current_mod, name))
-
 #define log_trace(upper) \
 ({ \
 	struct log *GT_UNIQV(log); \
@@ -39,15 +34,15 @@ struct log {
 //#define LOG_DISABLED
 
 #ifdef LOG_DISABLED
-#define LOGF(log, log_msg_level, level, err, fmt, ...) \
+#define LOGF(log, level, err, fmt, ...) \
 	do { \
 		UNUSED(log); \
 		UNUSED(err); \
 	} while (0)
 #else /* LOG_DISABLED */
-#define LOGF(log, log_msg_level, level, err, fmt, ...) \
+#define LOGF(log, level, err, fmt, ...) \
 do { \
-	if (log_is_enabled(&current_mod->log_scope, log_msg_level, level)) { \
+	if (log_is_enabled(&current_mod->log_scope, level)) { \
 		log_buf_init(); \
 		log_printf(log, level, err, fmt, ##__VA_ARGS__); \
 	} \
@@ -65,8 +60,8 @@ do { \
 	do { \
 	} while (0)
 #else /*NDEBUG */
-#define DBG(trace, name, err, ...) \
-	LOGF(trace, name , LOG_DEBUG, err, __VA_ARGS__)
+#define DBG(trace, err, ...) \
+	LOGF(trace, LOG_DEBUG, err, __VA_ARGS__)
 #define ASSERT3(err, expr, fmt, ...) \
 	((expr) ? \
 	(void)(0) : \
@@ -96,7 +91,7 @@ void log_scope_deinit(struct log *, struct log_scope *);
 
 struct log *log_copy(struct log *, int, struct log *);
 
-int log_is_enabled(struct log_scope *, int, int);
+int log_is_enabled(struct log_scope *, int);
 
 void log_vprintf(struct log *, int, int, const char *, va_list);
 

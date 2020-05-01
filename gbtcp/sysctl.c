@@ -11,24 +11,8 @@ enum {
 	SYSCTL_CONN_SERVER,
 };
 
-#define SYSCTL_LOG_MSG_FOREACH(x) \
-	x(bind) \
-	x(find) \
-	x(add) \
-	x(del) \
-	x(open) \
-	x(close) \
-	x(recv) \
-	x(send) \
-	x(in) \
-	x(process) \
-	x(req_done) \
-	x(req_timo) \
-	x(read_file) \
-
 struct sysctl_mod {
 	struct log_scope log_scope;
-	SYSCTL_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
 struct sysctl_conn;
@@ -332,12 +316,12 @@ sysctl_read_file(struct log *log, const char *proc_name)
 		line++;
 		rc = sysctl_parse_line(log, str);
 		if (rc) {
-			LOGF(log, LOG_MSG(read_file), LOG_ERR, -rc,
+			LOGF(log, LOG_ERR, -rc,
 			     "bad line; file='%s', line=%d",  path, line);
 		}
 	}
 	fclose(file);
-	LOGF(log, LOG_MSG(read_file), LOG_INFO, 0, "ok; file='%s'", path);
+	LOGF(log, LOG_INFO, 0, "ok; file='%s'", path);
 	return rc;
 }
 
@@ -380,7 +364,7 @@ sysctl_bind(struct log *log, int pid)
 	LOG_TRACE(log);
 
 	if (sysctl_binded != NULL) {
-		LOGF(log, LOG_MSG(bind), LOG_ERR, 0, "already");
+		LOGF(log, LOG_ERR, 0, "already");
 		return -EALREADY;
 	}
 	rc = sysctl_conn_listen(log, &sysctl_binded, pid);
@@ -405,7 +389,7 @@ sysctl_binded_pid(struct log *log)
 	if (sysctl_binded == NULL) {
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, 7, LOG_ERR, 0, "not binded");
+			LOGF(log, LOG_ERR, 0, "not binded");
 		}
 		return -EBADF;
 	} else {
@@ -462,20 +446,18 @@ sysctl_delf(struct log *log, const char *fmt, ...)
 
 
 static int
-sysctl_split_path(struct log *log, int log_msg_level,
-	const char *path, struct iovec *iovec)
+sysctl_split_path(struct log *log, const char *path, struct iovec *iovec)
 {
 	int i, rc;
 
 	rc = strsplit(path, ".", iovec, SYSCTL_DEPTH_MAX);
 	if (rc > SYSCTL_DEPTH_MAX) {
-		LOGF(log, log_msg_level, LOG_ERR, 0,
-		     "too many dirs; path='%s'", path);
+		LOGF(log, LOG_ERR, 0, "too many dirs; path='%s'", path);
 		return -ENAMETOOLONG;
 	}
 	for (i = 0; i < rc; ++i) {
 		if (iovec[i].iov_len >= SYSCTL_NODE_NAME_MAX) {
-			LOGF(log, log_msg_level, LOG_ERR, 0,
+			LOGF(log, LOG_ERR, 0,
 			     "too long dir; path='%s', idx=%d", path, i);
 			return -ENAMETOOLONG;
 		}
@@ -541,7 +523,7 @@ sysctl_recv(struct sysctl_conn *cp)
 				return rc;
 			}
 		} else if (rc == 0) {
-			LOGF(log, LOG_MSG(recv), LOG_INFO, 0, "done");
+			LOGF(log, LOG_INFO, 0, "done");
 			return -ECONNRESET;
 		} else {
 			cp->c_rcvbuf.sb_len += rc;
@@ -551,8 +533,7 @@ sysctl_recv(struct sysctl_conn *cp)
 			}
 			m = strbuf_space(&cp->c_rcvbuf);
 			if (m == 0) {
-				LOGF(log, LOG_MSG(recv), LOG_ERR, 0,
-				     "too long msg");
+				LOGF(log, LOG_ERR, 0, "too long msg");
 				return -EPROTO;
 			}
 		}
@@ -639,7 +620,7 @@ sysctl_conn_open(struct log *log,
 	            sizeof(cp->c_sndbuf_buf));
 	gt_fd_event_set(cp->c_event, POLLIN);
 	*cpp = cp;
-	LOGF(log, LOG_MSG(open), LOG_INFO, 0, "ok; fd=%d, path='%s'", fd, path);
+	LOGF(log, LOG_INFO, 0, "ok; fd=%d, path='%s'", fd, path);
 	return 0;
 }
 
@@ -649,7 +630,7 @@ sysctl_conn_close(struct sysctl_conn *cp, int eno)
 	struct log *log;
 
 	log = log_trace(cp->c_log);
-	LOGF(log, LOG_MSG(close), LOG_INFO, eno, "hit; fd=%d", sysctl_conn_fd(cp));
+	LOGF(log, LOG_INFO, eno, "hit; fd=%d", sysctl_conn_fd(cp));
 	sysctl_req_done(cp, eno, NULL);
 	if (cp->c_close_fn != NULL) {
 		(*cp->c_close_fn)(cp);
@@ -795,8 +776,8 @@ sysctl_conn_send_cmd(struct log *log, struct sysctl_conn *cp,
 	            cmd, path_len, path, new_len, new);
 	if (strbuf_space(&cp->c_sndbuf) == 0) {
 		cp->c_sndbuf.sb_len = len;
-		LOGF(log, LOG_MSG(send), LOG_ERR, 0,
-		     "too long msg; path='%.*s'", path_len, path);
+		LOGF(log, LOG_ERR, 0, "too long msg; path='%.*s'",
+		     path_len, path);
 		return -ENOBUFS;
 	}
 	rc = sysctl_conn_send(log, cp);
@@ -869,8 +850,7 @@ sysctl_req_done(struct sysctl_conn *cp, int eno, char *old)
 	if (cp->c_req_fn != NULL) {
 		rc = (*cp->c_req_fn)(cp->c_log, cp->c_req_udata, eno, old);
 		if (rc) {
-			LOGF(cp->c_log, LOG_MSG(req_done), LOG_ERR, -rc,
-			     "callback failed");
+			LOGF(cp->c_log, LOG_ERR, -rc, "callback failed");
 		}
 		cp->c_req_fn = NULL;
 	}
@@ -883,8 +863,7 @@ sysctl_req_timo(struct gt_timer *timer)
 	struct sysctl_conn *cp;
 	cp = container_of(timer, struct sysctl_conn, c_timer);
 	log = log_trace(cp->c_log);
-	LOGF(log, LOG_MSG(req_timo), LOG_ERR, 0,
-	     "timedout; timer=%p, dt=%"PRIu64"us",
+	LOGF(log, LOG_ERR, 0, "timedout; timer=%p, dt=%"PRIu64"us",
 	     &cp->c_timer, nanoseconds - cp->c_req_time);
 	sysctl_conn_close(cp, ETIMEDOUT);
 }
@@ -926,8 +905,7 @@ sysctl_in_req(struct sysctl_conn *cp, char **argv)
 	}
 	strbuf_add_ch(b, '\n');
 	if (strbuf_space(b) == 0) {
-		LOGF(log, LOG_MSG(in), LOG_ERR, 0,
-		     "too long msg; path='%s'", path);
+		LOGF(log, LOG_ERR, 0, "too long msg; path='%s'", path);
 		return -ENOBUFS;
 	}
 	rc = sysctl_conn_send(cp->c_log, cp);
@@ -952,14 +930,13 @@ sysctl_in_rpl(struct sysctl_conn *cp, char **argv)
 		errnum = strtoul(argv[2], &endptr, 10);
 		if (strcmp(argv[1], "error") || errnum == 0 ||
 		    *endptr != '\0') {
-			LOGF(log, LOG_MSG(in), LOG_ERR, 0,
-			     "bad err fmt; fd=%d, ('%s %s')",
+			LOGF(log, LOG_ERR, 0, "bad err fmt; fd=%d, ('%s %s')",
 			     sysctl_conn_fd(cp), argv[1], argv[2]);
 			return -EPROTO;
 		}
 	}
 	sysctl_req_done(cp, errnum, old);
-	LOGF(log, LOG_MSG(in), LOG_INFO, 0, "ok; fd=%d", sysctl_conn_fd(cp));
+	LOGF(log, LOG_INFO, 0, "ok; fd=%d", sysctl_conn_fd(cp));
 	return -ECONNRESET;
 }
 static int
@@ -974,8 +951,8 @@ sysctl_in_pdu(struct sysctl_conn *cp, char *data, int data_len)
 	data[data_len] = '\0'; // FIXME:
 	rc = strsplit(data, " \r\n\t", tokens, ARRAY_SIZE(tokens));
 	if (rc > ARRAY_SIZE(tokens)) {
-		LOGF(log, LOG_MSG(in), LOG_ERR, 0,
-		     "too many tokens; data='%.*s'", data_len, data);
+		LOGF(log, LOG_ERR, 0, "too many tokens; data='%.*s'",
+		     data_len, data);
 		return -EPROTO;
 	}
 	for (i = 0; i < rc; ++i) {
@@ -998,7 +975,7 @@ sysctl_in_pdu(struct sysctl_conn *cp, char *data, int data_len)
 			return rc;
 		}
 	}
-	LOGF(log, LOG_MSG(in), LOG_ERR, 0, "unknown cmd; cmd='%s'", argv[0]);
+	LOGF(log, LOG_ERR, 0, "unknown cmd; cmd='%s'", argv[0]);
 	return -EPROTO;
 }
 
@@ -1074,7 +1051,7 @@ sysctl_find(struct log *log, const char *path,	struct sysctl_node **pnode,
 	struct iovec path_iov[SYSCTL_DEPTH_MAX];
 
 	LOG_TRACE(log);
-	rc = sysctl_split_path(log, LOG_MSG(find), path, path_iov);
+	rc = sysctl_split_path(log, path, path_iov);
 	if (rc < 0) {
 		return rc;
 	}
@@ -1086,14 +1063,14 @@ sysctl_find(struct log *log, const char *path,	struct sysctl_node **pnode,
 		child = sysctl_node_find_child(node, name, name_len);
 		if (child == NULL) {
 			if (i < path_iovcnt - 1) {
-				LOGF(log, LOG_MSG(find), LOG_ERR, 0,
+				LOGF(log, LOG_ERR, 0,
 				     "not exists; path='%s', idx=%d",
 				     path, i);
 				return -ENOENT;
 			}
 			*pnode = node;
 			if (ptail == NULL) {
-				LOGF(log, LOG_MSG(find), LOG_ERR, 0,
+				LOGF(log, LOG_ERR, 0,
 				     "not a leaf; path='%s'", path);
 				return -ENOENT;
 			} else {
@@ -1138,11 +1115,10 @@ sysctl_node_add(struct log *log, const char *path, int mode,
 	node = sysctl_root;
 	path_len = strlen(path);
 	if (path_len >= PATH_MAX) {
-		LOGF(log, LOG_MSG(add), LOG_ERR, 0, 
-		     "too long path; path='%s'", path);
+		LOGF(log, LOG_ERR, 0, "too long path; path='%s'", path);
 		return -EINVAL;
 	}
-	rc = sysctl_split_path(log, LOG_MSG(add), path, path_iov);
+	rc = sysctl_split_path(log, path, path_iov);
 	if (rc < 0)
 		return rc;
 	path_iovcnt = rc;
@@ -1157,7 +1133,7 @@ sysctl_node_add(struct log *log, const char *path, int mode,
 				return rc;
 			}
 		} else if (child->n_fn != NULL) {
-			LOGF(log, LOG_MSG(add), LOG_ERR, 0,
+			LOGF(log, LOG_ERR, 0,
 			     "already exists; path='%s'", path);
 			if (i == path_iovcnt - 1) {
 				*pnode = node;
@@ -1176,7 +1152,7 @@ sysctl_node_add(struct log *log, const char *path, int mode,
 		node->n_udata = udata;
 	}
 	*pnode = node;
-	LOGF(log, LOG_MSG(add), LOG_INFO, 0, "ok; node='%s'", path);
+	LOGF(log, LOG_INFO, 0, "ok; node='%s'", path);
 	return 0;
 }
 
@@ -1184,7 +1160,7 @@ static void
 sysctl_node_del(struct log *log, struct sysctl_node *node)
 {
 	struct sysctl_node *child;
-	LOGF(log, LOG_MSG(del), LOG_INFO, 0, "hit; node='%s'",
+	LOGF(log, LOG_INFO, 0, "hit; node='%s'",
 	     sysctl_log_add_node(node));
 	while (!dlist_is_empty(&node->n_children)) {
 		child = DLIST_FIRST(&node->n_children,
@@ -1207,7 +1183,7 @@ sysctl_node_process_leaf(struct log *log, struct sysctl_node *node,
 	off = out->sb_len;
 	rc = (*node->n_fn)(log, node->n_udata, new, out);
 	if (rc < 0) {
-		LOGF(log, LOG_MSG(process), LOG_ERR, -rc,
+		LOGF(log, LOG_ERR, -rc,
 		     "handler failed; path='%s', new='%s'",
 		     sysctl_log_add_node(node), new);
 		return rc;
@@ -1216,7 +1192,7 @@ sysctl_node_process_leaf(struct log *log, struct sysctl_node *node,
 		old = strbuf_cstr(out) + off;
 		rc = sysctl_is_valid_token(old);
 		if (rc == 0) {
-			LOGF(log, LOG_MSG(process), LOG_ERR, 0,
+			LOGF(log, LOG_ERR, 0,
 			     "invalid old; path='%s', old='%s'",
 			     sysctl_log_add_node(node), old);
 			return -EINVAL;
@@ -1254,7 +1230,7 @@ sysctl_node_process(struct log *log,
 			break;
 		}
 		if (access != NULL) {
-			LOGF(log, LOG_MSG(process), LOG_ERR, 0,
+			LOGF(log, LOG_ERR, 0,
 			     "%s only; path='%s', tail='%s'",
 			     access, sysctl_log_add_node(node),
 			     tail);
@@ -1278,7 +1254,7 @@ sysctl_node_process(struct log *log,
 		}
 	}
 	if (rc == 1) {
-		LOGF(log, LOG_MSG(process), LOG_ERR, 0,
+		LOGF(log, LOG_ERR, 0,
 		     "not exists; path='%s.%s'",
 		     sysctl_log_add_node(node), tail);
 		return -ENOENT;
@@ -1383,13 +1359,13 @@ sysctl_node_process_int(struct log *log, void *udata,
 	} else {
 		x = strtoll(new, &endptr, 10);
 		if (*endptr != '\0') {
-			LOGF(log, LOG_MSG(process), LOG_ERR, 0,
+			LOGF(log, LOG_ERR, 0,
 			     "not an int; path='%s', new='%s'",
 			     sysctl_log_add_node(node), new);
 			return -EPROTO;
 		}
 		if (x < data->sid_min || x > data->sid_max) {
-			LOGF(log, LOG_MSG(process), LOG_ERR, 0,
+			LOGF(log, LOG_ERR, 0,
 			     "not in range; path='%s', new=%lld, range=[%lld, %lld]",
 			     sysctl_log_add_node(node), x,
 			     data->sid_min, data->sid_max);
@@ -1442,13 +1418,13 @@ sysctl_send_req(struct log *log, struct sysctl_conn **cpp,
 	ASSERT(path != NULL);
 	path_len = strlen(path);
 	if (path_len >= PATH_MAX) {
-		LOGF(log, LOG_MSG(send), LOG_ERR, 0 ,
+		LOGF(log, LOG_ERR, 0 ,
 		     "too long path; path='%s'", path);
 		return -EINVAL;
 	}
 	rc = sysctl_is_valid_token(path);
 	if (rc == 0) {
-		LOGF(log, LOG_MSG(send), LOG_ERR, 0,
+		LOGF(log, LOG_ERR, 0,
 		     "invalid path; path='%s'", path);
 		return -EINVAL;
 	}
@@ -1458,7 +1434,7 @@ sysctl_send_req(struct log *log, struct sysctl_conn **cpp,
 		new_len = strlen(new);
 		rc = sysctl_is_valid_token(new);
 		if (rc == 0) {
-			LOGF(log, LOG_MSG(send), LOG_ERR, 0,
+			LOGF(log, LOG_ERR, 0,
 			     "invalid new; new='%s'", new);
 			return -EINVAL;
 		}

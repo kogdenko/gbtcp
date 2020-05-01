@@ -1,12 +1,7 @@
 #include "internals.h"
 
-#define PID_LOG_MSG_FOREACH(x) \
-	x(pidfile) \
-	x(pidwait) \
-
 struct pid_mod {
 	struct log_scope log_scope;
-	PID_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
 static struct pid_mod *current_mod;
@@ -86,8 +81,7 @@ pidfile_read(struct log *log, struct pidfile *pf)
 	buf[rc] = '\0';
 	rc = sscanf(buf, "%d", &pid);
 	if (rc != 1 || pid <= 0) {
-		LOGF(log, LOG_MSG(pidfile), LOG_ERR, 0,
-		     "pidfile='%s' bad format",
+		LOGF(log, LOG_ERR, 0, "pidfile='%s' bad format",
 		     pidfile_path(path, pf->pf_name));
 		return -EINVAL;
 	} else {
@@ -206,8 +200,7 @@ pidwait_add(struct log *log, struct pidwait *pw, int pid)
 	}
 	return rc;
 err:
-	LOGF(log, LOG_MSG(pidwait), LOG_ERR, -rc, 
-	     "failed; pw_fd=%d, pid=%d", pw->pw_fd, pid);
+	LOGF(log, LOG_ERR, -rc, "failed; pw_fd=%d, pid=%d", pw->pw_fd, pid);
 	return rc;
 }
 
@@ -236,8 +229,7 @@ pidwait_del(struct log *log, struct pidwait *pw, int pid)
 		}
 	}
 	rc = -ENOENT;
-	LOGF(log, LOG_MSG(pidwait), LOG_ERR, -rc,
-	     "failed; wp_fd=%d", pw->pw_fd);
+	LOGF(log, LOG_ERR, -rc, "failed; wp_fd=%d", pw->pw_fd);
 	return rc;
 }
 

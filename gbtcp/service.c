@@ -8,35 +8,8 @@
 #define GT_SERVICE_WAITPID_OPTIONS 0
 #endif /* __linux__ */
 
-#define SERVICE_LOG_MSG_FOREACH(x) \
-	x(mod_init) \
-	x(mod_deinit) \
-	x(if_add) \
-	x(set_status) \
-	x(polling) \
-	x(sub) \
-	x(sync) \
-	x(add) \
-	x(init) \
-	x(clean) \
-	x(del) \
-	x(unsub) \
-	x(in_child) \
-	x(fork) \
-
-#ifdef __linux__
-#define SERVICE_LOG_MSG_FOREACH_OS(x) \
-	x(clone) \
-
-#else /* __linux__ */
-#define SERVICE_LOG_MSG_FOREACH_OS(x) \
-
-#endif /* __linux__ */
-
 struct service_mod {
 	struct log_scope log_scope;
-	SERVICE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
-	SERVICE_LOG_MSG_FOREACH_OS(LOG_MSG_DECLARE);
 };
 
 struct gt_service_sock {

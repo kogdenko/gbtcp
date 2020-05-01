@@ -1,12 +1,7 @@
 #include "internals.h"
 
-#define FD_EVENT_LOG_MSG_FOREACH(x) \
-	x(alloc) \
-	x(free)
-
 struct fd_event_mod {
 	struct log_scope log_scope;
-	FD_EVENT_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
 uint64_t gt_fd_event_epoch;
@@ -167,8 +162,7 @@ gt_fd_event_new(struct log *log, struct gt_fd_event **pe,
 	ASSERT(fn != NULL);
 	LOG_TRACE(log);
 	if (fdevent_nused == ARRAY_SIZE(gt_fd_event_used)) {
-		LOGF(log, LOG_MSG(alloc), LOG_ERR, 0,
-		     "limit exceeded; limit=%zu",
+		LOGF(log, LOG_ERR, 0, "limit exceeded; limit=%zu",
 		     ARRAY_SIZE(gt_fd_event_used));
 		return -ENOMEM;
 	}
@@ -177,9 +171,8 @@ gt_fd_event_new(struct log *log, struct gt_fd_event **pe,
 		e = gt_fd_event_buf + i;
 		if (e->fde_fd != -1) {
 			if (!strcmp(e->fde_name, name)) {
-				LOGF(log, LOG_MSG(alloc), LOG_ERR, 0,
-				     "already exists; event='%s'",
-				     name);
+				LOGF(log, LOG_ERR, 0,
+				     "already exists; event='%s'", name);
 				return -EEXIST;
 			}
 		} else {
@@ -203,7 +196,7 @@ gt_fd_event_new(struct log *log, struct gt_fd_event **pe,
 	gt_fd_event_used[e->fde_id] = e;
 	fdevent_nused++;
 	*pe = e;
-	DBG(log, LOG_MSG(alloc), 0, "ok; event='%s'", e->fde_name);
+	DBG(log, 0, "ok; event='%s'", e->fde_name);
 	return 0;
 }
 
@@ -215,7 +208,7 @@ gt_fd_event_free(struct gt_fd_event *e)
 	struct gt_fd_event *last;
 
 	log = log_trace0();
-	DBG(log, LOG_MSG(free), 0, "hit; event='%s'", e->fde_name);
+	DBG(log, 0, "hit; event='%s'", e->fde_name);
 	ASSERT(e->fde_id < fdevent_nused);
 	if (e->fde_has_cnt) {
 		snprintf(path, sizeof(path), "event.list.%s", e->fde_name);
@@ -250,7 +243,7 @@ gt_fd_event_del(struct gt_fd_event *e)
 
 	if (e != NULL) {
 		log = log_trace0();
-		DBG(log, LOG_MSG(free), 0, "hit; event='%s'", e->fde_name);
+		DBG(log, 0, "hit; event='%s'", e->fde_name);
 		ASSERT(fdevent_nused);
 		ASSERT(e->fde_fd != -1);
 		ASSERT(e->fde_id < fdevent_nused);

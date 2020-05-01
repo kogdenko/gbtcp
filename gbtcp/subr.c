@@ -1,13 +1,7 @@
 #include "internals.h"
 
-#define SUBR_LOG_MSG_FOREACH(x) \
-	x(rsskey) \
-	x(connect)
-	
-
 struct subr_mod {
 	struct log_scope log_scope;
-	SUBR_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
 union gt_tsc {
@@ -100,7 +94,7 @@ proc_get_name(struct log *log, char *name, int pid)
 		return 0;
 	}
 err:
-	LOGF(log, 7, LOG_ERR, 0, "inavlid format; path=%s", path);
+	LOGF(log, LOG_ERR, 0, "inavlid format; path=%s", path);
 	return -EPROTO;
 }
 #else /* __linux__ */
@@ -574,8 +568,7 @@ restart:
 	}
 out:
 	if (errnum) {
-		LOGF(log, LOG_MSG(connect), LOG_ERR, errnum,
-		     "failed; fd=%d, addr=%s",
+		LOGF(log, LOG_ERR, errnum, "failed; fd=%d, addr=%s",
 		     fd, log_add_sockaddr(addr, addrlen));
 	}
 	return -errnum;
@@ -666,7 +659,7 @@ read_rsskey(struct log *log, const char *ifname, uint8_t *rsskey)
 		goto out;
 	}
 	if (rss.key_size != RSSKEYSIZ) {
-		LOGF(log, LOG_MSG(rsskey), LOG_ERR, 0,
+		LOGF(log, LOG_ERR, 0,
 		     "invalid rss key_size; key_size=%d", rss.key_size);
 		goto out;
 	}

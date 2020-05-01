@@ -1,46 +1,8 @@
 /* GPL2 license */
 #include "internals.h"
 
-#define API_LOG_MSG_FOREACH(x) \
-	x(fork) \
-	x(socket) \
-	x(connect) \
-	x(bind) \
-	x(listen) \
-	x(accept) \
-	x(close) \
-	x(recvfrom) \
-	x(sendto) \
-	x(fcntl) \
-	x(ioctl) \
-	x(getsockopt) \
-	x(setsockopt) \
-	x(getpeername) \
-	x(poll) \
-	x(ppoll) \
-	x(sysctl) \
-	x(ctl_get_pids) \
-	x(first_fd) \
-	x(sigaction) \
-
-#ifdef __linux__
-#define API_LOG_MSG_FOREACH_OS(x) \
-	x(clone) \
-	x(epoll_create) \
-	x(epoll_ctl) \
-	x(epoll_pwait) \
- 
-#else /* __linux__ */
-#define API_LOG_MSG_FOREACH_OS(x) \
-	x(kqueue) \
-	x(kevent) \
-
-#endif /* __linux__ */
-
 struct api_mod {
 	struct log_scope log_scope;
-	API_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
-	API_LOG_MSG_FOREACH_OS(LOG_MSG_DECLARE);
 };
 
 __thread int api_disabled;
@@ -98,19 +60,6 @@ api_lock()
 	return 1;
 }
 
-#ifdef __linux__
-static void
-api_mod_init_os(struct api_mod *mod)
-{
-	LOG_MSG2(mod, clone) = LOG_INFO;
-}
-#else /* __linux__ */
-static void
-api_mod_init_os(struct api_mod *mod)
-{
-}
-#endif /* __linux__ */
-
 int
 api_mod_init(struct log *log, void **pp)
 {
@@ -119,14 +68,11 @@ api_mod_init(struct log *log, void **pp)
 
 	LOG_TRACE(log);
 	rc = shm_alloc(log, pp, sizeof(*mod));
-	if (rc) {
-		return rc;
+	if (rc == 0) {
+		mod = *pp;
+		log_scope_init(&mod->log_scope, "api");
 	}
-	mod = *pp;
-	log_scope_init(&mod->log_scope, "api");
-	LOG_MSG2(mod, fork) = LOG_INFO;
-	api_mod_init_os(mod);
-	return 0;
+	return rc;
 }
 
 int
@@ -161,10 +107,10 @@ gbtcp_fork()
 
 	API_LOCK;
 	log = log_trace0();
-	LOGF(log, LOG_MSG(fork), LOG_INFO, 0, "hit");
+	LOGF(log, LOG_INFO, 0, "hit");
 	rc = gt_service_fork(log);
 	if (rc >= 0)
-		LOGF(log, LOG_MSG(fork), LOG_INFO, 0, "ok, pid=%d", rc);
+		LOGF(log, LOG_INFO, 0, "ok, pid=%d", rc);
 	API_UNLOCK;
 	API_RETURN(rc);
 }
@@ -194,15 +140,12 @@ api_socket(struct log *log, int fd, int domain, int type, int proto)
 		rc = gt_sock_socket(log, fd, domain, type_noflags,
 		                    flags, proto);
 		if (rc < 0) {
-			DBG(log, LOG_MSG(socket), -rc,
-			    "failed; type=%s, flags=%s",
+			DBG(log, -rc, "failed; type=%s, flags=%s",
 			    log_add_socket_type(type_noflags),
 			    log_add_socket_flags(flags));
 		} else {
-			DBG(log, LOG_MSG(socket), 0,
-			    "ok; fd=%d, type=%s, flags=%s",
-			    rc,
-			    log_add_socket_type(type_noflags),
+			DBG(log, 0, "ok; fd=%d, type=%s, flags=%s",
+			    rc, log_add_socket_type(type_noflags),
 			    log_add_socket_flags(flags));
 		}
 		return rc;
@@ -238,15 +181,15 @@ api_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 		return rc;
 	}
 	if (addr->sa_family != AF_INET) {
-		DBG(log, LOG_MSG(connect), 0, "bad sa family; fd=%d", fd);
+		DBG(log, 0, "bad sa family; fd=%d", fd);
 		return -EAFNOSUPPORT;
 	}
 	if (addrlen < sizeof(*faddr_in)) {
-		DBG(log, LOG_MSG(connect), 0, "bad sa len; fd=%d", fd);
+		DBG(log, 0, "bad sa len; fd=%d", fd);
 		return -EINVAL;
 	}
 	faddr_in = (const struct sockaddr_in *)addr;
-	DBG(log, LOG_MSG(connect), 0, "hit; fd=%d, faddr=%s",
+	DBG(log, 0, "hit; fd=%d, faddr=%s",
 	    fd, log_add_sockaddr_in(faddr_in));
 	rc = service_start(log);
 	if (rc == 0) {
@@ -266,9 +209,9 @@ restart:
 		rc = -error;
 	}
 	if (rc < 0) {
-		DBG(log, LOG_MSG(connect), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(connect), 0, "ok; laddr=%s",
+		DBG(log, 0, "ok; laddr=%s",
 		    log_add_sockaddr_in(&laddr_in));
 	}
 	return rc;
@@ -299,25 +242,25 @@ api_bind(struct log *log, int fd, const struct sockaddr *addr,
 	}
 	LOG_TRACE(log);
 	if (addr->sa_family != AF_INET) {
-		LOGF(log, LOG_MSG(bind), LOG_INFO, 0,
+		LOGF(log, LOG_INFO, 0,
 		     "bad sa family; fd=%d", fd);
 		return -EAFNOSUPPORT;
 	}
 	if (addrlen < sizeof(*addr_in)) {
-		LOGF(log, LOG_MSG(bind), LOG_INFO, 0,
+		LOGF(log, LOG_INFO, 0,
 		     "bad sa len; fd=%d", fd);
 		return -EINVAL;
 	}
 	addr_in = (const struct sockaddr_in *)addr;
-	LOGF(log, LOG_MSG(bind), LOG_INFO, 0, "hit; fd=%d, laddr=%s",
+	LOGF(log, LOG_INFO, 0, "hit; fd=%d, laddr=%s",
 	     fd, log_add_sockaddr_in(addr_in));
 	rc = service_start(log);
 	if (rc == 0)
 		rc = gt_sock_bind(fp, addr_in);
 	if (rc < 0)
-		LOGF(log, LOG_MSG(bind), LOG_INFO, -rc, "failed");
+		LOGF(log, LOG_INFO, -rc, "failed");
 	else
-		LOGF(log, LOG_MSG(bind), LOG_INFO, 0, "ok");
+		LOGF(log, LOG_INFO, 0, "ok");
 	return rc;
 }
 
@@ -343,15 +286,15 @@ api_listen(struct log *log, int fd, int backlog)
 		return rc;
 	}
 	LOG_TRACE(log);
-	LOGF(log, LOG_MSG(listen), LOG_INFO, 0, "hit; lfd=%d", fd);
+	LOGF(log, LOG_INFO, 0, "hit; lfd=%d", fd);
 	rc = service_start(log);
 	if (rc == 0) {
 		rc = gt_sock_listen(fp, backlog);
 	}
 	if (rc < 0) {
-		LOGF(log, LOG_MSG(listen), LOG_INFO, rc, "failed");
+		LOGF(log, LOG_INFO, rc, "failed");
 	} else {
-		LOGF(log, LOG_MSG(listen), LOG_INFO, 0, "ok");
+		LOGF(log, LOG_INFO, 0, "ok");
 	}
 	return rc;
 }
@@ -379,7 +322,7 @@ api_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 		return rc;
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(accept), 0, "hit; lfd=%d, flags=%s)",
+	DBG(log, 0, "hit; lfd=%d, flags=%s)",
 	    lfd, log_add_socket_flags(flags));
 restart:
 	if (rc == 0) {
@@ -393,9 +336,9 @@ restart:
 		}
 	}
 	if (rc < 0) {
-		DBG(log, LOG_MSG(accept), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(accept), 0, "ok; fd=%d", rc);
+		DBG(log, 0, "ok; fd=%d", rc);
 	}
 	return rc;
 }
@@ -450,9 +393,9 @@ api_close(int fd)
 		return rc;
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(close), 0, "hit; fd=%d", fd);
+	DBG(log, 0, "hit; fd=%d", fd);
 	file_close(fp, GT_SOCK_GRACEFULL);
-	DBG(log, LOG_MSG(close), 0, "ok");
+	DBG(log, 0, "ok");
 	return 0;
 }
 
@@ -489,7 +432,7 @@ api_recvfrom(int fd, const struct iovec *iov, int iovcnt, int flags,
 		return rc;
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(recvfrom), 0, "hit; fd=%d", fd);
+	DBG(log, 0, "hit; fd=%d", fd);
 restart:
 	if (rc == 0) {
 		rc = gt_sock_recvfrom(fp, iov, iovcnt, flags, addr, addrlen);
@@ -502,9 +445,9 @@ restart:
 		}
 	}
 	if (rc < 0) {
-		DBG(log, LOG_MSG(recvfrom), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(recvfrom), 0, "ok; rc=%zd", rc);
+		DBG(log, 0, "ok; rc=%zd", rc);
 	}
 	return rc;
 }
@@ -573,7 +516,7 @@ api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
 		return rc;
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(sendto), 0, "hit; fd=%d, count=%d",
+	DBG(log, 0, "hit; fd=%d, count=%d",
 	    fd, iovec_len(iov, iovcnt));
 restart:
 	if (rc == 0) {
@@ -587,9 +530,9 @@ restart:
 		}
 	}
 	if (rc < 0) {
-		DBG(log, LOG_MSG(sendto), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(sendto), 0, "ok; rc=%d", rc);
+		DBG(log, 0, "ok; rc=%d", rc);
 	}
 	return rc;
 }
@@ -691,13 +634,13 @@ api_fcntl(int fd, int cmd, uintptr_t arg)
 		return rc;
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(fcntl), 0, "hit; fd=%d, cmd=%s",
+	DBG(log, 0, "hit; fd=%d, cmd=%s",
 	    fd, log_add_fcntl_cmd(cmd));
 	rc = file_cntl(fp, cmd, arg);
 	if (rc < 0) {
-		DBG(log, LOG_MSG(fcntl), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(fcntl), 0, "ok; rc=0x%x", rc);
+		DBG(log, 0, "ok; rc=0x%x", rc);
 	}
 	return rc;
 }
@@ -725,13 +668,13 @@ api_ioctl(int fd, unsigned long req, uintptr_t arg)
 		return rc;
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(ioctl), 0, "hit, fd=%d, req=%s",
+	DBG(log, 0, "hit, fd=%d, req=%s",
 	    fd, log_add_ioctl_req(req));
 	rc = file_ioctl(fp, req, arg);
 	if (rc < 0) {
-		DBG(log, LOG_MSG(ioctl), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(ioctl), 0, "ok; rc=0x%x", rc);
+		DBG(log, 0, "ok; rc=0x%x", rc);
 	}
 	return rc;
 }
@@ -760,18 +703,18 @@ api_getsockopt(int fd, int level, int optname, void *optval,
 		return rc;
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(getsockopt), 0, "hit; fd=%d, level=%s, optname=%s",
+	DBG(log, 0, "hit; fd=%d, level=%s, optname=%s",
 	    fd, log_add_sockopt_level(level),
 	    log_add_sockopt_optname(level, optname));
 	rc = gt_sock_getsockopt(fp, level, optname, optval, optlen);
 	if (rc < 0) {
-		DBG(log, LOG_MSG(getsockopt), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else if (level == SOL_SOCKET &&
 		   optname == SO_ERROR && *optlen >= sizeof(int)) {
-		DBG(log, LOG_MSG(getsockopt), 0, "error; error=%d",
+		DBG(log, 0, "error; error=%d",
 		    *(int *)optval);
 	} else {
-		DBG(log, LOG_MSG(getsockopt), 0, "ok");
+		DBG(log, 0, "ok");
 	}
 	return rc;
 }
@@ -801,14 +744,14 @@ api_setsockopt(int fd, int level, int optname, const void *optval,
 		return rc;
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(setsockopt), 0, "hit; fd=%d, level=%s, optname=%s",
+	DBG(log, 0, "hit; fd=%d, level=%s, optname=%s",
 	    fd, log_add_sockopt_level(level),
 	    log_add_sockopt_optname(level, optname));
 	rc = gt_sock_setsockopt(fp, level, optname, optval, optlen);
 	if (rc < 0) {
-		DBG(log, LOG_MSG(setsockopt), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(setsockopt), 0, "ok");
+		DBG(log, 0, "ok");
 	}
 	return rc;
 }
@@ -837,12 +780,12 @@ api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 		return rc;
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(getpeername), 0, "hit; fd=%d", fd);
+	DBG(log, 0, "hit; fd=%d", fd);
 	rc = gt_sock_getpeername(fp, addr, addrlen);
 	if (rc < 0) {
-		DBG(log, LOG_MSG(getpeername), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(getpeername), 0, "ok");
+		DBG(log, 0, "ok");
 	}
 	return rc;
 }
@@ -872,14 +815,13 @@ gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 	}
 	API_LOCK;
 	log = log_trace0();
-	gt_dbg("!!!!");
-	DBG(log, LOG_MSG(poll), 0, "hit; to=%d, events={%s}",
+	DBG(log, 0, "hit; to=%d, events={%s}",
 	    timeout_ms, log_add_pollfds_events(fds, nfds));
 	rc = gt_poll(fds, nfds, to, NULL);
 	if (rc < 0) {
-		DBG(log, LOG_MSG(poll), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(poll), 0, "ok; rc=%d, revents={%s}",
+		DBG(log, 0, "ok; rc=%d, revents={%s}",
 		    rc, log_add_pollfds_revents(fds, nfds));
 	}
 	API_UNLOCK;
@@ -902,19 +844,18 @@ gbtcp_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 	API_LOCK;
 	log = log_trace0();
 	if (timeout == NULL) {
-		DBG(log, LOG_MSG(ppoll), 0, "hit; to={inf}, events={%s}",
+		DBG(log, 0, "hit; to={inf}, events={%s}",
 		    log_add_pollfds_events(fds, nfds));
 	} else {
-		DBG(log, LOG_MSG(ppoll), 0,
-		    "hit; to={sec=%ld, nsec=%ld}, events={%s}",
+		DBG(log, 0, "hit; to={sec=%ld, nsec=%ld}, events={%s}",
 		    timeout->tv_sec, timeout->tv_nsec,
 		    log_add_pollfds_events(fds, nfds));
 	}
 	rc = gt_poll(fds, nfds, to, sigmask);
 	if (rc < 0) {
-		DBG(log, LOG_MSG(ppoll), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(ppoll), 0, "ok; rc=%d, revents={%s}",
+		DBG(log, 0, "ok; rc=%d, revents={%s}",
 		    rc, log_add_pollfds_revents(fds, nfds));
 	}
 	API_UNLOCK;
@@ -959,13 +900,13 @@ gbtcp_sigaction(int signum, const struct sigaction *act,
 	}
 	UNUSED(fn);
 	log = log_trace0();
-	DBG(log, LOG_MSG(sigaction), 0, "hit; signum=%d, handler=%s",
+	DBG(log, 0, "hit; signum=%d, handler=%s",
 	    signum, log_add_sighandler(fn));
 	rc = gt_signal_sigaction(signum, act, oldact);
 	if (rc < 0) {
-		DBG(log, LOG_MSG(sigaction), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(sigaction), 0, "ok");
+		DBG(log, 0, "ok");
 	}
 	API_UNLOCK;
 	API_RETURN(rc);
@@ -979,13 +920,12 @@ gt_sysctl(int pid, const char *path, char *old, int len, const char *new)
 
 	API_LOCK;
 	log = log_trace0();
-	LOGF(log, LOG_MSG(sysctl), LOG_INFO, 0,
-	     "hit; pid=%d, path='%s'", pid, path);
+	LOGF(log, LOG_INFO, 0, "hit; pid=%d, path='%s'", pid, path);
 	rc = usysctl(log, pid, path, old, len, new);
 	if (rc < 0) {
-		LOGF(log, LOG_MSG(sysctl), LOG_INFO, -rc, "failed");
+		LOGF(log, LOG_INFO, -rc, "failed");
 	} else {
-		LOGF(log, LOG_MSG(sysctl), LOG_INFO, 0, "ok");
+		LOGF(log, LOG_INFO, 0, "ok");
 	}
 	API_UNLOCK;
 	API_RETURN(rc);
@@ -1000,7 +940,7 @@ gt_first_fd()
 	API_LOCK;
 	log = log_trace0();
 	rc = file_first_fd();
-	DBG(log, LOG_MSG(first_fd), 0, "hit; first_fd=%d", rc);
+	DBG(log, 0, "hit; first_fd=%d", rc);
 	API_UNLOCK;
 	API_RETURN(rc);
 }
@@ -1015,13 +955,12 @@ gbtcp_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
 
 	API_LOCK;
 	log = log_trace0();
-	LOGF(log, LOG_MSG(clone), LOG_INFO, 0, "hit; flags=%s",
-	     log_add_clone_flags(flags));
+	LOGF(log, LOG_INFO, 0, "hit; flags=%s", log_add_clone_flags(flags));
 	rc = gt_service_clone(fn, child_stack, flags, arg, ptid, tls, ctid);
 	if (rc < 0) {
-		LOGF(log, LOG_MSG(clone), LOG_INFO, -rc, "failed");
+		LOGF(log, LOG_INFO, -rc, "failed");
 	} else {
-		LOGF(log, LOG_MSG(clone), LOG_INFO, 0, "ok; pid=%d", rc);
+		LOGF(log, LOG_INFO, 0, "ok; pid=%d", rc);
 	}
 	API_UNLOCK;
 	API_RETURN(rc);
@@ -1035,7 +974,7 @@ gbtcp_epoll_create()
 
 	API_LOCK;
 	log = log_trace0();
-	LOGF(log, LOG_MSG(epoll_create), LOG_INFO, 0, "hit");
+	LOGF(log, LOG_INFO, 0, "hit");
 	rc = (*sys_epoll_create1_fn)(EPOLL_CLOEXEC);
 	if (rc == -1) {
 		rc = -errno;
@@ -1048,9 +987,9 @@ gbtcp_epoll_create()
 		}
 	}
 	if (rc < 0) {
-		LOGF(log, LOG_MSG(epoll_create), LOG_INFO, -rc, "failed");
+		LOGF(log, LOG_INFO, -rc, "failed");
 	} else {
-		LOGF(log, LOG_MSG(epoll_create), LOG_INFO, 0, "ok; fd=%d", rc);
+		LOGF(log, LOG_INFO, 0, "ok; fd=%d", rc);
 	}
 	API_UNLOCK;
 	API_RETURN(rc);
@@ -1063,15 +1002,14 @@ gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 
 	API_LOCK;
 	log = log_trace0();
-	DBG(log, LOG_MSG(epoll_ctl), 0,
-	    "hit; epfd=%d, op=%s, fd=%d, events={%s}",
+	DBG(log, 0, "hit; epfd=%d, op=%s, fd=%d, events={%s}",
 	    epfd, log_add_epoll_op(op), fd,
 	    log_add_epoll_event_events(event->events));
 	rc = uepoll_ctl(epfd, op, fd, event);
 	if (rc) {
-		DBG(log, LOG_MSG(epoll_ctl), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(epoll_ctl), 0, "ok");
+		DBG(log, 0, "ok");
 	}
 	API_UNLOCK;
 	API_RETURN(rc);
@@ -1091,12 +1029,12 @@ gbtcp_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 	}
 	API_LOCK;
 	log = log_trace0();
-	DBG(log, LOG_MSG(epoll_pwait), 0, "hit; epfd=%d", epfd);
+	DBG(log, 0, "hit; epfd=%d", epfd);
 	rc = uepoll_pwait(epfd, events, maxevents, to, sigmask);
 	if (rc < 0) {
-		DBG(log, LOG_MSG(epoll_pwait), -rc, "failed");
+		DBG(log, -rc, "failed");
 	} else {
-		DBG(log, LOG_MSG(epoll_pwait), 0, "ok; rc=%d", rc);
+		DBG(log, 0, "ok; rc=%d", rc);
 	}
 	API_UNLOCK;
 	API_RETURN(rc);	
@@ -1110,7 +1048,7 @@ gbtcp_kqueue()
 
 	API_LOCK;
 	log = log_trace0();
-	LOGF(log, LOG_MSG(kqueue), LOG_INFO, 0, "hit");
+	LOGF(log, LOG_INFO, 0, "hit");
 	rc = (*sys_kqueue_fn)();
 	if (rc == -1) {
 		rc = -errno;
@@ -1123,9 +1061,9 @@ gbtcp_kqueue()
 		}
 	}
 	if (rc < 0) {
-		LOGF(log, LOG_MSG(kqueue), LOG_INFO, -rc, "failed");
+		LOGF(log, LOG_INFO, -rc, "failed");
 	} else {
-		LOGF(log, LOG_MSG(kqueue), LOG_INFO, 0, "ok; fd=%d", rc);
+		LOGF(log, LOG_INFO, 0, "ok; fd=%d", rc);
 	}
 	API_UNLOCK;
 	API_RETURN(rc);
@@ -1139,13 +1077,13 @@ gbtcp_kevent(int kq, const struct kevent *changelist, int nchanges,
 
 	API_LOCK;
 	log = log_trace0();
-	DBG(log, LOG_MSG(kevent), 0, "hit; kq=%d, nchanges=%d, nevents=%d",
+	DBG(log, 0, "hit; kq=%d, nchanges=%d, nevents=%d",
 	    kq, nchanges, nevents);
 	rc = gt_epoll_kevent(kq, changelist, nchanges, eventlist, nevents, timeout);
 	if (rc < 0) {
-		DBG(log, LOG_MSG(kevent), -rc, "failed; kq=%d", kq);
+		DBG(log, -rc, "failed; kq=%d", kq);
 	} else {
-		DBG(log, LOG_MSG(kevent), 0, "ok; kq=%d, rc=%d", kq, rc);
+		DBG(log, 0, "ok; kq=%d, rc=%d", kq, rc);
 	}
 	API_UNLOCK;
 	API_RETURN(rc);

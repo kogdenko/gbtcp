@@ -16,20 +16,6 @@
 
 struct log;
 
-#define ROUTE_LOG_MSG_FOREACH(x) \
-	x(if_add) \
-	x(if_del) \
-	x(ifaddr_add) \
-	x(ifaddr_del) \
-	x(add) \
-	x(del) \
-	x(mon_start) \
-	x(read) \
-	x(rtnl_handler) \
-	x(handle_link) \
-	x(handle_addr) \
-	x(handle_route) \
-
 struct gt_route_entry_long {
 	struct lprule rtl_rule;
 	struct dlist rtl_list;
@@ -42,7 +28,6 @@ struct gt_route_entry_long {
 
 struct route_mod {
 	struct log_scope log_scope;
-	ROUTE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 	int route_rssq_cnt;
 	struct lptree route_lptree;
 	struct mbuf_pool *route_pool;

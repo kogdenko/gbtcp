@@ -5,13 +5,8 @@
 #define UEPOLL_FLAG_ET (1 << 2)
 #define UEPOLL_FLAG_ADDED (1 << 3)
 
-#define EPOLL_LOG_MSG_FOREACH(x) \
-	x(open) \
-	x(get_events) \
-
 struct epoll_mod {
 	struct log_scope log_scope;
-	EPOLL_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
 struct uepoll {
@@ -281,7 +276,7 @@ uepoll_get_events(struct uepoll *ep, epoll_event_t *buf, int cnt)
 		e->epe_flags &= ~UEPOLL_FLAG_ADDED;
 		uepoll_entry_get_event(e, buf + n, fp);
 		log = log_trace0();
-		DBG(log, LOG_MSG(get_events), 0, "hit; fd=%d, events=%s",
+		DBG(log, 0, "hit; fd=%d, events=%s",
 		    e->epe_fd, log_add_poll_events(e->epe_revents));
 		if (e->epe_flags & UEPOLL_FLAG_ET) {
 			uepoll_entry_remove(e);

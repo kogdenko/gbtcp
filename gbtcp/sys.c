@@ -1,69 +1,8 @@
 /* GPL2 license */
 #include "internals.h"
 
-#define SYS_LOG_MSG_FOREACH(x) \
-	x(mod_deinit) \
-	x(fork) \
-	x(open) \
-	x(unlink) \
-	x(pipe) \
-	x(socket) \
-	x(connect) \
-	x(bind) \
-	x(listen) \
-	x(accept4) \
-	x(shutdown) \
-	x(close) \
-	x(read) \
-	x(recvmsg) \
-	x(write) \
-	x(send) \
-	x(sendmsg) \
-	x(dup) \
-	x(fcntl) \
-	x(ioctl) \
-	x(getsockopt) \
-	x(setsockopt) \
-	x(ppoll) \
-	x(signal) \
-	x(sigaction) \
-	x(sigprocmask) \
-	x(malloc) \
-	x(realloc) \
-	x(posix_memalign) \
-	x(fopen) \
-	x(opendir) \
-	x(stat) \
-	x(realpath)  \
-	x(flock) \
-	x(getgrnam) \
-	x(chown) \
-	x(chmod) \
-	x(getifaddrs) \
-	x(if_indextoname) \
-	x(kill) \
-	x(waitpid) \
-	x(daemon) \
-	x(inotify_init1) \
-	x(inotify_add_watch) \
-	x(inotify_rm_watch)
-
-#ifdef __linux__
-
-#define SYS_LOG_MSG_FOREACH_OS(x) \
-	x(clone) \
-	x(epoll_pwait)
-
-#else /* __linux__ */
-#define SYS_LOG_MSG_FOREACH_OS(x) \
-	x(kqueue)
-
-#endif /* __linux__ */
-
 struct sys_mod {
 	struct log_scope log_scope;
-	SYS_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
-	SYS_LOG_MSG_FOREACH_OS(LOG_MSG_DECLARE);
 };
 
 sys_open_f sys_open_fn;
@@ -225,11 +164,11 @@ sys_fork(struct log *log)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(fork), LOG_ERR, -rc, "failed;");
+			LOGF(log, LOG_ERR, -rc, "failed;");
 		}
 	} else if (rc && log != NULL) {
 		LOG_TRACE(log);
-		LOGF(log, LOG_MSG(fork), LOG_INFO, 0, "ok; pid=%d", rc);
+		LOGF(log, LOG_INFO, 0, "ok; pid=%d", rc);
 	}
 	return rc;
 }
@@ -248,8 +187,7 @@ restart:
 			goto restart;
 		} else if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(open), LOG_ERR, -rc,
-			     "failed; path='%s'", path);
+			LOGF(log, LOG_ERR, -rc, "failed; path='%s'", path);
 		}
 	}
 	return rc;
@@ -266,8 +204,7 @@ sys_unlink(struct log *log, const char *path)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(unlink), LOG_ERR, -rc,
-			     "failed; path='%s'", path);
+			LOGF(log, LOG_ERR, -rc, "failed; path='%s'", path);
 		}
 	}
 	return rc;
@@ -284,7 +221,7 @@ sys_pipe(struct log *log, int pipefd[2])
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(pipe), LOG_ERR, -rc, "failed");
+			LOGF(log, LOG_ERR, -rc, "failed");
 		}
 	}
 	return rc;
@@ -301,8 +238,7 @@ sys_socket(struct log *log, int domain, int type, int protocol)
 		ASSERT(rc < 0);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(socket), LOG_ERR, -rc,
-			     "failed; domain=%s, type=%s",
+			LOGF(log, LOG_ERR, -rc, "failed; domain=%s, type=%s",
 			     log_add_socket_domain(domain),
 			     log_add_socket_type(type));
 		}
@@ -322,8 +258,7 @@ sys_connect(struct log *log, int fd, const struct sockaddr *addr,
 		ASSERT(rc < 0);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(connect), LOG_ERR, -rc,
-			     "failed; fd=%d, addr=%s",
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d, addr=%s",
 			     fd, log_add_sockaddr(addr, addrlen));
 		}
 		return rc;
@@ -344,8 +279,7 @@ sys_bind(struct log *log, int fd, const struct sockaddr *addr,
 		ASSERT(rc < 0);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(bind), LOG_ERR, -rc,
-			     "failed; fd=%d, addr=%s",
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d, addr=%s",
 			     fd, log_add_sockaddr(addr, addrlen));
 		}
 		return rc;
@@ -365,8 +299,8 @@ sys_listen(struct log *log, int fd, int backlog)
 		ASSERT(rc < 0);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(listen), LOG_ERR, -rc,
-			     "failed; fd=%d, backlog=%d", fd, backlog);
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d, backlog=%d",
+			     fd, backlog);
 		}
 		return rc;
 	} else {
@@ -387,8 +321,7 @@ sys_accept4(struct log *log, int fd, struct sockaddr *addr,
 		if (rc != -EAGAIN) {
 			if (log != NULL) {
 				LOG_TRACE(log);
-				LOGF(log, LOG_MSG(accept4), LOG_ERR, -rc,
-				     "failed; fd=%d", fd);
+				LOGF(log, LOG_ERR, -rc, "failed; fd=%d", fd);
 			}
 		}
 	}
@@ -406,8 +339,7 @@ sys_shutdown(struct log *log, int fd, int how)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(shutdown), LOG_ERR, -rc,
-			     "failed; fd=%d, how=%s",
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d, how=%s",
 			      fd, log_add_shutdown_how(how));
 		}
 	}
@@ -425,8 +357,7 @@ sys_close(struct log *log, int fd)
 		ASSERT(rc < 0);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(close), LOG_ERR, -rc,
-			     "failed; fd=%d", fd);
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d", fd);
 		}
 	}
 	return rc;
@@ -446,8 +377,7 @@ restart:
 			goto restart;
 		} else if (rc != -EAGAIN && log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(read), LOG_ERR, -rc,
-			     "failed; fd=%d", fd);
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d", fd);
 		}
 	}
 	return rc;
@@ -465,8 +395,7 @@ sys_recvmsg(struct log *log, int fd, struct msghdr *msg, int flags)
 		if (rc != -EAGAIN) {
 			if (log != NULL) {
 				LOG_TRACE(log);
-				LOGF(log, LOG_MSG(recvmsg), -rc, LOG_ERR,
-				     "failed; fd=%d", fd);
+				LOGF(log, -rc, LOG_ERR, "failed; fd=%d", fd);
 			}
 		}
 	}
@@ -487,8 +416,7 @@ restart:
 			goto restart;
 		} else if (rc == -EAGAIN && log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(write), LOG_ERR, -rc,
-			     "failed; fd=%d", fd);
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d", fd);
 		}
 	}
 	return rc;
@@ -508,8 +436,7 @@ restart:
 			goto restart;
 		} else  if (rc != -EAGAIN && log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(send), LOG_ERR, -rc,
-			     "failed; fd=%d", fd);
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d", fd);
 		}
 	}
 	return rc;
@@ -526,8 +453,7 @@ sys_sendmsg(struct log *log, int fd, const struct msghdr *msg, int flags)
 		ASSERT(rc);
 		if (rc != -EPIPE && log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(sendmsg), LOG_ERR, -rc,
-			     "failed; fd=%d", fd);
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d", fd);
 		}
 	}
 	return rc;
@@ -544,8 +470,7 @@ sys_dup(struct log *log, int fd)
 		ASSERT(rc < 0);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(dup), LOG_ERR, -rc,
-			     "failed; fd=%d", fd);
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d", fd);
 		}
 	}
 	return rc;
@@ -562,8 +487,7 @@ sys_fcntl(struct log *log, int fd, int cmd, uintptr_t arg)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(fcntl), LOG_ERR, -rc,
-			     "failed; fd=%d, cmd=%s",
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d, cmd=%s",
 			     fd, log_add_fcntl_cmd(cmd));
 		}
 	}
@@ -583,7 +507,7 @@ sys_ioctl(struct log *log, int fd, unsigned long request, uintptr_t arg)
 		case SIOCGIFFLAGS:
 			if (log != NULL) {
 				LOG_TRACE(log);
-				LOGF(log, LOG_MSG(ioctl), LOG_ERR, -rc,
+				LOGF(log, LOG_ERR, -rc,
 				     "failed; fd=%d, req=SIOCGIFFLAGS, ifr_name='%s'",
 				     fd, ((struct ifreq *)arg)->ifr_name);
 			}
@@ -591,7 +515,7 @@ sys_ioctl(struct log *log, int fd, unsigned long request, uintptr_t arg)
 		default:
 			if (log != NULL) {
 				LOG_TRACE(log);
-				LOGF(log, LOG_MSG(ioctl), LOG_ERR, -rc,
+				LOGF(log, LOG_ERR, -rc,
 				     "failed; fd=%d, cmd=0x%lx",
 				     fd, request);
 			}
@@ -613,7 +537,7 @@ sys_getsockopt(struct log *log, int fd, int level, int optname,
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(getsockopt), LOG_ERR, -rc,
+			LOGF(log, LOG_ERR, -rc,
 			     "failed; fd=%d, level=%s, optname=%s",
 			     fd,
 			     log_add_sockopt_level(level),
@@ -635,7 +559,7 @@ sys_setsockopt(struct log *log, int fd, int level, int optname,
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(setsockopt), LOG_ERR, -rc,
+			LOGF(log, LOG_ERR, -rc,
 			     "failed; fd=%d, level=%s, optname=%s",
 			     fd,
 			     log_add_sockopt_level(level),
@@ -657,7 +581,7 @@ sys_ppoll(struct log *log, struct pollfd *fds, nfds_t nfds,
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(ppoll), LOG_ERR, -rc, "failed");
+			LOGF(log, LOG_ERR, -rc, "failed");
 		}
 	}
 	return rc;
@@ -674,7 +598,7 @@ sys_signal(struct log *log, int signum, void (*handler)())
 		rc = -errno;
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(signal), LOG_ERR, -rc,
+			LOGF(log, LOG_ERR, -rc,
 			     "failed; signum=%d, sighandler=%s",
 			     signum, log_add_sighandler(handler));
 		}
@@ -694,7 +618,7 @@ sys_sigaction(struct log *log, int signum, const struct sigaction *act,
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(sigaction), LOG_ERR, -rc,
+			LOGF(log, LOG_ERR, -rc,
 			     "failed; signum=%d", signum);
 		}
 	}
@@ -713,7 +637,7 @@ sys_sigprocmask(struct log *log, int how, const sigset_t *set,
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(sigprocmask), LOG_ERR, -rc,
+			LOGF(log, LOG_ERR, -rc,
 			     "failed; how=%s", log_add_sigprocmask_how(how));
 		}
 	}
@@ -727,7 +651,7 @@ sys_malloc(struct log *log, void **pp, size_t size)
 	if (*pp == NULL) {
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(malloc), LOG_ERR, 0,
+			LOGF(log, LOG_ERR, 0,
 			     "failed; size=%zu", size);
 		}
 		return -ENOMEM;
@@ -744,7 +668,7 @@ sys_realloc(struct log *log, void **pp, size_t size)
 	if (new_ptr == NULL) {
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(realloc), LOG_ERR, 0,
+			LOGF(log, LOG_ERR, 0,
 			     "failed; size=%zu", size);
 		}
 		return -ENOMEM;
@@ -763,7 +687,7 @@ sys_posix_memalign(struct log *log, void **memptr, size_t alignment,
 	if (rc) {
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(posix_memalign), LOG_ERR, 0,
+			LOGF(log, LOG_ERR, 0,
 			     "failed; alignment=%zu, size=%zu",
 			     alignment, size);
 		}
@@ -783,8 +707,8 @@ sys_fopen(struct log *log, FILE **file, const char *path,
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(fopen), LOG_ERR, -rc,
-			     "failed; path='%s', mode=%s", path, mode);
+			LOGF(log, LOG_ERR, -rc, "failed; path='%s', mode=%s",
+			     path, mode);
 		}
 		return rc;
 	}
@@ -802,8 +726,7 @@ sys_opendir(struct log *log, DIR **pdir, const char *name)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(opendir), LOG_ERR, -rc,
-			     "failed; name='%s'", name);
+			LOGF(log, LOG_ERR, -rc, "failed; name='%s'", name);
 		}
 		return rc;
 	}
@@ -824,8 +747,7 @@ restart:
 			goto restart;
 		} else if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(stat), LOG_ERR, -rc,
-			     "failed; path='%s'", path);
+			LOGF(log, LOG_ERR, -rc, "failed; path='%s'", path);
 		}
 	}
 	return rc;
@@ -843,8 +765,7 @@ sys_realpath(struct log *log, const char *path, char *resolved_path)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(realpath), LOG_ERR,
-			     -rc, "failed; path='%s'", path);
+			LOGF(log, LOG_ERR, -rc, "failed; path='%s'", path);
 		}
 	} else {
 		rc = 0;
@@ -866,8 +787,7 @@ restart:
 			goto restart;
 		} else if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(flock), LOG_ERR, -rc,
-			     "failed; fd=%d", fd);
+			LOGF(log, LOG_ERR, -rc, "failed; fd=%d", fd);
 		}
 	}
 	return rc;
@@ -888,8 +808,7 @@ restart:
 			goto restart;
 		} else if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(getgrnam), LOG_ERR, -rc,
-			     "failed; name='%s'", name);
+			LOGF(log, LOG_ERR, -rc, "failed; name='%s'", name);
 		}
 	}
 	return rc;
@@ -909,8 +828,7 @@ restart:
 			goto restart;
 		} else if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(chown), LOG_ERR, -rc,
-			     "failed; uid=%d, gid=%d",
+			LOGF(log, LOG_ERR, -rc, "failed; uid=%d, gid=%d",
 			     owner, group);
 		}
 	}
@@ -931,8 +849,7 @@ restart:
 			goto restart;
 		} else if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(chmod), LOG_ERR, -rc,
-			     "failed; path='%s', mode=%o",
+			LOGF(log, LOG_ERR, -rc, "failed; path='%s', mode=%o",
 			     path, mode);
 		}
 	}
@@ -950,7 +867,7 @@ sys_getifaddrs(struct log *log, struct ifaddrs **ifap)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(getifaddrs), LOG_ERR, -rc, "failed");
+			LOGF(log, LOG_ERR, -rc, "failed");
 		}
 		return rc;
 	}
@@ -969,8 +886,7 @@ sys_if_indextoname(struct log *log, int if_idx, char *if_name)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(if_indextoname), LOG_ERR, -rc,
-			     "failed; if_idx=%d", if_idx);
+			LOGF(log, LOG_ERR, -rc, "failed; if_idx=%d", if_idx);
 		}
 		return rc;
 	}
@@ -989,7 +905,7 @@ sys_kill(struct log *log, int pid, int sig)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(kill), LOG_ERR, -rc,
+			LOGF(log, LOG_ERR, -rc,
 			     "failed; pid=%d, sig=%d", pid, sig);
 		}
 	}
@@ -1007,7 +923,7 @@ sys_waitpid(struct log *log, pid_t pid, int *status, int options)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(waitpid), LOG_ERR, -rc,
+			LOGF(log, LOG_ERR, -rc,
 			     "failed; pid=%d", (int)pid);
 		}
 	}
@@ -1025,11 +941,11 @@ sys_daemon(struct log *log, int nochdir, int noclose)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(daemon), LOG_ERR, -rc, "failed;");
+			LOGF(log, LOG_ERR, -rc, "failed;");
 		}
 	} else if (log != NULL) {
 		LOG_TRACE(log);
-		LOGF(log, LOG_MSG(daemon), LOG_ERR, 0, "ok; pid=%d", getpid());
+		LOGF(log, LOG_ERR, 0, "ok; pid=%d", getpid());
 	}
 	return rc;
 }
@@ -1045,8 +961,7 @@ sys_inotify_init1(struct log *log, int flags)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(inotify_init1), LOG_ERR, -rc,
-			     "failed");
+			LOGF(log, LOG_ERR, -rc, "failed;");
 		}
 	}
 	return rc;
@@ -1063,7 +978,7 @@ sys_inotify_add_watch(struct log *log, int fd, const char *path, uint32_t mask)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(inotify_add_watch), LOG_ERR, -rc,
+			LOGF(log, LOG_ERR, -rc,
 			     "failed; fd=%d, path=%s", fd, path);
 		}
 	}
@@ -1081,7 +996,7 @@ sys_inotify_rm_watch(struct log *log, int fd, int wd)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(inotify_rm_watch), LOG_ERR, -rc,
+			LOGF(log, LOG_ERR, -rc,
 			     "failed; fd=%d, wd=%d", fd, wd);
 		}
 	}
@@ -1104,8 +1019,7 @@ restart:
 			goto restart;
 		} else if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(epoll_pwait), LOG_ERR, -rc,
-			     "failed; epfd=%d", epfd);
+			LOGF(log, LOG_ERR, -rc, "failed; epfd=%d", epfd);
 		}
 	}
 	return rc;
@@ -1123,8 +1037,7 @@ sys_clone(struct log *log, int (*fn)(void *), void *child_stack,
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(clone), LOG_ERR, -rc,
-			     "failed; flags=%s",
+			LOGF(log, LOG_ERR, -rc, "failed; flags=%s",
 			     log_add_clone_flags(flags));
 		}
 	}
@@ -1142,7 +1055,7 @@ sys_kqueue(struct log *log)
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_MSG(kqueue), LOG_ERR, -rc, "failed");
+			LOGF(log, LOG_ERR, -rc, "failed");
 		}
 	}
 	return rc;

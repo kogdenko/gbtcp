@@ -12,7 +12,6 @@
 
 struct mbuf_mod {
 	struct log_scope log_scope;
-	MBUF_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 	struct mbuf_pool *mbuf_pools[UINT8_MAX]; // FIXME: move to proc
 
 };
@@ -92,7 +91,7 @@ mbuf_chunk_alloc(struct log *log, struct mbuf_pool *p,
 	struct mbuf *m;
 	LOG_TRACE(log);
 	if (p->mbp_nr_chunks == 0) {
-		LOGF(log, LOG_MSG(chunk_alloc), LOG_ERR, 0, "no chunk slots");
+		LOGF(log, LOG_ERR, 0, "no chunk slots");
 		return -ENOMEM;
 	}
 	rc = shm_alloc_page(log, (void **)pchunk,
@@ -138,7 +137,7 @@ mbuf_pool_alloc(struct log *log, struct mbuf_pool **pp, int mbuf_size)
 			goto found;
 		}
 	}
-	LOGF(log, 7, LOG_ERR, 0, "no pool slots");
+	LOGF(log, LOG_ERR, 0, "no pool slots");
 	return -ENFILE;
 found:
 	p = current_mod->mbuf_pools[i];
@@ -229,8 +228,7 @@ mbuf_alloc4(struct log *log, struct mbuf_pool *p, uint32_t m_id,
 	*mp = NULL;
 	chunk_id = m_id / p->mbp_mbufs_per_chunk;
 	if (chunk_id >= ARRAY_SIZE(p->mbp_chunks)) {
-		LOGF(log, LOG_MSG(alloc), LOG_ERR, 0,
-		     "too big id; m_id=%u", m_id);
+		LOGF(log, LOG_ERR, 0, "too big id; m_id=%u", m_id);
 		return -ENFILE;
 	}
 	chunk = p->mbp_chunks[chunk_id];
@@ -245,8 +243,7 @@ mbuf_alloc4(struct log *log, struct mbuf_pool *p, uint32_t m_id,
 	i = m_id % p->mbp_mbufs_per_chunk;
 	m = MBUF_GET(p, chunk, i);
 	if (m->mb_used) {
-		LOGF(log, LOG_MSG(alloc), LOG_ERR, 0,
-		     "already allocated; m_id=%d", m_id);
+		LOGF(log, LOG_ERR, 0, "already allocated; m_id=%d", m_id);
 		return -EBUSY;
 	} else {
 		mbuf_chunk_pop_freeq(p, chunk, m);

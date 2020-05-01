@@ -6,13 +6,8 @@
 #define GT_ARP_MIN_RANDOM_FACTOR 0.5
 #define GT_ARP_MAX_RANDOM_FACTOR 1.5
 
-#define ARP_LOG_MSG_FOREACH(x) \
-	x(set_state) \
-	x(update) \
-
 struct arp_mod {
 	struct log_scope log_scope;
-	ARP_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
 enum gt_arp_state {
@@ -369,8 +364,7 @@ static inline void
 gt_arp_set_state(struct log *log, struct gt_arp_entry *e, int state)
 {
 	LOG_TRACE(log);
-	LOGF(log, LOG_MSG(set_state), LOG_INFO, 0,
-	     "hit; state=%s->%s, next_hop=%s",
+	LOGF(log, LOG_INFO, 0, "hit; state=%s->%s, next_hop=%s",
 	     gt_arp_state_str(e->ae_state), gt_arp_state_str(state),
 	     log_add_ipaddr(AF_INET, &e->ae_next_hop));
 	e->ae_state = state;
@@ -522,7 +516,7 @@ gt_arp_update(struct gt_arp_advert_msg *msg)
 	struct gt_arp_entry *e;
 
 	log = log_trace0();
-	LOGF(log, LOG_MSG(update), LOG_INFO, 0, "hit; next_hop=%s",
+	LOGF(log, LOG_INFO, 0, "hit; next_hop=%s",
 	     log_add_ipaddr(AF_INET, &msg->arpam_next_hop));
 	// RFC-4861
 	// 7.2.5.  Receipt of Neighbor Advertisements

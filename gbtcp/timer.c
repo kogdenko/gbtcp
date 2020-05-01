@@ -3,14 +3,8 @@
 #define TIMER_RING_ID_MASK (((uintptr_t)1 << TIMER_RING_ID_SHIFT) - 1)
 #define TIMER_NRINGS_MAX (1 << TIMER_RING_ID_SHIFT) 
 
-#define TIMER_LOG_MSG_FOREACH(x) \
-	x(ring_init) \
-	x(set) \
-	x(del)
-
 struct timer_mod {
 	struct log_scope log_scope;
-	TIMER_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
 struct timer_ring {
@@ -109,8 +103,7 @@ timer_mod_attach(struct log *log, void *raw_mod)
 	for (i = 0; i < timer_nrings; ++i) {
 		ring = timer_rings[i];
 		timer_ring_init(ring, ring_seg_size[i]);
-		LOGF(log, LOG_MSG(ring_init), LOG_INFO, 0,
-		     "hit; ring=%d, seg=%llu",
+		LOGF(log, LOG_INFO, 0, "hit; ring=%d, seg=%llu",
 		     i, 1llu << ring->r_seg_shift);
 	}
 	return 0;
@@ -258,8 +251,7 @@ gt_timer_set(struct gt_timer *timer, uint64_t expire, gt_timer_f fn)
 	}
 	log = log_trace0();
 	if (ring_id == timer_nrings) {
-		LOGF(log, LOG_MSG(set), LOG_ERR, 0,
-		     "too big expire=%"PRIu64, expire);
+		LOGF(log, LOG_ERR, 0, "too big expire=%"PRIu64, expire);
 		ring_id = timer_nrings - 1;
 		ring = timer_rings[ring_id];
 		dist = TIMER_RING_SIZE - 1;
@@ -271,7 +263,7 @@ gt_timer_set(struct gt_timer *timer, uint64_t expire, gt_timer_f fn)
 	ring->r_ntimers++;
 	timer->tm_data = uint_fn|ring_id;
 	DLIST_INSERT_HEAD(head, timer, tm_list);
-	DBG(log, LOG_MSG(set), 0,
+	DBG(log, 0,
 	    "ok; timer=%p, fn=%p, ring=%d, cur=%"PRIu64", head=%p, dist=%d",
 	    timer, fn, ring_id, ring->r_cur, head, (int)dist);
 }
@@ -286,8 +278,7 @@ gt_timer_del(struct gt_timer *timer)
 		ring = timer_rings[ring_id];
 		ring->r_ntimers--;
 		log = log_trace0();
-		DBG(log, LOG_MSG(del), 0,
-		    "ok; timer=%p, ring=%d", timer, ring_id);
+		DBG(log, 0, "ok; timer=%p, ring=%d", timer, ring_id);
 		ASSERT(ring->r_ntimers >= 0);
 		DLIST_REMOVE(timer, tm_list);
 		timer->tm_data = 0;

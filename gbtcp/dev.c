@@ -2,16 +2,8 @@
 
 #define DEV_BURST_SIZE  256
 
-#define DEV_LOG_MSG_FOREACH(x) \
-	x(mod_deinit) \
-	x(nm_open) \
-	x(nm_close) \
-	x(init) \
-	x(deinit) \
-
 struct dev_mod {
 	struct log_scope log_scope;
-	DEV_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
 static struct dev_mod *current_mod;
@@ -83,7 +75,7 @@ static void
 dev_nm_close(struct log *log, struct dev *dev)
 {
 	LOG_TRACE(log);
-	LOGF(log, LOG_MSG(nm_close), LOG_INFO, 0, "ok; dev='%s', nmd=%p",
+	LOGF(log, LOG_INFO, 0, "ok; dev='%s', nmd=%p",
 	     dev->dev_name, dev->dev_nmd);
 	if (dev->dev_nmd->fd != -1) {
 		sys_close(log, dev->dev_nmd->fd);
@@ -108,7 +100,7 @@ dev_nm_open(struct log *log, struct dev *dev)
 		sys_fcntl(log, dev->dev_nmd->fd,
 		          F_SETFD, FD_CLOEXEC);
 		nmr = dev->dev_nmd->req;
-		LOGF(log, LOG_MSG(nm_open), LOG_INFO, 0,
+		LOGF(log, LOG_INFO, 0,
 		     "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
 		     dev->dev_name, dev->dev_nmd,
 	             nmr.nr_rx_rings, nmr.nr_rx_slots,
@@ -117,8 +109,7 @@ dev_nm_open(struct log *log, struct dev *dev)
 	} else {
 		rc = -errno;
 		ASSERT(rc);
-		LOGF(log, LOG_MSG(nm_open), LOG_ERR, -rc,
-		     "failed; dev='%s'", dev->dev_name);
+		LOGF(log, LOG_ERR, -rc, "failed; dev='%s'", dev->dev_name);
 		return rc;
 	}
 }

@@ -116,8 +116,7 @@ gtd_set_rss_conf(struct log *log, int rss_q_cnt, const uint8_t *rss_key)
 //	for (i = 0; i < gt_route_rss_q_cnt; ++i) {
 //		gtd_service_start(log);
 //	}
-	LOGF(log, 7, LOG_INFO, 0,
-	     "ok; rss_q_cnt=%d", current_mod->route_rssq_cnt);
+	LOGF(log, LOG_INFO, 0, "ok; rss_q_cnt=%d", current_mod->route_rssq_cnt);
 	return 0;
 }
 
@@ -142,7 +141,7 @@ route_if_init_nm(struct log *log, struct route_if *ifp)
 	nr_tx_rings = req->nr_tx_rings;
 	ASSERT(nr_rx_rings > 0);
 	if (nr_rx_rings > GT_SERVICE_COUNT_MAX || nr_tx_rings < nr_rx_rings) {
-		LOGF(log, LOG_MSG(if_add), LOG_ERR, 0,
+		LOGF(log, LOG_ERR, 0,
 		     "invalid ring config; if='%s', nr_rx_rings=%d, nr_tx_rings=%d",
 		     ifp->rif_name, nr_rx_rings, nr_tx_rings);
 		return -EINVAL;
@@ -150,13 +149,13 @@ route_if_init_nm(struct log *log, struct route_if *ifp)
 	if (current_mod->route_rssq_cnt == 0) {
 		gtd_set_rss_conf(log, nr_rx_rings, rss_key);
 	} else if (nr_rx_rings != current_mod->route_rssq_cnt) {
-		LOGF(log, 7, LOG_ERR, 0,
+		LOGF(log, LOG_ERR, 0,
 		     "invalid nr_rx_rings; if='%s', nr_rx_rings=%d, rss_q_cnt=%d",
 		     ifp->rif_name, nr_rx_rings, current_mod->route_rssq_cnt);
 		return -EINVAL;
 	} else if (current_mod->route_rssq_cnt > 1 &&
 	           memcmp(gt_route_rss_key, rss_key, RSSKEYSIZ)) {
-		LOGF(log, 7, LOG_ERR, 0,
+		LOGF(log, LOG_ERR, 0,
 		     "invalid rsskey - all interfaces must have same rss_key; if=%s",
 		     ifp->rif_name);
 	}
@@ -258,7 +257,7 @@ route_if_add(struct log *log, const char *ifname, struct route_if **ifpp)
 		gt_route_dump(route_on_msg);
 	}
 	*ifpp = ifp;
-	LOGF(log, LOG_MSG(if_add), LOG_INFO, 0, "ok; if='%s'", ifname);
+	LOGF(log, LOG_INFO, 0, "ok; if='%s'", ifname);
 	return 0;
 }
 
@@ -272,7 +271,7 @@ route_if_del(struct log *log, struct route_if *ifp)
 	rc = 0;
 	LOG_TRACE(log);
 	DLIST_REMOVE(ifp, rif_list);
-	LOGF(log, LOG_MSG(del), LOG_INFO, 0, "ok; if='%s'", ifp->rif_name);
+	LOGF(log, LOG_INFO, 0, "ok; if='%s'", ifp->rif_name);
 	ifp->rif_list.dls_next = NULL;
 	while (!dlist_is_empty(&ifp->rif_routes)) {
 		route = DLIST_FIRST(&ifp->rif_routes,
@@ -319,8 +318,7 @@ route_ifaddr_add(struct log *log, struct gt_route_if_addr **ifap,
 	for (i = 0; i < ifp->rif_nr_addrs; ++i) {
 		tmp = ifp->rif_addrs[i];
 		if (!ipaddr_cmp(AF_INET, addr, &tmp->ria_addr)) {
-			LOGF(log, LOG_MSG(ifaddr_add), LOG_ERR, 0,
-			     "exists; addr=%s",
+			LOGF(log, LOG_ERR, 0, "exists; addr=%s",
 			     log_add_ipaddr(AF_INET, &addr->ipa_4));
 			return -EEXIST;
 		}
@@ -338,7 +336,7 @@ route_ifaddr_add(struct log *log, struct gt_route_if_addr **ifap,
 	if (ifap != NULL) {
 		*ifap = ifa;
 	}
-	LOGF(log, LOG_MSG(ifaddr_add), LOG_INFO, 0, "ok; addr=%s",
+	LOGF(log, LOG_INFO, 0, "ok; addr=%s",
 	     log_add_ipaddr(AF_INET, &addr->ipa_4));
 	return 0;
 }
@@ -370,7 +368,7 @@ route_ifaddr_del(struct log *log, struct route_if *ifp,
 			}
 		}
 	}
-	LOGF(log, LOG_MSG(ifaddr_del), rc ? LOG_ERR : LOG_INFO, -rc,
+	LOGF(log, rc ? LOG_ERR : LOG_INFO, -rc,
 	     "%s; addr=%s", rc ? "failed" : "ok",
 	     log_add_ipaddr(AF_INET, &addr->ipa_4));
 	return rc;
@@ -471,7 +469,7 @@ route_add(struct log *log, struct gt_route_entry *a)
 		                  route, rtl_list);
 		route_set_saddrs(log, route);
 	}
-	LOGF(log, LOG_MSG(add), rc ? LOG_ERR : LOG_INFO, -rc,
+	LOGF(log, rc ? LOG_ERR : LOG_INFO, -rc,
 	     "%s; dst=%s/%u, dev='%s', via=%s",
 	     rc  ? "failed" : "ok",
 	     log_add_ipaddr(AF_INET, &a->rt_dst.ipa_4),
@@ -509,7 +507,7 @@ route_del(struct log *log, be32_t dst, int pfx)
 	if (rc == 0) {
 		DLIST_REMOVE(route, rtl_list);
 	}
-	LOGF(log, LOG_MSG(del), rc ? LOG_ERR : LOG_INFO, -rc, "%s; dst=%s/%d",
+	LOGF(log, rc ? LOG_ERR : LOG_INFO, -rc, "%s; dst=%s/%d",
 	     rc ? "failed" : "ok",
 	     log_add_ipaddr(AF_INET, &dst), pfx);
 	return rc;
@@ -601,7 +599,7 @@ gt_route_monitor_start(struct log *log)
 		goto err;
 	}
 	gt_fd_event_set(gt_route_monitor_event, POLLIN);
-	LOGF(log, LOG_MSG(mon_start), LOG_INFO, 0, "ok; fd=%d", route_monfd);
+	LOGF(log, LOG_INFO, 0, "ok; fd=%d", route_monfd);
 	gt_route_dump(route_on_msg);
 	return 0;
 err:

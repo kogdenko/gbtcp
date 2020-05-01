@@ -1,13 +1,7 @@
 #include "internals.h"
 
-#define HTABLE_LOG_MSG_FOREACH(x) \
-	x(mod_deinit) \
-	x(create) \
-	x(resize)
-
 struct htable_mod {
 	struct log_scope log_scope;
-	HTABLE_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
 static struct htable_mod *current_mod;
@@ -182,8 +176,7 @@ htable_dynamic_resize(struct htable_dynamic *t)
 		t->htd_new = tmp;
 		t->htd_resize_progress = 0;
 		log = log_trace0();
-		LOGF(log, LOG_MSG(resize), LOG_INFO, 0,
-		     "ok; size=%d->%d, elements=%d",
+		LOGF(log, LOG_INFO, 0, "ok; size=%d->%d, elements=%d",
 		     size, new_size, t->htd_nr_elems);
 	} else {
 		ASSERT(t->htd_old->hts_size > t->htd_resize_progress);
@@ -198,8 +191,8 @@ htable_dynamic_resize(struct htable_dynamic *t)
 			htable_static_free(t->htd_old);
 			t->htd_old = NULL;
 			log = log_trace0();
-			LOGF(log, LOG_MSG(resize), LOG_INFO, 0,
-			     "done; elements=%d", t->htd_nr_elems);
+			LOGF(log, LOG_INFO, 0, "done; elements=%d",
+			     t->htd_nr_elems);
 		}
 	}
 }

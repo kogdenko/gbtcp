@@ -14,25 +14,6 @@
 	x(GT_TCP_FLAG_ACK, '.') \
 	x(GT_TCP_FLAG_URG, 'U') 
 
-#define TCP_LOG_MSG_FOREACH(x) \
-	x(rcvbuf_add) \
-	x(rcvbuf_pop) \
-	x(sndbuf_add) \
-	x(sndbuf_pop) \
-	x(new) \
-	x(del) \
-	x(connect) \
-	x(in) \
-	x(in_err) \
-	x(tcp_set_state) \
-	x(tcp_rexmit_timo) \
-	x(tcp_snd) \
-	x(tcp_rcv) \
-	x(tcp_rcv_syn) \
-	x(tcp_process_ack) \
-	x(tcp_timeout_rexmit) \
-	x(udp_rcvbuf_pop)
-
 enum gt_sock_error {
 	GT_SOCK_OK,
 	GT_SOCK_EINPROGRESS,
@@ -56,7 +37,6 @@ struct gt_sockbuf_msg {
 
 struct tcp_mod {
 	struct log_scope log_scope;
-	TCP_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 	uint64_t tcp_fin_timeout;
 };
 
@@ -472,7 +452,7 @@ gt_sock_in(int ipproto, struct gt_sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 		so = gt_sock_get_binded(proto, so_tuple);
 	}
 	if (so == NULL) {
-		DBG(log, LOG_MSG(in), 0, "bypass; flags=%s, tuple=%s:%hu>%s:%hu",
+		DBG(log, 0, "bypass; flags=%s, tuple=%s:%hu>%s:%hu",
 		    log_add_tcp_flags(proto, tcb->tcb_flags),	    
 		    log_add_ipaddr(AF_INET, &so_tuple->sot_laddr),
 		    GT_NTOH16(so_tuple->sot_lport),
@@ -480,8 +460,7 @@ gt_sock_in(int ipproto, struct gt_sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 		    GT_NTOH16(so_tuple->sot_fport));
 		return GT_INET_BYPASS;
 	}
-	DBG(log, LOG_MSG(in), 0,
-	    "hit; flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
+	DBG(log, 0, "hit; flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
 	    log_add_tcp_flags(proto, tcb->tcb_flags),
 	    tcb->tcb_len, tcb->tcb_seq, tcb->tcb_ack,
 	    gt_sock_fd(so));
@@ -527,8 +506,7 @@ gt_sock_in_err(int ipproto, struct gt_sock_tuple *so_tuple, int eno)
 		}
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(in_err), 0, "hit; fd=%d, err=%d",
-	    gt_sock_fd(so), eno);
+	DBG(log, 0, "hit; fd=%d, err=%d", gt_sock_fd(so), eno);
 	err = gt_sock_err_from_errno(eno);
 	ASSERT(err);
 	gt_sock_set_err(so, err);
@@ -614,7 +592,7 @@ gt_sock_connect(struct file *fp, const struct sockaddr_in *faddr_in,
 	gt_dbg("CONN 7");
 
 	log = log_trace0();
-	DBG(log, LOG_MSG(connect), 0, "ok; tuple=%s:%hu>%s:%hu, fd=%d",
+	DBG(log, 0, "ok; tuple=%s:%hu>%s:%hu, fd=%d",
 	    log_add_ipaddr(AF_INET, &so->so_tuple.sot_laddr),
 	    GT_NTOH16(so->so_tuple.sot_lport),
 	    log_add_ipaddr(AF_INET, &so->so_tuple.sot_faddr),
@@ -1079,7 +1057,7 @@ gt_tcp_set_state(struct gt_sock *so, int state)
 	ASSERT(state < GT_TCP_NSTATES);
 	ASSERT(state != so->so_state);
 	log = log_trace0();
-	DBG(log, LOG_MSG(tcp_set_state), 0, "hit; state %s->%s, fd=%d",
+	DBG(log, 0, "hit; state %s->%s, fd=%d",
 	    gt_tcp_state_str(so->so_state), gt_tcp_state_str(state),
 	    gt_sock_fd(so));
 	if (state != GT_TCP_S_CLOSED) {
@@ -1118,8 +1096,7 @@ gt_tcp_rcvbuf_recv(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 	}
 	rc = gt_sockbuf_readv4(&so->so_rcvbuf, iov, iovcnt, peek);
 	log = log_trace0();
-	DBG(log, LOG_MSG(rcvbuf_pop), 0,
-	    "hit; fd=%d, peek=%d, cnt=%d, buflen=%d",
+	DBG(log, 0, "hit; fd=%d, peek=%d, cnt=%d, buflen=%d",
 	    gt_sock_fd(so), peek, rc, so->so_rcvbuf.sob_len);
 	if (buflen != so->so_rcvbuf.sob_len) {
 		if (gt_tcp_set_swnd(so)) {
@@ -1306,8 +1283,7 @@ gt_tcp_timeout_rexmit(struct gt_timer *timer)
 	so->so_sfin_sent = 0;
 	gt_tcps.tcps_rexmttimeo++;
 	log = log_trace0();
-	DBG(log, LOG_MSG(tcp_rexmit_timo), 0,
-	    "hit; fd=%d, state=%s",
+	DBG(log, 0, "hit; fd=%d, state=%s",
 	    gt_sock_fd(so), gt_tcp_state_str(so->so_state));
 	if (so->so_nr_rexmit_tries++ > 6) {
 		gt_tcps.tcps_timeoutdrop++;
@@ -1388,8 +1364,7 @@ gt_tcp_rcv_syn(struct gt_sock *lso, struct gt_sock_tuple *so_tuple,
 	so->so_tuple = *so_tuple;
 	gt_tcp_open(so);
 	if (tcb->tcb_flags != GT_TCP_FLAG_SYN) {
-		DBG(log, LOG_MSG(tcp_rcv_syn), 0,
-		    "not a SYN; tuple=%s:%hu>%s:%hu, lfd=%d, fd=%d",
+		DBG(log, 0, "not a SYN; tuple=%s:%hu>%s:%hu, lfd=%d, fd=%d",
 		    log_add_ipaddr(AF_INET, &so->so_tuple.sot_laddr),
 		    GT_NTOH16(so->so_tuple.sot_lport),
 	            log_add_ipaddr(AF_INET, &so->so_tuple.sot_faddr),
@@ -1399,8 +1374,7 @@ gt_tcp_rcv_syn(struct gt_sock *lso, struct gt_sock_tuple *so_tuple,
 		gt_tcp_reset(so, tcb);
 		return;
 	} else {
-		DBG(log, LOG_MSG(tcp_rcv_syn), 0,
-		    "ok; tuple=%s:%hu>%s:%hu, lfd=%d, fd=%d",
+		DBG(log, 0, "ok; tuple=%s:%hu>%s:%hu, lfd=%d, fd=%d",
 		    log_add_ipaddr(AF_INET, &so->so_tuple.sot_laddr),
 		    GT_NTOH16(so->so_tuple.sot_lport),
 	            log_add_ipaddr(AF_INET, &so->so_tuple.sot_faddr),
@@ -1566,8 +1540,7 @@ gt_tcp_is_in_order(struct gt_sock *so, struct gt_tcpcb *tcb)
 	off = gt_tcp_diff_seq(tcb->tcb_seq, so->so_rseq);
 	if (off > len) {
 		log = log_trace0();
-		DBG(log, LOG_MSG(tcp_rcv), 0,
-		    "out of order; flags=%s, seq=%u, len=%u, %s",
+		DBG(log, 0, "out of order; flags=%s, seq=%u, len=%u, %s",
 		    log_add_tcp_flags(so->so_proto, tcb->tcb_flags),
 		    tcb->tcb_seq, len, gt_log_add_sock(so));
 		gt_tcps.tcps_rcvoopack++;
@@ -1657,8 +1630,7 @@ gt_tcp_process_ack(struct gt_sock *so, struct gt_tcpcb *tcb)
 		}
 		if (acked > so->so_ssnt) {
 			log = log_trace0();
-			DBG(log, LOG_MSG(tcp_process_ack), 0,
-			    "bad ACK; flags=%s, ack=%u, %s",
+			DBG(log, 0, "bad ACK; flags=%s, ack=%u, %s",
 		            log_add_tcp_flags(so->so_proto,
 			                      tcb->tcb_flags),
 			    tcb->tcb_ack, gt_log_add_sock(so));
@@ -2061,8 +2033,7 @@ gt_udp_rcvbuf_recv(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 	cnt = gt_sockbuf_readv(&so->so_rcvbuf, iov, iovcnt,
 	                       msg.sobm_len, peek);
 	log = log_trace0();
-	DBG(log, LOG_MSG(udp_rcvbuf_pop), 0,
-	    "hit; peek=%d, cnt=%d, buflen=%d, fd=%d",
+	DBG(log, 0, "hit; peek=%d, cnt=%d, buflen=%d, fd=%d",
 	    peek, rc, so->so_rcvbuf.sob_len, gt_sock_fd(so));
 	if (peek == 0) {
 		if (msg.sobm_len > cnt) {
@@ -2562,7 +2533,7 @@ gt_sock_new(struct log *log, int fd, int so_proto)
 		return NULL;
 	}
 	so = (struct gt_sock *)fp;
-	DBG(log, LOG_MSG(new), 0, "hit; fd=%d", gt_sock_fd(so));
+	DBG(log, 0, "hit; fd=%d", gt_sock_fd(so));
 	so->so_flags = 0;
 	so->so_proto = so_proto;
 	so->so_tuple.sot_laddr = 0;
@@ -2610,7 +2581,7 @@ gt_sock_del(struct gt_sock *so)
 		return;
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(del), 0, "hit; fd=%d", gt_sock_fd(so));
+	DBG(log, 0, "hit; fd=%d", gt_sock_fd(so));
 	if (so->so_proto == GT_SO_IPPROTO_TCP) {
 		gt_tcps.tcps_closed++;
 	}
@@ -2628,7 +2599,7 @@ gt_sock_rcvbuf_add(struct gt_sock *so, const void *src, int cnt, int all)
 	rc = gt_sockbuf_add(&so->so_rcvbuf, src, cnt, all);
 	rc = so->so_rcvbuf.sob_len - len;
 	log = log_trace0();
-	DBG(log, LOG_MSG(rcvbuf_add), 0, "hit; fd=%d, cnt=%d, buflen=%d",
+	DBG(log, 0, "hit; fd=%d, cnt=%d, buflen=%d",
 	    gt_sock_fd(so), rc, so->so_rcvbuf.sob_len);
 	if (rc) {
 		gt_tcp_set_swnd(so);
@@ -2725,8 +2696,7 @@ gt_sock_xmit_data(struct route_if *ifp, struct dev_pkt *pkt,
 		}
 	}
 	log = log_trace0();
-	DBG(log, LOG_MSG(tcp_snd), 0,
-	    "hit; flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
+	DBG(log, 0, "hit; flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
 	    log_add_tcp_flags(so->so_proto, tcb.tcb_flags),
 	    tcb.tcb_len, tcb.tcb_seq, tcb.tcb_ack, gt_sock_fd(so));
 	gt_arp_resolve(ifp, so->so_next_hop, pkt);
@@ -2740,8 +2710,7 @@ gt_sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt)
 
 	rc = gt_sockbuf_add(&so->so_sndbuf, src, cnt, 0);
 	log = log_trace0();
-	DBG(log, LOG_MSG(sndbuf_add), 0,
-	    "hit; cnt=%d, buflen=%d, fd=%d",
+	DBG(log, 0, "hit; cnt=%d, buflen=%d, fd=%d",
 	    cnt, so->so_sndbuf.sob_len, gt_sock_fd(so));
 	return rc;
 }
@@ -2753,7 +2722,7 @@ gt_sock_sndbuf_pop(struct gt_sock *so, int cnt)
 
 	gt_sockbuf_pop(&so->so_sndbuf, cnt);
 	log = log_trace0();
-	DBG(log, LOG_MSG(sndbuf_pop), 0, "hit; cnt=%d, buflen=%d, fd=%d",
+	DBG(log, 0, "hit; cnt=%d, buflen=%d, fd=%d",
 	    cnt, so->so_sndbuf.sob_len, gt_sock_fd(so));
 }
 

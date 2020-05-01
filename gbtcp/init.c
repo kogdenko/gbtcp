@@ -3,12 +3,8 @@
 
 #define CONTROLLER_PIDFILE "controller.pid"
 
-#define PROC_LOG_MSG_FOREACH(x) \
-	x(init)
-
 struct init_mod {
 	struct log_scope log_scope;
-	PROC_LOG_MSG_FOREACH(LOG_MSG_DECLARE);
 };
 
 struct mod {
@@ -293,7 +289,7 @@ restart:
 		sys_unlink(log, a.sun_path);
 	}
 	if (!pidwait_is_empty(&pw)) {
-		LOGF(log, LOG_MSG(init), LOG_ERR, -ETIMEDOUT, "failed");
+		LOGF(log, LOG_ERR, -ETIMEDOUT, "failed");
 		return -ETIMEDOUT;
 	}
 	pidwait_deinit(log, &pw);
@@ -380,22 +376,22 @@ fork_controller(struct log *log, const char *proc_name)
 	to = 4 * NANOSECONDS_SECOND;
 	rc = read_timed(log, pipe_fd[0], &msg, sizeof(msg), &to);
 	if (rc == 0) {
-		LOGF(log, 7, LOG_ERR, 0, "controller peer closed;");
+		LOGF(log, LOG_ERR, 0, "controller peer closed;");
 		rc = -EPIPE;
 	} else if (rc == 4) {
 		if (msg == 0) {
 			rc = 0;
-			LOGF(log, 7, LOG_ERR, 0, "controller ok;");
+			LOGF(log, LOG_ERR, 0, "controller ok;");
 		} else if (msg > 0) {
 			rc = -EINVAL;
-			LOGF(log, 7, LOG_ERR, 0,
+			LOGF(log, LOG_ERR, 0,
 			     "controller invalid reply; msg=%d", msg);
 		} else {
 			rc = msg;
-			LOGF(log, 7, LOG_ERR, -rc, "controller failed;");
+			LOGF(log, LOG_ERR, -rc, "controller failed;");
 		}
 	} else if (rc > 0) {
-		LOGF(log, 7, LOG_ERR, 0,
+		LOGF(log, LOG_ERR, 0,
 		     "controller truncated reply; len=%d", rc);
 		return -EINVAL;
 	}
@@ -510,13 +506,13 @@ service_init()
 	ASSERT(current == NULL);
 	log = log_trace0();
 	log_init_early();
-	LOGF(log, LOG_MSG(init), LOG_INFO, 0, "Hit;");
+	LOGF(log, LOG_INFO, 0, "Hit;");
 	rc = service_init_spinlocked(log);
 	if (rc) {
 		current = NULL;
-		LOGF(log, LOG_MSG(init), LOG_ERR, -rc, "failed;");
+		LOGF(log, LOG_ERR, -rc, "failed;");
 	} else {
-		LOGF(log, LOG_MSG(init), LOG_INFO, 0, "ok; current=%p", current);
+		LOGF(log, LOG_INFO, 0, "ok; current=%p", current);
 	}
 	spinlock_unlock(&init_lock);
 	api_disabled--;

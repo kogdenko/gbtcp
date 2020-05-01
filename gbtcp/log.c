@@ -242,7 +242,7 @@ log_copy(struct log *dst, int cnt, struct log *src)
 	return dst;
 }
 int
-log_is_enabled(struct log_scope *scope, int msg_level, int level)
+log_is_enabled(struct log_scope *scope, int level)
 {
 	int thresh, is_stdout;
 
@@ -251,9 +251,7 @@ log_is_enabled(struct log_scope *scope, int msg_level, int level)
 		// Nowhere to write logs
 		return 0;
 	}
-	if (msg_level) {
-		thresh = msg_level;
-	} else if (curmod == NULL) {
+	if (curmod == NULL) {
 		// Early stage
 		thresh = log_early_level;
 	} else if (scope->lgs_level) {
