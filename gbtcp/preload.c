@@ -3,31 +3,42 @@
 #include "strbuf.h"
 #include "gbtcp.h"
 
-#define SYS_CALL(func, ...) \
-({ \
-	if (sys_##func##_fn == NULL) { \
- 		SYS_DLSYM(func); \
-	} \
-	(sys_##func##_fn)(__VA_ARGS__); \
-})
+#define preload_dbg if (1) gt_dbg
 
-#define PRELOAD_CALL(func, ...) \
+#define SYS_CALL(func, fd, ...) \
 ({ \
 	ssize_t rc; \
  \
-	rc = gbtcp_##func(__VA_ARGS__); \
+	if (sys_##func##_fn == NULL) { \
+ 		SYS_DLSYM(func); \
+	} \
+	rc = (sys_##func##_fn)(fd, ##__VA_ARGS__); \
+	preload_dbg("S %s; fd=%d, ret=%zd (%s)", \
+		#func, fd, rc, rc == -1 ? strerror(errno) : ""); \
+	rc; \
+})
+
+
+#define PRELOAD_PASSTHRU(e) ((e) == EBADF || (e) == ENOTSOCK || (e) == ENOTSUP)
+#define PRELOAD_CALL(func, fd, ...) \
+({ \
+	ssize_t rc; \
+ \
+	rc = gbtcp_##func(fd, ##__VA_ARGS__); \
+	preload_dbg("P %s; fd=%d, ret=%zd (%s)", \
+	       #func, fd, rc, rc == -1 ? strerror(gbtcp_errno) : ""); \
 	if (rc == -1) { \
-		if (gbtcp_errno == EBADF || gbtcp_errno == ENOTSOCK) { \
-			rc = SYS_CALL(func, __VA_ARGS__); \
+		if (PRELOAD_PASSTHRU(gbtcp_errno)) { \
+			rc = SYS_CALL(func, fd, ##__VA_ARGS__); \
 		} else { \
-			gt_preload_set_errno(gbtcp_errno); \
+			preload_set_errno(gbtcp_errno); \
 		} \
 	} \
 	rc; \
 })
 
 #if 1
-#define PRELOAD_FORK fork
+/*#define PRELOAD_FORK fork
 #define PRELOAD_VFORK vfork
 #define PRELOAD_SOCKET socket
 #define PRELOAD_BIND bind
@@ -37,21 +48,21 @@
 #define PRELOAD_ACCEPT4 accept4
 #define PRELOAD_SHUTDOWN shutdown
 #define PRELOAD_CLOSE close
-#define PRELOAD_READ read
-#define PRELOAD_READV readv
+#define PRELOAD_READ read*/
+/*#define PRELOAD_READV readv
 #define PRELOAD_RECV recv
 #define PRELOAD_RECVFROM recvfrom
 #define PRELOAD_WRITE write
 #define PRELOAD_WRITEV writev
 #define PRELOAD_SEND send
 #define PRELOAD_SENDTO sendto
-#define PRELOAD_SENDMSG sendmsg
-#define PRELOAD_SENDFILE sendfile___x
-#define PRELOAD_FCNTL fcntl
+#define PRELOAD_SENDMSG sendmsg*/
+//#define PRELOAD_SENDFILE sendfile
+/*#define PRELOAD_FCNTL fcntl
 #define PRELOAD_IOCTL ioctl
 #define PRELOAD_GETSOCKOPT getsockopt
 #define PRELOAD_SETSOCKOPT setsockopt
-#define PRELOAD_GETPEERNAME getpeername
+#define PRELOAD_GETPEERNAME getpeername*/
 #define PRELOAD_PPOLL ppoll
 #define PRELOAD_POLL poll
 #define PRELOAD_PSELECT pselect
@@ -73,7 +84,7 @@
 #endif /* 1 */
 
 static inline void
-gt_preload_set_errno(int e)
+preload_set_errno(int e)
 {
 	errno = e;
 }
@@ -85,7 +96,7 @@ PRELOAD_FORK()
 
 	rc = gbtcp_fork();
 	if (rc == -1) {
-		gt_preload_set_errno(gbtcp_errno);
+		preload_set_errno(gbtcp_errno);
 	}
 	return rc;
 }
@@ -101,9 +112,10 @@ PRELOAD_VFORK()
 int
 PRELOAD_SOCKET(int domain, int type, int protocol)
 {
-	int rc, fd;
+	int rc, fd, first_fd;
 
 	rc = gbtcp_socket(domain, type, protocol);
+	preload_dbg("P socket; rc=%d", rc);
 	if (rc >= 0) {
 		return rc;
 	}
@@ -112,10 +124,10 @@ PRELOAD_SOCKET(int domain, int type, int protocol)
 		return rc;
 	}
 	fd = rc;
-	rc = gbtcp_try_fd(fd);
-	if (rc == -1) {
+	first_fd = gt_first_fd();
+	if (fd >= first_fd) {
 		SYS_CALL(close, fd);
-		gt_preload_set_errno(gbtcp_errno);
+		preload_set_errno(ENFILE);
 		return -1;
 	} else {
 		return fd;
@@ -153,26 +165,26 @@ int
 PRELOAD_ACCEPT4(int fd, struct sockaddr *addr, socklen_t *addrlen,
 	int flags)
 {
-	int rc;
+	int rc, first_fd;
 
 	rc = gbtcp_accept4(fd, addr, addrlen, flags);
 	if (rc == -1) {
-		if (gbtcp_errno == EBADF || gbtcp_errno == ENOTSOCK) {
+		if (PRELOAD_PASSTHRU(gbtcp_errno)) {
 			rc = SYS_CALL(accept4, fd, addr, addrlen, flags);
 			if (rc == -1) {
 				return rc;
 			}
 			fd = rc;
-			rc = gbtcp_try_fd(fd);
-			if (rc == -1) {
+			first_fd = gt_first_fd();
+			if (fd >= first_fd) {
 				SYS_CALL(close, fd);
-				gt_preload_set_errno(gbtcp_errno);
+				preload_set_errno(ENFILE);
 				return -1;
 			} else {
 				return fd;
 			}
 		} else {
-			gt_preload_set_errno(gbtcp_errno);
+			preload_set_errno(gbtcp_errno);
 			return -1;
 		}
 	} else {
@@ -344,7 +356,7 @@ PRELOAD_PPOLL(struct pollfd *pfds, nfds_t npfds, const struct timespec *to,
 
 	rc = gbtcp_ppoll(pfds, npfds, to, sigmask);
 	if (rc == -1) {
-		gt_preload_set_errno(gbtcp_errno);
+		preload_set_errno(gbtcp_errno);
 	}
 	return rc;
 }
@@ -487,7 +499,7 @@ PRELOAD_SIGNAL(int signum, gt_sighandler_t fn)
 
 	res = gbtcp_signal(signum, fn);
 	if (res == SIG_ERR) {
-		gt_preload_set_errno(gbtcp_errno);
+		preload_set_errno(gbtcp_errno);
 	}
 	return res;
 }
@@ -500,7 +512,7 @@ PRELOAD_SIGACTION(int signum, const struct sigaction *act,
 
 	rc = gbtcp_sigaction(signum, act, oldact);
 	if (rc == -1) {
-		gt_preload_set_errno(gbtcp_errno);
+		preload_set_errno(gbtcp_errno);
 	}
 	return rc;
 }
@@ -580,7 +592,7 @@ PRELOAD_EPOLL_CREATE1(int flags)
 
 	rc = gbtcp_epoll_create();
 	if (rc == -1) {
-		gt_preload_set_errno(gbtcp_errno);
+		preload_set_errno(gbtcp_errno);
 	}
 	return rc;	
 }
@@ -601,7 +613,7 @@ PRELOAD_EPOLL_CTL(int epfd, int op, int fd, struct epoll_event *event)
 
 	rc = gbtcp_epoll_ctl(epfd, op, fd, event);
 	if (rc == -1) {
-		gt_preload_set_errno(gbtcp_errno);
+		preload_set_errno(gbtcp_errno);
 	}
 	return rc;
 }
@@ -615,7 +627,7 @@ PRELOAD_EPOLL_PWAIT(int epfd, struct epoll_event *events, int maxevents,
 	rc = gbtcp_epoll_pwait(epfd, events, maxevents,
 	                       timeout, sigmask);
 	if (rc == -1) {
-		gt_preload_set_errno(gbtcp_errno);
+		preload_set_errno(gbtcp_errno);
 	}
 	return rc;
 }
@@ -635,7 +647,7 @@ pid_t
 PRELOAD_RFORK(int flags)
 {
 	assert(0);
-	gt_preload_set_errno(EINVAL);
+	preload_set_errno(EINVAL);
 	return -1;
 }
 
@@ -646,7 +658,7 @@ PRELOAD_KQUEUE()
 
 	rc = gbtcp_kqueue();
 	if (rc == -1) {
-		gt_preload_set_errno(gbtcp_errno);
+		preload_set_errno(gbtcp_errno);
 	}
 	return rc;
 }
@@ -660,7 +672,7 @@ PRELOAD_KEVENT(int kq, const struct kevent *changelist, int nchanges,
 	rc = gbtcp_kevent(kq, changelist, nchanges,
 	                  eventlist, nevents, timeout);
 	if (rc == -1) {
-		gt_preload_set_errno(gbtcp_errno);
+		preload_set_errno(gbtcp_errno);
 	}
 	return rc;
 }

@@ -1,7 +1,9 @@
 #include "internals.h"
 
 #define SUBR_LOG_MSG_FOREACH(x) \
-	x(rsskey)
+	x(rsskey) \
+	x(connect)
+	
 
 struct subr_mod {
 	struct log_scope log_scope;
@@ -17,11 +19,10 @@ union gt_tsc {
 };
 
 uint64_t nanoseconds;
-uint64_t gt_mHZ;
+uint64_t HZ = 3000000000;
+uint64_t mHZ = 3000000;
 __thread int gbtcp_errno;
-int gt_application_pid;
-const char *gt_application_name;
-char gt_application_name_buf[32];
+
 
 static struct subr_mod *current_mod;
 
@@ -71,38 +72,40 @@ gt_murmur(const void * key, unsigned int len, uint32_t init_val)
 
 
 #ifdef __linux__
-static int
-gt_application_name_init()
+int
+proc_get_name(struct log *log, char *name, int pid)
 {
 	int rc;
 	FILE *file;
 	char *s;
-	char tmpbuf[1000];
-	struct log *log;
+	char fmt[32];
+	char path[32];
+	char buf[256];
 
-	log = log_trace0();
-	snprintf(tmpbuf, sizeof(tmpbuf), "/proc/%d/status",
-		 gt_application_pid);
-	rc = sys_fopen(log, &file, tmpbuf, "r");
+	LOG_TRACE(log);
+	snprintf(path, sizeof(path), "/proc/%d/status", pid);
+	rc = sys_fopen(log, &file, path, "r");
 	if (rc) {
 		return rc;
 	}
-	s = fgets(tmpbuf, sizeof(tmpbuf), file);
+	s = fgets(buf, sizeof(buf), file);
 	fclose(file);
 	if (s == NULL) {
-		return -EPROTO;
+		goto err;
 	}
-	rc = sscanf(tmpbuf, "Name: %31c", gt_application_name_buf);
-	gt_application_name = gt_trim(gt_application_name_buf);
+	snprintf(fmt, sizeof(fmt), "Name: %%%dc", PROC_NAME_SIZE_MAX - 1);
+	rc = sscanf(buf, fmt, name);
 	if (rc == 1) {
+		strtrim2(name, name);
 		return 0;
-	} else {
-		return -EPROTO;
 	}
+err:
+	LOGF(log, 7, LOG_ERR, 0, "inavlid format; path=%s", path);
+	return -EPROTO;
 }
 #else /* __linux__ */
 static int
-gt_application_name_init()
+proc_get_name()
 {
 	int rc;
 	struct kinfo_proc *info;
@@ -143,9 +146,6 @@ int
 subr_mod_attach(struct log *log, void *raw_mod)
 {
 	current_mod = raw_mod;
-	srand48(time(NULL));
-	gt_application_pid = getpid();
-	gt_application_name_init();
 	return 0;
 }
 
@@ -246,7 +246,7 @@ void
 gt_profiler_enter(struct gt_profiler *p)
 {
 	assert(p->prf_tsc == 0);
-	p->prf_tsc = gt_rdtsc();
+	p->prf_tsc = rdtsc();
 }
 
 void
@@ -256,7 +256,7 @@ gt_profiler_leave(struct gt_profiler *p)
 	double avg;
 
 	assert(p->prf_tsc != 0);
-	t = gt_rdtsc();
+	t = rdtsc();
 	dt = t - p->prf_tsc;
 	p->prf_spended += dt;
 	p->prf_hits++;
@@ -276,7 +276,7 @@ gt_profiler_leave(struct gt_profiler *p)
 }
 
 char *
-gt_ltrim(const char *s)
+strltrim(const char *s)
 {
 	char *p;
 
@@ -289,25 +289,51 @@ gt_ltrim(const char *s)
 }
 
 char *
-gt_trim(const char *s)
+strrtrim(char *s)
 {
-	char *p;
 	int i, len;
 
-	p = gt_ltrim(s);
-	len = strlen(p);
+	len = strlen(s);
 	for (i = len - 1; i >= 0; --i) {
-		if (!isspace(p[i])) {
+		if (!isspace(s[i])) {
 			break;
 		}
 	}
-	p[i + 1] = '\0';
-	return p;
+	s[i + 1] = '\0';
+	return s;
+
+}
+
+char *
+strtrim(char *s)
+{
+	char *trimmed;
+
+	trimmed = strltrim(s);
+	trimmed = strrtrim(trimmed);
+	return trimmed;
+}
+
+char *
+strtrim2(char *dst, const char *src)
+{
+	int i, len;
+	const char *x;
+
+	x = strltrim(src);
+	len = 0;
+	for (i = 0; x[i] != '\0'; ++i) {
+		dst[i] = x[i];
+		if (!isspace(x[i])) {
+			len = i + 1;
+		}
+	}
+	dst[len] = '\0';
+	return dst;
 }
 
 int
-gt_strsplit(const char *str, const char *delim, struct iovec *iovec,
-	int iovcnt)
+strsplit(const char *str, const char *delim, struct iovec *iovec, int iovcnt)
 {
 	int n, len;
 	const char *p, *x;
@@ -386,7 +412,7 @@ toeplitz_hash(const uint8_t *data, int cnt, const uint8_t *key)
 }
 
 uint32_t
-gt_upper_pow_of_2_32(uint32_t x)
+upper_pow2_32(uint32_t x)
 {
 	x--;
 	x |= x >>  1lu;
@@ -399,7 +425,7 @@ gt_upper_pow_of_2_32(uint32_t x)
 }
 
 uint64_t
-gt_upper_pow_of_2_64(uint64_t x)
+upper_pow2_64(uint64_t x)
 {
 	x--;
 	x |= x >>  1llu;
@@ -413,7 +439,7 @@ gt_upper_pow_of_2_64(uint64_t x)
 }
 
 uint32_t
-gt_lower_pow_of_2_32(uint32_t x)
+lower_pow2_32(uint32_t x)
 {
 	x = x | (x >> 1lu);
 	x = x | (x >> 2lu);
@@ -424,7 +450,7 @@ gt_lower_pow_of_2_32(uint32_t x)
 }
 
 uint64_t
-gt_lower_pow_of_2_64(uint64_t x)
+lower_pow2_64(uint64_t x)
 {
 	x = x | (x >>  1llu);
 	x = x | (x >>  2llu);
@@ -434,8 +460,9 @@ gt_lower_pow_of_2_64(uint64_t x)
 	x = x | (x >> 32llu);
 	return x - (x >> 1);
 }
+
 int
-gt_set_nonblock(struct log *log, int fd)
+fcntl_setfl_nonblock(struct log *log, int fd, int *old_flags)
 {
 	int rc, flags;
 
@@ -444,6 +471,9 @@ gt_set_nonblock(struct log *log, int fd)
 		return rc;
 	}
 	flags = rc;
+	if (old_flags != NULL) {
+		*old_flags = flags;
+	}
 	if (flags & O_NONBLOCK) {
 		return 0;
 	}
@@ -452,62 +482,77 @@ gt_set_nonblock(struct log *log, int fd)
 	return rc;
 }
 
+static int
+fcntl_setfl_nonblock_rollback(struct log *log, int fd, int old_flags)
+{
+	int rc;
+
+	rc = 0;
+	if (!(old_flags & O_NONBLOCK)) {
+		rc = sys_fcntl(log, fd, F_SETFL, old_flags & ~O_NONBLOCK);
+	}
+	return rc;
+}
+
+static struct timespec *
+nanoseconds_to_timespec(struct timespec *ts, uint64_t t)
+{
+	if (t < NANOSECONDS_SECOND) {
+		ts->tv_sec = 0;
+		ts->tv_nsec = t;
+	} else {
+		ts->tv_sec = t / NANOSECONDS_SECOND;
+		ts->tv_nsec = t % NANOSECONDS_SECOND;
+	}
+	return ts;
+}
+
 int
 connect_timed(struct log *log, int fd, const struct sockaddr *addr,
-	socklen_t addrlen, uint64_t to)
+	socklen_t addrlen, uint64_t *to)
 {
 	int rc, errnum, flags;
-	uint64_t t, rem;
+	uint64_t t, elapsed;
 	socklen_t opt_len;
 	struct timespec ts;
 	struct pollfd pfd;
-	LOG_TRACE(log);
-	rc = sys_fcntl(log, fd, F_GETFL, 0);
-	if (rc < 0) {
+
+	if (to == NULL) {
+		rc = sys_connect(log, fd, addr, addrlen);
 		return rc;
 	}
-	flags = rc;
-	// Unblock if blocked
-	if (!(flags & O_NONBLOCK)) {
-		rc = sys_fcntl(log, fd, F_SETFL, flags | O_NONBLOCK);
-		if (rc) {
-			return rc;
-		}
+	LOG_TRACE(log);
+	rc = fcntl_setfl_nonblock(log, fd, &flags);
+	if (rc) {
+		return rc;
 	}
 	do {
 		rc = sys_connect(NULL, fd, addr, addrlen);
 		errnum = -rc;
 	} while (addr->sa_family == AF_UNIX && errnum == EAGAIN);
-	// Repair blocking flag
-	if (!(flags & O_NONBLOCK)) {
-		rc = sys_fcntl(log, fd, F_SETFL, flags & ~O_NONBLOCK);
-		if (rc) {
-			return rc;
-		}
-	}
+	fcntl_setfl_nonblock_rollback(log, fd, flags);
 	if (errnum == 0) {
 		return 0;
 	} else if (errnum != EINPROGRESS) {
-		sys_log_connect_failed(log, errnum, fd, addr, addrlen);
-		return -errnum;
+		goto out;
+	} else if (*to == 0) {
+		errnum = ETIMEDOUT;
+		goto out;
 	}
 	pfd.events = POLLOUT;
 	pfd.fd = fd;
-	t = nanoseconds;
 restart:
-	rem = to - (t - nanoseconds);
 	t = nanoseconds;
-	if (rem < GT_SEC) {
-		ts.tv_sec = 0;
-		ts.tv_nsec = rem;
-	} else {
-		ts.tv_sec = rem / GT_SEC;
-		ts.tv_nsec = rem % GT_SEC;
-	}
+	nanoseconds_to_timespec(&ts, *to);
 	rc = sys_ppoll(log, &pfd, 1, &ts, NULL);
+	rdtsc_update_time();
+	elapsed = MIN(*to, nanoseconds - t);
+	*to -= elapsed;
 	switch (rc) {
 	case 0:
-		return -ETIMEDOUT;
+		*to = 0;
+		errnum = ETIMEDOUT;
+		break;
 	case 1:
 		opt_len = sizeof(errnum);
 		rc = sys_getsockopt(log, fd, SOL_SOCKET, SO_ERROR,
@@ -515,19 +560,78 @@ restart:
 		if (rc) {
 			return rc;
 		}
-		return -errnum;
-	case EINTR:
-		rdtsc_update_time();
-		goto restart;
+		break;
+	case -EINTR:
+		if (*to) {
+			goto restart;
+		} else {
+			errnum = ETIMEDOUT;
+			break;
+		}
 	default:
-		return rc;
+		errnum = -rc;
+		break;
 	}
+out:
+	if (errnum) {
+		LOGF(log, LOG_MSG(connect), LOG_ERR, errnum,
+		     "failed; fd=%d, addr=%s",
+		     fd, log_add_sockaddr(addr, addrlen));
+	}
+	return -errnum;
 }
 
-int
+ssize_t
+read_timed(struct log *log, int fd, void *buf, size_t count, uint64_t *to)
+{
+	int flags;
+	ssize_t rc;
+	uint64_t t, elapsed;
+	struct timespec ts;
+	struct pollfd pfd;
+
+	if (to == NULL) {
+		rc = sys_read(log, fd, buf, count);
+		return rc;
+	}
+	LOG_TRACE(log);
+	rc = fcntl_setfl_nonblock(log, fd, &flags);
+	if (rc) {
+		return rc;
+	}
+	pfd.events = POLLIN;
+	pfd.fd = fd;
+restart:
+	t = nanoseconds;
+	nanoseconds_to_timespec(&ts, *to);
+	rc = sys_ppoll(log, &pfd, 1, &ts, NULL);
+	rdtsc_update_time();
+	elapsed = MIN(*to, t - nanoseconds);
+	*to -= elapsed;
+	switch (rc) {
+	case 0:
+		*to = 0;
+		rc = -ETIMEDOUT;
+		break;
+	case 1:
+		rc = sys_read(log, fd, buf, count);
+		if (rc == -EAGAIN) {
+			goto restart;
+		}
+		break;
+	case -EINTR:
+		goto restart;
+	default:
+		break;
+	}
+	fcntl_setfl_nonblock_rollback(log, fd, flags);
+	return rc;
+}
+
+ssize_t
 write_all(struct log *log, int fd, const void *buf, size_t cnt)
 {
-	int rc, off;
+	ssize_t rc, off;
 
 	for (off = 0; off < cnt; off += rc) {
 		rc = sys_write(log, fd,
@@ -542,7 +646,7 @@ write_all(struct log *log, int fd, const void *buf, size_t cnt)
 
 #ifdef __linux__
 int
-read_rsskey(struct log *log, const char *ifname, uint8_t *rss_key)
+read_rsskey(struct log *log, const char *ifname, uint8_t *rsskey)
 {
 	int fd, rc, size, off;
 	struct ifreq ifr;
@@ -582,7 +686,7 @@ read_rsskey(struct log *log, const char *ifname, uint8_t *rss_key)
 		goto out2;
 	}
 	off = rss2->indir_size * sizeof(rss2->rss_config[0]);
-	memcpy(rss_key, (uint8_t *)rss2->rss_config + off, RSSKEYSIZ);
+	memcpy(rsskey, (uint8_t *)rss2->rss_config + off, RSSKEYSIZ);
 out2:
 	free(rss2);
 out:
@@ -591,7 +695,7 @@ out:
 }
 #else /* __linux__ */
 int
-read_rsskey(struct log *log, const char *ifname, uint8_t *rss_key)
+read_rsskey(struct log *log, const char *ifname, u_char *rsskey)
 {
 	return 0;
 }
@@ -599,7 +703,7 @@ read_rsskey(struct log *log, const char *ifname, uint8_t *rss_key)
 
 #ifdef __linux__
 long
-gt_gettid()
+gettid()
 {
 	long tid;
 
@@ -608,7 +712,7 @@ gt_gettid()
 }
 #else /* __linux__ */
 long
-gt_gettid()
+gettid()
 {
 	long tid;
 
@@ -618,7 +722,7 @@ gt_gettid()
 #endif /* __linux__ */
 
 uint64_t
-gt_rdtsc()
+rdtsc()
 {
 	union gt_tsc tsc;
 

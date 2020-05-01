@@ -81,6 +81,8 @@ do { \
 #define BUG1(fmt, ...) BUG2(0, fmt, ##__VA_ARGS__)
 #define BUG BUG1(NULL)
 
+void log_init_early();
+
 int log_mod_init(struct log *, void **);
 int log_mod_attach(struct log *, void *);
 void log_mod_deinit(struct log *, void *);
@@ -113,40 +115,26 @@ void log_buf_init();
 struct strbuf *log_buf_alloc_space();
 
 const char *log_add_ipaddr(int, const void *);
-
 const char *log_add_sockaddr_in(const struct sockaddr_in *);
-
+const char *log_add_sockaddr_un(const struct sockaddr_un *, int);
+const char *log_add_sockaddr(const struct sockaddr *, int);
 const char *log_add_socket_domain(int);
-
 const char *log_add_socket_type(int);
-
 const char *log_add_socket_flags(int);
-
 const char *log_add_shutdown_how(int);
-
 const char *log_add_fcntl_cmd(int);
-
 const char *log_add_ioctl_req(unsigned long);
-
 const char *log_add_sockopt_level(int);
-
 const char *log_add_sockopt_optname(int, int);
-
 const char *log_add_poll_events(short);
-
 const char *log_add_pollfds_events(struct pollfd *, int);
-
 const char *log_add_pollfds_revents(struct pollfd *, int);
-
 const char *log_add_sighandler(void *);
-
 const char *log_add_sigprocmask_how(int);
 
 #ifdef __linux__
 const char *log_add_clone_flags(int);
-
 const char *log_add_epoll_op(int);
-
 const char *log_add_epoll_event_events(short);
 #else /* __linux__ */
 #endif /* __linux__ */

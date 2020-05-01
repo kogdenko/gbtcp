@@ -21,6 +21,7 @@ dev_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct dev_mod *mod;
+
 	LOG_TRACE(log);
 	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (!rc) {
@@ -29,32 +30,38 @@ dev_mod_init(struct log *log, void **pp)
 	}
 	return rc;
 }
+
 int
 dev_mod_attach(struct log *log, void *raw_mod)
 {
 	current_mod = raw_mod;
 	return 0;
 }
+
 void
 dev_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct dev_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
 	shm_free(mod);
 }
+
 void
 dev_mod_detach(struct log *log)
 {
 	current_mod = NULL;
 }
+
 static int
 dev_rxtx(void *udata, short revents)
 {
 	int n;
 	struct dev *dev;
 	struct netmap_ring *r;
+
 	dev = udata;
 	if (revents & POLLOUT) {
 		dev->dev_tx_full = 0;
@@ -71,6 +78,7 @@ dev_rxtx(void *udata, short revents)
 	}
 	return 0;
 }
+
 static void
 dev_nm_close(struct log *log, struct dev *dev)
 {
@@ -88,24 +96,13 @@ dev_nm_close(struct log *log, struct dev *dev)
 static int
 dev_nm_open(struct log *log, struct dev *dev)
 {
-	int rc, flags, epoch;
+	int rc, flags;
 	struct nmreq nmr;
+
 	LOG_TRACE(log);
 	memset(&nmr, 0, sizeof(nmr));
 	flags = 0;
-	epoch = gt_global_epoch;
-	gt_dbg("vefor nm_open");
-	//GT_GLOBAL_UNLOCK;
-	// nm_open called socket API ~ ioctl or something
 	dev->dev_nmd = nm_open(dev->dev_name, &nmr, flags, NULL);
-	//GT_GLOBAL_LOCK;
-	printf("dev=%p, nmd=%p\n", dev, dev->dev_nmd);
-	if (epoch != gt_global_epoch) {
-		if (dev->dev_nmd != NULL) {
-			dev_nm_close(log, dev);
-		}
-		return -EFAULT;
-	}
 	if (dev->dev_nmd != NULL) {
 		ASSERT(dev->dev_nmd->nifp != NULL);
 		sys_fcntl(log, dev->dev_nmd->fd,
@@ -113,9 +110,9 @@ dev_nm_open(struct log *log, struct dev *dev)
 		nmr = dev->dev_nmd->req;
 		LOGF(log, LOG_MSG(nm_open), LOG_INFO, 0,
 		     "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
-		      dev->dev_name, dev->dev_nmd,
-	              nmr.nr_rx_rings, nmr.nr_rx_slots,
-		      nmr.nr_tx_rings, nmr.nr_tx_slots);
+		     dev->dev_name, dev->dev_nmd,
+	             nmr.nr_rx_rings, nmr.nr_rx_slots,
+		     nmr.nr_tx_rings, nmr.nr_tx_slots);
 		return 0;
 	} else {
 		rc = -errno;
@@ -125,11 +122,13 @@ dev_nm_open(struct log *log, struct dev *dev)
 		return rc;
 	}
 }
+
 int
 dev_init(struct log *log, struct dev *dev, const char *ifname, dev_f dev_fn)
 {
 	int rc;
 	const char *name;
+
 	ASSERT(dev_fn != NULL);
 	LOG_TRACE(log);
 	memset(dev, 0, sizeof(*dev));
@@ -151,10 +150,12 @@ dev_init(struct log *log, struct dev *dev, const char *ifname, dev_f dev_fn)
 	dev_rx_on(dev);
 	return 0;
 }
+
 void
 dev_deinit(struct dev *dev)
 {
 	struct log *log;
+
 	if (dev->dev_fn != NULL) {
 		log = log_trace0();
 		dev->dev_fn = NULL;
@@ -164,6 +165,7 @@ dev_deinit(struct dev *dev)
 		DLIST_REMOVE(dev, dev_list);
 	}
 }
+
 void
 dev_rx_on(struct dev *dev)
 {
@@ -171,6 +173,7 @@ dev_rx_on(struct dev *dev)
 		gt_fd_event_set(dev->dev_event, POLLIN);
 	}
 }
+
 void
 dev_rx_off(struct dev *dev)
 {
@@ -178,12 +181,14 @@ dev_rx_off(struct dev *dev)
 		gt_fd_event_clear(dev->dev_event, POLLIN);
 	}
 }
+
 int
 dev_not_empty_txr(struct dev *dev, struct dev_pkt *pkt)
 {
 	void *buf;
 	struct netmap_ring *txr;
 	struct netmap_slot *slot;
+
 	ASSERT(dev->dev_nmd != NULL);
 	if (dev->dev_tx_full) {
 		return -ENOBUFS;
@@ -207,32 +212,38 @@ dev_not_empty_txr(struct dev *dev, struct dev_pkt *pkt)
 	gt_fd_event_set(dev->dev_event, POLLOUT);
 	return -ENOBUFS;
 }
+
 int
 dev_rxr_space(struct dev *dev, struct netmap_ring *rxr)
 {
 	int n;
+
 	n = nm_ring_space(rxr);
 	if (n > DEV_BURST_SIZE) {
 		n = DEV_BURST_SIZE;
 	}
 	return n;
 }
+
 void
 dev_tx(struct dev_pkt *pkt)
 {
 	struct netmap_slot *dst;
 	struct netmap_ring *txr;
+
 	txr = pkt->pkt_txr;
 	ASSERT(txr != NULL);
 	dst = txr->slot + txr->cur;
 	dst->len = pkt->pkt_len;
 	txr->head = txr->cur = nm_ring_next(txr, txr->cur);
 }
+
 int
 dev_tx3(struct dev *dev, void *data, int len)
 {
 	int rc;
 	struct dev_pkt pkt;
+
 	rc = dev_not_empty_txr(dev, &pkt);
 	if (rc) {
 		return rc;

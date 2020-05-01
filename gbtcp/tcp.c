@@ -272,7 +272,7 @@ tcp_mod_init(struct log *log, void **pp)
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "tcp");
 	gt_sock_ctl_init_sock_list(log);
-	mod->tcp_fin_timeout = GT_SEC;
+	mod->tcp_fin_timeout = NANOSECONDS_SECOND;
 	sysctl_add_intfn(log, "tcp.fin_timeout", SYSCTL_WR,
 	                 &gt_sock_ctl_tcp_fin_timeout, 1, 24 * 60 * 60);
 	return 0;
@@ -1222,7 +1222,7 @@ gt_tcp_delack(struct gt_sock *so)
 		gt_timer_del(&so->so_timer_delack);
 		gt_tcp_into_ackq(so);
 	}
-	gt_timer_set(&so->so_timer_delack, 200 * GT_MSEC,
+	gt_timer_set(&so->so_timer_delack, 200 * NANOSECONDS_MILLISECOND,
 	             gt_tcp_timeout_delack);
 }
 
@@ -1249,9 +1249,9 @@ gt_tcp_timer_set_rexmit(struct gt_sock *so)
 		so->so_nr_rexmit_tries = 0;
 	}
 	if (so->so_state < GT_TCP_S_ESTABLISHED) {
-		expires = GT_SEC;
+		expires = NANOSECONDS_SECOND;
 	} else {
-		expires = 500 * GT_MSEC;
+		expires = 500 * NANOSECONDS_MILLISECOND;
 	}
 	expires <<= so->so_nr_rexmit_tries;
 	gt_timer_set(&so->so_timer, expires, gt_tcp_timeout_rexmit);
@@ -1268,7 +1268,7 @@ gt_tcp_timer_set_wprobe(struct gt_sock *so)
 	if (gt_timer_is_running(&so->so_timer)) {
 		return 0;
 	}
-	expires = 10 * GT_SEC;
+	expires = 10 * NANOSECONDS_SECOND;
 	gt_timer_set(&so->so_timer, expires, gt_tcp_timeout_wprobe);
 	return 1;
 }
@@ -2830,9 +2830,9 @@ gt_sock_ctl_init_sock_list(struct log *log)
 static int
 gt_sock_ctl_tcp_fin_timeout(const long long *new, long long *old)
 {
-	*old = current_mod->tcp_fin_timeout / GT_SEC;
+	*old = current_mod->tcp_fin_timeout / NANOSECONDS_SECOND;
 	if (new != NULL) {
-		current_mod->tcp_fin_timeout = (*new) * GT_SEC;
+		current_mod->tcp_fin_timeout = (*new) * NANOSECONDS_SECOND;
 	}
 	return 0;
 }

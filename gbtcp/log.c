@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 license
 #include "internals.h"
 
 struct log_mod {
@@ -7,20 +7,29 @@ struct log_mod {
 	char log_pattern[PATH_MAX];
 };
 
-int log_debug;
-
 static char log_buf[LOG_BUFSIZ];
 static int log_tid;
-static int log_pid_tid_width;
+static int log_pidtid_width;
+static struct strbuf log_sb;
+static int log_early_stdout = 1;
+static int log_early_level = LOG_DEBUG;
 static int log_fd = -1;
 static int log_stdout_fd = -1;
-static struct strbuf log_sb;
-static struct log_mod *current_mod;
+static struct log_mod *curmod;
 
-#define ldbg(...) \
-	if (log_debug) { \
-		dbg(__VA_ARGS__); \
+static int
+log_is_stdout(int force_stdout)
+{
+	if (log_stdout_fd < 0) {
+		return 0;
+	} else if (force_stdout) {
+		return 1;
+	} else if (curmod != NULL) {
+		return curmod->log_stdout;
+	} else {
+		return log_early_stdout;
 	}
+}
 
 static void
 log_fclose(struct log *log)
@@ -30,26 +39,26 @@ log_fclose(struct log *log)
 		log_fd = -1;
 	}
 }
-/*
- * Log filename pattern:
- * %p - application pid
- * %e - application process name
- */
+
+// Log filename pattern:
+// %p - pid
+// %e - process name
 static int
 log_expand_pattern(struct strbuf *path, const char *pattern)
 {
 	int fmt;
 	const char *ptr;
+
 	ptr = pattern;
 	while (*ptr != '\0') {
 		if (*ptr == '%') {
 			fmt = *(ptr + 1);
 			switch (fmt) {
 			case 'p':
-				strbuf_addf(path, "%d", gt_application_pid);
+				strbuf_addf(path, "%d", current->p_pid);
 				break;
 			case 'e':
-				strbuf_add_str(path, gt_application_name);
+				strbuf_add_str(path, current->p_name);
 				break;
 			case '%':
 				strbuf_add_ch(path, '%');
@@ -65,13 +74,18 @@ log_expand_pattern(struct strbuf *path, const char *pattern)
 	}
 	return 0;
 }
+
 static int
 log_fopen(struct log *log, const char *pattern, int add_flags)
 {
 	int rc;
 	char path_buf[PATH_MAX];
 	struct strbuf path;
+
 	LOG_TRACE(log);
+	if (!strcmp(pattern, "/dev/null")) {
+		return 0;
+	}
 	strbuf_init(&path, path_buf, sizeof(path_buf));
 	rc = log_expand_pattern(&path, pattern);
 	if (rc) {
@@ -91,37 +105,38 @@ log_fopen(struct log *log, const char *pattern, int add_flags)
 		return rc;
 	}
 	log_fclose(log);
-	strzcpy(current_mod->log_pattern, pattern,
-	        sizeof(current_mod->log_pattern));
 	log_fd = rc;
 	return 0;
 }
+
 static int
 log_sysctl_out(struct log *log, void *udata, const char *new,
 	struct strbuf *out)
 {
-	int rc;
+	struct log_mod *mod;
 
-	if (log_fd == -1) {
-		strbuf_add(out, STRSZ("/dev/null"));
-	} else {
-		strbuf_add_str(out, current_mod->log_pattern);
+	mod = udata;
+	strbuf_add(out, STRSZ("/dev/null"));
+	if (new != NULL) {
+		strzcpy(mod->log_pattern, new, sizeof(mod->log_pattern));
 	}
-	if (new == NULL) {
-		return 0;
-	}
-	if (!strcmp(new, "/dev/null")) {
-		log_fclose(log);
-		return 0;
-	}
-	rc = log_fopen(log, new, O_TRUNC);
-	return rc;
+	return 0;
 }
+
+void
+log_init_early()
+{
+	if (log_stdout_fd < 0) {
+		log_stdout_fd = sys_open(NULL, "/dev/stdout", O_WRONLY, 0);
+	}
+}
+
 int
 log_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct log_mod *mod;
+
 	LOG_TRACE(log);
 	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc) {
@@ -129,31 +144,33 @@ log_mod_init(struct log *log, void **pp)
 	}
 	mod = *pp;
 	mod->log_level = LOG_ERR;
+	strzcpy(mod->log_pattern, "/dev/null", sizeof(mod->log_pattern));
 	sysctl_add_int(log, "log.stdout", SYSCTL_WR,
 	               &mod->log_stdout, 0, 1);
 	sysctl_add_int(log, "log.level", SYSCTL_WR,
 	               &mod->log_level, LOG_EMERG, LOG_DEBUG);
-	sysctl_add(log, "log.out", SYSCTL_WR, NULL, NULL, log_sysctl_out);
+	sysctl_add(log, "log.out", SYSCTL_LD, mod, NULL, log_sysctl_out);
 	return 0;
 }
+
 int
 log_mod_attach(struct log *log, void *raw_mod)
 {
-	int rc;
-	current_mod = raw_mod;
-	rc = sys_dup(log, STDOUT_FILENO);
-	if (rc < 0) {
-		log_stdout_fd = -1;
-	} else {
-		log_stdout_fd = rc;
-	}
+	struct log_mod *mod;
+
+	LOG_TRACE(log);
+	mod = raw_mod;
 	log_fd = -1;
+	log_fopen(log, mod->log_pattern, O_TRUNC);
+	curmod = mod;
 	return 0;
 }
+
 void
 log_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct log_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	sysctl_del(log, "log.out");
@@ -161,19 +178,17 @@ log_mod_deinit(struct log *log, void *raw_mod)
 	sysctl_del(log, "log.stdout");
 	shm_free(mod);
 }
+
 void
 log_mod_detach(struct log *log)
 {
 	LOG_TRACE(log);
-	if (log_stdout_fd != -1) {
+	if (log_stdout_fd >= 0) {
 		sys_close(log, log_stdout_fd);
 		log_stdout_fd = -1;
 	}
-	if (log_fd != -1) {
-		sys_close(log, log_fd);
-		log_fd = -1;
-	}
-	current_mod = NULL;
+	log_fclose(log);
+	curmod = NULL;
 }
 void
 log_scope_init_early(struct log_scope *scope, const char *name)
@@ -229,17 +244,22 @@ log_copy(struct log *dst, int cnt, struct log *src)
 int
 log_is_enabled(struct log_scope *scope, int msg_level, int level)
 {
-	int thresh;
-	if (log_fd == -1 && (current_mod == NULL || current_mod->log_stdout == 0)) {
-		/* Nowhere to write logs */
+	int thresh, is_stdout;
+
+	is_stdout = log_is_stdout(0);
+	if (log_fd == -1 && is_stdout == 0) {
+		// Nowhere to write logs
 		return 0;
 	}
 	if (msg_level) {
 		thresh = msg_level;
+	} else if (curmod == NULL) {
+		// Early stage
+		thresh = log_early_level;
 	} else if (scope->lgs_level) {
 		thresh = scope->lgs_level;
 	} else {
-		thresh = current_mod->log_level;
+		thresh = curmod->log_level;
 	}
 	return level <= thresh;
 }
@@ -250,6 +270,7 @@ log_fill_hdr(struct strbuf *sb)
 	time_t t;
 	struct timeval tv;
 	struct tm tm;
+
 	gettimeofday(&tv, NULL);
 	t = tv.tv_sec;
 	localtime_r(&t, &tm);
@@ -257,24 +278,26 @@ log_fill_hdr(struct strbuf *sb)
 	len = sb->sb_len;
 	strbuf_addf(sb, "%d", pid);
 	if (log_tid) {
-		tid = gt_gettid();
+		tid = gettid();
 		strbuf_addf(sb, ":%d", tid);
 	}
 	width = sb->sb_len - len;
-	if (log_pid_tid_width <= width) {
-		log_pid_tid_width = width;
+	if (log_pidtid_width <= width) {
+		log_pidtid_width = width;
 	} else {
-		strbuf_add_ch3(sb, ' ', log_pid_tid_width - width);
+		strbuf_add_ch3(sb, ' ', log_pidtid_width - width);
 	}
 	strbuf_addf(sb, " %02d/%02d/%04d %02d:%02d:%02d.%06ld ",
 	            tm.tm_mday, tm.tm_mon, tm.tm_year + 1900,
 	            tm.tm_hour, tm.tm_min, tm.tm_sec, tv.tv_usec);
 }
+
 static void
 log_fill_pfx(struct log *bottom, u_int level, struct strbuf *sb)
 {
 	struct log *cur, *top;
 	static const char *L = "EACEWNID";
+
 	assert(level < 8);
 	strbuf_addf(sb, "[%c] ", L[level]);
 	bottom->lg_lower = NULL;
@@ -283,11 +306,14 @@ log_fill_pfx(struct log *bottom, u_int level, struct strbuf *sb)
 	}
 	strbuf_add_ch(sb, '[');
 	for (cur = top; cur != NULL; cur = cur->lg_lower) {
+		if (cur != top) {
+			strbuf_add(sb, STRSZ("."));
+		}
 		strbuf_add_str(sb, cur->lg_func);
-		strbuf_add(sb, STRSZ("."));
 	}
 	strbuf_add(sb, STRSZ("] "));
 }
+
 static void
 log_fill_sfx(struct strbuf *sb, int errnum)
 {
@@ -296,23 +322,27 @@ log_fill_sfx(struct strbuf *sb, int errnum)
 	}
 	strbuf_add_ch(sb, '\n');
 }
+
 static void
-log_write(struct strbuf *sb, int force)
+log_write(struct strbuf *sb, int force_stdout)
 {
 	int len;
+
 	len = MIN(sb->sb_len, sb->sb_cap);
 	if (log_fd != -1) {
 		write_all(NULL, log_fd, sb->sb_buf, len);
 	}
-	if ((current_mod->log_stdout || force) && log_stdout_fd != -1) {
+	if (log_is_stdout(force_stdout)) {
 		write_all(NULL, log_stdout_fd, sb->sb_buf, len);
 	}
 }
+
 void
 log_vprintf(struct log *log, int level, int err, const char *fmt, va_list ap)
 {
 	char buf[LOG_BUFSIZ];
 	struct strbuf sb;
+
 	strbuf_init(&sb, buf, sizeof(buf));
 	log_fill_hdr(&sb);
 	log_fill_pfx(log, level, &sb);
@@ -320,6 +350,7 @@ log_vprintf(struct log *log, int level, int err, const char *fmt, va_list ap)
 	log_fill_sfx(&sb, err);
 	log_write(&sb, 0);
 }
+
 void
 log_printf(struct log *log, int level, int err, const char *fmt, ...)
 {
@@ -425,37 +456,83 @@ log_add_ipaddr(int af, const void *ip)
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_sockaddr_in(const struct sockaddr_in *a)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_ipaddr(sb, AF_INET, &a->sin_addr.s_addr);
 	strbuf_addf(sb, ":%hu", GT_NTOH16(a->sin_port));
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
+const char *
+log_add_sockaddr_un(const struct sockaddr_un *a, int sa_len)
+{
+	const char *ret;
+	struct strbuf *sb;
+
+	sb = log_buf_alloc_space();
+	if (sa_len > sizeof(sa_family_t)) {
+		strbuf_add(sb, a->sun_path, sa_len - sizeof(sa_family_t));
+	}
+	ret = strbuf_cstr(sb);
+	return ret;
+}
+
+const char *
+log_add_sockaddr(const struct sockaddr *a, int sa_len)
+{
+	const char *ret;
+	struct strbuf *sb;
+
+	switch (a->sa_family) {
+	case AF_INET:
+		if (sa_len < sizeof(struct sockaddr_in)) {
+			break;
+		}
+		ret = log_add_sockaddr_in((const struct sockaddr_in *)a);
+		return ret;
+	case AF_UNIX:
+		ret = log_add_sockaddr_un((const struct sockaddr_un *)a, sa_len);
+		return ret;
+	default:
+		break;
+	}
+	sb = log_buf_alloc_space();
+	strbuf_addf(sb, "(sa_family=%d, sa_len=%d)", a->sa_family, sa_len);
+	ret = strbuf_cstr(sb);
+	return ret;
+}
+
 const char *
 log_add_socket_domain(int domain)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_socket_domain(sb, domain);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_socket_type(int type)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_socket_type(sb, type);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_socket_flags(int flags)
 {

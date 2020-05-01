@@ -216,7 +216,7 @@ int gbtcp_ppoll(struct pollfd *fds, nfds_t nfds,
 
 int gt_sysctl(int pid, const char *name, char *old, int len, const char *new);
 
-int gbtcp_try_fd(int fd);
+int gt_first_fd();
 
 gt_sighandler_t gbtcp_signal(int signum, gt_sighandler_t new_sa_handler);
 

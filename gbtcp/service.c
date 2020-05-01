@@ -474,6 +474,7 @@ int route_create_devs(struct log *log);
 int
 service_start(struct log *log)
 {
+	assert(current);
 #if 1
 	printf("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS %d\n", getpid());
 	if (gt_route_rss_q_id != -1)

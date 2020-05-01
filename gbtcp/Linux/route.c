@@ -60,7 +60,7 @@ gt_route_rtnl_open(struct log *log, unsigned int nl_groups)
 		return rc;
 	}
 	fd = rc;
-	rc = gt_set_nonblock(log, fd);
+	rc = fcntl_setfl_nonblock2(log, fd);
 	if (rc) {
 		sys_close(log, fd);
 		return rc;

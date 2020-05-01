@@ -1,7 +1,7 @@
 #include "internals.h"
 
-#define GT_ARP_REACHABLE_TIME (30 * GT_SEC)
-#define GT_ARP_RETRANS_TIMER GT_SEC
+#define GT_ARP_REACHABLE_TIME (30 * NANOSECONDS_SECOND)
+#define GT_ARP_RETRANS_TIMER NANOSECONDS_SECOND
 #define GT_ARP_MAX_UNICAST_SOLICIT 3
 #define GT_ARP_MIN_RANDOM_FACTOR 0.5
 #define GT_ARP_MAX_RANDOM_FACTOR 1.5
@@ -211,7 +211,7 @@ static void
 gt_arp_timer_set_calc_reachable_time()
 {
 	gt_timer_set(&gt_arp_timer_calc_reachable_time,
-	             2 * 60 * 60 * GT_SEC, // 2 Hours
+	             2 * NANOSECONDS_HOUR,
 	             gt_arp_calc_reachable_time_timeout);
 }
 

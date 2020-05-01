@@ -5,6 +5,7 @@
 #include "gbtcp.h"
 
 #define PIDWAIT_NONBLOCK IN_NONBLOCK
+#define PIDWAIT_NENTRIES_MAX GT_SERVICE_COUNT_MAX 
 
 struct log;
 
@@ -40,9 +41,10 @@ int write_pidfile(struct log * , const char *, int);
 
 int pidwait_init(struct log *, struct pidwait *, int);
 void pidwait_deinit(struct log *, struct pidwait*);
+int pidwait_is_empty(struct pidwait *);
 int pidwait_add(struct log *, struct pidwait *, int);
 int pidwait_del(struct log *, struct pidwait *, int);
-int pidwait_read(struct log *, struct pidwait *, int *, int);
-void pidwait_kill(struct log *, struct pidwait *, int);
+int pidwait_read(struct log *, struct pidwait *, uint64_t *, int *, int);
+int pidwait_kill(struct log *, struct pidwait *, int, int *, int);
 
 #endif /* GBTCP_PID_H */

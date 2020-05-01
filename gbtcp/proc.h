@@ -4,11 +4,17 @@
 
 #include "subr.h"
 
+#define PROC_SERVICE 0
+#define PROC_CONTROLLER 1
+
+#define PROC_NAME_SIZE_MAX 32
+
 struct proc {
 	struct spinlock p_lock;
 	int p_pid;
+	u_char p_type;
 	u_char p_rssq_id;
-	char p_name[32];
+	char p_name[PROC_NAME_SIZE_MAX];
 };
 
 extern struct proc *current;

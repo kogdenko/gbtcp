@@ -151,6 +151,7 @@ write_pidfile(struct log * log, const char *filename, int pid)
 	}
 	return pf.pf_fd;
 }
+
 int
 pidwait_init(struct log *log, struct pidwait * pw, int flags)
 {
@@ -159,6 +160,7 @@ pidwait_init(struct log *log, struct pidwait * pw, int flags)
 	pw->pw_fd = sys_inotify_init1(log, flags);
 	return pw->pw_fd;
 }
+
 void
 pidwait_deinit(struct log *log, struct pidwait* pw)
 {
@@ -169,6 +171,13 @@ pidwait_deinit(struct log *log, struct pidwait* pw)
 		pw->pw_nentries = 0;
 	}
 }
+
+int
+pidwait_is_empty(struct pidwait *pw)
+{
+	return pw->pw_nentries == 0;
+}
+
 int
 pidwait_add(struct log *log, struct pidwait *pw, int pid)
 {
@@ -183,13 +192,13 @@ pidwait_add(struct log *log, struct pidwait *pw, int pid)
 			goto err;
 		}
 	}
-	if (pw->pw_nentries == ARRAY_SIZE(pw->pw_entries)) {
-		rc = -ENFILE;
+	if (pw->pw_nentries == PIDWAIT_NENTRIES_MAX) {
+		rc = -ENOSPC;
 		goto err;
 	}
 	snprintf(path, sizeof(path), "/proc/%d/exe", pid);
 	rc = sys_inotify_add_watch(log, pw->pw_fd, path,
-		IN_CLOSE_NOWRITE|IN_ONESHOT);
+	                           IN_CLOSE_NOWRITE|IN_ONESHOT);
 	if (rc >= 0) {
 		pw->pw_entries[pw->pw_nentries].pid = pid;
 		pw->pw_entries[pw->pw_nentries].wd = rc;
@@ -201,8 +210,9 @@ err:
 	     "failed; pw_fd=%d, pid=%d", pw->pw_fd, pid);
 	return rc;
 }
+
 static int 
-pidwait_deli(struct log *log, struct pidwait *pw, int i)
+pidwait_del_entry(struct log *log, struct pidwait *pw, int i)
 {
 	int rc;
 	struct pidwait_entry *e;
@@ -212,6 +222,7 @@ pidwait_deli(struct log *log, struct pidwait *pw, int i)
 	*e = pw->pw_entries[--pw->pw_nentries];
 	return rc;
 }
+
 int
 pidwait_del(struct log *log, struct pidwait *pw, int pid)
 {
@@ -220,7 +231,7 @@ pidwait_del(struct log *log, struct pidwait *pw, int pid)
 	LOG_TRACE(log);
 	for (i = 0; i < pw->pw_nentries; ++i) {
 		if (pw->pw_entries[i].pid == pid) {
-			rc = pidwait_deli(log, pw, i);
+			rc = pidwait_del_entry(log, pw, i);
 			return rc;
 		}
 	}
@@ -229,8 +240,10 @@ pidwait_del(struct log *log, struct pidwait *pw, int pid)
 	     "failed; wp_fd=%d", pw->pw_fd);
 	return rc;
 }
+
 int
-pidwait_read(struct log *log, struct pidwait * pw, int *pids, int npids)
+pidwait_read(struct log *log, struct pidwait *pw, uint64_t *to,
+	int *pids, int npids)
 {
 	int i, n, rc;
 	struct inotify_event ev;
@@ -238,37 +251,48 @@ pidwait_read(struct log *log, struct pidwait * pw, int *pids, int npids)
 	ASSERT(npids);
 	LOG_TRACE(log);
 	n = 0;
+	if (pidwait_is_empty(pw)) {
+		return 0;
+	}
 	while (1) {
-		rc = sys_read(log, pw->pw_fd, &ev, sizeof(ev));
+		rc = read_timed(log, pw->pw_fd, &ev, sizeof(ev), to);
 		if (rc < 0) {
 			return n ? n : rc;
 		}
 		ASSERT(rc == sizeof(ev));
 		for (i = 0; i < pw->pw_nentries; ++i) {
-			if (pw->pw_entries[i].wd != ev.wd) {
-				continue;
+			if (pw->pw_entries[i].wd == ev.wd) {
+				if (n < npids) {
+					pids[n] = pw->pw_entries[i].pid;
+				}
+				n++;
+				pidwait_del_entry(log, pw, i);
+				break;
 			}
-			if (pids != NULL && n < npids) {
-				pids[n] = pw->pw_entries[i].pid;
-			}
-			n++;
-			ARRAY_REMOVE(pw->pw_entries, i, pw->pw_nentries);
 		}
 	}
 }
 
-void
-pidwait_kill(struct log *log, struct pidwait *pw, int signum)
+int
+pidwait_kill(struct log *log, struct pidwait *pw, int signum,
+	int *pids, int npids)
 {
-	int i, rc;
+	int i, n, rc, pid;
 
 	LOG_TRACE(log);
+	n = 0;
 	for (i = 0; i < pw->pw_nentries;) {
-		rc = sys_kill(log, pw->pw_entries[i].pid, signum);
+		pid = pw->pw_entries[i].pid;
+		rc = sys_kill(log, pid, signum);
 		if (rc == ESRCH) {
-			pidwait_deli(log, pw, i);	
+			if (n < npids) {
+				pids[n] = pid;
+			}
+			n++;
+			pidwait_del_entry(log, pw, i);	
 		} else {
 			++i;
 		}
 	}
+	return n;
 }

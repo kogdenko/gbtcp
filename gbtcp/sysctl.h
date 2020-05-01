@@ -8,6 +8,8 @@
 #define SYSCTL_LD 1
 #define SYSCTL_WR 2
 
+#define SYSCTL_PATH GT_PREFIX"/sock"
+
 #define GT_CTL_UNSUB 0
 #define GT_CTL_SUB 1
 
@@ -51,7 +53,10 @@ int sysctl_mod_attach(struct log *, void *);
 void sysctl_mod_deinit(struct log *, void *);
 void sysctl_mod_detach(struct log *);
 
-int sysctl_read_file(struct log *log, const char *path);
+void sockaddr_un_from_pid(struct sockaddr_un *, int);
+int unix_bind(struct log *, const struct sockaddr_un *);
+
+int sysctl_read_file(struct log *, const char *);
 
 int usysctl(struct log *log, int pid, const char *path,
 	char *old, int cnt, const char *new);

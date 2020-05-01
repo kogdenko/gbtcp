@@ -20,7 +20,7 @@
 	x(ppoll) \
 	x(sysctl) \
 	x(ctl_get_pids) \
-	x(try_fd) \
+	x(first_fd) \
 	x(sigaction) \
 
 #ifdef __linux__
@@ -43,9 +43,8 @@ struct api_mod {
 	API_LOG_MSG_FOREACH_OS(LOG_MSG_DECLARE);
 };
 
+__thread int api_disabled;
 static struct api_mod *current_mod;
-
-static inline int api_lock();
 
 #define API_RETURN(rc) \
 	do { \
@@ -57,16 +56,47 @@ static inline int api_lock();
 		} \
 	} while (0)
 
-#define GT_API_LOCK \
-	if (api_lock()) { \
-		return -1; \
+#define API_LOCK \
+	gt_dbg("API %s", __func__); \
+	if (!api_lock()) { \
+		gt_dbg("NOTSUP"); \
+		API_RETURN(-ENOTSUP); \
 	}
 
-#define GT_API_UNLOCK \
+#define API_UNLOCK \
 	do { \
 		gt_fd_event_mod_try_check(); \
+		api_disabled--; \
 		GT_GLOBAL_UNLOCK; \
 	} while (0)
+
+static inline int
+api_lock()
+{
+	int rc;
+	ptrdiff_t stack_off;
+
+	if (api_disabled) {
+		dbg("1");
+		return 0;
+	}
+	stack_off = (u_char *)&rc - (u_char *)gt_signal_stack;
+	if (stack_off < gt_signal_stack_size) {
+		// Called from signal handler
+		dbg("2");
+		return 0;
+	} else if (current != NULL) {
+		rdtsc_update_time();
+	} else {
+		rc = service_init();
+		if (rc) {
+			dbg("3");
+			return 0;
+		}
+	}
+	api_disabled++;
+	return 1;
+}
 
 #ifdef __linux__
 static void
@@ -86,6 +116,7 @@ api_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct api_mod *mod;
+
 	LOG_TRACE(log);
 	rc = shm_alloc(log, pp, sizeof(*mod));
 	if (rc) {
@@ -109,6 +140,7 @@ void
 api_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct api_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
@@ -126,13 +158,14 @@ gbtcp_fork()
 {
 	int rc;
 	struct log *log;
-	GT_API_LOCK;
+
+	API_LOCK;
 	log = log_trace0();
 	LOGF(log, LOG_MSG(fork), LOG_INFO, 0, "hit");
 	rc = gt_service_fork(log);
 	if (rc >= 0)
 		LOGF(log, LOG_MSG(fork), LOG_INFO, 0, "ok, pid=%d", rc);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 
@@ -140,6 +173,7 @@ int
 api_socket(struct log *log, int fd, int domain, int type, int proto)
 {
 	int rc, flags, type_noflags, use, use_tcp, use_udp;
+
 	use_tcp = 1; // TODO: in ctl
 	use_udp = 0;
 	flags = type & (SOCK_NONBLOCK|SOCK_CLOEXEC);
@@ -181,9 +215,10 @@ int
 gbtcp_socket(int domain, int type, int proto)
 {
 	int rc;
-	GT_API_LOCK;
+
+	API_LOCK;
 	rc = api_socket(NULL, 0, domain, type, proto);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 
@@ -196,6 +231,7 @@ api_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	struct sockaddr_in laddr_in;
 	struct log *log;
 	struct file *fp;
+
 	log = log_trace0();
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
@@ -242,9 +278,10 @@ int
 gbtcp_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
-	GT_API_LOCK;
+
+	API_LOCK;
 	rc = api_connect(fd, addr, addrlen);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 
@@ -288,9 +325,10 @@ int
 gbtcp_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
-	GT_API_LOCK;
+
+	API_LOCK;
 	rc = api_bind(NULL, fd, addr, addrlen);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 
@@ -299,6 +337,7 @@ api_listen(struct log *log, int fd, int backlog)
 {
 	int rc;
 	struct file *fp;
+
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
 		return rc;
@@ -321,9 +360,10 @@ int
 gbtcp_listen(int fd, int backlog)
 {
 	int rc;
-	GT_API_LOCK;
+
+	API_LOCK;
 	rc = api_listen(NULL, fd, backlog);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 
@@ -333,6 +373,7 @@ api_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 	int rc;
 	struct log *log;
 	struct file *fp;
+
 	rc = gt_sock_get(lfd, &fp);
 	if (rc) {
 		return rc;
@@ -364,9 +405,9 @@ gbtcp_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
 	int rc;
 
-	GT_API_LOCK;
+	API_LOCK;
 	rc = api_accept4(lfd, addr, addrlen, flags);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 
@@ -390,9 +431,10 @@ int
 gbtcp_shutdown(int fd, int how)
 {
 	int rc;
-	GT_API_LOCK;
+
+	API_LOCK;
 	rc = api_shutdown(fd, how);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 
@@ -402,6 +444,7 @@ api_close(int fd)
 	int rc;
 	struct log *log;
 	struct file *fp;
+
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
 		return rc;
@@ -417,9 +460,10 @@ int
 gbtcp_close(int fd)
 {
 	int rc;
-	GT_API_LOCK;
+
+	API_LOCK;
 	rc = api_close(fd);	
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 
@@ -427,6 +471,7 @@ ssize_t
 gbtcp_read(int fd, void *buf, size_t count)
 {
 	int rc;
+
 	rc = gbtcp_recvfrom(fd, buf, count, 0, NULL, NULL);
 	return rc;
 }
@@ -469,9 +514,9 @@ gbtcp_readv(int fd, const struct iovec *iov, int iovcnt)
 {
 	ssize_t rc;
 
-	GT_API_LOCK;
+	API_LOCK;
 	rc = api_recvfrom(fd, iov, iovcnt, 0, NULL, NULL);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 
@@ -493,9 +538,9 @@ gbtcp_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *addr,
 
 	iov.iov_base = buf;
 	iov.iov_len = len;
-	GT_API_LOCK;
+	API_LOCK;
 	rc = api_recvfrom(fd, &iov, 1, flags, addr, addrlen);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 
@@ -548,22 +593,27 @@ restart:
 	}
 	return rc;
 }
+
 ssize_t
 gbtcp_writev(int fd, const struct iovec *iov, int iovcnt)
 {
 	int rc;
-	GT_API_LOCK;
+
+	API_LOCK;
 	rc = api_send(fd, iov, iovcnt, 0, 0, 0);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 ssize_t
 gbtcp_send(int fd, const void *buf, size_t cnt, int flags)
 {
 	ssize_t rc;
+
 	rc = gbtcp_sendto(fd, buf, cnt, flags, NULL, 0);
 	return rc;
 }
+
 static int
 api_send6(int fd, struct iovec *iov, int iovlen, int flags,
 	const void *name, int namelen)
@@ -572,6 +622,7 @@ api_send6(int fd, struct iovec *iov, int iovlen, int flags,
 	be32_t faddr;
 	be16_t fport;
 	const struct sockaddr_in *addr_in;
+
 	if (namelen >= sizeof(*addr_in)) {
 		addr_in = name;
 		faddr = addr_in->sin_addr.s_addr;
@@ -580,26 +631,30 @@ api_send6(int fd, struct iovec *iov, int iovlen, int flags,
 		faddr = 0;
 		fport = 0;
 	}
-	GT_API_LOCK;
+	API_LOCK;
 	rc = api_send(fd, iov, iovlen, flags, faddr, fport);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 ssize_t
 gbtcp_sendto(int fd, const void *buf, size_t len, int flags,
 	const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
 	struct iovec iov;
+
 	iov.iov_base = (void *)buf;
 	iov.iov_len = len;
 	rc = api_send6(fd, &iov, 1, flags, addr, addrlen);
 	return rc;
 }
+
 ssize_t
 gbtcp_sendmsg(int fd, const struct msghdr *msg, int flags)
 {
 	int rc;
+
 	rc = api_send6(fd, msg->msg_iov, msg->msg_iovlen, msg->msg_flags,
 	               msg->msg_name, msg->msg_namelen);
 	if (rc >= 0) {
@@ -612,22 +667,25 @@ gbtcp_sendmsg(int fd, const struct msghdr *msg, int flags)
 	}
 	return rc;
 }
+
 ssize_t
 gbtcp_sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
 {
 	int rc;
 
-	GT_API_LOCK;
+	API_LOCK;
 	rc = -EBADF;
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 api_fcntl(int fd, int cmd, uintptr_t arg)
 {
 	int rc;
 	struct log *log;
 	struct file *fp;
+
 	rc = file_get(fd, &fp);
 	if (rc) {
 		return rc;
@@ -643,21 +701,25 @@ api_fcntl(int fd, int cmd, uintptr_t arg)
 	}
 	return rc;
 }
+
 int
 gbtcp_fcntl(int fd, int cmd, uintptr_t arg)
 {
 	int rc;
-	GT_API_LOCK;
+
+	API_LOCK;
 	rc = api_fcntl(fd, cmd, arg);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 api_ioctl(int fd, unsigned long req, uintptr_t arg)
 {
 	int rc;
 	struct log *log;
 	struct file *fp;
+
 	rc = file_get(fd, &fp);
 	if (rc) {
 		return rc;
@@ -673,15 +735,18 @@ api_ioctl(int fd, unsigned long req, uintptr_t arg)
 	}
 	return rc;
 }
+
 int
 gbtcp_ioctl(int fd, unsigned long req, uintptr_t arg)
 {
 	int rc;
-	GT_API_LOCK;
+
+	API_LOCK;
 	rc = api_ioctl(fd, req, arg);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 api_getsockopt(int fd, int level, int optname, void *optval,
 	socklen_t *optlen)
@@ -689,6 +754,7 @@ api_getsockopt(int fd, int level, int optname, void *optval,
 	int rc;
 	struct log *log;
 	struct file *fp;
+
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
 		return rc;
@@ -709,16 +775,19 @@ api_getsockopt(int fd, int level, int optname, void *optval,
 	}
 	return rc;
 }
+
 int
 gbtcp_getsockopt(int fd, int level, int optname, void *optval,
 	socklen_t *optlen)
 {
 	int rc;
-	GT_API_LOCK;
+
+	API_LOCK;
 	rc = api_getsockopt(fd, level, optname, optval, optlen);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 api_setsockopt(int fd, int level, int optname, const void *optval,
 	socklen_t optlen)
@@ -726,6 +795,7 @@ api_setsockopt(int fd, int level, int optname, const void *optval,
 	int rc;
 	struct log *log;
 	struct file *fp;
+
 	rc = gt_sock_get(fd, &fp);
 	if (rc) {
 		return rc;
@@ -748,11 +818,13 @@ gbtcp_setsockopt(int fd, int level, int optname, const void *optval,
 	socklen_t optlen)
 {
 	int rc;
-	GT_API_LOCK;
+
+	API_LOCK;
 	rc = api_setsockopt(fd, level, optname, optval, optlen);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
@@ -774,16 +846,18 @@ api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 	}
 	return rc;
 }
+
 int
 gbtcp_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
 
-	GT_API_LOCK;
+	API_LOCK;
 	rc = api_getpeername(fd, addr, addrlen);
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 {
@@ -792,12 +866,13 @@ gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 	struct log *log;
 
 	if (timeout_ms == -1) {
-		to = GT_NSEC_MAX;
+		to = NANOSECONDS_INFINITY;
 	} else {
-		to = timeout_ms * GT_MSEC;
+		to = timeout_ms * NANOSECONDS_MILLISECOND;
 	}
-	GT_API_LOCK;
+	API_LOCK;
 	log = log_trace0();
+	gt_dbg("!!!!");
 	DBG(log, LOG_MSG(poll), 0, "hit; to=%d, events={%s}",
 	    timeout_ms, log_add_pollfds_events(fds, nfds));
 	rc = gt_poll(fds, nfds, to, NULL);
@@ -807,9 +882,10 @@ gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 		DBG(log, LOG_MSG(poll), 0, "ok; rc=%d, revents={%s}",
 		    rc, log_add_pollfds_revents(fds, nfds));
 	}
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 gbtcp_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 	const sigset_t *sigmask)
@@ -819,11 +895,11 @@ gbtcp_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 	struct log *log;
 
 	if (timeout == NULL) {
-		to = GT_NSEC_MAX;
+		to = NANOSECONDS_INFINITY;
 	} else {
-		to = GT_SEC * timeout->tv_sec + timeout->tv_nsec;
+		to = NANOSECONDS_SECOND * timeout->tv_sec + timeout->tv_nsec;
 	}
-	GT_API_LOCK;
+	API_LOCK;
 	log = log_trace0();
 	if (timeout == NULL) {
 		DBG(log, LOG_MSG(ppoll), 0, "hit; to={inf}, events={%s}",
@@ -841,14 +917,16 @@ gbtcp_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 		DBG(log, LOG_MSG(ppoll), 0, "ok; rc=%d, revents={%s}",
 		    rc, log_add_pollfds_revents(fds, nfds));
 	}
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 gt_sighandler_t 
 gbtcp_signal(int signum, gt_sighandler_t new_sa_handler)
 {
 	int rc;
 	struct sigaction act, oldact;
+
 	memset(&act, 0, sizeof(act));
 	act.sa_handler = *new_sa_handler;
 	rc = gbtcp_sigaction(signum, &act, &oldact);
@@ -862,6 +940,7 @@ gbtcp_signal(int signum, gt_sighandler_t new_sa_handler)
 		return oldact.sa_handler;
 	}
 }
+
 int
 gbtcp_sigaction(int signum, const struct sigaction *act,
 	struct sigaction *oldact)
@@ -869,7 +948,8 @@ gbtcp_sigaction(int signum, const struct sigaction *act,
 	int rc;
 	void *fn;
 	struct log *log;
-	GT_API_LOCK;
+
+	API_LOCK;
 	if (act == NULL) {
 		fn = NULL;
 	} else if (act->sa_flags & SA_SIGINFO) {
@@ -887,15 +967,17 @@ gbtcp_sigaction(int signum, const struct sigaction *act,
 	} else {
 		DBG(log, LOG_MSG(sigaction), 0, "ok");
 	}
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 gt_sysctl(int pid, const char *path, char *old, int len, const char *new)
 {
 	int rc;
 	struct log *log;
-	GT_API_LOCK;
+
+	API_LOCK;
 	log = log_trace0();
 	LOGF(log, LOG_MSG(sysctl), LOG_INFO, 0,
 	     "hit; pid=%d, path='%s'", pid, path);
@@ -905,26 +987,24 @@ gt_sysctl(int pid, const char *path, char *old, int len, const char *new)
 	} else {
 		LOGF(log, LOG_MSG(sysctl), LOG_INFO, 0, "ok");
 	}
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
-gbtcp_try_fd(int fd)
+gt_first_fd()
 {
 	int rc;
 	struct log *log;
-	GT_API_LOCK;
+
+	API_LOCK;
 	log = log_trace0();
-	DBG(log, LOG_MSG(try_fd), 0, "hit; fd=%d", fd);
-	rc = file_try_fd(fd);
-	if (rc == 0) {
-		DBG(log, LOG_MSG(try_fd), 0, "ok");
-	} else {
-		DBG(log, LOG_MSG(try_fd), -rc, "failed");
-	}
-	GT_API_UNLOCK;
+	rc = file_first_fd();
+	DBG(log, LOG_MSG(first_fd), 0, "hit; first_fd=%d", rc);
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 #ifdef __linux__
 int
 gbtcp_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
@@ -932,7 +1012,8 @@ gbtcp_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
 {
 	int rc;
 	struct log *log;
-	GT_API_LOCK;
+
+	API_LOCK;
 	log = log_trace0();
 	LOGF(log, LOG_MSG(clone), LOG_INFO, 0, "hit; flags=%s",
 	     log_add_clone_flags(flags));
@@ -942,15 +1023,17 @@ gbtcp_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
 	} else {
 		LOGF(log, LOG_MSG(clone), LOG_INFO, 0, "ok; pid=%d", rc);
 	}
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 gbtcp_epoll_create()
 {
 	int rc, fd;
 	struct log *log;
-	GT_API_LOCK;
+
+	API_LOCK;
 	log = log_trace0();
 	LOGF(log, LOG_MSG(epoll_create), LOG_INFO, 0, "hit");
 	rc = (*sys_epoll_create1_fn)(EPOLL_CLOEXEC);
@@ -969,7 +1052,7 @@ gbtcp_epoll_create()
 	} else {
 		LOGF(log, LOG_MSG(epoll_create), LOG_INFO, 0, "ok; fd=%d", rc);
 	}
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 int
@@ -977,7 +1060,8 @@ gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
 	int rc;
 	struct log *log;
-	GT_API_LOCK;
+
+	API_LOCK;
 	log = log_trace0();
 	DBG(log, LOG_MSG(epoll_ctl), 0,
 	    "hit; epfd=%d, op=%s, fd=%d, events={%s}",
@@ -989,7 +1073,7 @@ gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	} else {
 		DBG(log, LOG_MSG(epoll_ctl), 0, "ok");
 	}
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 int
@@ -999,12 +1083,13 @@ gbtcp_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 	int rc;
 	uint64_t to;
 	struct log *log;
+
 	if (timeout_ms == -1) {
-		to = GT_NSEC_MAX;
+		to = NANOSECONDS_INFINITY;
 	} else {
-		to = timeout_ms * GT_MSEC;
+		to = timeout_ms * NANOSECONDS_MILLISECOND;
 	}
-	GT_API_LOCK;
+	API_LOCK;
 	log = log_trace0();
 	DBG(log, LOG_MSG(epoll_pwait), 0, "hit; epfd=%d", epfd);
 	rc = uepoll_pwait(epfd, events, maxevents, to, sigmask);
@@ -1013,7 +1098,7 @@ gbtcp_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 	} else {
 		DBG(log, LOG_MSG(epoll_pwait), 0, "ok; rc=%d", rc);
 	}
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);	
 }
 #else /* __linux__ */
@@ -1023,7 +1108,7 @@ gbtcp_kqueue()
 	int rc, fd;
 	struct log *log;
 
-	GT_API_LOCK;
+	API_LOCK;
 	log = log_trace0();
 	LOGF(log, LOG_MSG(kqueue), LOG_INFO, 0, "hit");
 	rc = (*sys_kqueue_fn)();
@@ -1042,7 +1127,7 @@ gbtcp_kqueue()
 	} else {
 		LOGF(log, LOG_MSG(kqueue), LOG_INFO, 0, "ok; fd=%d", rc);
 	}
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 int
@@ -1051,7 +1136,8 @@ gbtcp_kevent(int kq, const struct kevent *changelist, int nchanges,
 {
 	int rc;
 	struct log *log;
-	GT_API_LOCK;
+
+	API_LOCK;
 	log = log_trace0();
 	DBG(log, LOG_MSG(kevent), 0, "hit; kq=%d, nchanges=%d, nevents=%d",
 	    kq, nchanges, nevents);
@@ -1061,29 +1147,7 @@ gbtcp_kevent(int kq, const struct kevent *changelist, int nchanges,
 	} else {
 		DBG(log, LOG_MSG(kevent), 0, "ok; kq=%d, rc=%d", kq, rc);
 	}
-	GT_API_UNLOCK;
+	API_UNLOCK;
 	API_RETURN(rc);
 }
 #endif /* __linux__ */
-static inline int
-api_lock()
-{
-	int rc;
-	ptrdiff_t stack_off;
-	stack_off = (u_char *)&rc - (u_char *)gt_signal_stack;
-	if (stack_off < gt_signal_stack_size) {
-		// Called from signal handler
-		API_RETURN(ENOTSUP);
-	}
-	GT_GLOBAL_LOCK;
-	if (current != NULL) {
-		rdtsc_update_time();
-	} else {
-		rc = service_init();
-		if (rc) {
-			GT_GLOBAL_UNLOCK;
-			API_RETURN(ECANCELED);
-		}
-	}
-	return 0;
-}

@@ -217,12 +217,13 @@ sysctl_is_valid_token(const char *s)
 	return 1;
 }
 
-static void
-sysctl_init_sockaddr_un(struct sockaddr_un *addr, int pid)
+
+void
+sockaddr_un_from_pid(struct sockaddr_un *a, int pid)
 {
-	addr->sun_family = AF_UNIX;
-	snprintf(addr->sun_path, sizeof(addr->sun_path),
-	         "%s/sock/%d.sock", GT_PREFIX, pid);
+	a->sun_family = AF_UNIX;
+	snprintf(a->sun_path, sizeof(a->sun_path), "%s/%d.sock",
+	         SYSCTL_PATH, pid);
 }
 
 void
@@ -294,55 +295,47 @@ sysctl_parse_line(struct log *log, char *s)
 	new = strchr(s, '=');
 	if (new != NULL) {
 		*new = '\0';
-		new = gt_trim(new + 1);
+		new = strtrim(new + 1);
 	}
-	path = gt_trim(s);
+	path = strtrim(s);
 	rc = sysctl_in(log, path, 1, new, NULL);
 	return rc;
 }
 int
-sysctl_read_file(struct log *log, const char *path)
+sysctl_read_file(struct log *log, const char *proc_name)
 {
 	int rc, line;
-	const char *tmp;
+	const char *path;
 	char path_buf[PATH_MAX];
 	char str[2000];
 	FILE *file;
+
 	LOG_TRACE(log);
-	if (path == NULL) {
-		tmp = getenv("GBTCP_CTL");
-		if (tmp != NULL) { 
-			rc = sys_realpath(log, tmp, path_buf);
-			if (rc) {
-				return rc;
-			}
-		} else {
-			snprintf(path_buf, sizeof(path_buf), "%s/ctl/%s.conf",
-			         GT_PREFIX, gt_application_name);
+	path = getenv("GBTCP_CTL");
+	if (path != NULL) { 
+		rc = sys_realpath(log, path, path_buf);
+		if (rc) {
+			return rc;
 		}
-		tmp = path_buf;
 	} else {
-		tmp = path;
+		snprintf(path_buf, sizeof(path_buf), "%s/ctl/%s.conf",
+		         GT_PREFIX, proc_name);
 	}
-	gt_dbg("a");
-	rc = sys_fopen(log, &file, tmp, "r");
+	path = path_buf;
+	rc = sys_fopen(log, &file, path, "r");
 	if (rc) {
 		return rc;
 	}
 	rc = 0;
 	line = 0;
-	gt_dbg("b");
 	while (fgets(str, sizeof(str), file) != NULL) {
 		line++;
-		gt_dbg("%s", str);
 		rc = sysctl_parse_line(log, str);
 		if (rc) {
 			LOGF(log, LOG_MSG(read_file), LOG_ERR, -rc,
-			     "bad line; file='%s', line=%d",
-			     path, line);
+			     "bad line; file='%s', line=%d",  path, line);
 		}
 	}
-	gt_dbg("c");
 	fclose(file);
 	LOGF(log, LOG_MSG(read_file), LOG_INFO, 0, "ok; file='%s'", path);
 	return rc;
@@ -355,6 +348,7 @@ usysctl(struct log *log, int pid, const char *path,
 	int rc;
 	struct sysctl_conn *cp;
 	struct sysctl_wait wait;
+
 	wait.w_eno = EINPROGRESS;
 	wait.w_old = old;
 	wait.w_cnt = cnt;
@@ -374,6 +368,7 @@ usysctl_r(struct log *log, int pid, const char *path,
          void *udata, sysctl_f fn, const char *new)
 {
 	int rc;
+
 	rc = sysctl_send_req(log, NULL, pid, path, udata, fn, new);
 	return rc;
 }
@@ -383,6 +378,7 @@ sysctl_bind(struct log *log, int pid)
 {
 	int rc;
 	LOG_TRACE(log);
+
 	if (sysctl_binded != NULL) {
 		LOGF(log, LOG_MSG(bind), LOG_ERR, 0, "already");
 		return -EALREADY;
@@ -471,7 +467,7 @@ sysctl_split_path(struct log *log, int log_msg_level,
 {
 	int i, rc;
 
-	rc = gt_strsplit(path, ".", iovec, SYSCTL_DEPTH_MAX);
+	rc = strsplit(path, ".", iovec, SYSCTL_DEPTH_MAX);
 	if (rc > SYSCTL_DEPTH_MAX) {
 		LOGF(log, log_msg_level, LOG_ERR, 0,
 		     "too many dirs; path='%s'", path);
@@ -617,7 +613,7 @@ sysctl_conn_open(struct log *log,
 	if (rc < 0) {
 		return rc;
 	}
-	rc = gt_set_nonblock(log, fd);
+	rc = fcntl_setfl_nonblock2(log, fd);
 	if (rc < 0) {
 		return rc;
 	}
@@ -668,6 +664,7 @@ sysctl_conn_connect(struct log *log, struct sysctl_conn **cpp,
 	int pid, const char *path)
 {
 	int fd, rc;
+	uint64_t to;
 	struct sockaddr_un addr;
 	struct sysctl_conn *cp;
 
@@ -676,9 +673,10 @@ sysctl_conn_connect(struct log *log, struct sysctl_conn **cpp,
 	if (rc < 0)
 		return rc;
 	fd = rc;
-	sysctl_init_sockaddr_un(&addr, pid);
+	sockaddr_un_from_pid(&addr, pid);
+	to = 2 * NANOSECONDS_SECOND;
 	rc = connect_timed(log, fd, (struct sockaddr *)&addr,
-	                   sizeof(addr), 2 * GT_SEC);
+	                   sizeof(addr), &to);
 	if (rc < 0) {
 		sys_close(log, fd);
 		return rc;
@@ -694,14 +692,12 @@ sysctl_conn_connect(struct log *log, struct sysctl_conn **cpp,
 	return 0;
 }
 
-static int
-sysctl_conn_listen(struct log *log, struct sysctl_conn **cpp, int pid)
+int
+unix_bind(struct log *log, const struct sockaddr_un *a)
 {
 	int rc, fd;
-	struct sockaddr_un addr;
 	struct stat stat;
 	struct group *group;
-	struct sysctl_conn *cp;
 
 	LOG_TRACE(log);
 	rc = sys_socket(log, AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0);
@@ -709,22 +705,38 @@ sysctl_conn_listen(struct log *log, struct sysctl_conn **cpp, int pid)
 		return rc;
 	}
 	fd = rc;
-	sysctl_init_sockaddr_un(&addr, pid);
-	unlink(addr.sun_path);
-	rc = sys_bind(log, fd, (struct sockaddr *)&addr, sizeof(addr));
+	unlink(a->sun_path);
+	rc = sys_bind(log, fd, (struct sockaddr *)a, sizeof(*a));
 	if (rc < 0) {
 		sys_close(log, fd);
 		return rc;
 	}
 	rc = sys_getgrnam(log, GT_GROUP_NAME, &group);
 	if (rc == 0) {
-		sys_chown(log, addr.sun_path, -1, group->gr_gid);
+		sys_chown(log, a->sun_path, -1, group->gr_gid);
 	}
-	rc = sys_stat(log, addr.sun_path, &stat);
+	rc = sys_stat(log, a->sun_path, &stat);
 	if (rc == 0) {
-		sys_chmod(log, addr.sun_path,
-		             stat.st_mode|S_IRGRP|S_IWGRP|S_IXGRP);
+		sys_chmod(log, a->sun_path,
+		          stat.st_mode|S_IRGRP|S_IWGRP|S_IXGRP);
 	}
+	return fd;
+}
+
+static int
+sysctl_conn_listen(struct log *log, struct sysctl_conn **cpp, int pid)
+{
+	int rc, fd;
+	struct sockaddr_un addr;
+	struct sysctl_conn *cp;
+
+	LOG_TRACE(log);
+	sockaddr_un_from_pid(&addr, pid);
+	rc = unix_bind(log, &addr);
+	if (rc < 0) {
+		return rc;
+	}
+	fd = rc;
 	rc = sys_listen(log, fd, 5);
 	if (rc < 0) {
 		sys_close(log, fd);
@@ -741,7 +753,6 @@ sysctl_conn_listen(struct log *log, struct sysctl_conn **cpp, int pid)
 	}
 	return rc;
 }
-
 
 static int
 sysctl_conn_send(struct log *log, struct sysctl_conn *cp)
@@ -961,7 +972,7 @@ sysctl_in_pdu(struct sysctl_conn *cp, char *data, int data_len)
 
 	log = log_trace(cp->c_log);
 	data[data_len] = '\0'; // FIXME:
-	rc = gt_strsplit(data, " \r\n\t", tokens, ARRAY_SIZE(tokens));
+	rc = strsplit(data, " \r\n\t", tokens, ARRAY_SIZE(tokens));
 	if (rc > ARRAY_SIZE(tokens)) {
 		LOGF(log, LOG_MSG(in), LOG_ERR, 0,
 		     "too many tokens; data='%.*s'", data_len, data);
@@ -1467,7 +1478,7 @@ sysctl_send_req(struct log *log, struct sysctl_conn **cpp,
 	cp->c_req_udata = udata;
 	cp->c_req_fn = fn;
 	cp->c_req_time = nanoseconds;
-	gt_timer_set(&cp->c_timer, 5 * GT_SEC, sysctl_req_timo);
+	gt_timer_set(&cp->c_timer, 5 * NANOSECONDS_SECOND, sysctl_req_timo);
 	if (cpp != NULL) {
 		*cpp = cp;
 	}

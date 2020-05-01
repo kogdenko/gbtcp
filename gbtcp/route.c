@@ -132,9 +132,7 @@ route_if_init_nm(struct log *log, struct route_if *ifp)
 	LOG_TRACE(log);
 	if (ifp->rif_is_pipe == 0) {
 		snprintf(ifname, sizeof(ifname), "%s^", ifp->rif_name);
-		gt_dbg("dev init { %s", ifname);
 		rc = dev_init(log, &ifp->rif_host_dev, ifname, gtd_host_rxtx);
-		gt_dbg("dev init done");
 		if (rc) {
 			return rc;
 		}
@@ -245,7 +243,6 @@ route_if_add(struct log *log, const char *ifname, struct route_if **ifpp)
 			break;
 		}
 	}
-	gt_dbg("a1");
 	ifp->rif_mtu = 1500;
 	ifp->rif_name_len[ROUTE_IFNAME_OS] = i;
 	memcpy(ifp->rif_name, ifname, ifname_len);
@@ -255,12 +252,10 @@ route_if_add(struct log *log, const char *ifname, struct route_if **ifpp)
 		shm_free(ifp);
 		return rc;
 	}
-	gt_dbg("a2");
 	DLIST_INSERT_HEAD(&current_mod->route_if_head, ifp, rif_list);
 	if (route_monfd != -1) {
 		// TODO: DELETE OLD ROUTES...
 		gt_route_dump(route_on_msg);
-		gt_dbg("DUMP!!!");
 	}
 	*ifpp = ifp;
 	LOGF(log, LOG_MSG(if_add), LOG_INFO, 0, "ok; if='%s'", ifname);
@@ -596,7 +591,7 @@ gt_route_monitor_start(struct log *log)
 		return rc;
 	}
 	route_monfd = rc;
-	rc = gt_set_nonblock(log, route_monfd);
+	rc = fcntl_setfl_nonblock2(log, route_monfd);
 	if (rc < 0) {
 		goto err;
 	}
@@ -607,7 +602,6 @@ gt_route_monitor_start(struct log *log)
 	}
 	gt_fd_event_set(gt_route_monitor_event, POLLIN);
 	LOGF(log, LOG_MSG(mon_start), LOG_INFO, 0, "ok; fd=%d", route_monfd);
-	gt_dbg("DUMP!!!");
 	gt_route_dump(route_on_msg);
 	return 0;
 err:
@@ -985,9 +979,7 @@ route_mod_init(struct log *log, void **pp)
 	mod->route_default.rtl_af = AF_UNSPEC;
 	dlist_init(&mod->route_if_head);
 	dlist_init(&mod->route_addr_head);
-	gt_dbg("0");
 	rc = lptree_init(log, &mod->route_lptree);
-	gt_dbg("1");
 	if (rc) {
 		return rc;
 	}
@@ -996,7 +988,6 @@ route_mod_init(struct log *log, void **pp)
 	if (rc) {
 		return rc;
 	}
-	gt_dbg("2");
 	sysctl_add(log, GT_CTL_ROUTE_RSS_KEY, SYSCTL_RD,
 	           NULL, NULL, gt_route_ctl_rss_key);
 	sysctl_add_int(log, GT_CTL_ROUTE_RSS_QUEUE_CNT, SYSCTL_RD,

@@ -646,7 +646,7 @@ main(int argc, char **argv)
 			}
 		}
 		dlist_init(&used_socks);
-		sock_hash_size = gt_upper_pow_of_2_32(nr_socks_max * 3 / 2);
+		sock_hash_size = upper_pow2_32(nr_socks_max * 3 / 2);
 		sock_hash = malloc(sock_hash_size * sizeof(struct dlist));
 		sock_hash_mask = sock_hash_size - 1;
 		for (i = 0; i < sock_hash_size; ++i) {

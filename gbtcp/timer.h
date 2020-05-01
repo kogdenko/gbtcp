@@ -7,9 +7,9 @@
 
 #define TIMER_RING_SIZE 4096llu
 #define TIMER_RING_MASK (TIMER_RING_SIZE - 1llu)
-#define TIMER_TIMO (32 * GT_MSEC)
+#define TIMER_TIMO (32 * NANOSECONDS_MILLISECOND)
 #define TIMER_RING_ID_SHIFT 3
-#define TIMER_EXPIRE_MAX (5 * 60 * 60 * GT_SEC) // 5 Hours
+#define TIMER_EXPIRE_MAX (5 * NANOSECONDS_HOUR)
 
 struct gt_timer {
 	struct dlist tm_list;

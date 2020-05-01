@@ -98,9 +98,11 @@
 #define NM_IFNAMSIZ (IFNAMSIZ + NETMAP_PFX_LEN)
 #define GT_PREFIX "/usr/local/gbtcp"
 
-#define GT_SEC 1000000000ull
-#define GT_MSEC 1000000ull
-#define GT_NSEC_MAX ((unsigned long long)(-1))
+#define NANOSECONDS_SECOND 1000000000ull
+#define NANOSECONDS_MILLISECOND 1000000ull
+#define NANOSECONDS_MINUTE (60 * NANOSECONDS_SECOND)
+#define NANOSECONDS_HOUR (60 * NANOSECONDS_MINUTE)
+#define NANOSECONDS_INFINITY ((uint64_t)(-1))
 
 typedef uint16_t be16_t;
 typedef uint32_t be32_t;
@@ -132,8 +134,6 @@ struct gt_profiler {
 	uint64_t prf_spended;
 };
 
-
-
 #ifndef field_off
 #define field_off(type, field) ((intptr_t)&((type *)0)->field)
 #endif /* field_off */
@@ -158,8 +158,6 @@ struct gt_profiler {
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 #endif /* ARRAY_SIZE */
-
-#define ARRAY_REMOVE(a, i, n) ((a)[i] = (a)[--(n)])
 
 #define STRSZ(s) (s), (sizeof(s) - 1)
 
@@ -216,7 +214,7 @@ do { \
 	static uint64_t GT_UNIQV(last); \
 	static uint64_t GT_UNIQV(now); \
 	static int GT_UNIQV(cnt); \
-	GT_UNIQV(now) = gt_rdtsc(); \
+	GT_UNIQV(now) = rdtsc(); \
 	if (GT_UNIQV(now) - GT_UNIQV(last) >= period) { \
 		GT_UNIQV(last) = GT_UNIQV(now); \
 		if (GT_UNIQV(cnt)) { \
@@ -239,10 +237,12 @@ do { \
 #define GT_PRF_LEAVE(x) profiler_leave(&prf_##x)
 #endif
 
+#define dbg gt_dbg
+
 extern uint64_t nanoseconds;
-extern uint64_t gt_mHZ;
-extern int gt_application_pid;
-extern const char *gt_application_name;
+extern uint64_t HZ;
+extern uint64_t mHZ;
+extern __thread int api_disabled;
 
 int subr_mod_init(struct log *, void **);
 int subr_mod_attach(struct log *, void *);
@@ -266,15 +266,11 @@ void gt_profiler_enter(struct gt_profiler *);
 
 void gt_profiler_leave(struct gt_profiler *);
 
-// string
-char *gt_ltrim(const char *s);
-
-char *gt_trim(const char *s);
-
-int gt_strsplit(const char *str, const char *delim,
-	struct iovec *iovec, int iovcnt);
-
-char *strzcpy(char *dest, const char *src, size_t n);
+char *strltrim(const char *);
+char *strtrim(char *);
+char *strtrim2(char *, const char *);
+int strsplit(const char *, const char *, struct iovec *, int);
+char *strzcpy(char *, const char *, size_t);
 
 // hash
 uint32_t gt_custom_hash32(uint32_t data, uint32_t initval);
@@ -283,30 +279,29 @@ uint32_t gt_custom_hash(const void *data, size_t cnt, uint32_t val);
 
 uint32_t toeplitz_hash(const uint8_t *data, int cnt, const uint8_t *key);
 
-// byte
-uint32_t gt_upper_pow_of_2_32(uint32_t x);
-
-uint64_t gt_upper_pow_of_2_64(uint64_t x);
-
-uint32_t gt_lower_pow_of_2_32(uint32_t x);
-
-uint64_t gt_lower_pow_of_2_64(uint64_t x);
+int proc_get_name(struct log *, char *, int);
 
 
+uint32_t upper_pow2_32(uint32_t x);
+uint64_t upper_pow2_64(uint64_t x);
+uint32_t lower_pow2_32(uint32_t x);
+uint64_t lower_pow2_64(uint64_t x);
 
-int gt_set_nonblock(struct log *, int fd);
+int fcntl_setfl_nonblock(struct log *, int, int *);
+#define fcntl_setfl_nonblock2(log, fd) \
+	fcntl_setfl_nonblock(log, fd, NULL)
 
 int connect_timed(struct log *, int fd, const struct sockaddr *addr,
-	socklen_t addrlen, uint64_t to);
+	socklen_t addrlen, uint64_t *to);
 
-int write_all(struct log *log, int fd, const void *buf, size_t count);
+ssize_t read_timed(struct log *, int fd, void *buf, size_t count, uint64_t *to);
+
+ssize_t write_all(struct log *log, int fd, const void *buf, size_t count);
 
 int read_rsskey(struct log *, const char *, u_char *);
 
-long gt_gettid();
-
-//rand
-uint64_t gt_rdtsc();
+long gettid();
+uint64_t rdtsc();
 
 uint64_t gt_rand64();
 

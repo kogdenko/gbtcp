@@ -66,6 +66,6 @@ int file_wait(struct file *, short);
 void file_aio_set(struct file *, struct file_aio *, short, file_aio_f);
 void file_aio_cancel(struct file_aio *);
 void file_aio_init(struct file_aio *);
-int file_try_fd(int);
+int file_first_fd();
 
 #endif /* GBTCP_FILE_H */

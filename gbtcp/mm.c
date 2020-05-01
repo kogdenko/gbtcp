@@ -71,13 +71,14 @@ shm_attach(void **pp)
 {
 	int rc, fd, size;
 	void *ptr, *addr;
+
 	rc = shm_open(NAME, O_RDWR, 0666);
 	if (rc == -1) {
 		printf("== 1\n");
 		return -errno;
 	}
 	fd = rc;
-	ptr = mmap(0, sizeof(*shm), PROT_READ|PROT_WRITE,
+	ptr = mmap(NULL, sizeof(*shm), PROT_READ|PROT_WRITE,
 	           MAP_SHARED, fd, 0);
 	if (ptr == MAP_FAILED) {
 		sys_close(NULL, fd);
@@ -85,8 +86,8 @@ shm_attach(void **pp)
 		return -errno;
 	}
 	shm = ptr;
-	printf("ATTACH %p, %p\n", shm, (void *)shm->shm_addr);
 	size = shm->shm_npages * PAGE_SIZE;
+	printf("ATTACH %p, %p, size=%d\n", shm, (void *)shm->shm_addr, size);
 	addr = (void *)shm->shm_addr;
 	munmap(ptr, sizeof(*shm));
 	ptr = mmap(addr, size, PROT_READ|PROT_WRITE,

@@ -89,7 +89,7 @@ timer_mod_attach(struct log *log, void *raw_mod)
 	struct timer_ring *ring;
 	LOG_TRACE(log);
 	current_mod = raw_mod;
-	seg_size = gt_lower_pow_of_2_64(TIMER_TIMO);
+	seg_size = lower_pow2_64(TIMER_TIMO);
 	timer_nrings = 0;
 	while (seg_size < TIMER_EXPIRE_MAX) {
 		ring_seg_size[timer_nrings] = seg_size;

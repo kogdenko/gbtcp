@@ -371,11 +371,7 @@ file_aio_cancel(struct file_aio *aio)
 	}
 }
 int
-file_try_fd(int fd)
+file_first_fd()
 {
-	if (fd < current_mod->file_first_fd) {
-		return 0;
-	} else {
-		return -ENFILE;
-	}
+	return current_mod->file_first_fd;
 }

@@ -126,8 +126,6 @@ int sys_open(struct log *, const char *, int, mode_t);
 int sys_unlink(struct log *, const char *);
 int sys_pipe(struct log *, int [2]);
 int sys_socket(struct log *, int, int, int);
-void sys_log_connect_failed(struct log *, int, int,
-	const struct sockaddr *, socklen_t);
 int sys_connect(struct log *, int, const struct sockaddr *, socklen_t);
 int sys_bind(struct log *, int, const struct sockaddr *, socklen_t);
 int sys_listen(struct log *, int, int);
@@ -164,6 +162,7 @@ int sys_getifaddrs(struct log *, struct ifaddrs **);
 int sys_if_indextoname(struct log *, int, char *);
 int sys_kill(struct log *, int, int);
 int sys_waitpid(struct log *, pid_t, int *, int);
+int sys_daemon(struct log *, int, int);
 int sys_inotify_init1(struct log *, int);
 int sys_inotify_add_watch(struct log *, int, const char *, uint32_t);
 int sys_inotify_rm_watch(struct log *, int, int);
