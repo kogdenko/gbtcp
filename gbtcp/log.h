@@ -80,6 +80,7 @@ void log_init_early();
 
 int log_mod_init(struct log *, void **);
 int log_mod_attach(struct log *, void *);
+int log_proc_init(struct log *, struct proc *);
 void log_mod_deinit(struct log *, void *);
 void log_mod_detach(struct log *);
 

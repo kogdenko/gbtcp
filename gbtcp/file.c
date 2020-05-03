@@ -5,7 +5,6 @@ struct file_mod {
 	int file_first_fd;
 };
 
-static struct mbuf_pool *file_pool;
 static struct file_mod *curmod;
 
 static void
@@ -53,12 +52,15 @@ file_mod_init(struct log *log, void **pp)
 int
 file_mod_attach(struct log *log, void *raw_mod)
 {
-	int rc;
-
 	curmod = raw_mod;
-	LOG_TRACE(log);
-	rc = mbuf_pool_alloc(log, &file_pool, sizeof(struct gt_sock));
-	return rc;
+	return 0;
+}
+
+int
+file_proc_init(struct log *log, struct proc *p)
+{
+	mbuf_pool_init(&p->p_file_pool, sizeof(struct gt_sock));
+	return 0;
 }
 
 void
@@ -77,8 +79,7 @@ void
 file_mod_detach(struct log *log)
 {
 	//ASSERT(mbuf_pool_is_empty(file_pool));
-	mbuf_pool_free(file_pool);
-	file_pool = NULL;
+	mbuf_pool_deinit(&current->p_file_pool);
 	curmod = NULL;
 }
 
@@ -87,7 +88,7 @@ file_get_fd(struct file *fp)
 {
 	int m_id;
 
-	m_id = mbuf_get_id(file_pool, &fp->fl_mbuf);
+	m_id = mbuf_get_id(&fp->fl_mbuf);
 	return m_id + curmod->file_first_fd;
 }
 
@@ -103,7 +104,7 @@ file_next(int fd)
 	} else {
 		m_id = fd - curmod->file_first_fd;
 	}
-	m = mbuf_next(file_pool, m_id);
+	m = mbuf_next(&current->p_file_pool, m_id);
 	fp = (struct file *)m;
 	return fp;
 }
@@ -115,7 +116,7 @@ file_alloc(struct log *log, struct file **fpp, int type)
 	struct file *fp;
 
 	LOG_TRACE(log);
-	rc = mbuf_alloc(log, file_pool, (struct mbuf **)fpp);
+	rc = mbuf_alloc(log, &current->p_file_pool, (struct mbuf **)fpp);
 	if (rc == 0) {
 		fp = *fpp;
 		file_init(fp, type);
@@ -138,7 +139,7 @@ file_alloc4(struct log *log, struct file **fpp, int type, int fd)
 		rc = -EBADF;
 	} else {
 		m_id = fd - curmod->file_first_fd;
-		rc = mbuf_alloc4(log, file_pool, m_id,
+		rc = mbuf_alloc4(log, &current->p_file_pool, m_id,
 		                 (struct mbuf **)fpp);
 	}
 	if (rc == 0) {
@@ -163,7 +164,7 @@ file_get(int fd, struct file **fpp)
 		return -EBADF;
 	}
 	m_id = fd - curmod->file_first_fd;
-	m = mbuf_get(file_pool, m_id);
+	m = mbuf_get(&current->p_file_pool, m_id);
 	fp = (struct file *)m;
 	if (fp == NULL) {
 		return -EBADF;

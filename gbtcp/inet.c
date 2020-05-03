@@ -103,6 +103,12 @@ inet_mod_init(struct log *log, void **pp)
 }
 
 int
+inet_proc_init(struct log *log, struct proc *p)
+{
+	return 0;
+}
+
+int
 inet_mod_attach(struct log *log, void *raw_mod)
 {
 	curmod = raw_mod;

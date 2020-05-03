@@ -3,9 +3,8 @@
 #include "mbuf.h"
 #include "sockbuf.h"
 
-#define GT_SOCKBUF_CHUNK_SIZE 2048
-#define GT_SOCKBUF_CHUNK_DATA_SIZE \
-	(GT_SOCKBUF_CHUNK_SIZE - sizeof(struct sbchunk))
+#define SOCKBUF_CHUNK_DATA_SIZE \
+	(SOCKBUF_CHUNK_SIZE - sizeof(struct sbchunk))
 
 struct sockbuf_mod {
 	struct log_scope log_scope;
@@ -24,7 +23,6 @@ struct sbchunk {
 	int ch_off;
 };
 
-static struct mbuf_pool *sockbuf_chunk_pool;
 static struct sockbuf_mod *curmod;
 
 static int
@@ -55,8 +53,8 @@ uio_copyin(struct uio *uio, void *buf, int cnt)
 static int
 sockbuf_chunk_space(struct sbchunk *chunk)
 {
-	ASSERT(chunk->ch_off + chunk->ch_len <= GT_SOCKBUF_CHUNK_DATA_SIZE);
-	return GT_SOCKBUF_CHUNK_DATA_SIZE - (chunk->ch_off + chunk->ch_len);
+	ASSERT(chunk->ch_off + chunk->ch_len <= SOCKBUF_CHUNK_DATA_SIZE);
+	return SOCKBUF_CHUNK_DATA_SIZE - (chunk->ch_off + chunk->ch_len);
 }
 
 static void *
@@ -66,14 +64,14 @@ sockbuf_chunk_data(struct sbchunk *chunk)
 }
 
 static struct sbchunk *
-sockbuf_chunk_alloc(struct sockbuf *b)
+sockbuf_chunk_alloc(struct mbuf_pool *p, struct sockbuf *b)
 {
 	int rc;
 	struct log *log;
 	struct sbchunk *chunk;
 
 	log = log_trace0();
-	rc = mbuf_alloc(log, sockbuf_chunk_pool, (struct mbuf **)&chunk);
+	rc = mbuf_alloc(log, p, (struct mbuf **)&chunk);
 	if (rc == 0) {
 		chunk->ch_len = 0;
 		chunk->ch_off = 0;
@@ -160,7 +158,8 @@ sockbuf_write(struct sockbuf *b, struct sbchunk *pos,
 }
 
 int
-sockbuf_add(struct sockbuf *b, const void *buf, int cnt, int atomic)
+sockbuf_add(struct mbuf_pool *p, struct sockbuf *b, const void *buf, int cnt,
+	int atomic)
 {
 	int n, rem, space, added;
 	struct sbchunk *chunk, *pos;
@@ -179,7 +178,7 @@ sockbuf_add(struct sockbuf *b, const void *buf, int cnt, int atomic)
 	}
 	n = 0;
 	if (dlist_is_empty(&b->sob_head)) {
-		chunk = sockbuf_chunk_alloc(b);
+		chunk = sockbuf_chunk_alloc(p, b);
 		if (chunk == NULL) {
 			return -ENOMEM;
 		}
@@ -194,7 +193,7 @@ sockbuf_add(struct sockbuf *b, const void *buf, int cnt, int atomic)
 		if (rem <= 0) {
 			break;
 		}
-		chunk = sockbuf_chunk_alloc(b);
+		chunk = sockbuf_chunk_alloc(p, b);
 		if (chunk == NULL) {
 			sockbuf_free_n(b, n);
 			return -ENOMEM;
@@ -363,12 +362,15 @@ sockbuf_mod_init(struct log *log, void **pp)
 int
 sockbuf_mod_attach(struct log *log, void *raw_mod)
 {
-	int rc;
 	LOG_TRACE(log);
 	curmod = raw_mod;
-	rc = mbuf_pool_alloc(log, &sockbuf_chunk_pool,
-	                     GT_SOCKBUF_CHUNK_SIZE);
-	return rc;
+	return 0;
+}
+
+int
+sockbuf_proc_init(struct log *log, struct proc *p)
+{
+	return 0;
 }
 
 void
@@ -385,8 +387,5 @@ sockbuf_mod_deinit(struct log *log, void *raw_mod)
 void
 sockbuf_mod_detach(struct log *log)
 {
-	// TODO:
-	//ASSERT(mbuf_pool_is_empty(sockbuf_chunk_pool));
-	mbuf_pool_free(sockbuf_chunk_pool);
 	curmod = NULL;
 }

@@ -423,7 +423,7 @@ gt_route_alloc(struct log *log, struct gt_route_entry_long **proute,
 {
 	int rc;
 	struct lprule *rule;
-	rc = mbuf_alloc(log, curmod->route_pool, (struct mbuf **)proute);
+	rc = mbuf_alloc(log, &curmod->route_pool, (struct mbuf **)proute);
 	if (rc == 0) {
 		rule = (struct lprule *)*proute;
 		rc = lptree_set(log, &curmod->route_lptree, rule, key, depth);
@@ -833,11 +833,11 @@ gt_route_ctl_list_next(void *udata, int id)
 		}
 		id++;
 	}
-	m = mbuf_next(curmod->route_pool, id - 1);
+	m = mbuf_next(&curmod->route_pool, id - 1);
 	if (m == NULL) {
 		return -ENOENT;
 	} else {
-		rc = mbuf_get_id(curmod->route_pool, m);
+		rc = mbuf_get_id(m);
 		return rc + 1;
 	}
 }
@@ -861,7 +861,7 @@ gt_route_ctl_list(void *udata, int id, const char *new, struct strbuf *out)
 		}
 	}
 	route = (struct gt_route_entry_long *)
-		mbuf_get(curmod->route_pool, id - 1);
+		mbuf_get(&curmod->route_pool, id - 1);
 	if (route == NULL) {
 		return -ENOENT;
 	}
@@ -982,11 +982,7 @@ route_mod_init(struct log *log, void **pp)
 	if (rc) {
 		return rc;
 	}
-	rc = mbuf_pool_alloc(log, &mod->route_pool,
-	                     sizeof(struct gt_route_entry_long));
-	if (rc) {
-		return rc;
-	}
+	mbuf_pool_init(&mod->route_pool, sizeof(struct gt_route_entry_long));
 	sysctl_add(log, GT_CTL_ROUTE_RSS_KEY, SYSCTL_RD,
 	           NULL, NULL, gt_route_ctl_rss_key);
 	sysctl_add_int(log, GT_CTL_ROUTE_RSS_QUEUE_CNT, SYSCTL_RD,
@@ -1020,6 +1016,13 @@ route_mod_attach(struct log *log, void *raw_mod)
 	curmod = raw_mod;
 	return 0;
 }
+
+int
+route_proc_init(struct log *log, struct proc *p)
+{
+	return 0;
+}
+
 
 void
 route_mod_deinit(struct log *log, void *raw_mod)

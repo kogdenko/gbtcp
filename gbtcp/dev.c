@@ -30,6 +30,12 @@ dev_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
+int
+dev_proc_init(struct log *log, struct proc *p)
+{
+	return 0;
+}
+
 void
 dev_mod_deinit(struct log *log, void *raw_mod)
 {

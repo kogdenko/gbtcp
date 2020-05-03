@@ -68,6 +68,7 @@ struct dev_pkt {
 
 int dev_mod_init(struct log *, void **);
 int dev_mod_attach(struct log *, void *);
+int dev_proc_init(struct log *, struct proc *);
 void dev_mod_deinit(struct log *, void *);
 void dev_mod_detach(struct log *);
 

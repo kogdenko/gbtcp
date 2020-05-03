@@ -184,6 +184,12 @@ sysctl_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
+int
+sysctl_proc_init(struct log *log, struct proc *p)
+{
+	return 0;
+}
+
 void
 sysctl_mod_deinit(struct log *log, void *raw_mod)
 {

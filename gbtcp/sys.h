@@ -116,6 +116,7 @@ extern sys_kevent_f sys_kevent_fn;
 
 int sys_mod_init(struct log *, void **);
 int sys_mod_attach(struct log *, void *);
+int sys_proc_init(struct log *, struct proc *);
 void sys_mod_deinit(struct log *, void *);
 void sys_mod_detach(struct log *);
 

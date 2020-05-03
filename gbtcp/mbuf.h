@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 license
 #ifndef GBTCP_MBUF_H
 #define GBTCP_MBUF_H
 
@@ -14,7 +14,7 @@ struct mbuf {
 		struct {
 			uint16_t mb_magic;
 			uint8_t mb_used;
-			uint8_t mb_pool_id;
+			uint8_t mb_allocated;
 		};
 	};
 };
@@ -31,17 +31,18 @@ struct mbuf_pool {
 
 #define MBUF_FOREACH_SAFE(m, p, tmp_id) \
 	for (m = mbuf_next(p, 0); \
-	     m != NULL && ((tmp_id = mbuf_get_id(p, m) + 1), 1); \
+	     m != NULL && ((tmp_id = mbuf_get_id(m) + 1), 1); \
 	     m = mbuf_next(p, tmp_id))
 
 int mbuf_mod_init(struct log *, void **);
 int mbuf_mod_attach(struct log *, void *);
+int mbuf_proc_init(struct log *, struct proc *);
 void mbuf_mod_deinit(struct log *, void *);
 void mbuf_mod_detach(struct log *);
 
-int mbuf_pool_alloc(struct log *, struct mbuf_pool **, int);
+void mbuf_pool_init(struct mbuf_pool *, int);
+void mbuf_pool_deinit(struct mbuf_pool *);
 int mbuf_pool_is_empty(struct mbuf_pool *);
-void mbuf_pool_free(struct mbuf_pool *);
 
 int mbuf_alloc(struct log *, struct mbuf_pool *, struct mbuf **);
 int mbuf_alloc4(struct log *, struct mbuf_pool *, uint32_t, struct mbuf **);
@@ -49,6 +50,7 @@ void mbuf_init(struct mbuf *);
 void mbuf_free(struct mbuf *);
 struct mbuf *mbuf_get(struct mbuf_pool *, uint32_t);
 struct mbuf *mbuf_next(struct mbuf_pool *, uint32_t);
-int mbuf_get_id(struct mbuf_pool *, struct mbuf *);
+int mbuf_get_id(struct mbuf *);
+struct mbuf_pool *mbuf_get_pool(struct mbuf *m);
 
-#endif /* GBTCP_MBUF_H */
+#endif // GBTCP_MBUF_H

@@ -272,6 +272,13 @@ tcp_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
+int
+tcp_proc_init(struct log *log, struct proc *p)
+{
+	mbuf_pool_init(&p->p_sockbuf_pool, SOCKBUF_CHUNK_SIZE);
+	return 0;
+}
+
 void
 tcp_mod_deinit(struct log *log, void *raw_mod)
 {
@@ -283,6 +290,7 @@ tcp_mod_deinit(struct log *log, void *raw_mod)
 	//	file_close(fp, GT_SOCK_RESET);
 	//}
 	sysctl_del(log, "tcp.fin_timeout");
+	mbuf_pool_deinit(&current->p_sockbuf_pool);
 	htable_free(&gt_sock_htable);
 	sysctl_del(log, GT_CTL_SOCK_LIST);
 	log_scope_deinit(log, &mod->log_scope);
@@ -2595,7 +2603,8 @@ gt_sock_rcvbuf_add(struct gt_sock *so, const void *src, int cnt, int all)
 	struct log *log;
 
 	len = so->so_rcvbuf.sob_len;
-	rc = sockbuf_add(&so->so_rcvbuf, src, cnt, all);
+	rc = sockbuf_add(&current->p_sockbuf_pool, &so->so_rcvbuf,
+	                 src, cnt, all);
 	rc = so->so_rcvbuf.sob_len - len;
 	log = log_trace0();
 	DBG(log, 0, "hit; fd=%d, cnt=%d, buflen=%d",
@@ -2628,7 +2637,8 @@ gt_sock_on_rcv(struct gt_sock *so, void *buf, int len,
 			msg.sobm_faddr = so_tuple->sot_faddr;
 			msg.sobm_fport = so_tuple->sot_fport;
 			msg.sobm_len = rc;
-			rc = sockbuf_add(&so->so_msgbuf, &msg, sizeof(msg), 1);
+			rc = sockbuf_add(&current->p_sockbuf_pool,
+			                 &so->so_msgbuf, &msg, sizeof(msg), 1);
 			if (rc <= 0) {
 				sockbuf_drop(&so->so_rcvbuf, msg.sobm_len);
 				rc = 0;
@@ -2707,7 +2717,8 @@ gt_sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt)
 	int rc;
 	struct log *log;
 
-	rc = sockbuf_add(&so->so_sndbuf, src, cnt, 0);
+	rc = sockbuf_add(&current->p_sockbuf_pool,
+	                 &so->so_sndbuf, src, cnt, 0);
 	log = log_trace0();
 	DBG(log, 0, "hit; cnt=%d, buflen=%d, fd=%d",
 	    cnt, so->so_sndbuf.sob_len, gt_sock_fd(so));

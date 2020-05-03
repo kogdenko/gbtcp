@@ -30,7 +30,7 @@ struct route_mod {
 	struct log_scope log_scope;
 	int route_rssq_cnt;
 	struct lptree route_lptree;
-	struct mbuf_pool *route_pool;
+	struct mbuf_pool route_pool;
 	struct dlist route_if_head;
 	struct gt_route_entry_long route_default;
 	struct dlist route_addr_head;
@@ -128,6 +128,7 @@ extern uint8_t gt_route_rss_key[RSSKEYSIZ];
 
 int route_mod_init(struct log *, void **);
 int route_mod_attach(struct log *, void *);
+int route_proc_init(struct log *, struct proc *);
 void route_mod_deinit(struct log *, void *);
 void route_mod_detach(struct log *);
 

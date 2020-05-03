@@ -51,6 +51,12 @@ fd_event_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
+int
+fd_event_proc_init(struct log *log, struct proc *p)
+{
+	return 0;
+}
+
 void
 fd_event_mod_deinit(struct log *log, void *raw_mod)
 {

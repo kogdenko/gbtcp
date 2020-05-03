@@ -249,6 +249,7 @@ extern struct gt_arp_stat gt_arps;
 #define GT_TCP_HDR_LEN(data_off) ((data_off & 0xf0) >> 2)
 
 int inet_mod_init(struct log *log, void **);
+int inet_proc_init(struct log *, struct proc *);
 int inet_mod_attach(struct log *, void *);
 void inet_mod_deinit(struct log *, void *);
 void inet_mod_detach(struct log *);

@@ -11,7 +11,7 @@ struct lptree_mod {
 static struct lptree_mod *curmod;
 	
 #define lpnode_dynamic_cast(tree, m) \
-	((m)->mb_pool_id == (tree)->lpt_pool->mbp_id)
+	(mbuf_get_pool(m) == &(tree)->lpt_pool)
 
 static void
 lpnode_init(struct lpnode *node, struct lpnode *parent)
@@ -29,7 +29,7 @@ lpnode_alloc(struct log *log, struct lptree *tree, struct lpnode *parent,
 	int rc;
 
 	LOG_TRACE(log);
-	rc = mbuf_alloc(log, tree->lpt_pool, (struct mbuf **)pnode);
+	rc = mbuf_alloc(log, &tree->lpt_pool, (struct mbuf **)pnode);
 	if (!rc) {
 		lpnode_init(*pnode, parent);
 	}
@@ -81,6 +81,12 @@ lptree_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
+int
+lptree_proc_init(struct log *log, struct proc *p)
+{
+	return 0;
+}
+
 void
 lptree_mod_deinit(struct log *log, void *raw_mod)
 {
@@ -104,15 +110,10 @@ lptree_init(struct log *log, struct lptree *tree)
 	int rc;
 
 	LOG_TRACE(log);
-	rc = mbuf_pool_alloc(log, &tree->lpt_pool,
-	                     sizeof(struct lpnode));
-	if (rc) {
-		return rc;
-	}
+	mbuf_pool_init(&tree->lpt_pool, sizeof(struct lpnode));
 	rc = lpnode_alloc(log, tree, NULL, &tree->lpt_root);
 	if (rc) {
-		mbuf_pool_free(tree->lpt_pool);
-		tree->lpt_pool = NULL;
+		mbuf_pool_deinit(&tree->lpt_pool);
 	}
 	return rc;
 }
@@ -125,10 +126,7 @@ lptree_deinit(struct lptree *tree)
 		lpnode_free(tree->lpt_root);
 		tree->lpt_root = NULL;
 	}
-	if (tree->lpt_pool != NULL) {
-		mbuf_pool_free(tree->lpt_pool);
-		tree->lpt_pool = NULL;
-	}
+	mbuf_pool_deinit(&tree->lpt_pool);
 }
 
 struct lprule *

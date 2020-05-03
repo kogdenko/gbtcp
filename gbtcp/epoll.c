@@ -12,7 +12,7 @@ struct epoll_mod {
 struct uepoll {
 	struct file ep_file;
 	int ep_fd;
-	struct mbuf_pool *ep_pool;
+	struct mbuf_pool ep_pool;
 	struct dlist ep_head;
 };
 
@@ -55,6 +55,12 @@ epoll_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
+int
+epoll_proc_init(struct log *log, struct proc *p)
+{
+	return 0;
+}
+
 void
 epoll_mod_deinit(struct log *log, void *raw_mod)
 {
@@ -75,11 +81,12 @@ epoll_mod_detach(struct log *log)
 static struct uepoll_entry *
 uepoll_entry_get(struct uepoll *ep, struct file *fp)
 {
-	struct mbuf *mbuf;
+	struct mbuf *m;
 	struct uepoll_entry *e;
-	DLIST_FOREACH(mbuf, &fp->fl_aioq, mb_list) {
-		if (mbuf->mb_pool_id == ep->ep_pool->mbp_id) {
-			e = (struct uepoll_entry *)mbuf;
+
+	DLIST_FOREACH(m, &fp->fl_aioq, mb_list) {
+		if (mbuf_get_pool(m) == &ep->ep_pool) {
+			e = (struct uepoll_entry *)m;
 			return e;
 		}
 	}
@@ -90,7 +97,7 @@ uepoll_entry_alloc(struct uepoll *ep, struct file *fp, short filter)
 {
 	int rc;
         struct uepoll_entry *e;
-	rc = mbuf_alloc(NULL, ep->ep_pool, (struct mbuf **)&e);
+	rc = mbuf_alloc(NULL, &ep->ep_pool, (struct mbuf **)&e);
 	if (rc) {
 		return NULL;
 	}
@@ -356,11 +363,7 @@ uepoll_create(int ep_fd)
 	fp->fl_opened = 1;
 	ep = (struct uepoll *)fp;
 	ep->ep_fd = ep_fd;
-	rc = mbuf_pool_alloc(log, &ep->ep_pool, sizeof(struct uepoll_entry));
-	if (rc) {
-		file_free(fp);
-		return rc;
-	}
+	mbuf_pool_init(&ep->ep_pool, sizeof(struct uepoll_entry));
 	dlist_init(&ep->ep_head);
 	fd = file_get_fd(fp);
 	return fd;
@@ -378,12 +381,12 @@ uepoll_close(struct file *fp)
 	if (rc == -1) {
 		rc = errno;
 	}
-	MBUF_FOREACH_SAFE(m, ep->ep_pool, tmp) {
+	MBUF_FOREACH_SAFE(m, &ep->ep_pool, tmp) {
 		e = (struct uepoll_entry *)m;
 		uepoll_entry_free(e);
 	}
-	ASSERT(mbuf_pool_is_empty(ep->ep_pool));
-	mbuf_pool_free(ep->ep_pool);
+	ASSERT(mbuf_pool_is_empty(&ep->ep_pool));
+	mbuf_pool_deinit(&ep->ep_pool);
 	file_free(fp);
 	return rc;
 }

@@ -70,7 +70,7 @@ static int sock_hash_mask;
 static struct dlist txq;
 static int nr_socks;
 static int nr_socks_max;
-static struct mbuf_pool *sock_pool;
+static struct mbuf_pool sock_pool;
 static struct dlist free_socks;
 static struct dlist used_socks;
 static struct dlist *sock_hash;
@@ -321,7 +321,7 @@ so_alloc(struct dlist *bucket)
 		so_del(so);
 	}
 	if (Mflag) {
-		mbuf_alloc(NULL, sock_pool, (struct mbuf **)&so);
+		mbuf_alloc(NULL, &sock_pool, (struct mbuf **)&so);
 	} else {
 		assert(dlist_is_empty(&free_socks));
 		so = DLIST_LAST(&free_socks, struct gt_sock, so_bindl);
@@ -637,7 +637,7 @@ main(int argc, char **argv)
 	}
 	if (nr_socks_max) {
 		if (Mflag) {
-			mbuf_pool_alloc(NULL, &sock_pool, sizeof(struct gt_sock));
+			mbuf_pool_init(&sock_pool, sizeof(struct gt_sock));
 		} else {
 			dlist_init(&free_socks);
 			so_buf = malloc(nr_socks_max * sizeof(struct gt_sock));

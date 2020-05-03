@@ -33,10 +33,17 @@ signal_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
+int
+signal_proc_init(struct log *log, struct proc *p)
+{
+	return 0;
+}
+
 void
 signal_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct signal_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);

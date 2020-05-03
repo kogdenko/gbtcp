@@ -134,6 +134,8 @@ struct gt_profiler {
 	uint64_t prf_spended;
 };
 
+struct proc;
+
 #ifndef field_off
 #define field_off(type, field) ((intptr_t)&((type *)0)->field)
 #endif /* field_off */
@@ -247,6 +249,7 @@ extern __thread int api_disabled;
 
 int subr_mod_init(struct log *, void **);
 int subr_mod_attach(struct log *, void *);
+int subr_proc_init(struct log *, struct proc *);
 void subr_mod_deinit(struct log *, void *);
 void subr_mod_detach(struct log *);
 

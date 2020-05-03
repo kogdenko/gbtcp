@@ -111,6 +111,7 @@ extern struct dlist gt_sock_binded[65536];
 
 int tcp_mod_init(struct log *, void **);
 int tcp_mod_attach(struct log *, void *);
+int tcp_proc_init(struct log *, struct proc *);
 void tcp_mod_deinit(struct log *, void *);
 void tcp_mod_detach(struct log *);
 

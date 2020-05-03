@@ -16,33 +16,32 @@ struct mod {
 	const char *m_name;
 };
 
-#define MOD_FOREACH(x) \
-	x(sysctl) \
-	x(log) \
-	x(init) \
-	x(subr) \
-	x(pid) \
-	x(poll) \
-	x(epoll) \
-	x(sys) \
-	x(mbuf) \
-	x(htable) \
-	x(timer) \
-	x(fd_event) \
-	x(signal) \
-	x(dev) \
-	x(api) \
-	x(service) \
-	x(lptree) \
-	x(route) \
-	x(arp) \
-	x(file) \
-	x(inet) \
-	x(sockbuf) \
-	x(tcp)
+#define MOD_FOREACH(x, a1) \
+	x(sysctl, a1) \
+	x(log, a1) \
+	x(proc, a1) \
+	x(subr, a1) \
+	x(pid, a1) \
+	x(poll, a1) \
+	x(epoll, a1) \
+	x(sys, a1) \
+	x(mbuf, a1) \
+	x(htable, a1) \
+	x(timer, a1) \
+	x(fd_event, a1) \
+	x(signal, a1) \
+	x(dev, a1) \
+	x(api, a1) \
+	x(lptree, a1) \
+	x(route, a1) \
+	x(arp, a1) \
+	x(file, a1) \
+	x(inet, a1) \
+	x(sockbuf, a1) \
+	x(tcp, a1)
 
-#define MOD_ENUM(name) MOD_##name,
-#define MOD_INIT(name) \
+#define MOD_ENUM(name, a1) MOD_##name,
+#define MOD_INIT(name, a1) \
 	pmod = &ih->ih_mods[MOD_##name]; \
 	if (0) \
 		printf("Init { %s\n", #name); \
@@ -54,14 +53,16 @@ struct mod {
 	name##_mod_attach(NULL, *pmod);
 
 	
-#define MOD_ATTACH(name) \
+#define MOD_ATTACH(name, a1) \
 	pmod = &ih->ih_mods[MOD_##name]; \
 	if (0) \
 		printf("Attach %s [%d]%p\n", #name, MOD_##name, *pmod); \
 	name##_mod_attach(NULL, *pmod);
 
+#define PROC_INIT(name, p) name##_proc_init(NULL, p);
+
 enum {
-	MOD_FOREACH(MOD_ENUM)
+	MOD_FOREACH(MOD_ENUM, 0)
 	MOD_COUNT_MAX
 };
 
@@ -130,7 +131,7 @@ gtd_host_rxtx(struct dev *dev, short revents)
 
 
 int
-init_mod_init(struct log *log, void **pp)
+proc_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct init_mod *mod;
@@ -144,16 +145,23 @@ init_mod_init(struct log *log, void **pp)
 }
 
 int
-init_mod_attach(struct log *log, void *raw_mod)
+proc_mod_attach(struct log *log, void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
+int
+proc_proc_init(struct log *log, struct proc *p)
+{
+	return 0;
+}
+
 void
-init_mod_deinit(struct log *log, void *raw_mod)
+proc_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct init_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
@@ -161,7 +169,7 @@ init_mod_deinit(struct log *log, void *raw_mod)
 }
 
 void
-init_mod_detach(struct log *log)
+proc_mod_detach(struct log *log)
 {
 	curmod = NULL;
 }
@@ -202,10 +210,10 @@ common_init(int is_service, struct init_hdr *ih)
 	if (is_service == 0) {
 		memset(ih, 0, sizeof(*ih));
 		printf("init modules\n");
-		MOD_FOREACH(MOD_INIT);
+		MOD_FOREACH(MOD_INIT, 0);
 		printf("init dodules done\n");
 	} else {
-		MOD_FOREACH(MOD_ATTACH);
+		MOD_FOREACH(MOD_ATTACH, 0);
 	}
 	return 0;
 }
@@ -312,7 +320,6 @@ controller_sysctl_accept(struct log *log, struct sysctl_conn *lp)
 	fd = rc;
 	rc = sys_malloc(log, (void **)&cp, sizeof(*cp));
 	if (rc) {
-		dbg("!");
 		sys_close(log, fd);
 		return rc;
 	}
@@ -390,15 +397,18 @@ proc_controller_init(struct log *log, int daemonize, const char *proc_name)
 	current = &ih->ih_controller;
 	current->p_pid = pid;
 	current->p_type = PROC_CONTROLLER;
+	MOD_FOREACH(PROC_INIT, current);
 	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
 		proc = ih->ih_services + i;
 		proc->p_pid = 0;
 		proc->p_type = PROC_SERVICE;
+		MOD_FOREACH(PROC_INIT, proc);
 	}
 	sysctl_read_file(log, proc_name);
 	rc = controller_bind(log, pid);
 	return rc;
 }
+
 
 void
 proc_controller_loop()

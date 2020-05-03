@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 license
 #ifndef GBTCP_FILE_H
 #define GBTCP_FILE_H
 
@@ -48,6 +48,7 @@ struct file_aio {
 
 int file_mod_init(struct log *, void **);
 int file_mod_attach(struct log *, void *);
+int file_proc_init(struct log *, struct proc *);
 void file_mod_deinit(struct log *, void *);
 void file_mod_detach(struct log *);
 

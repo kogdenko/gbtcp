@@ -50,6 +50,7 @@ typedef int (*sysctl_list_f)(void *, int, const char *, struct strbuf *out);
 
 int sysctl_mod_init(struct log *, void **);
 int sysctl_mod_attach(struct log *, void *);
+int sysctl_proc_init(struct log *, struct proc *);
 void sysctl_mod_deinit(struct log *, void *);
 void sysctl_mod_detach(struct log *);
 

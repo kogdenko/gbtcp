@@ -9,6 +9,7 @@ extern size_t gt_signal_stack_size;
 
 int signal_mod_init(struct log *, void **);
 int signal_mod_attach(struct log *, void *);
+int signal_proc_init(struct log *, struct proc *);
 void signal_mod_deinit(struct log *, void *);
 void signal_mod_detach(struct log *);
 

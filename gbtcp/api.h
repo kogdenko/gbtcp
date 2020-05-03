@@ -16,6 +16,7 @@ do { \
 
 int api_mod_init(struct log *, void **);
 int api_mod_attach(struct log *, void *);
+int api_proc_init(struct log *, struct proc *);
 void api_mod_deinit(struct log *, void *);
 void api_mod_detach(struct log *);
 
@@ -27,7 +28,7 @@ int api_shutdown(int, int);
 int api_close(int);
 ssize_t api_recvfrom(int, const struct iovec *, int, int,
 	struct sockaddr *, socklen_t *);
-int api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
+int api_send(int, const struct iovec *, int iovcnt, int flags,
 	be32_t faddr, be16_t fport);
 int api_fcntl(int fd, int cmd, uintptr_t arg);
 int api_fcntl(int fd, int cmd, uintptr_t arg);

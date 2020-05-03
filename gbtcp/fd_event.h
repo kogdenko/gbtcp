@@ -45,6 +45,7 @@ extern uint64_t gt_fd_event_epoch;
 
 int fd_event_mod_init(struct log *, void **);
 int fd_event_mod_attach(struct log *, void *);
+int fd_event_proc_init(struct log *, struct proc *);
 void fd_event_mod_deinit(struct log *, void *);
 void fd_event_mod_detach(struct log *);
 
