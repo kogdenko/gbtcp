@@ -194,6 +194,7 @@ void
 log_scope_init_early(struct log_scope *scope, const char *name)
 {
 	memset(scope, 0, sizeof(*scope));
+	scope->lgs_level = LOG_ERR;
 	strzcpy(scope->lgs_name, name, sizeof(scope->lgs_name));
 	scope->lgs_name_len = strlen(scope->lgs_name);
 	ASSERT(scope->lgs_name_len);
@@ -242,13 +243,15 @@ log_copy(struct log *dst, int cnt, struct log *src)
 	return dst;
 }
 int
-log_is_enabled(struct log_scope *scope, int level)
+log_is_enabled(struct log_scope *scope, int level, int debug)
 {
 	int thresh, is_stdout;
 
 	is_stdout = log_is_stdout(0);
 	if (log_fd == -1 && is_stdout == 0) {
 		// Nowhere to write logs
+		if (debug) 
+			dbg("1");
 		return 0;
 	}
 	if (curmod == NULL) {
@@ -258,6 +261,9 @@ log_is_enabled(struct log_scope *scope, int level)
 		thresh = scope->lgs_level;
 	} else {
 		thresh = curmod->log_level;
+	}
+	if (debug) {
+		dbg("2 - %d %d", level, thresh);
 	}
 	return level <= thresh;
 }

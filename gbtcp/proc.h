@@ -17,6 +17,9 @@ struct proc {
 	char p_name[PROC_NAME_SIZE_MAX];
 };
 
+int proc_controller_init(struct log *, int, const char *);
+void proc_controller_loop();
+
 extern struct proc *current;
 uint64_t nanoseconds;
 

@@ -3,7 +3,7 @@
 
 #include "list.h"
 
-struct gt_sockbuf {
+struct sockbuf {
 	int sob_max;
 	int sob_len;
 	struct dlist sob_head;
@@ -14,28 +14,16 @@ int sockbuf_mod_attach(struct log *, void *);
 void sockbuf_mod_deinit(struct log *, void *);
 void sockbuf_mod_detach(struct log *);
 
-void gt_sockbuf_init(struct gt_sockbuf *b, int max);
+void sockbuf_init(struct sockbuf *, int);
+void sockbuf_free(struct sockbuf *);
+int sockbuf_full(struct sockbuf *);
+void sockbuf_set_max(struct sockbuf *, int);
+int sockbuf_add(struct sockbuf *, const void *, int, int);
+int sockbuf_readv(struct sockbuf *, const struct iovec *, int, int, int);
+int sockbuf_readv4(struct sockbuf *, const struct iovec *, int, int);
+int sockbuf_recv(struct sockbuf *, void *, int, int);
+int sockbuf_drop(struct sockbuf *, int);
+void sockbuf_copy(struct sockbuf *, int, u_char *, int);
+int sockbuf_rewrite(struct sockbuf *, const void *, int);
 
-void gt_sockbuf_free(struct gt_sockbuf *b);
-
-int gt_sockbuf_full(struct gt_sockbuf *b);
-
-void gt_sockbuf_set_max(struct gt_sockbuf *b, int max);
-
-int gt_sockbuf_add(struct gt_sockbuf *b, const void *buf, int cnt, int atomic);
-
-int gt_sockbuf_readv(struct gt_sockbuf *b,
-	const struct iovec *iov, int iovcnt, int cnt, int peek);
-
-int gt_sockbuf_readv4(struct gt_sockbuf *b,
-	const struct iovec *iov, int iovcnt, int peek);
-
-int gt_sockbuf_recv(struct gt_sockbuf *b, void *dst, int cnt, int peek);
-
-int gt_sockbuf_pop(struct gt_sockbuf *b, int cnt);
-
-void gt_sockbuf_send(struct gt_sockbuf *b, int off, void *dst, int cnt);
-
-int gt_sockbuf_rewrite(struct gt_sockbuf *b, const void *dst, int cnt);
-
-#endif /* GBTCP_SOCKBUF_H */
+#endif // GBTCP_SOCKBUF_H

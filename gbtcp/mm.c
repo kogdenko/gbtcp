@@ -33,7 +33,7 @@ int
 shm_init(void **pp, int size)
 {
 	int i, n, rc, fd, npages;
-	void *ptr;
+	void *ptr, *suggest;
 	npages = 256000;
 	rc = shm_open(NAME, O_CREAT|O_RDWR, 0666);
 	if (rc == -1) {
@@ -41,12 +41,15 @@ shm_init(void **pp, int size)
 	}
 	fd = rc;
 	ftruncate(fd, npages * PAGE_SIZE);
-	ptr = mmap(0, npages * PAGE_SIZE, PROT_READ|PROT_WRITE,
+	suggest = (void *)(0x7fffffffffff - 8llu * 1024 * 1024 * 1024);
+	ptr = mmap(suggest,
+	           npages * PAGE_SIZE, PROT_READ|PROT_WRITE,
 	           MAP_SHARED, fd, 0);
 	if (ptr == MAP_FAILED) {
 		sys_close(NULL, fd);
 		return -errno;
 	}
+	dbg("ptr= %p, siggest=%p", ptr, suggest);
 	assert(!(((uintptr_t)ptr) & (PAGE_SIZE - 1)));
 	shm = ptr;
 	shm->shm_addr = (uintptr_t)ptr;

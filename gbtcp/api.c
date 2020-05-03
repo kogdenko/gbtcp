@@ -8,20 +8,9 @@ struct api_mod {
 __thread int api_disabled;
 static struct api_mod *curmod;
 
-#define API_RETURN(rc) \
-	do { \
-		if (rc < 0) { \
-			gbtcp_errno = -rc; \
-			return -1; \
-		} else { \
-			return rc; \
-		} \
-	} while (0)
 
 #define API_LOCK \
-	gt_dbg("API %s", __func__); \
 	if (!api_lock()) { \
-		gt_dbg("NOTSUP"); \
 		API_RETURN(-ENOTSUP); \
 	}
 
@@ -39,20 +28,17 @@ api_lock()
 	ptrdiff_t stack_off;
 
 	if (api_disabled) {
-		dbg("1");
 		return 0;
 	}
 	stack_off = (u_char *)&rc - (u_char *)gt_signal_stack;
 	if (stack_off < gt_signal_stack_size) {
 		// Called from signal handler
-		dbg("2");
 		return 0;
 	} else if (current != NULL) {
 		rdtsc_update_time();
 	} else {
 		rc = service_init();
 		if (rc) {
-			dbg("3");
 			return 0;
 		}
 	}
@@ -907,25 +893,6 @@ gbtcp_sigaction(int signum, const struct sigaction *act,
 		DBG(log, -rc, "failed");
 	} else {
 		DBG(log, 0, "ok");
-	}
-	API_UNLOCK;
-	API_RETURN(rc);
-}
-
-int
-gt_sysctl(const char *path, char *old, int len, const char *new)
-{
-	int rc;
-	struct log *log;
-
-	API_LOCK;
-	log = log_trace0();
-	LOGF(log, LOG_INFO, 0, "hit; path='%s'", path);
-	rc = usysctl(log, path, old, len, new);
-	if (rc < 0) {
-		LOGF(log, LOG_INFO, -rc, "failed");
-	} else {
-		LOGF(log, LOG_INFO, 0, "ok");
 	}
 	API_UNLOCK;
 	API_RETURN(rc);

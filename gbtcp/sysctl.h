@@ -9,6 +9,7 @@
 #define SYSCTL_WR 2
 
 #define SYSCTL_PATH GT_PREFIX"/sock"
+#define SYSCTL_CONTROLLER_PATH SYSCTL_PATH"/controller.sock"
 
 #define SYSCTL_FILE_FIRST_FD "file.first_fd"
 #define GT_CTL_INET_RX_CKSUM_OFFLOAD "inet.rx_cksum_offload"
@@ -29,6 +30,16 @@
 #define GT_CTL_ROUTE_ROUTE_DEL "route.route.del"
 #define GT_CTL_SOCK_LIST "sock.list"
 
+struct sysctl_conn {
+	void (*c_close_fn)(struct log *, struct sysctl_conn *);
+	int (*c_accept_fn)(struct log *, struct sysctl_conn *);
+	struct gt_fd_event *c_event;
+	struct strbuf c_rcvbuf;
+	struct strbuf c_sndbuf;
+	char c_rcvbuf_buf[GT_SYSCTL_BUFSIZ];
+	char c_sndbuf_buf[GT_SYSCTL_BUFSIZ];
+};
+
 struct strbuf;
 
 typedef int (*sysctl_f)(struct log *, void *, int, char *);
@@ -42,18 +53,17 @@ int sysctl_mod_attach(struct log *, void *);
 void sysctl_mod_deinit(struct log *, void *);
 void sysctl_mod_detach(struct log *);
 
-void sockaddr_un_from_pid(struct sockaddr_un *, int);
-int unix_bind(struct log *, const struct sockaddr_un *);
+void sysctl_make_sockaddr_un(struct sockaddr_un *, int);
 
 int sysctl_read_file(struct log *, const char *);
 
-int usysctl(struct log *, const char *, char *, int, const char *);
-
-int sysctl_bind(struct log *log, int pid);
-void sysctl_unbind();
+int sysctl_bind(struct log *, const struct sockaddr_un *);
+int sysctl_conn_open(struct log *, struct sysctl_conn *, int);
+int sysctl_conn_accept(struct log *, struct sysctl_conn *, int *);
+void sysctl_conn_close(struct log *, struct sysctl_conn *);
 
 void sysctl_add(struct log *, const char *, int, void *,
-	void (*)(void *), sysctl_node_f fn);
+	void (*)(void *), sysctl_node_f);
 
 void sysctl_add_intfn(struct log *, const char *, int mode,
 	int (*intfn)(const long long *, long long *), int, int);

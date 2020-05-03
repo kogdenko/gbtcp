@@ -448,7 +448,6 @@ int
 service_start(struct log *log)
 {
 	assert(current);
-#if 1
 	printf("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS %d\n", getpid());
 	if (gt_route_rss_q_id != -1)
 		return 0;
@@ -459,59 +458,6 @@ service_start(struct log *log)
 
 //	     gt_route_rss_q_cnt, gt_route_port_pairity);
 	return 0;
-#else
-	int rc;
-	char buf[NM_IFNAMSIZ];
-
-	if (gt_service_pid) {
-		return 0;
-	}
-	LOG_TRACE(log);
-	LOGF(log, 7, LOG_INFO, 0, "hit; epoch=%d", gt_service_epoch);
-//	gt_route_if_set_link_status_fn = gt_service_route_if_set_link_status;
-	//gt_route_if_not_empty_txr_fn = gt_service_route_if_not_empty_txr;
-	//gt_route_if_tx_fn = gt_service_route_if_tx;
-	gt_service_status = GT_SERVICE_ACTIVE;
-	gt_service_pid = gt_application_pid;
-	snprintf(buf, sizeof(buf), "gbtcp.%d}0", gt_service_pid);
-	rc = dev_init(log, &gt_service_pipe, buf, service_pipe_rxtx);
-	printf("service pipe inited %d\n", rc);
-	if (rc) {
-		goto err1;
-	}
-	rc = sysctl_bind(log, gt_service_pid);
-	if (rc) {
-		goto err2;
-	}
-	rc = gt_service_sub(log);
-	if (rc) {
-		goto err3;
-	}
-	rc = gt_service_add(log);
-	if (rc) {
-		goto err4;
-	}
-	//gt_service_sync(log);
-	gt_sock_no_opened_fn = gt_service_del;
-	LOGF(log, 7, LOG_INFO, 0,
-	     "ok; pid=%d, rss_q_id=%d, rss_q_cnt=%d, port_pairity=%d",
-	     gt_service_pid, gt_route_rss_q_id,
-	     gt_route_rss_q_cnt, gt_route_port_pairity);
-	return 0;
-err4:
-	sysctl_unsub_me();
-err3:
-	sysctl_unbind();
-err2:
-	dev_deinit(&gt_service_pipe);
-err1:
-	gt_service_pid = 0;
-	gt_service_status = GT_SERVICE_NONE;
-	//gt_route_if_set_link_status_fn = NULL;
-	//gt_route_if_not_empty_txr_fn = NULL;
-	//gt_route_if_tx_fn = NULL;
-	return rc;
-#endif
 }
 
 #if 0
@@ -547,36 +493,6 @@ gt_service_del_cb(struct log *log, void *udata, int eno, char *old)
 		}
 	}
 	return 0;
-}
-#endif
-
-#if 0
-static void
-gt_service_del()
-{
-	int rc, pid;
-	uintptr_t udata;
-	char buf[32];
-	struct log *log;
-
-	log = log_trace0();
-	LOGF(log, 7, LOG_INFO, 0, "hit");
-	gt_sock_no_opened_fn = NULL;
-	rc = sysctl_binded_pid(log);
-	if (rc > 0) {
-		pid = rc;
-		snprintf(buf, sizeof(buf), "%d", pid);
-		udata = gt_service_epoch;
-		rc = usysctl_r(log, 0, GT_CTL_SERVICE_DEL,
-		               (void *)udata, gt_service_del_cb, buf);
-		if (rc < 0) {
-			gt_service_clean(log);
-			return;
-		}
-	}
-	if (gt_service_subscribed == 0) {
-		gt_service_clean(log);
-	}
 }
 #endif
 

@@ -13,7 +13,7 @@ SUBDIRS="test ./tools/so_echo"
 SRCS="`find ./gbtcp -maxdepth 1 -name '*.c'`"
 SRCS="$SRCS `find ./gbtcp/$(uname) -maxdepth 1 -name '*.c'`"
 OBJS=`echo $SRCS | sed 's/\.c/.o/g'`
-BINS="sysctl netstat fwd"
+BINS="sysctl netstat fwd controller"
 TARGETS=`echo $BINS | sed 's/[^ ]* */.\/bin\/&/g'`
 
 if [ "$(uname)" = "Linux" ]; then

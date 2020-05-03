@@ -21,6 +21,8 @@ static int sysctl_r(char *, int,  char *, const char *, int);
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif
 
+#define outf(...) if (1) printf(__VA_ARGS__)
+
 static char *
 ltrim(const char *s, const char *what)
 {
@@ -74,7 +76,7 @@ print_human_num(unsigned long long ull)
 	char *kmgt[] = { "", "K", "M", "G", "T" };
 
 	if (ull <= 1000) {
-		printf("%llu", ull);
+		outf("%llu", ull);
 	} else {
 		d = ull;
 		for (i = 0; d > 1000; ++i) {
@@ -83,7 +85,7 @@ print_human_num(unsigned long long ull)
 			}
 			d /= 1000;
 		}
-		printf("%.3f%s", d, kmgt[i]);
+		outf("%.3f%s", d, kmgt[i]);
 	}
 }
 
@@ -109,9 +111,9 @@ print_sysctl(const char *path, char *old)
 	while (*path == '.') {
 		path++;
 	}
-	printf("%s=", path);
+	outf("%s=", path);
 	if (!Hflag) {
-		printf("%s\n", old);
+		outf("%s\n", old);
 		return;
 	}
 	s = old;
@@ -119,7 +121,7 @@ print_sysctl(const char *path, char *old)
 		ull = strtoull(s, &endptr, 10);
 		if (*endptr == ',') {
 			print_human_num(ull);
-			printf(",");
+			outf(",");
 			s = endptr + 1;
 		} else if (*endptr == '\0') {
 			print_human_num(ull);
@@ -128,15 +130,15 @@ print_sysctl(const char *path, char *old)
 			// Skip not number until ','
 			endptr = strchr(s, ',');
 			if (endptr == NULL) {
-				printf("%s", s);
+				outf("%s", s);
 				break;
 			} else {
-				printf("%.*s,", (int)(endptr - s), s);
+				outf("%.*s,", (int)(endptr - s), s);
 				s = endptr + 1;
 			}
 		}
 	}
-	printf("\n");
+	outf("\n");
 }
 
 static int
@@ -277,7 +279,7 @@ read_file(const char *path)
 static void
 usage()
 {
-	printf(
+	outf(
 	"Usage: sysctl [options] [variable[=name] ...]\n"
 	"\n"
 	"\t-h             Print this help\n"

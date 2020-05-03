@@ -1,8 +1,18 @@
-/* GPL2 license */
+// GPL2 license
 #ifndef GBTCP_API_H
 #define GBTCP_API_H
 
 #include "log.h"
+
+#define API_RETURN(rc) \
+do { \
+	if (rc < 0) { \
+		gbtcp_errno = -rc; \
+		return -1; \
+	} else { \
+		return rc; \
+	} \
+} while (0)
 
 int api_mod_init(struct log *, void **);
 int api_mod_attach(struct log *, void *);
@@ -27,4 +37,4 @@ int api_setsockopt(int fd, int level, int optname, const void *optval,
 	socklen_t optlen);
 int api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen);
 
-#endif /* GBTCP_API_H */
+#endif // GBTCP_API_H

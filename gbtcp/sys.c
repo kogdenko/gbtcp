@@ -215,15 +215,23 @@ sys_symlink(struct log *log, const char *oldpath, const char *newpath)
 int
 sys_unlink(struct log *log, const char *path)
 {
-	int rc;
+	int rc, level;
 
 	rc = (*sys_unlink_fn)(path);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
+		switch (-rc) {
+		case ENOENT:
+			level = LOG_INFO;
+			break;
+		default:
+			level = LOG_ERR;
+			break;
+		}
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_ERR, -rc, "failed; path='%s'", path);
+			LOGF(log, level, -rc, "failed; path='%s'", path);
 		}
 	}
 	return rc;
@@ -578,6 +586,8 @@ sys_setsockopt(struct log *log, int fd, int level, int optname,
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
+			int is_en = log_is_enabled(&curmod->log_scope, LOG_ERR, 1);
+			dbg("serscpopt %d", is_en);
 			LOGF(log, LOG_ERR, -rc,
 			     "failed; fd=%d, level=%s, optname=%s",
 			     fd,

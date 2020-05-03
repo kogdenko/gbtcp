@@ -1,8 +1,6 @@
 /* GPL2 license */
 #include "internals.h"
 
-#define CONTROLLER_PIDFILE "controller.pid"
-
 struct init_mod {
 	struct log_scope log_scope;
 };
@@ -71,6 +69,7 @@ int gt_global_epoch;
 struct proc *current;
 
 static struct spinlock init_lock;
+static struct sysctl_conn binded;
 static struct init_mod *curmod;
 
 #define IH_VERSION 2
@@ -224,7 +223,7 @@ can_connect(struct log *log, int pid)
 		return rc;
 	}
 	fd = rc;
-	sockaddr_un_from_pid(&a, pid);
+	sysctl_make_sockaddr_un(&a, pid);
 	to = 0;
 	rc = connect_timed(log, fd, (struct sockaddr *)&a, sizeof(a), &to);
 	sys_close(log, fd);
@@ -285,7 +284,7 @@ restart:
 		}
 	}
 	for (i = 0; i < npids; ++i) {
-		sockaddr_un_from_pid(&a, pids[i]);
+		sysctl_make_sockaddr_un(&a, pids[i]);
 		sys_unlink(log, a.sun_path);
 	}
 	if (!pidwait_is_empty(&pw)) {
@@ -299,8 +298,69 @@ restart:
 	return 0;
 }
 
+static int
+controller_sysctl_accept(struct log *log, struct sysctl_conn *lp)
+{
+	int rc, fd, pid;
+	struct sysctl_conn *cp;
+
+	rc = sysctl_conn_accept(log, lp, &pid);
+	if (rc < 0) {
+		dbg("0");
+		return rc;
+	}
+	fd = rc;
+	rc = sys_malloc(log, (void **)&cp, sizeof(*cp));
+	if (rc) {
+		dbg("!");
+		sys_close(log, fd);
+		return rc;
+	}
+	rc = sysctl_conn_open(log, cp, fd);
+	if (rc) {
+		dbg("!!");
+		sys_close(log, fd);
+		sys_free(cp);
+		return rc;
+	}
+	dbg("fd %d, pid %d", fd, pid);
+	return 0;
+}
+
+static int
+controller_bind(struct log *log, int pid)
+{
+	int rc, fd;
+	struct sockaddr_un a;
+
+	sysctl_make_sockaddr_un(&a, pid);
+	rc = sysctl_bind(log, &a);
+	if (rc < 0) {
+		return rc;
+	}
+	fd = rc;
+	rc = sys_listen(log, fd, 5);
+	if (rc < 0) {
+		goto err;
+	}
+	sys_unlink(log, SYSCTL_CONTROLLER_PATH);
+	rc = sys_symlink(log, a.sun_path, SYSCTL_CONTROLLER_PATH);
+	if (rc) {
+		goto err;
+	}
+	rc = sysctl_conn_open(log, &binded, fd);
+	if (rc) {
+		goto err;
+	}
+	binded.c_accept_fn = controller_sysctl_accept;
+	return 0;
+err:
+	sys_close(log, fd);
+	return rc;
+}
+
 int
-init_controller(struct log *log, const char *proc_name)
+proc_controller_init(struct log *log, int daemonize, const char *proc_name)
 {
 	int i, rc, pid;
 	struct init_hdr *ih;
@@ -308,9 +368,11 @@ init_controller(struct log *log, const char *proc_name)
 
 	dlsym_all();
 	LOG_TRACE(log);
-	rc = sys_daemon(log, 0, 1);
-	if (rc) {
-		return rc;
+	if (daemonize) {
+		rc = sys_daemon(log, 0, 1);
+		if (rc) {
+			return rc;
+		}
 	}
 	rc = kill_all(log);
 	if (rc) {
@@ -334,12 +396,12 @@ init_controller(struct log *log, const char *proc_name)
 		proc->p_type = PROC_SERVICE;
 	}
 	sysctl_read_file(log, proc_name);
-	rc = sysctl_bind(log, pid);
+	rc = controller_bind(log, pid);
 	return rc;
 }
 
-static void
-controller_loop()
+void
+proc_controller_loop()
 {
 	while (1) {
 		gt_fd_event_mod_wait();
@@ -365,11 +427,11 @@ fork_controller(struct log *log, const char *proc_name)
 		api_disabled += 100;
 		log = log_trace0();
 		sys_close(log, pipe_fd[0]);
-		rc = init_controller(log, proc_name);
+		rc = proc_controller_init(log, 1, proc_name);
 		write_all(log, pipe_fd[1], &rc, sizeof(rc));
 		sys_close(log, pipe_fd[1]);
 		if (rc == 0) {
-			controller_loop();
+			proc_controller_loop();
 		}
 		return rc;
 	}
@@ -400,36 +462,35 @@ fork_controller(struct log *log, const char *proc_name)
 	return rc;
 }
 int
-service_attach(struct log *log, const char *proc_name, struct init_hdr **pih)
+service_attach(struct log *log, int fd, const char *proc_name,
+	struct init_hdr **pih)
 {
-	int rc;
+	int rc, pid;
+	uint64_t to;
+	struct sockaddr_un a;
 
 	rc = shm_attach((void **)pih);
-	if (rc == 0) {
-		if ((*pih)->ih_version != IH_VERSION) {
-			goto err;
-		}
-		rc = can_connect(log, (*pih)->ih_controller.p_pid);
-		if (rc) {
-			return 0;
-		}
-	}
-err:
-	rc = fork_controller(log, proc_name);
 	if (rc) {
 		return rc;
 	}
-	rc = shm_attach((void **)pih);
+	if ((*pih)->ih_version != IH_VERSION) {
+		return -EINVAL;
+	}
+	pid = (*pih)->ih_controller.p_pid;
+	sysctl_make_sockaddr_un(&a, pid);
+	to = 2 * NANOSECONDS_SECOND;
+	rc = connect_timed(log, fd, (struct sockaddr *)&a, sizeof(a), &to);
+	if (rc == 0) {
+		LOGF(log, LOG_NOTICE, 0, "attached; pid=%d", pid);
+	}
 	return rc;
 }
 
 int
-service_init_locked(struct log *log)
+service_init_locked(struct log *log, int fd)
 {
-	int i, rc, fd, pid;
+	int i, rc, pid;
 	char proc_name[PROC_NAME_SIZE_MAX];
-	uint64_t to;
-	struct sockaddr_un a;
 	struct init_hdr *ih;
 
 	// Check again under the lock
@@ -442,7 +503,13 @@ service_init_locked(struct log *log)
 	if (rc) {
 		return rc;
 	}
-	rc = service_attach(log, proc_name, &ih);
+	for (i = 0; i < 3; ++i) {
+		rc = service_attach(log, fd, proc_name, &ih);
+		if (rc == 0) {
+			break;
+		}
+		rc = fork_controller(log, proc_name);
+	}
 	if (rc) {
 		return rc;
 	}
@@ -459,37 +526,41 @@ service_init_locked(struct log *log)
 	strzcpy(current->p_name, proc_name, sizeof(current->p_name));
 	rc = common_init(1, ih);
 	ASSERT(rc == 0);
-	sockaddr_un_from_pid(&a, pid);
-	rc = unix_bind(log, &a);
-	if (rc < 0) {
-		return rc;
-	}
-	fd = rc;
-	sockaddr_un_from_pid(&a, ih->ih_controller.p_pid);
-	to = 2 * NANOSECONDS_SECOND;
-	rc = connect_timed(log, fd, (struct sockaddr *)&a, sizeof(a), &to);
-	if (rc) {
-		sys_close(log, fd);
-		return rc;
-	}
 	return 0;
 }
 
 static int
 service_init_spinlocked(struct log *log)
 {
-	int rc, lock_fd;
+	int rc, fd, pid, lock_fd;
+	struct sockaddr_un a;
 
+	pid = getpid();
+	sysctl_make_sockaddr_un(&a, pid);
+	rc = sysctl_bind(log, &a);
+	if (rc < 0) {
+		return rc;
+	}
+	fd = rc;
 	rc = sys_open(log, GT_PREFIX"/init.lock", O_CREAT|O_RDWR, 0666);
 	if (rc < 0) {
+		sys_close(log, fd);
 		return rc;
 	}
 	lock_fd = rc;
 	rc = sys_flock(log, lock_fd, LOCK_EX);
-	if (!rc) {
-		rc = service_init_locked(log);
+	if (rc) {
+		goto err;
 	}
-	sys_close(NULL, lock_fd);
+	rc = service_init_locked(log, fd);
+	if (rc) {
+		goto err;
+	}
+	sys_close(log, lock_fd);
+	return 0;
+err:
+	sys_close(log, lock_fd);
+	sys_close(log, fd);
 	return rc;
 }
 

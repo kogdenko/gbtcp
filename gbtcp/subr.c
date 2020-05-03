@@ -625,11 +625,11 @@ ssize_t
 write_all(struct log *log, int fd, const void *buf, size_t cnt)
 {
 	ssize_t rc, off;
+	const u_char *ptr;
 
+	ptr = buf;
 	for (off = 0; off < cnt; off += rc) {
-		rc = sys_write(log, fd,
-		               (const uint8_t *)buf + off,
-		               cnt - off);
+		rc = sys_write(log, fd, ptr + off, cnt - off);
 		if (rc < 0) {
 			return rc;
 		}

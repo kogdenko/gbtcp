@@ -25,7 +25,7 @@ struct mbuf_pool {
 	uint8_t mbp_id;
 	struct dlist mbp_avail_chunkq;
 	struct dlist mbp_empty_chunkq;
-	struct mbuf_chunk *mbp_chunks[MBUF_CHUNKS_MAX];
+	struct mchunk *mbp_chunks[MBUF_CHUNKS_MAX];
 	int mbp_nr_chunks;
 };
 

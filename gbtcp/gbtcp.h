@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <assert.h>
 #include <signal.h>
+#include <unistd.h>
 #include <poll.h>
 #include <sys/types.h>
 #include <sys/socket.h>

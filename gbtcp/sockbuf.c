@@ -11,10 +11,10 @@ struct sockbuf_mod {
 	struct log_scope log_scope;
 };
 
-struct gt_uio {
+struct uio {
 	struct iovec *uio_iov;
 	int uio_iovcnt;
-	size_t uio_off; /* must be typeof of iov_len */
+	size_t uio_off; // must be typeof(iov_len)
 };
 
 struct sbchunk {
@@ -28,16 +28,16 @@ static struct mbuf_pool *sockbuf_chunk_pool;
 static struct sockbuf_mod *curmod;
 
 static int
-uio_copyin(struct gt_uio *uio, void *buf, int cnt)
+uio_copyin(struct uio *uio, void *buf, int cnt)
 {
 	int off;
 	size_t n;
-	uint8_t *dst;
+	u_char *dst;
 
 	for (off = 0; uio->uio_iovcnt && off < cnt; off += n) {
 		ASSERT(uio->uio_iov->iov_len >= uio->uio_off);
 		n = uio->uio_iov->iov_len - uio->uio_off;
-		dst = (uint8_t *)uio->uio_iov->iov_base + uio->uio_off;
+		dst = (u_char *)uio->uio_iov->iov_base + uio->uio_off;
 		if (n > cnt - off) {
 			n = cnt - off;
 		}
@@ -47,26 +47,26 @@ uio_copyin(struct gt_uio *uio, void *buf, int cnt)
 			uio->uio_iovcnt--;
 			uio->uio_off = 0;
 		}
-		memcpy(dst, (uint8_t *)buf + off, n);
+		memcpy(dst, (u_char *)buf + off, n);
 	}
 	return off;
 }
 
 static int
-gt_sockbuf_chunk_space(struct sbchunk *chunk)
+sockbuf_chunk_space(struct sbchunk *chunk)
 {
 	ASSERT(chunk->ch_off + chunk->ch_len <= GT_SOCKBUF_CHUNK_DATA_SIZE);
 	return GT_SOCKBUF_CHUNK_DATA_SIZE - (chunk->ch_off + chunk->ch_len);
 }
 
 static void *
-gt_sockbuf_chunk_data(struct sbchunk *chunk)
+sockbuf_chunk_data(struct sbchunk *chunk)
 {
-	return ((uint8_t *)chunk) + sizeof(*chunk);
+	return ((u_char *)chunk) + sizeof(*chunk);
 }
 
 static struct sbchunk *
-gt_sockbuf_chunk_alloc(struct gt_sockbuf *b)
+sockbuf_chunk_alloc(struct sockbuf *b)
 {
 	int rc;
 	struct log *log;
@@ -83,7 +83,7 @@ gt_sockbuf_chunk_alloc(struct gt_sockbuf *b)
 }
 
 void
-gt_sockbuf_init(struct gt_sockbuf *b, int max)
+sockbuf_init(struct sockbuf *b, int max)
 {
 	b->sob_len = 0;
 	b->sob_max = max;
@@ -91,13 +91,13 @@ gt_sockbuf_init(struct gt_sockbuf *b, int max)
 }
 
 int
-gt_sockbuf_full(struct gt_sockbuf *b)
+sockbuf_full(struct sockbuf *b)
 {
 	return b->sob_len >= b->sob_max;
 }
 
 void
-gt_sockbuf_free(struct gt_sockbuf *b)
+sockbuf_free(struct sockbuf *b)
 {
 	struct sbchunk *chunk;
 
@@ -110,13 +110,13 @@ gt_sockbuf_free(struct gt_sockbuf *b)
 }
 
 void
-gt_sockbuf_set_max(struct gt_sockbuf *b, int max)
+sockbuf_set_max(struct sockbuf *b, int max)
 {
 	b->sob_max = max;
 }
 
 static void
-gt_sockbuf_free_n(struct gt_sockbuf *b, int nr_chunks)
+sockbuf_free_n(struct sockbuf *b, int nr_chunks)
 {
 	int i;
 	struct sbchunk *chunk;
@@ -130,26 +130,26 @@ gt_sockbuf_free_n(struct gt_sockbuf *b, int nr_chunks)
 }
 
 static int
-gt_sockbuf_space(struct gt_sockbuf *b)
+sockbuf_space(struct sockbuf *b)
 {
 	return b->sob_max < b->sob_len ? 0 : b->sob_max - b->sob_len;
 }
 
 static void
-gt_sockbuf_write(struct gt_sockbuf *b, struct sbchunk *pos,
+sockbuf_write(struct sockbuf *b, struct sbchunk *pos,
 	const void *src, int cnt)
 {
 	int n, rem, space;
-	uint8_t *data;
-	const uint8_t *ptr;
+	u_char *data;
+	const u_char *ptr;
 
 	ptr = src;
 	rem = cnt;
 	DLIST_FOREACH_CONTINUE(pos, &b->sob_head, ch_list) {
 		ASSERT(rem > 0);
-		space = gt_sockbuf_chunk_space(pos);
+		space = sockbuf_chunk_space(pos);
 		n = MIN(rem, space);
-		data = gt_sockbuf_chunk_data(pos);
+		data = sockbuf_chunk_data(pos);
 		memcpy(data + pos->ch_off + pos->ch_len, ptr, n);
 		b->sob_len += n;
 		pos->ch_len += n;
@@ -160,14 +160,14 @@ gt_sockbuf_write(struct gt_sockbuf *b, struct sbchunk *pos,
 }
 
 int
-gt_sockbuf_add(struct gt_sockbuf *b, const void *buf, int cnt, int atomic)
+sockbuf_add(struct sockbuf *b, const void *buf, int cnt, int atomic)
 {
 	int n, rem, space, added;
 	struct sbchunk *chunk, *pos;
 
 	ASSERT(cnt >= 0);
 	ASSERT(cnt <= UINT16_MAX);
-	space = gt_sockbuf_space(b);
+	space = sockbuf_space(b);
 	added = MIN(cnt, space);
 	if (added <= 0) {
 		return 0;
@@ -179,7 +179,7 @@ gt_sockbuf_add(struct gt_sockbuf *b, const void *buf, int cnt, int atomic)
 	}
 	n = 0;
 	if (dlist_is_empty(&b->sob_head)) {
-		chunk = gt_sockbuf_chunk_alloc(b);
+		chunk = sockbuf_chunk_alloc(b);
 		if (chunk == NULL) {
 			return -ENOMEM;
 		}
@@ -190,25 +190,25 @@ gt_sockbuf_add(struct gt_sockbuf *b, const void *buf, int cnt, int atomic)
 	pos = chunk;
 	rem = added;
 	while (1) {
-		rem -= gt_sockbuf_chunk_space(chunk);
+		rem -= sockbuf_chunk_space(chunk);
 		if (rem <= 0) {
 			break;
 		}
-		chunk = gt_sockbuf_chunk_alloc(b);
+		chunk = sockbuf_chunk_alloc(b);
 		if (chunk == NULL) {
-			gt_sockbuf_free_n(b, n);
+			sockbuf_free_n(b, n);
 			return -ENOMEM;
 		}
 		n++;
 	}
-	gt_sockbuf_write(b, pos, buf, added);
+	sockbuf_write(b, pos, buf, added);
 	return added;
 }
 
-static void
-gt_sockbuf_send_direct(struct gt_sockbuf *b, int off, uint8_t *dst, int cnt)
+void
+sockbuf_copy(struct sockbuf *b, int off, u_char *dst, int cnt)
 {
-	uint8_t *data;
+	u_char *data;
 	size_t n;
 	struct sbchunk *chunk;
 
@@ -222,7 +222,7 @@ gt_sockbuf_send_direct(struct gt_sockbuf *b, int off, uint8_t *dst, int cnt)
 	for (; cnt != 0; chunk = DLIST_NEXT(chunk, ch_list)) {
 		ASSERT(&chunk->ch_list != &b->sob_head);
 		n = MIN(cnt, chunk->ch_len - off);
-		data = gt_sockbuf_chunk_data(chunk);
+		data = sockbuf_chunk_data(chunk);
 		memcpy(dst, data + chunk->ch_off + off, n);
 		off = 0;
 		cnt -= n;
@@ -230,34 +230,13 @@ gt_sockbuf_send_direct(struct gt_sockbuf *b, int off, uint8_t *dst, int cnt)
 	}
 }
 
-static void
-gt_sockbuf_send_reverse(struct gt_sockbuf *b, int off, void *dst, int cnt)
-{
-	// TODO:
-	BUG;
-}
-
-void
-gt_sockbuf_send(struct gt_sockbuf *b, int off, void *dst, int cnt)
-{
-	ASSERT(off + cnt <= b->sob_len);
-
-	if (off > (b->sob_len << 1)) {
-		// Near to end
-		gt_sockbuf_send_reverse(b, off, dst, cnt);
-	} else {
-		// Near to begin
-		gt_sockbuf_send_direct(b, off, dst, cnt);
-	}
-}
-
 int
-gt_sockbuf_readv(struct gt_sockbuf *b,
-	const struct iovec *iov, int iovcnt, int cnt, int peek)
+sockbuf_readv(struct sockbuf *b, const struct iovec *iov, int iovcnt, int cnt,
+	int peek)
 {
 	int n, off;
-	uint8_t *ptr;
-	struct gt_uio uio;
+	u_char *ptr;
+	struct uio uio;
 	struct sbchunk *pos, *tmp;
 
 	uio.uio_iov = (struct iovec *)iov;
@@ -267,7 +246,7 @@ gt_sockbuf_readv(struct gt_sockbuf *b,
 	DLIST_FOREACH_SAFE(pos, &b->sob_head, ch_list, tmp) {
 		ASSERT(pos->ch_len);
 		ASSERT(b->sob_len >= pos->ch_len);
-		ptr = gt_sockbuf_chunk_data(pos);
+		ptr = sockbuf_chunk_data(pos);
 		n = pos->ch_len;
 		if (n > cnt - off) {
 			n = cnt - off;
@@ -295,29 +274,28 @@ gt_sockbuf_readv(struct gt_sockbuf *b,
 }
 
 int
-gt_sockbuf_readv4(struct gt_sockbuf *b,
-	const struct iovec *iov, int iovcnt, int peek)
+sockbuf_readv4(struct sockbuf *b, const struct iovec *iov, int iovcnt, int peek)
 {
 	int rc;
 
-	rc = gt_sockbuf_readv(b, iov, iovcnt, INT_MAX, peek);
+	rc = sockbuf_readv(b, iov, iovcnt, INT_MAX, peek);
 	return rc;
 }
 
 int
-gt_sockbuf_recv(struct gt_sockbuf *b, void *buf, int cnt, int peek)
+sockbuf_recv(struct sockbuf *b, void *buf, int cnt, int peek)
 {
 	int rc;
 	struct iovec iov;
 
 	iov.iov_base = buf;
 	iov.iov_len = cnt;
-	rc = gt_sockbuf_readv(b, &iov, 1, cnt, peek);
+	rc = sockbuf_readv(b, &iov, 1, cnt, peek);
 	return rc;
 }
 
 int
-gt_sockbuf_pop(struct gt_sockbuf *b, int cnt)
+sockbuf_drop(struct sockbuf *b, int cnt)
 {
 	int n, off;
 	struct sbchunk *pos, *tmp;
@@ -346,9 +324,9 @@ gt_sockbuf_pop(struct gt_sockbuf *b, int cnt)
 }
 
 int
-gt_sockbuf_rewrite(struct gt_sockbuf *b, const void *dst, int cnt)
+sockbuf_rewrite(struct sockbuf *b, const void *dst, int cnt)
 {
-	uint8_t *data;
+	u_char *data;
 	int n, pos;
 	struct sbchunk *chunk;
 
@@ -357,8 +335,8 @@ gt_sockbuf_rewrite(struct gt_sockbuf *b, const void *dst, int cnt)
 		ASSERT(chunk->ch_len);
 		ASSERT(b->sob_len <= chunk->ch_len);
 		n = MIN(cnt - pos, chunk->ch_len);
-		data = gt_sockbuf_chunk_data(chunk);
-		memcpy(data + chunk->ch_off, (uint8_t *)dst + pos, n);
+		data = sockbuf_chunk_data(chunk);
+		memcpy(data + chunk->ch_off, (u_char *)dst + pos, n);
 		pos += n;
 		if (pos == cnt) {
 			break;

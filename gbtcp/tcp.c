@@ -28,7 +28,7 @@ enum gt_sock_error {
 	GT_SOCK_E_MAX
 };
 
-struct gt_sockbuf_msg {
+struct sockbuf_msg {
 	uint16_t sobm_trunc;
 	uint16_t sobm_len;
 	be16_t sobm_fport;
@@ -371,7 +371,7 @@ gt_sock_get_events(struct file *fp)
 				events |= POLLIN;
 			}
 			if (so->so_state >= GT_TCP_S_ESTABLISHED &&
-			    !gt_sockbuf_full(&so->so_sndbuf)) {
+			    !sockbuf_full(&so->so_sndbuf)) {
 				events |= POLLOUT;
 			}
 			break;
@@ -1094,7 +1094,7 @@ gt_tcp_rcvbuf_recv(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 	if (buflen == 0) {
 		return -EAGAIN;
 	}
-	rc = gt_sockbuf_readv4(&so->so_rcvbuf, iov, iovcnt, peek);
+	rc = sockbuf_readv4(&so->so_rcvbuf, iov, iovcnt, peek);
 	log = log_trace0();
 	DBG(log, 0, "hit; fd=%d, peek=%d, cnt=%d, buflen=%d",
 	    gt_sock_fd(so), peek, rc, so->so_rcvbuf.sob_len);
@@ -1109,7 +1109,7 @@ gt_tcp_rcvbuf_recv(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 static void
 gt_tcp_rcvbuf_set_max(struct gt_sock *so, int max)
 {
-	gt_sockbuf_set_max(&so->so_rcvbuf, max);
+	sockbuf_set_max(&so->so_rcvbuf, max);
 	gt_tcp_set_swnd(so);
 }
 
@@ -1135,8 +1135,8 @@ gt_tcp_close(struct gt_sock *so)
 	so->so_ssnt = 0;
 	gt_timer_del(&so->so_timer);
 	gt_timer_del(&so->so_timer_delack);
-	gt_sockbuf_free(&so->so_rcvbuf);
-	gt_sockbuf_free(&so->so_sndbuf);
+	sockbuf_free(&so->so_rcvbuf);
+	sockbuf_free(&so->so_sndbuf);
 	if (so->so_passive_open) {
 		if (so->so_accepted == 0) { 
 			ASSERT(so->so_listen != NULL);
@@ -1390,7 +1390,7 @@ gt_tcp_rcv_syn(struct gt_sock *lso, struct gt_sock_tuple *so_tuple,
 	}
 	gt_tcp_set_risn(so, tcb->tcb_seq);
 	gt_tcp_set_rmss(so, &tcb->tcb_opts);
-	gt_sockbuf_set_max(&so->so_sndbuf, lso->so_sndbuf.sob_max);
+	sockbuf_set_max(&so->so_sndbuf, lso->so_sndbuf.sob_max);
 	gt_tcp_rcvbuf_set_max(so, lso->so_rcvbuf.sob_max);
 	gt_tcp_set_swnd(so);
 	gt_tcp_set_state(so, GT_TCP_S_SYN_RCVD);
@@ -1938,8 +1938,7 @@ gt_tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h, struct gt_tcpcb *tcb,
 			tcb->tcb_len = emss - tcp_opts_len;
 		}
 		payload = (uint8_t *)(tcp_h + 1) + tcp_opts_len;
-		gt_sockbuf_send(&so->so_sndbuf, so->so_ssnt,
-		                payload, tcb->tcb_len);
+		sockbuf_copy(&so->so_sndbuf, so->so_ssnt, payload, tcb->tcb_len);
 	}
 	tcp_h_len = sizeof(*tcp_h) + tcp_opts_len;
 	total_len = sizeof(*ip4_h) + tcp_h_len + tcb->tcb_len;
@@ -2016,12 +2015,12 @@ gt_udp_rcvbuf_recv(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 {
 	int rc, cnt;
 	struct log *log;
-	struct gt_sockbuf_msg msg;
+	struct sockbuf_msg msg;
 
 	if (so->so_msgbuf.sob_len == 0) {
 		return -EAGAIN;
 	}
-	rc = gt_sockbuf_recv(&so->so_msgbuf, &msg, sizeof(msg), 1);
+	rc = sockbuf_recv(&so->so_msgbuf, &msg, sizeof(msg), 1);
 	if (rc == 0) {
 		ASSERT(so->so_rcvbuf.sob_len == 0);
 		return 0;
@@ -2030,19 +2029,19 @@ gt_udp_rcvbuf_recv(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 	ASSERT(msg.sobm_len);
 	ASSERT(so->so_rcvbuf.sob_len >= msg.sobm_len);
 	gt_set_sockaddr(addr, addrlen, msg.sobm_faddr, msg.sobm_fport);
-	cnt = gt_sockbuf_readv(&so->so_rcvbuf, iov, iovcnt,
-	                       msg.sobm_len, peek);
+	cnt = sockbuf_readv(&so->so_rcvbuf, iov, iovcnt,
+	                     msg.sobm_len, peek);
 	log = log_trace0();
 	DBG(log, 0, "hit; peek=%d, cnt=%d, buflen=%d, fd=%d",
 	    peek, rc, so->so_rcvbuf.sob_len, gt_sock_fd(so));
 	if (peek == 0) {
 		if (msg.sobm_len > cnt) {
 			msg.sobm_len -= cnt;
-			rc = gt_sockbuf_rewrite(&so->so_msgbuf,
-			                        &msg, sizeof(msg));
+			rc = sockbuf_rewrite(&so->so_msgbuf,
+			                     &msg, sizeof(msg));
 			ASSERT(rc == sizeof(msg));
 		} else {
-			gt_sockbuf_pop(&so->so_msgbuf, sizeof(msg));
+			sockbuf_drop(&so->so_msgbuf, sizeof(msg));
 		}
 	}
 	return cnt;
@@ -2546,17 +2545,17 @@ gt_sock_new(struct log *log, int fd, int so_proto)
 	gt_timer_init(&so->so_timer_delack);
 	switch (so_proto) {
 	case GT_SO_IPPROTO_UDP:
-		gt_sockbuf_init(&so->so_msgbuf, 16384);
+		sockbuf_init(&so->so_msgbuf, 16384);
 		gt_sock_open(so);
 		break;
 	case GT_SO_IPPROTO_TCP:
-		gt_sockbuf_init(&so->so_sndbuf, 16384);
+		sockbuf_init(&so->so_sndbuf, 16384);
 		break;
 	default:
 		BUG;
 		break;
 	}
-	gt_sockbuf_init(&so->so_rcvbuf, 16384);
+	sockbuf_init(&so->so_rcvbuf, 16384);
 	gt_sock_nr_opened++;
 	return so;
 }
@@ -2596,7 +2595,7 @@ gt_sock_rcvbuf_add(struct gt_sock *so, const void *src, int cnt, int all)
 	struct log *log;
 
 	len = so->so_rcvbuf.sob_len;
-	rc = gt_sockbuf_add(&so->so_rcvbuf, src, cnt, all);
+	rc = sockbuf_add(&so->so_rcvbuf, src, cnt, all);
 	rc = so->so_rcvbuf.sob_len - len;
 	log = log_trace0();
 	DBG(log, 0, "hit; fd=%d, cnt=%d, buflen=%d",
@@ -2612,7 +2611,7 @@ gt_sock_on_rcv(struct gt_sock *so, void *buf, int len,
 	struct gt_sock_tuple *so_tuple)
 {
 	int rc, rem;
-	struct gt_sockbuf_msg msg;
+	struct sockbuf_msg msg;
 
 	if (so->so_rshut) {
 		return len;
@@ -2629,9 +2628,9 @@ gt_sock_on_rcv(struct gt_sock *so, void *buf, int len,
 			msg.sobm_faddr = so_tuple->sot_faddr;
 			msg.sobm_fport = so_tuple->sot_fport;
 			msg.sobm_len = rc;
-			rc = gt_sockbuf_add(&so->so_msgbuf, &msg, sizeof(msg), 1);
+			rc = sockbuf_add(&so->so_msgbuf, &msg, sizeof(msg), 1);
 			if (rc <= 0) {
-				gt_sockbuf_pop(&so->so_rcvbuf, msg.sobm_len);
+				sockbuf_drop(&so->so_rcvbuf, msg.sobm_len);
 				rc = 0;
 			}
 		}
@@ -2708,7 +2707,7 @@ gt_sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt)
 	int rc;
 	struct log *log;
 
-	rc = gt_sockbuf_add(&so->so_sndbuf, src, cnt, 0);
+	rc = sockbuf_add(&so->so_sndbuf, src, cnt, 0);
 	log = log_trace0();
 	DBG(log, 0, "hit; cnt=%d, buflen=%d, fd=%d",
 	    cnt, so->so_sndbuf.sob_len, gt_sock_fd(so));
@@ -2720,7 +2719,7 @@ gt_sock_sndbuf_pop(struct gt_sock *so, int cnt)
 {
 	struct log *log;
 
-	gt_sockbuf_pop(&so->so_sndbuf, cnt);
+	sockbuf_drop(&so->so_sndbuf, cnt);
 	log = log_trace0();
 	DBG(log, 0, "hit; cnt=%d, buflen=%d, fd=%d",
 	    cnt, so->so_sndbuf.sob_len, gt_sock_fd(so));

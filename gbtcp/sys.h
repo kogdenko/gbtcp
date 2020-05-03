@@ -149,6 +149,7 @@ void *sys_signal(struct log *, int, void (*)(int));
 int sys_sigaction(struct log *, int, const struct sigaction *, struct sigaction *);
 int sys_sigprocmask(struct log *, int, const sigset_t *, sigset_t *);
 int sys_malloc(struct log *, void **, size_t);
+#define sys_free free
 int sys_realloc(struct log *, void **, size_t);
 int sys_posix_memalign(struct log *, void **, size_t, size_t);
 int sys_fopen(struct log *, FILE **, const char *, const char *);

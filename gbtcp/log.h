@@ -42,7 +42,7 @@ struct log {
 #else /* LOG_DISABLED */
 #define LOGF(log, level, err, fmt, ...) \
 do { \
-	if (log_is_enabled(&curmod->log_scope, level)) { \
+	if (log_is_enabled(&curmod->log_scope, level, 0)) { \
 		log_buf_init(); \
 		log_printf(log, level, err, fmt, ##__VA_ARGS__); \
 	} \
@@ -91,7 +91,7 @@ void log_scope_deinit(struct log *, struct log_scope *);
 
 struct log *log_copy(struct log *, int, struct log *);
 
-int log_is_enabled(struct log_scope *, int);
+int log_is_enabled(struct log_scope *, int, int);
 
 void log_vprintf(struct log *, int, int, const char *, va_list);
 

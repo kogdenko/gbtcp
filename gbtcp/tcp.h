@@ -92,10 +92,10 @@ struct gt_sock {
 		};
 	};
 	struct gt_sock *so_listen;
-	struct gt_sockbuf so_rcvbuf;
+	struct sockbuf so_rcvbuf;
 	union {
-		struct gt_sockbuf so_sndbuf; // TCP
-		struct gt_sockbuf so_msgbuf; // UDP
+		struct sockbuf so_sndbuf; // TCP
+		struct sockbuf so_msgbuf; // UDP
 	};
 };
 

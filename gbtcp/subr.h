@@ -238,6 +238,7 @@ do { \
 #endif
 
 #define dbg gt_dbg
+#define dbg0 dbg("D")
 
 extern uint64_t nanoseconds;
 extern uint64_t HZ;
