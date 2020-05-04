@@ -3,6 +3,7 @@
 #define GBTCP_SYSCTL_H
 
 #include "log.h"
+#include "sockbuf.h"
 
 #define SYSCTL_RD 0
 #define SYSCTL_LD 1
@@ -34,10 +35,6 @@ struct sysctl_conn {
 	void (*c_close_fn)(struct log *, struct sysctl_conn *);
 	int (*c_accept_fn)(struct log *, struct sysctl_conn *);
 	struct gt_fd_event *c_event;
-	struct strbuf c_rcvbuf;
-	struct strbuf c_sndbuf;
-	char c_rcvbuf_buf[GT_SYSCTL_BUFSIZ];
-	char c_sndbuf_buf[GT_SYSCTL_BUFSIZ];
 };
 
 struct strbuf;

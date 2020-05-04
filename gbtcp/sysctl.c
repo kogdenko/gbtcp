@@ -54,17 +54,10 @@ static struct sysctl_node *sysctl_root;
 static struct sysctl_mod *curmod;
 
 // conn
-void sysctl_conn_close(struct log *, struct sysctl_conn *);
 
-static int sysctl_conn_send(struct log *log, struct sysctl_conn *cp);
+static int
+sysctl_in_pdu(struct sysctl_conn *cp, char *msg);
 
-static int sysctl_conn_in(struct sysctl_conn *cp, int off);
-
-static int sysctl_conn_in_first(struct sysctl_conn *cp,
-	char *buf, int off, int cnt);
-
-static int sysctl_conn_in_next(struct sysctl_conn *cp,
-	char *buf, int cnt);
 
 // in
 static int sysctl_in(struct log *log, const char *path, int load,
@@ -399,36 +392,30 @@ sysctl_conn_accept(struct log *log, struct sysctl_conn *cp, int *pid)
 static int
 sysctl_conn_recv(struct log *log, struct sysctl_conn *cp)
 {
-	int rc, fd, off, n, m;
+	int rc, fd;
+	char *ptr;
+	char buf[GT_SYSCTL_BUFSIZ];
 
 	LOG_TRACE(log);
 	fd = sysctl_conn_fd(cp);
-	do {
-		off = cp->c_rcvbuf.sb_len;
-		n = strbuf_space(&cp->c_rcvbuf);
-		ASSERT(n);
-		rc = sys_read(log, fd, cp->c_rcvbuf.sb_buf + off, n);
-		if (rc < 0) {
-			if (rc == -EAGAIN) {
-				return 0;
-			} else {
-				return rc;
-			}
-		} else if (rc == 0) {
-			return -ECONNRESET;
+	rc = sys_read(log, fd, buf, sizeof(buf));
+	if (rc < 0) {
+		if (rc == -EAGAIN) {
+			return 0;
 		} else {
-			cp->c_rcvbuf.sb_len += rc;
-			rc = sysctl_conn_in(cp, off);
-			if (rc < 0) {
-				return rc;
-			}
-			m = strbuf_space(&cp->c_rcvbuf);
-			if (m == 0) {
-				return -EPROTO;
-			}
+			return rc;
 		}
-	} while (rc == n);
-	return 0;
+	} else if (rc == 0) {
+		return -ECONNRESET;
+	} else {
+		ptr = memchr(buf, '\n', rc);
+		if (ptr == NULL) {
+			return -EPROTO;
+		}		
+		*ptr = '\0';
+		rc = sysctl_in_pdu(cp, buf);
+		return rc;
+	}
 }
 
 static int
@@ -446,14 +433,8 @@ sysctl_process_events(void *udata, short revents)
 				rc = (*cp->c_accept_fn)(log, cp);
 			} while (rc == 0);
 		}
-	} else if (revents & POLLIN) {
+	} else {
 		rc = sysctl_conn_recv(log, cp);
-		if (rc < 0) {
-			sysctl_conn_close(log, cp);
-		}
-	} else if (revents & POLLOUT) {
-		gt_fd_event_clear(cp->c_event, POLLOUT);
-		rc = sysctl_conn_send(NULL, cp);
 		if (rc < 0) {
 			sysctl_conn_close(log, cp);
 		}
@@ -490,13 +471,8 @@ sysctl_conn_open(struct log *log, struct sysctl_conn *cp, int fd)
 	rc = gt_fd_event_new(log, &cp->c_event, fd, name,
 	                     sysctl_process_events, cp);
 	if (rc < 0) {
-		dbg("a");
 		return rc;
 	}
-	strbuf_init(&cp->c_rcvbuf, cp->c_rcvbuf_buf,
-	            sizeof(cp->c_rcvbuf_buf));
-	strbuf_init(&cp->c_sndbuf, cp->c_sndbuf_buf,
-	            sizeof(cp->c_sndbuf_buf));
 	gt_fd_event_set(cp->c_event, POLLIN);
 	return 0;
 }
@@ -543,76 +519,45 @@ sysctl_bind(struct log *log, const struct sockaddr_un *a)
 }
 
 static int
-sysctl_conn_send(struct log *log, struct sysctl_conn *cp)
+sysctl_conn_send(struct log *log, struct sysctl_conn *cp, struct strbuf *sb)
 {
 	int rc, fd;
-	struct strbuf *b;
 
 	LOG_TRACE(log);
-	b = &cp->c_sndbuf;
-	rc = gt_fd_event_is_set(cp->c_event, POLLOUT);
-	if (rc) {
-		// Already sending data - socket buffer is full
-		return 0;
-	}
-	if (b->sb_len == 0) {
-		return 0;
-	}
 	fd = sysctl_conn_fd(cp);
-	rc = sys_send(log, fd, b->sb_buf, b->sb_len, MSG_NOSIGNAL);
+	rc = sys_send(log, fd, sb->sb_buf, sb->sb_len, MSG_NOSIGNAL);
 	if (rc < 0) {
 		return rc;
+	} else if (rc != sb->sb_len) {
+		return -ENOBUFS;
+	} else {
+		return 0;
 	}
-	strbuf_remove(b, 0, rc);
-	if (b->sb_len) {
-		gt_fd_event_set(cp->c_event, POLLOUT);
-	}
-	return 0;
 }
 
 static int
 sysctl_in_req(struct sysctl_conn *cp, struct iovec *tokens)
 {
 	int rc;
+	char buf[GT_SYSCTL_BUFSIZ];
 	const char *path;
-	struct strbuf *b;
+	struct strbuf sb;
 	struct log *log;
 
 	log = log_trace0();
 	path = tokens[0].iov_base;
-	b = &cp->c_sndbuf;
-	rc = sysctl_in(log, path, 0, tokens[1].iov_base, b);
+	strbuf_init(&sb, buf, sizeof(buf));
+	rc = sysctl_in(log, path, 0, tokens[1].iov_base, &sb);
 	if (rc) {
-		strbuf_addf(b, "error %d", -rc);
+		strbuf_addf(&sb, "error %d", -rc);
 	}
-	strbuf_add_ch(b, '\n');
-	if (strbuf_space(b) == 0) {
+	strbuf_add_ch(&sb, '\n');
+	if (strbuf_space(&sb) == 0) {
 		LOGF(log, LOG_ERR, 0, "too long msg; path='%s'", path);
 		return -ENOBUFS;
 	}
-	rc = sysctl_conn_send(log, cp);
+	rc = sysctl_conn_send(log, cp, &sb);
 	return rc;
-}
-
-static int
-sysctl_conn_in(struct sysctl_conn *cp, int off)
-{
-	int rc;
-	struct strbuf *b;
-
-	b = &cp->c_rcvbuf;
-	rc = sysctl_conn_in_first(cp, b->sb_buf, off, b->sb_len);
-	if (rc <= 0) {
-		return rc;
-	}
-	off = rc;
-	rc = sysctl_conn_in_next(cp, b->sb_buf + off, b->sb_len - off);
-	if (rc < 0) {
-		return rc;
-	}
-	off += rc;
-	strbuf_remove(b, 0, off);
-	return 0;
 }
 
 static int
@@ -624,46 +569,6 @@ sysctl_in_pdu(struct sysctl_conn *cp, char *msg)
 	sysctl_split_msg(tokens, msg);
 	rc = sysctl_in_req(cp, tokens);
 	return rc;
-}
-
-static int
-sysctl_conn_in_first(struct sysctl_conn *cp, char *buf, int off, int cnt)
-{
-	int rc;
-	char *ptr;
-
-	ptr = memchr(buf + off, '\n', cnt - off);
-	if (ptr == NULL) {
-		return 0;
-	}
-	*ptr = '\0';
-	rc = sysctl_in_pdu(cp, buf);
-	if (rc < 0) {
-		return rc;
-	} else {
-		return ptr - buf + 1;
-	}
-}
-
-static int
-sysctl_conn_in_next(struct sysctl_conn *cp, char *buf, int cnt)
-{
-	int rc, off, len;
-	char *ptr;
-
-	for (off = 0; off < cnt; off += len + 1) {
-		ptr = memchr(buf + off, '\n', cnt - off);
-		if (ptr == NULL) {
-			break;
-		}
-		*ptr = '\0';
-		len = ptr - (buf + off);
-		rc = sysctl_in_pdu(cp, buf + off);
-		if (rc < 0) {
-			return rc;
-		}
-	}
-	return off;
 }
 
 static int
