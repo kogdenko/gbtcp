@@ -2603,8 +2603,7 @@ gt_sock_rcvbuf_add(struct gt_sock *so, const void *src, int cnt, int all)
 	struct log *log;
 
 	len = so->so_rcvbuf.sob_len;
-	rc = sockbuf_add(&current->p_sockbuf_pool, &so->so_rcvbuf,
-	                 src, cnt, all);
+	rc = sockbuf_add(&current->p_sockbuf_pool, &so->so_rcvbuf, src, cnt, all);
 	rc = so->so_rcvbuf.sob_len - len;
 	log = log_trace0();
 	DBG(log, 0, "hit; fd=%d, cnt=%d, buflen=%d",

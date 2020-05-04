@@ -395,7 +395,7 @@ int
 uepoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 	uint64_t to, const sigset_t *sigmask)
 {
-	int rc, n, epoch;
+	int rc, n;
 	struct pollfd pfds[1 + GT_FD_EVENTS_MAX];
 	struct uepoll *ep;
 	struct gt_fd_event_set set;
@@ -416,7 +416,6 @@ uepoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 	set.fdes_to = to;
 	do {
 		gt_fd_event_set_init(&set, pfds + 1);
-		epoch = gt_global_epoch;
 		GT_GLOBAL_UNLOCK;
 		if (n) {
 			set.fdes_ts.tv_nsec = 0;
@@ -424,9 +423,6 @@ uepoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 		rc = sys_ppoll(NULL, pfds, set.fdes_nr_used + 1,
 		               &set.fdes_ts, sigmask);
 		GT_GLOBAL_LOCK;
-		if (epoch != gt_global_epoch) {
-			return -EFAULT;
-		}	
 		gt_fd_event_set_call(&set, pfds + 1);
 		if (rc < 0) {
 			return rc;

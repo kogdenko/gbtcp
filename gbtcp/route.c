@@ -98,6 +98,34 @@ gt_route_foreach_set_saddrs(struct log *log, struct route_if *ifp)
 void gtd_host_rxtx(struct dev *dev, short revents);
 void gt_service_rxtx(struct dev *dev, short revents);
 
+void
+gtd_host_rxtx(struct dev *dev, short revents)
+{
+	int i, n, len;
+	u_char *data;
+	struct netmap_ring *rxr;
+	struct netmap_slot *slot;
+//	struct route_if *ifp;
+
+	//ifp = container_of(dev, struct route_if, rif_host_dev);
+	DEV_FOREACH_RXRING(rxr, dev) {
+		n = dev_rxr_space(dev, rxr);
+		for (i = 0; i < n; ++i) {
+			slot = rxr->slot + rxr->cur;
+			data = (u_char *)NETMAP_BUF(rxr, slot->buf_idx);
+			len = slot->len;
+			UNUSED(data);
+			UNUSED(slot);
+			UNUSED(len);
+			//gtd_tx_to_net(ifp, data, len);
+			
+			DEV_RXR_NEXT(rxr);
+		}
+	}
+}
+
+
+
 static int
 gtd_set_rss_conf(struct log *log, int rss_q_cnt, const uint8_t *rss_key)
 {

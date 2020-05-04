@@ -15,6 +15,7 @@ struct shm_region {
 	int shmr_size;
 };
 
+static int shm_fd = -1;
 static struct shm_hdr *shm;
 
 static int
@@ -30,24 +31,25 @@ roundup_page(int size)
 }
 
 int
-shm_init(void **pp, int size)
+shm_init(struct log *log, void **pp, int size)
 {
-	int i, n, rc, fd, npages;
+	int i, n, rc, npages;
 	void *ptr, *suggest;
+
 	npages = 256000;
 	rc = shm_open(NAME, O_CREAT|O_RDWR, 0666);
 	if (rc == -1) {
 		return -errno;
 	}
-	fd = rc;
-	ftruncate(fd, npages * PAGE_SIZE);
+	shm_fd = rc;
+	ftruncate(shm_fd, npages * PAGE_SIZE);
 	suggest = (void *)(0x7fffffffffff - 8llu * 1024 * 1024 * 1024);
 	ptr = mmap(suggest,
 	           npages * PAGE_SIZE, PROT_READ|PROT_WRITE,
-	           MAP_SHARED, fd, 0);
+	           MAP_SHARED, shm_fd, 0);
 	if (ptr == MAP_FAILED) {
-		sys_close(NULL, fd);
-		return -errno;
+		rc = -errno;
+		goto err;
 	}
 	dbg("ptr= %p, siggest=%p", ptr, suggest);
 	assert(!(((uintptr_t)ptr) & (PAGE_SIZE - 1)));
@@ -67,26 +69,29 @@ shm_init(void **pp, int size)
 	memset(*pp, 0, size);
 	printf("INIT2 %d\n", n);
 	return 0;
+err:
+	shm_deinit(log);
+	return rc;
 }
 
 int
-shm_attach(void **pp)
+shm_attach(struct log *log, void **pp)
 {
-	int rc, fd, size;
+	int rc, size;
 	void *ptr, *addr;
 
+	LOG_TRACE(log);
 	rc = shm_open(NAME, O_RDWR, 0666);
 	if (rc == -1) {
 		printf("== 1\n");
 		return -errno;
 	}
-	fd = rc;
+	shm_fd = rc;
 	ptr = mmap(NULL, sizeof(*shm), PROT_READ|PROT_WRITE,
-	           MAP_SHARED, fd, 0);
+	           MAP_SHARED, shm_fd, 0);
 	if (ptr == MAP_FAILED) {
-		sys_close(NULL, fd);
-		printf("== 2\n");
-		return -errno;
+		rc = -errno;
+		goto err;
 	}
 	shm = ptr;
 	size = shm->shm_npages * PAGE_SIZE;
@@ -94,16 +99,40 @@ shm_attach(void **pp)
 	addr = (void *)shm->shm_addr;
 	munmap(ptr, sizeof(*shm));
 	ptr = mmap(addr, size, PROT_READ|PROT_WRITE,
-	           MAP_SHARED|MAP_FIXED, fd, 0);
+	           MAP_SHARED|MAP_FIXED, shm_fd, 0);
 	if (ptr == MAP_FAILED) {
 		rc = -errno;
-		printf("== 3 %p %s\n", addr, strerror(-rc));
-		sys_close(NULL, fd);
-		return rc;
+		goto err;
 	}
 	shm = ptr;
 	*pp = ((u_char *)shm) + sizeof(*shm) + shm->shm_npages;
 	return 0;
+err:
+	shm_detach(log);
+	return rc;
+}
+
+void
+shm_detach(struct log *log)
+{
+	int size;
+
+	if (shm != NULL) {
+		size = shm->shm_npages * PAGE_SIZE;
+		munmap(shm, size);
+		shm = NULL;
+	}
+	if (shm_fd >= 0) {
+		sys_close(log, shm_fd);
+		shm_fd = -1;
+	}
+}
+
+void
+shm_deinit(struct log *log)
+{
+	shm_detach(log);
+	shm_unlink(NAME);
 }
 
 int

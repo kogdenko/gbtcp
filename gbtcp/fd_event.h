@@ -37,7 +37,6 @@ struct gt_fd_event_set {
 	struct timespec fdes_ts;
 	int fdes_nr_used;
 	int fdes_again; // For repeted `rxtx` call
-	int fdes_epoch;
 	struct gt_fd_event *fdes_used[GT_FD_EVENTS_MAX];
 };
 

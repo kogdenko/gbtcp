@@ -1,75 +1,66 @@
-/* GPL2 license */
+// GPL2 license
 #include "internals.h"
 
 struct init_mod {
 	struct log_scope log_scope;
 };
 
-struct mod {
-	int (*m_init)(struct log *, void **);
-	int (*m_attach)(struct log *, void *);
-	void (*m_deinit)(struct log *, void *);
-	void (*m_detach)(struct log *);
-	int m_inited;
-	int m_attached;
-	void *m_data;
-	const char *m_name;
-};
+#define MOD_FOREACH(x, a0, a1) \
+	x(sysctl, a0, a1) \
+	x(log, a0, a1) \
+	x(proc, a0, a1) \
+	x(subr, a0, a1) \
+	x(pid, a0, a1) \
+	x(poll, a0, a1) \
+	x(epoll, a0, a1) \
+	x(sys, a0, a1) \
+	x(mbuf, a0, a1) \
+	x(htable, a0, a1) \
+	x(timer, a0, a1) \
+	x(fd_event, a0, a1) \
+	x(signal, a0, a1) \
+	x(dev, a0, a1) \
+	x(api, a0, a1) \
+	x(lptree, a0, a1) \
+	x(route, a0, a1) \
+	x(arp, a0, a1) \
+	x(file, a0, a1) \
+	x(inet, a0, a1) \
+	x(sockbuf, a0, a1) \
+	x(tcp, a0, a1)
 
-#define MOD_FOREACH(x, a1) \
-	x(sysctl, a1) \
-	x(log, a1) \
-	x(proc, a1) \
-	x(subr, a1) \
-	x(pid, a1) \
-	x(poll, a1) \
-	x(epoll, a1) \
-	x(sys, a1) \
-	x(mbuf, a1) \
-	x(htable, a1) \
-	x(timer, a1) \
-	x(fd_event, a1) \
-	x(signal, a1) \
-	x(dev, a1) \
-	x(api, a1) \
-	x(lptree, a1) \
-	x(route, a1) \
-	x(arp, a1) \
-	x(file, a1) \
-	x(inet, a1) \
-	x(sockbuf, a1) \
-	x(tcp, a1)
+#define MOD_ENUM(name, a0, a1) MOD_##name,
 
-#define MOD_ENUM(name, a1) MOD_##name,
-#define MOD_INIT(name, a1) \
-	pmod = &ih->ih_mods[MOD_##name]; \
-	if (0) \
-		printf("Init { %s\n", #name); \
-	name##_mod_init(NULL, pmod); \
-	if (0) { \
-		printf("Init %s - %p\n", #name, *pmod); \
-		printf("Attach %s [%d]%p\n", #name, MOD_##name, *pmod); \
-	} \
-	name##_mod_attach(NULL, *pmod);
+#define MOD_INIT(name, log, ih) \
+	if (rc == 0) { \
+		rc = name##_mod_init(log, &(ih)->ih_mods[MOD_##name]); \
+	}
 
-	
-#define MOD_ATTACH(name, a1) \
-	pmod = &ih->ih_mods[MOD_##name]; \
-	if (0) \
-		printf("Attach %s [%d]%p\n", #name, MOD_##name, *pmod); \
-	name##_mod_attach(NULL, *pmod);
+#define MOD_ATTACH(name, log, ih) \
+	if (rc == 0) { \
+		rc = name##_mod_attach(log, (ih)->ih_mods[MOD_##name]); \
+	}
 
-#define PROC_INIT(name, p) name##_proc_init(NULL, p);
+#define PROC_INIT(name, log, p) \
+	if (rc == 0) { \
+		rc = name##_proc_init(log, p); \
+	}
+
+#define MOD_DEINIT(name, log, ih) \
+	name##_mod_deinit(log, (ih)->ih_mods[MOD_##name]);
+
+#define MOD_DETACH(name, log, ih) \
+	name##_mod_detach(log);
 
 enum {
-	MOD_FOREACH(MOD_ENUM, 0)
+	MOD_FOREACH(MOD_ENUM, 0, 0)
 	MOD_COUNT_MAX
 };
 
-int gt_global_epoch;
 struct proc *current;
 
 static struct spinlock init_lock;
+static int service_fd = -1;
 static struct sysctl_conn binded;
 static struct init_mod *curmod;
 
@@ -79,56 +70,14 @@ struct init_hdr {
 	int ih_version;
 	uint64_t ih_HZ;
 	void *ih_mods[MOD_COUNT_MAX];
-	struct proc ih_controller;
-	struct proc ih_services[GT_SERVICE_COUNT_MAX];
+	union {
+		struct proc ih_procs[GT_SERVICE_COUNT_MAX + 1];
+		struct {
+			struct proc ih_controller;
+			struct proc ih_services[GT_SERVICE_COUNT_MAX];
+		};
+	};
 };
-
-#define INIT_MOD(name) \
-{ \
-	.m_init = name##_mod_init, \
-	.m_attach = name##_mod_attach, \
-	.m_deinit = name##_mod_deinit, \
-	.m_detach = name##_mod_detach, \
-	.m_inited = 0, \
-	.m_attached = 0, \
-	.m_data = NULL, \
-	.m_name = #name \
-}
-
-#if 0
-#define INIT_MOD(name) \
-{ \
-	.m_inited = 0, \
-	.m_name = #name \
-}
-#endif
-void
-gtd_host_rxtx(struct dev *dev, short revents)
-{
-	int i, n, len;
-	u_char *data;
-	struct netmap_ring *rxr;
-	struct netmap_slot *slot;
-//	struct route_if *ifp;
-
-	//ifp = container_of(dev, struct route_if, rif_host_dev);
-	DEV_FOREACH_RXRING(rxr, dev) {
-		n = dev_rxr_space(dev, rxr);
-		for (i = 0; i < n; ++i) {
-			slot = rxr->slot + rxr->cur;
-			data = (u_char *)NETMAP_BUF(rxr, slot->buf_idx);
-			len = slot->len;
-			UNUSED(data);
-			UNUSED(slot);
-			UNUSED(len);
-			//gtd_tx_to_net(ifp, data, len);
-			
-			DEV_RXR_NEXT(rxr);
-		}
-	}
-}
-
-
 
 int
 proc_mod_init(struct log *log, void **pp)
@@ -143,7 +92,6 @@ proc_mod_init(struct log *log, void **pp)
 	}
 	return rc;
 }
-
 int
 proc_mod_attach(struct log *log, void *raw_mod)
 {
@@ -174,6 +122,62 @@ proc_mod_detach(struct log *log)
 	curmod = NULL;
 }
 
+static void
+mod_foreach_mod_deinit(struct log *log, struct init_hdr *ih)
+{
+	MOD_FOREACH(MOD_DEINIT, log, ih);
+}
+
+static int
+mod_foreach_mod_init(struct log *log, struct init_hdr *ih)
+{
+	int rc;
+
+	rc = 0;
+	MOD_FOREACH(MOD_INIT, log, ih);
+	if (rc) {
+		mod_foreach_mod_deinit(log, ih);
+	}
+	return rc;
+}
+
+static void
+mod_foreach_mod_detach(struct log *log, struct init_hdr *ih)
+{
+	MOD_FOREACH(MOD_DETACH, log, ih);
+}
+
+static int
+mod_foreach_mod_attach(struct log *log, struct init_hdr *ih)
+{
+	int rc;
+
+	rc = 0;
+	MOD_FOREACH(MOD_ATTACH, log, ih);
+	if (rc) {
+		mod_foreach_mod_detach(log, ih);
+	}
+	return rc;
+}
+
+static void
+mod_foreach_proc_deinit(struct log *log, struct proc *proc)
+{
+}
+
+static int
+mod_foreach_proc_init(struct log *log, struct proc *proc)
+{
+	int rc;
+
+	rc = 0;
+	MOD_FOREACH(PROC_INIT, log, proc);
+	if (rc) {
+		mod_foreach_proc_deinit(log, proc);
+	}
+	return rc;
+}
+
 static int
 sleep_compute_HZ()
 {
@@ -197,24 +201,6 @@ restart:
 	t1 = rdtsc();
 	HZ = (t1 - t0) * 100;
 	mHZ = HZ / 1000000;
-	return 0;
-}
-
-int
-common_init(int is_service, struct init_hdr *ih)
-{
-	void **pmod;
-
-	gt_global_epoch++;
-	rdtsc_update_time();
-	if (is_service == 0) {
-		memset(ih, 0, sizeof(*ih));
-		printf("init modules\n");
-		MOD_FOREACH(MOD_INIT, 0);
-		printf("init dodules done\n");
-	} else {
-		MOD_FOREACH(MOD_ATTACH, 0);
-	}
 	return 0;
 }
 
@@ -314,7 +300,6 @@ controller_sysctl_accept(struct log *log, struct sysctl_conn *lp)
 
 	rc = sysctl_conn_accept(log, lp, &pid);
 	if (rc < 0) {
-		dbg("0");
 		return rc;
 	}
 	fd = rc;
@@ -359,7 +344,7 @@ controller_bind(struct log *log, int pid)
 	if (rc) {
 		goto err;
 	}
-	binded.c_accept_fn = controller_sysctl_accept;
+	binded.sccn_accept_fn = controller_sysctl_accept;
 	return 0;
 err:
 	sys_close(log, fd);
@@ -374,6 +359,7 @@ proc_controller_init(struct log *log, int daemonize, const char *proc_name)
 	struct proc *proc;
 
 	dlsym_all();
+	rdtsc_update_time();
 	LOG_TRACE(log);
 	if (daemonize) {
 		rc = sys_daemon(log, 0, 1);
@@ -385,30 +371,48 @@ proc_controller_init(struct log *log, int daemonize, const char *proc_name)
 	if (rc) {
 		return rc;
 	}
-	rc = shm_init((void **)&ih, sizeof(*ih));
+	rc = shm_init(log, (void **)&ih, sizeof(*ih));
 	if (rc) {
 		return rc;
 	}
-	rc = common_init(0, ih);
-	assert(rc == 0);
+	memset(ih, 0, sizeof(*ih));
+	rc = mod_foreach_mod_init(log, ih);
+	if (rc) {
+		return rc;
+	}
+	rc = mod_foreach_mod_attach(log, ih);
+	if (rc) {
+		return rc;
+	}
 	pid = getpid();
 	ih->ih_version = IH_VERSION;
 	ih->ih_HZ = sleep_compute_HZ();
+	for (i = 0; i < ARRAY_SIZE(ih->ih_procs); ++i) {
+		proc = ih->ih_procs + i;
+		mod_foreach_proc_init(log, proc);
+	}
 	current = &ih->ih_controller;
 	current->p_pid = pid;
-	current->p_type = PROC_CONTROLLER;
-	MOD_FOREACH(PROC_INIT, current);
-	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
-		proc = ih->ih_services + i;
-		proc->p_pid = 0;
-		proc->p_type = PROC_SERVICE;
-		MOD_FOREACH(PROC_INIT, proc);
-	}
 	sysctl_read_file(log, proc_name);
 	rc = controller_bind(log, pid);
+	if (rc) {
+		goto err;
+	}
+	return 0;
+err:
+	if (current != NULL) {
+		current->p_pid = 0;
+		current = NULL;
+	}
+	for (i = 0; i < ARRAY_SIZE(ih->ih_procs); ++i) {
+		proc = ih->ih_procs + i;
+		mod_foreach_proc_deinit(log, proc);
+	}
+	mod_foreach_mod_deinit(log, ih);
+	mod_foreach_mod_detach(log, ih);
+	shm_deinit(log);
 	return rc;
 }
-
 
 void
 proc_controller_loop()
@@ -434,7 +438,7 @@ fork_controller(struct log *log, const char *proc_name)
 	if (rc < 0) {
 		return rc;
 	} else if (rc == 0) {
-		api_disabled += 100;
+		api_locked += 100;
 		log = log_trace0();
 		sys_close(log, pipe_fd[0]);
 		rc = proc_controller_init(log, 1, proc_name);
@@ -472,14 +476,13 @@ fork_controller(struct log *log, const char *proc_name)
 	return rc;
 }
 int
-service_attach(struct log *log, int fd, const char *proc_name,
-	struct init_hdr **pih)
+service_attach(struct log *log, const char *proc_name, struct init_hdr **pih)
 {
 	int rc, pid;
 	uint64_t to;
 	struct sockaddr_un a;
 
-	rc = shm_attach((void **)pih);
+	rc = shm_attach(log, (void **)pih);
 	if (rc) {
 		return rc;
 	}
@@ -489,7 +492,8 @@ service_attach(struct log *log, int fd, const char *proc_name,
 	pid = (*pih)->ih_controller.p_pid;
 	sysctl_make_sockaddr_un(&a, pid);
 	to = 2 * NANOSECONDS_SECOND;
-	rc = connect_timed(log, fd, (struct sockaddr *)&a, sizeof(a), &to);
+	rc = connect_timed(log, service_fd,
+	                   (struct sockaddr *)&a, sizeof(a), &to);
 	if (rc == 0) {
 		LOGF(log, LOG_NOTICE, 0, "attached; pid=%d", pid);
 	}
@@ -497,9 +501,10 @@ service_attach(struct log *log, int fd, const char *proc_name,
 }
 
 int
-service_init_locked(struct log *log, int fd)
+service_init_locked(struct log *log)
 {
 	int i, rc, pid;
+	struct sockaddr_un a;
 	char proc_name[PROC_NAME_SIZE_MAX];
 	struct init_hdr *ih;
 
@@ -513,15 +518,27 @@ service_init_locked(struct log *log, int fd)
 	if (rc) {
 		return rc;
 	}
+	sysctl_make_sockaddr_un(&a, pid);
+	rc = sysctl_bind(log, &a);
+	if (rc < 0) {
+		return rc;
+	}
+	service_fd = rc;
 	for (i = 0; i < 3; ++i) {
-		rc = service_attach(log, fd, proc_name, &ih);
-		if (rc == 0) {
-			break;
+		if (i) {
+			rc = fork_controller(log, proc_name);
+		} else {
+			rc = 0;
 		}
-		rc = fork_controller(log, proc_name);
+		if (rc == 0) {
+			rc = service_attach(log, proc_name, &ih);
+			if (rc == 0) {
+				break;
+			}
+		}
 	}
 	if (rc) {
-		return rc;
+		goto err;
 	}
 	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
 		current = ih->ih_services + i;
@@ -530,90 +547,71 @@ service_init_locked(struct log *log, int fd)
 		}
 	}
 	if (current->p_pid) {
-		return -ENOENT;
+		rc = -ENOENT;
+		goto err;
 	}
 	current->p_pid = pid;
 	strzcpy(current->p_name, proc_name, sizeof(current->p_name));
-	rc = common_init(1, ih);
-	ASSERT(rc == 0);
-	return 0;
-}
-
-static int
-service_init_spinlocked(struct log *log)
-{
-	int rc, fd, pid, lock_fd;
-	struct sockaddr_un a;
-
-	pid = getpid();
-	sysctl_make_sockaddr_un(&a, pid);
-	rc = sysctl_bind(log, &a);
-	if (rc < 0) {
-		return rc;
-	}
-	fd = rc;
-	rc = sys_open(log, GT_PREFIX"/init.lock", O_CREAT|O_RDWR, 0666);
-	if (rc < 0) {
-		sys_close(log, fd);
-		return rc;
-	}
-	lock_fd = rc;
-	rc = sys_flock(log, lock_fd, LOCK_EX);
+	rc = mod_foreach_mod_attach(log, ih);
 	if (rc) {
 		goto err;
 	}
-	rc = service_init_locked(log, fd);
-	if (rc) {
-		goto err;
-	}
-	sys_close(log, lock_fd);
 	return 0;
 err:
-	sys_close(log, lock_fd);
-	sys_close(log, fd);
+	if (service_fd >= 0) {
+		sys_close(log, service_fd);
+		service_fd = -1;
+	}
+	if (current != NULL) {
+		current->p_pid = 0;
+		current = NULL;
+	}
+	shm_detach(log);
 	return rc;
 }
 
 int
 service_init()
 {
-	int rc;
+	int rc, fd;
 	struct log *log;
 
-	assert(api_disabled == 0);
-	api_disabled++;
+	assert(api_locked == 0);
+	api_locked++;
 	spinlock_lock(&init_lock);
 	dlsym_all();
+	rdtsc_update_time();
 	ASSERT(current == NULL);
 	log = log_trace0();
 	log_init_early();
 	LOGF(log, LOG_INFO, 0, "Hit;");
-	rc = service_init_spinlocked(log);
+	rc = sys_open(log, GT_PREFIX"/init.lock", O_CREAT|O_RDWR, 0666);
+	fd = rc;
+	if (rc < 0) {
+		goto out;
+	}
+	rc = sys_flock(log, fd, LOCK_EX);
+	if (rc < 0) {
+		goto out;
+	}
+	rc = service_init_locked(log);
+out:
 	if (rc) {
-		current = NULL;
 		LOGF(log, LOG_ERR, -rc, "failed;");
 	} else {
 		LOGF(log, LOG_INFO, 0, "ok; current=%p", current);
 	}
+	if (fd >= 0) {
+		sys_close(log, fd);	
+	}
 	spinlock_unlock(&init_lock);
-	api_disabled--;
+	api_locked--;
 	return rc;
 }
 
 void
 service_deinit(struct log *log)
 {
-//	int i;
-//	struct mod *mod;
-
-//	LOG_TRACE(log);
-/*	for (i = ARRAY_SIZE(modules) - 1; i >= 0; --i) {
-		mod = modules + i;
-		if (mod->m_inited) {
-			mod->m_inited = 0;
-			(*mod->m_deinit)(log, mod->m_data);
-		}
-	}*/
 }
 
 void

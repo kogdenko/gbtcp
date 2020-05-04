@@ -143,7 +143,7 @@ poll_fill(struct gt_poll *poll, struct pollfd *pfds, int npfds)
 int
 gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 {
-	int n, m, a, b, sys, rc, epoch;
+	int n, m, a, b, sys, rc;
 	struct gt_poll poll;
 	struct gt_fd_event_set set;
 	UNUSED(b);
@@ -155,7 +155,6 @@ gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 	set.fdes_to = to;
 	do {
 		gt_fd_event_set_init(&set, poll.p_pfds + sys);
-		epoch = gt_global_epoch;
 		GT_GLOBAL_UNLOCK;
 		if (poll.p_n) {
 			// If some events already occured - do not wait in poll
@@ -165,9 +164,6 @@ gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 		               sys + set.fdes_nr_used,
 		               &set.fdes_ts, sigmask);
 		GT_GLOBAL_LOCK;
-		if (epoch != gt_global_epoch) {
-			return -EFAULT;
-		}
 		m = gt_fd_event_set_call(&set, poll.p_pfds + sys);
 		if (rc < 0) {
 			return rc;

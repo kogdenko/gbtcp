@@ -32,9 +32,9 @@
 #define GT_CTL_SOCK_LIST "sock.list"
 
 struct sysctl_conn {
-	void (*c_close_fn)(struct log *, struct sysctl_conn *);
-	int (*c_accept_fn)(struct log *, struct sysctl_conn *);
-	struct gt_fd_event *c_event;
+	void (*sccn_close_fn)(struct log *, struct sysctl_conn *);
+	int (*sccn_accept_fn)(struct log *, struct sysctl_conn *);
+	struct gt_fd_event *sccn_event;
 };
 
 struct strbuf;

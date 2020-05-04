@@ -5,7 +5,7 @@ struct api_mod {
 	struct log_scope log_scope;
 };
 
-__thread int api_disabled;
+__thread int api_locked;
 static struct api_mod *curmod;
 
 
@@ -17,7 +17,7 @@ static struct api_mod *curmod;
 #define API_UNLOCK \
 	do { \
 		gt_fd_event_mod_try_check(); \
-		api_disabled--; \
+		api_locked--; \
 		GT_GLOBAL_UNLOCK; \
 	} while (0)
 
@@ -27,7 +27,7 @@ api_lock()
 	int rc;
 	ptrdiff_t stack_off;
 
-	if (api_disabled) {
+	if (api_locked) {
 		return 0;
 	}
 	stack_off = (u_char *)&rc - (u_char *)gt_signal_stack;
@@ -42,7 +42,7 @@ api_lock()
 			return 0;
 		}
 	}
-	api_disabled++;
+	api_locked++;
 	return 1;
 }
 

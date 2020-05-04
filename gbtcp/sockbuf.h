@@ -22,7 +22,7 @@ void sockbuf_init(struct sockbuf *, int);
 void sockbuf_free(struct sockbuf *);
 int sockbuf_full(struct sockbuf *);
 void sockbuf_set_max(struct sockbuf *, int);
-int sockbuf_add(struct mbuf_pool *, struct sockbuf *, const void *, int);
+int sockbuf_add(struct mbuf_pool *, struct sockbuf *, const void *, int, int);
 int sockbuf_readv(struct sockbuf *, const struct iovec *, int, int, int);
 int sockbuf_readv4(struct sockbuf *, const struct iovec *, int, int);
 int sockbuf_recv(struct sockbuf *, void *, int, int);

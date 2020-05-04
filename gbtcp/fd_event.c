@@ -108,7 +108,7 @@ gt_fd_event_mod_try_check()
 int
 gt_fd_event_mod_wait()
 {
-	int rc, epoch;
+	int rc;
 	struct log *log;
 	struct gt_fd_event_set set;
 	struct pollfd pfds[GT_FD_EVENTS_MAX];
@@ -116,13 +116,10 @@ gt_fd_event_mod_wait()
 	log = log_trace0();
 	set.fdes_to = TIMER_TIMO;
 	gt_fd_event_set_init(&set, pfds);
-	epoch = gt_global_epoch;
 	GT_GLOBAL_UNLOCK;
 	rc = sys_ppoll(log, pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
 	GT_GLOBAL_LOCK;
-	if (epoch == gt_global_epoch) {
-		gt_fd_event_set_call(&set, pfds);
-	}
+	gt_fd_event_set_call(&set, pfds);
 	return rc < 0 ? rc : 0;
 }
 
@@ -303,11 +300,10 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 	struct gt_fd_event *e;
 
 	ASSERT3(0, gt_fd_event_in_cb == 0, "recursive wait");
-	rdtsc_update_time();
+	rdtsc_update_time(); // ?????????????????????????????????????????
 	set->fdes_again = 0;
 	set->fdes_time = nanoseconds;
 	set->fdes_nr_used = 0;
-	set->fdes_epoch = gt_global_epoch;
 	gt_sock_tx_flush();
 	for (i = 0; i < fdevent_nused; ++i) {
 		e = gt_fd_event_used[i];
@@ -362,9 +358,6 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 	uint64_t dt;
 	struct gt_fd_event *e;
 
-	if (set->fdes_epoch != gt_global_epoch) {
-		return 0;
-	}
 	gt_fd_event_epoch++;
 	rdtsc_update_time();
 	dt = nanoseconds - set->fdes_time;

@@ -158,7 +158,8 @@ sockbuf_write(struct sockbuf *b, struct sbchunk *pos,
 }
 
 int
-sockbuf_add(struct mbuf_pool *p, struct sockbuf *b, const void *buf, int cnt)
+sockbuf_add(struct mbuf_pool *p, struct sockbuf *b,
+	const void *buf, int cnt, int atomic)
 {
 	int n, rem, space, added;
 	struct sbchunk *chunk, *pos;
@@ -169,6 +170,11 @@ sockbuf_add(struct mbuf_pool *p, struct sockbuf *b, const void *buf, int cnt)
 	added = MIN(cnt, space);
 	if (added <= 0) {
 		return 0;
+	}
+	if (atomic) {
+		if (added < cnt) {
+			return 0;
+		}
 	}
 	n = 0;
 	if (dlist_is_empty(&b->sob_head)) {

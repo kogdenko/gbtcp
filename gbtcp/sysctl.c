@@ -354,7 +354,7 @@ sysctl_split_msg(struct iovec *tokens, char *msg)
 static int
 sysctl_conn_fd(struct sysctl_conn *cp)
 {
-	return cp->c_event->fde_fd;
+	return cp->sccn_event->fde_fd;
 }
 
 int
@@ -427,10 +427,10 @@ sysctl_process_events(void *udata, short revents)
 
 	log = log_trace0();
 	cp = udata;
-	if (cp->c_accept_fn != NULL) {
+	if (cp->sccn_accept_fn != NULL) {
 		if (revents & POLLIN) {	
 			do {
-				rc = (*cp->c_accept_fn)(log, cp);
+				rc = (*cp->sccn_accept_fn)(log, cp);
 			} while (rc == 0);
 		}
 	} else {
@@ -465,15 +465,15 @@ sysctl_conn_open(struct log *log, struct sysctl_conn *cp, int fd)
 	if (rc < 0) {
 		return rc;
 	}
-	cp->c_close_fn = NULL;
-	cp->c_accept_fn = NULL;
+	cp->sccn_close_fn = NULL;
+	cp->sccn_accept_fn = NULL;
 	snprintf(name, sizeof(name), "sysctl.%d", fd);
-	rc = gt_fd_event_new(log, &cp->c_event, fd, name,
+	rc = gt_fd_event_new(log, &cp->sccn_event, fd, name,
 	                     sysctl_process_events, cp);
 	if (rc < 0) {
 		return rc;
 	}
-	gt_fd_event_set(cp->c_event, POLLIN);
+	gt_fd_event_set(cp->sccn_event, POLLIN);
 	return 0;
 }
 
@@ -481,11 +481,11 @@ void
 sysctl_conn_close(struct log *log, struct sysctl_conn *cp)
 {
 	LOG_TRACE(log);
-	if (cp->c_close_fn != NULL) {
-		(*cp->c_close_fn)(log, cp);
+	if (cp->sccn_close_fn != NULL) {
+		(*cp->sccn_close_fn)(log, cp);
 	}
 	sys_close(log, sysctl_conn_fd(cp));
-	gt_fd_event_del(cp->c_event);
+	gt_fd_event_del(cp->sccn_event);
 }
 
 int

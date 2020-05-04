@@ -13,7 +13,6 @@
 struct proc {
 	struct spinlock p_lock;
 	int p_pid;
-	u_char p_type;
 	u_char p_rssq_id;
 	char p_name[PROC_NAME_SIZE_MAX];
 	struct mbuf_pool p_file_pool;

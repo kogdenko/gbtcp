@@ -245,7 +245,7 @@ do { \
 extern uint64_t nanoseconds;
 extern uint64_t HZ;
 extern uint64_t mHZ;
-extern __thread int api_disabled;
+extern __thread int api_locked;
 
 int subr_mod_init(struct log *, void **);
 int subr_mod_attach(struct log *, void *);
