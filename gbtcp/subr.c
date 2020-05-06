@@ -389,7 +389,7 @@ gt_custom_hash(const void *data, size_t cnt, uint32_t initval)
 }
 
 uint32_t
-toeplitz_hash(const uint8_t *data, int cnt, const uint8_t *key)
+toeplitz_hash(const u_char *data, int cnt, const u_char *key)
 {   
 	uint32_t h, v;
 	int i, b;
@@ -402,7 +402,7 @@ toeplitz_hash(const uint8_t *data, int cnt, const uint8_t *key)
 				h ^= v;
 			}
 			v <<= 1;
-			if ((i + 4) < RSSKEYSIZ &&
+			if ((i + 4) < RSS_KEY_SIZE &&
 			    (key[i + 4] & (1 << (7 - b)))) {
 				v |= 1;
 			}
@@ -627,25 +627,42 @@ restart:
 	return rc;
 }
 
-ssize_t
-write_all(struct log *log, int fd, const void *buf, size_t cnt)
-{
-	ssize_t rc, off;
-	const u_char *ptr;
+#define SYS_CALL_FULL_BUF(name, log, fd, buf, cnt, ...) ({ \
+	ssize_t rc, ret, off; \
+ \
+	ret = 0; \
+	for (off = 0; off < cnt; off += rc) { \
+		rc = sys_##name(log, fd, (const u_char *)buf + off, \
+		                cnt - off, ##__VA_ARGS__); \
+		if (rc < 0) { \
+			ret = rc; \
+			break; \
+		} \
+	} \
+	ret; \
+})
 
-	ptr = buf;
-	for (off = 0; off < cnt; off += rc) {
-		rc = sys_write(log, fd, ptr + off, cnt - off);
-		if (rc < 0) {
-			return rc;
-		}
-	}
-	return 0;
+ssize_t
+write_full_buf(struct log *log, int fd, const void *buf, size_t cnt)
+{
+	int rc;
+
+	rc = SYS_CALL_FULL_BUF(write, log, fd, buf, cnt);
+	return rc;
+}
+
+ssize_t
+send_full_buf(struct log *log, int fd, const void *buf, size_t cnt, int flags)
+{
+	int rc;
+
+	rc = SYS_CALL_FULL_BUF(send, log, fd, buf, cnt, flags);
+	return rc;
 }
 
 #ifdef __linux__
 int
-read_rsskey(struct log *log, const char *ifname, uint8_t *rsskey)
+read_rss_key(struct log *log, const char *ifname, u_char *rss_key)
 {
 	int fd, rc, size, off;
 	struct ifreq ifr;
@@ -664,7 +681,7 @@ read_rsskey(struct log *log, const char *ifname, uint8_t *rsskey)
 	if (rc < 0) {
 		goto out;
 	}
-	if (rss.key_size != RSSKEYSIZ) {
+	if (rss.key_size != RSS_KEY_SIZE) {
 		LOGF(log, LOG_ERR, 0,
 		     "invalid rss key_size; key_size=%d", rss.key_size);
 		goto out;
@@ -685,7 +702,7 @@ read_rsskey(struct log *log, const char *ifname, uint8_t *rsskey)
 		goto out2;
 	}
 	off = rss2->indir_size * sizeof(rss2->rss_config[0]);
-	memcpy(rsskey, (uint8_t *)rss2->rss_config + off, RSSKEYSIZ);
+	memcpy(rss_key, (uint8_t *)rss2->rss_config + off, RSS_KEY_SIZE);
 out2:
 	free(rss2);
 out:

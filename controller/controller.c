@@ -5,10 +5,11 @@ main(int argc, char **argv)
 {
 	int rc, opt, daemonize;
 	const char *proc_name;
-	struct log *log;
 
 	daemonize = 0;
 	proc_name = "controller";
+	proc_init();
+	//log_set_level(LOG_DEBUG);
 	while ((opt = getopt(argc, argv, "n:d")) != -1) {
 		switch (opt) {
 		case 'n':
@@ -19,13 +20,10 @@ main(int argc, char **argv)
 			break;
 		}
 	}
-	dlsym_all();
-	log_init_early();
-	log = log_trace0();
-	rc = proc_controller_init(log, daemonize, proc_name);
+	rc = controller_init(daemonize, proc_name);
 	if (rc) {
 		return EXIT_FAILURE;
 	}
-	proc_controller_loop();
+	controller_loop();
 	return 0;
 }

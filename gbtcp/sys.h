@@ -163,6 +163,7 @@ int sys_chown(struct log *, const char *, uid_t, gid_t);
 int sys_chmod(struct log *, const char *, mode_t);
 int sys_getifaddrs(struct log *, struct ifaddrs **);
 int sys_if_indextoname(struct log *, int, char *);
+int sys_if_nametoindex(struct log *, const char *);
 int sys_kill(struct log *, int, int);
 int sys_waitpid(struct log *, pid_t, int *, int);
 int sys_daemon(struct log *, int, int);

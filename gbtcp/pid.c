@@ -115,7 +115,7 @@ pidfile_write(struct log *log, struct pidfile *pf, int pid)
 
 	LOG_TRACE(log);
 	len = snprintf(buf, sizeof(buf), "%d", pid);
-	rc = write_all(log, pf->pf_fd, buf, len);
+	rc = write_full_buf(log, pf->pf_fd, buf, len);
 	return rc;
 }
 void

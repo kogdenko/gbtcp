@@ -77,25 +77,6 @@ static struct dlist *sock_hash;
 static unsigned long long cnt_not_an_UDP;
 static unsigned long long cnt_bad_cksum;
 
-static void die(int errnum, const char *fmt, ...)
-	__attribute__((format(printf, 2, 3)));
-
-static void
-die(int errnum, const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	vprintf(fmt, ap);
-	va_end(ap);
-	if (errnum) {
-		printf(" (%d:%s)\n", errnum, strerror(errnum));
-	} else {
-		printf("\n");
-	}
-	abort();
-}
-
 static void
 print_usage()
 {
@@ -392,7 +373,7 @@ fwd(struct fwd_dev *src, struct fwd_dev *dst)
 	struct netmap_slot *rx_slot, *tx_slot;
 	struct netmap_ring *rxr, *txr;
 	struct dlist *bucket;
-	struct gt_sock_tuple tuple;
+	struct sock_tuple tuple;
 	struct gt_sock *so;
 	struct pdu pdu;
 
@@ -544,7 +525,7 @@ set_affinity(int i)
 static void
 invalid_arg(int opt, const char *val)
 {
-	die(0, "invalid argument '-%c': %s", opt, val);
+	die(NULL, 0, "invalid argument '-%c': %s", opt, val);
 }
 
 int
@@ -580,7 +561,7 @@ main(int argc, char **argv)
 			snprintf(ifname, sizeof(ifname), "netmap:%s", optarg);
 			devs[nr_devs].nmd = nm_open(ifname, NULL, 0, NULL);
 			if (devs[nr_devs].nmd == NULL) {
-				die(errno, "nm_open('%s') failed", ifname);
+				die(NULL, errno, "nm_open('%s') failed", ifname);
 			}
 			devs[nr_devs].cur_tx_ring = devs[nr_devs].nmd->first_tx_ring;
 			pfds[nr_devs].fd = devs[nr_devs].nmd->fd;
@@ -620,7 +601,7 @@ main(int argc, char **argv)
 			cpu = strtoul(optarg, NULL, 10);
 			rc = set_affinity(cpu);
 			if (rc) {
-				die(-rc, "set_affinity(%d) failed", cpu);
+				die(NULL, -rc, "set_affinity(%d) failed", cpu);
 			}
 			break;
 		case 'b':
@@ -654,7 +635,7 @@ main(int argc, char **argv)
 		}
 	}
 	if (burst_size < 1 || burst_size > 4096) {
-		die(0, "invalid burst size: %d\n", burst_size);
+		die(NULL, 0, "invalid burst size: %d\n", burst_size);
 	}
 	while (1) {
 		for (i = 0; i < nr_devs; ++i) {

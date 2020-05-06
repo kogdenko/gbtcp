@@ -205,7 +205,7 @@ gt_route_handle_route(struct nlmsghdr *h, struct gt_route_msg *msg)
 		return 0;
 	}
 	if (rtm->rtm_type != RTN_UNICAST) {
-		LOGF(log, LOG_INFO, 0, "not unicast; rtm_type=%d",
+		LOGF(log, LOG_DEBUG, 0, "not unicast; rtm_type=%d",
 		     rtm->rtm_type);
 		return 0;
 	}
@@ -332,7 +332,7 @@ gt_route_rtnl_handler(struct nlmsghdr *h, gt_route_msg_f fn)
 		LOGF(log, LOG_ERR, -rc, "failed; nlmsg_type=%s",
 		     route_nlmsg_type_str(h->nlmsg_type));
 	} else {
-		LOGF(log, LOG_INFO, 0, "ok; nlmsg_type=%s",
+		LOGF(log, LOG_DEBUG, 0, "ok; nlmsg_type=%s",
 		     route_nlmsg_type_str(h->nlmsg_type));
 	}
 	if (rc == 1 && fn != NULL) {
@@ -419,7 +419,7 @@ gt_route_read_all(int fd, gt_route_msg_f fn)
 }
 
 int
-gt_route_dump(gt_route_msg_f fn)
+route_dump(gt_route_msg_f fn)
 {
 	static int types[3] = { RTM_GETLINK, RTM_GETADDR, RTM_GETROUTE };
 	int i, rc, fd;

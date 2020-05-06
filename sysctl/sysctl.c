@@ -169,7 +169,7 @@ sysctl_list_r(char *path, int path_len, char *buf, int depth)
 		path[len - 1] = '+';
 		path[len] = '\0';
 		// path: A.B.list.C+
-		rc = gt_sysctl(path, buf, GT_SYSCTL_BUFSIZ, NULL);
+		rc = gt_sysctl(path, buf, NULL);
 		if (rc == -1) {
 			rc = -gbtcp_errno;
 			return rc;
@@ -188,7 +188,7 @@ sysctl_r(char *path, int path_len, char *buf, const char *new, int depth)
 {
 	int rc;
 
-	rc = gt_sysctl(path, buf, GT_SYSCTL_BUFSIZ, new);
+	rc = gt_sysctl(path, buf, new);
 	if (rc == -1) {
 		rc = -gbtcp_errno;
 		return rc;

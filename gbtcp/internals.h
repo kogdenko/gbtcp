@@ -7,7 +7,6 @@
 #include "strbuf.h"
 #include "ip_addr.h"
 #include "pid.h"
-#include "global.h"
 #include "sys.h"
 #include "mm.h"
 #include "mbuf.h"

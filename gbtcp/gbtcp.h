@@ -31,9 +31,10 @@
 #define GT_TCP_S_TIME_WAIT 10
 #define GT_TCP_NSTATES 11
 
-#define GT_SYSCTL_BUFSIZ 16384
-#define GT_RSSQ_COUNT_MAX 32
-#define GT_SERVICE_COUNT_MAX (GT_RSSQ_COUNT_MAX << 1)
+#define GT_SYSCTL_BUFSIZ 4096
+#define GT_RSS_NQ_MAX 32
+// (GT_SERVICECOUNT_MAX + 1) must be <= maximum number of vale ports
+#define GT_SERVICE_COUNT_MAX 128
 #define GT_GROUP_NAME "gbtcp"
 
 #define GT_TCP_STAT(x) \
@@ -215,7 +216,7 @@ int gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout);
 int gbtcp_ppoll(struct pollfd *fds, nfds_t nfds,
 	const struct timespec *timeout_ts, const sigset_t *sigmask);
 
-int gt_sysctl(const char *, char *, int, const char *);
+int gt_sysctl(const char *, char *, const char *);
 
 int gt_first_fd();
 

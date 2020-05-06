@@ -65,7 +65,7 @@ struct gt_sock {
 		};
 	};
 	struct dlist so_bindl;
-	struct gt_sock_tuple so_tuple;
+	struct sock_tuple so_tuple;
 	be32_t so_next_hop;
 	uint16_t so_lmss;
 	uint16_t so_rmss;
@@ -125,10 +125,10 @@ void gt_sock_get_sockcb(struct gt_sock *so, struct gt_sockcb *socb);
 
 int gt_sock_nread(struct file *fp);
 
-int gt_sock_in(int ipproto, struct gt_sock_tuple *so_tuple, struct gt_tcpcb *tcb,
+int gt_sock_in(int ipproto, struct sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 	void *payload);
 
-void gt_sock_in_err(int ipproto, struct gt_sock_tuple *so_tuple, int eno);
+void gt_sock_in_err(int ipproto, struct sock_tuple *so_tuple, int eno);
 
 void gt_sock_tx_flush();
 

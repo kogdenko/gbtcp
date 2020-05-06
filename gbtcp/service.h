@@ -21,7 +21,6 @@ void service_mod_detach(struct log *);
 
 const char *gt_service_status_str(int status);
 
-int service_start(struct log *);
 
 int gt_service_fork(struct log *);
 

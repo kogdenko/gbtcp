@@ -18,7 +18,7 @@ static struct api_mod *curmod;
 	do { \
 		gt_fd_event_mod_try_check(); \
 		api_locked--; \
-		GT_GLOBAL_UNLOCK; \
+		SERVICE_UNLOCK; \
 	} while (0)
 
 static inline int
@@ -34,14 +34,13 @@ api_lock()
 	if (stack_off < gt_signal_stack_size) {
 		// Called from signal handler
 		return 0;
-	} else if (current != NULL) {
-		rdtsc_update_time();
-	} else {
+	} else if (current == NULL) {
 		rc = service_init();
 		if (rc) {
 			return 0;
 		}
 	}
+	SERVICE_LOCK;
 	api_locked++;
 	return 1;
 }
@@ -183,10 +182,10 @@ api_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	faddr_in = (const struct sockaddr_in *)addr;
 	DBG(log, 0, "hit; fd=%d, faddr=%s",
 	    fd, log_add_sockaddr_in(faddr_in));
-	rc = service_start(log);
-	if (rc == 0) {
-		rc = gt_sock_connect(fp, faddr_in, &laddr_in);
+	if (!current->p_active) {
+		service_activate(log);
 	}
+	rc = gt_sock_connect(fp, faddr_in, &laddr_in);
 restart:
 	if (rc == -EINPROGRESS && fp->fl_blocked) {
 		rc = file_wait(fp, POLLOUT);
@@ -246,13 +245,15 @@ api_bind(struct log *log, int fd, const struct sockaddr *addr,
 	addr_in = (const struct sockaddr_in *)addr;
 	LOGF(log, LOG_INFO, 0, "hit; fd=%d, laddr=%s",
 	     fd, log_add_sockaddr_in(addr_in));
-	rc = service_start(log);
-	if (rc == 0)
-		rc = gt_sock_bind(fp, addr_in);
-	if (rc < 0)
+	if (!current->p_active) {
+		service_activate(log);
+	}
+	rc = gt_sock_bind(fp, addr_in);
+	if (rc < 0) {
 		LOGF(log, LOG_INFO, -rc, "failed");
-	else
+	} else {
 		LOGF(log, LOG_INFO, 0, "ok");
+	}
 	return rc;
 }
 
@@ -279,10 +280,7 @@ api_listen(struct log *log, int fd, int backlog)
 	}
 	LOG_TRACE(log);
 	LOGF(log, LOG_INFO, 0, "hit; lfd=%d", fd);
-	rc = service_start(log);
-	if (rc == 0) {
-		rc = gt_sock_listen(fp, backlog);
-	}
+	rc = gt_sock_listen(fp, backlog);
 	if (rc < 0) {
 		LOGF(log, LOG_INFO, rc, "failed");
 	} else {

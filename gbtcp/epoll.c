@@ -416,13 +416,13 @@ uepoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 	set.fdes_to = to;
 	do {
 		gt_fd_event_set_init(&set, pfds + 1);
-		GT_GLOBAL_UNLOCK;
+		SERVICE_UNLOCK;
 		if (n) {
 			set.fdes_ts.tv_nsec = 0;
 		}
 		rc = sys_ppoll(NULL, pfds, set.fdes_nr_used + 1,
 		               &set.fdes_ts, sigmask);
-		GT_GLOBAL_LOCK;
+		SERVICE_LOCK;
 		gt_fd_event_set_call(&set, pfds + 1);
 		if (rc < 0) {
 			return rc;

@@ -23,7 +23,7 @@ void strbuf_addf(struct strbuf *, const char *, ...)
 	__attribute__((format(printf, 2, 3)));
 void strbuf_add_ethaddr(struct strbuf *, struct ethaddr *);
 void strbuf_add_ipaddr(struct strbuf *, int, const void *);
-void strbuf_add_rsskey(struct strbuf *, u_char *);
+void strbuf_add_rss_key(struct strbuf *, u_char *);
 void strbuf_add_flag_end(struct strbuf *, int);
 void strbuf_add_backtrace(struct strbuf *, int);
 void strbuf_add_recv_flags(struct strbuf *, int);

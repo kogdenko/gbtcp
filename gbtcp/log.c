@@ -12,21 +12,28 @@ static int log_tid;
 static int log_pidtid_width;
 static struct strbuf log_sb;
 static int log_early_stdout = 1;
-static int log_early_level = LOG_DEBUG;
+static int log_early_level_changed;
+static int log_early_level = LOG_ERR;
 static int log_fd = -1;
 static int log_stdout_fd = -1;
 static struct log_mod *curmod;
 
+#define ldbg(...) if (debug) dbg(__VA_ARGS__)
+
 static int
-log_is_stdout(int force_stdout)
+log_is_stdout(int force_stdout, int debug)
 {
 	if (log_stdout_fd < 0) {
+		ldbg("1");
 		return 0;
 	} else if (force_stdout) {
+		ldbg("2");
 		return 1;
 	} else if (curmod != NULL) {
+		ldbg("3");
 		return curmod->log_stdout;
 	} else {
+		ldbg("4");
 		return log_early_stdout;
 	}
 }
@@ -144,6 +151,9 @@ log_mod_init(struct log *log, void **pp)
 	}
 	mod = *pp;
 	mod->log_level = LOG_ERR;
+	if (log_early_level_changed) {
+		mod->log_level = log_early_level;
+	}
 	strzcpy(mod->log_pattern, "/dev/null", sizeof(mod->log_pattern));
 	sysctl_add_int(log, "log.stdout", SYSCTL_WR,
 	               &mod->log_stdout, 0, 1);
@@ -225,35 +235,24 @@ log_scope_deinit(struct log *log, struct log_scope *scope)
 	snprintf(path, sizeof(path), "log.scope.%s", scope->lgs_name);
 	sysctl_del(log, path);
 }
-struct log *
-log_copy(struct log *dst, int cnt, struct log *src)
+
+void
+log_set_level(int level)
 {
-	int i, depth;
-	struct log *cur;
-	ASSERT(cnt > 0);
-	depth = 0;
-	for (cur = src; cur != NULL; cur = cur->lg_upper) {
-		dst[depth].lg_func = cur->lg_func;
-		depth++;
-		if (depth == cnt) {
-			break;
-		}
+	if (curmod == NULL) {
+		log_early_level = level;
+		log_early_level_changed = 1;
+	} else {
+		curmod->log_level = level;
 	}
-	if (depth == 0) {
-		return NULL;
-	}
-	for (i = 0; i < depth - 1; ++i) {
-		dst[i].lg_upper = dst + i + 1;
-	}
-	dst[depth - 1].lg_upper = NULL;
-	return dst;
 }
+
 int
 log_is_enabled(struct log_scope *scope, int level, int debug)
 {
 	int thresh, is_stdout;
 
-	is_stdout = log_is_stdout(0);
+	is_stdout = log_is_stdout(0, debug);
 	if (log_fd == -1 && is_stdout == 0) {
 		// Nowhere to write logs
 		if (debug) 
@@ -263,10 +262,8 @@ log_is_enabled(struct log_scope *scope, int level, int debug)
 	if (curmod == NULL) {
 		// Early stage
 		thresh = log_early_level;
-	} else if (scope->lgs_level) {
-		thresh = scope->lgs_level;
 	} else {
-		thresh = curmod->log_level;
+		thresh = MAX(scope->lgs_level, curmod->log_level);
 	}
 	if (debug) {
 		dbg("2 - %d %d", level, thresh);
@@ -340,10 +337,10 @@ log_write(struct strbuf *sb, int force_stdout)
 
 	len = MIN(sb->sb_len, sb->sb_cap);
 	if (log_fd != -1) {
-		write_all(NULL, log_fd, sb->sb_buf, len);
+		write_full_buf(NULL, log_fd, sb->sb_buf, len);
 	}
-	if (log_is_stdout(force_stdout)) {
-		write_all(NULL, log_stdout_fd, sb->sb_buf, len);
+	if (log_is_stdout(force_stdout, 0)) {
+		write_full_buf(NULL, log_stdout_fd, sb->sb_buf, len);
 	}
 }
 
@@ -406,14 +403,15 @@ log_hexdump_ascii(uint8_t *data, int count)
 		strbuf_add(&sb, STRSZ("\n"));
 	}
 }
-#ifndef NDEBUG
+
 void
-log_abort(const char *filename, int line, int errnum, const char *expr,
-	const char *fmt, ...)
+log_abort(struct log *log, const char *filename, int line, int errnum,
+	const char *expr, const char *fmt, ...)
 {
 	char buf[LOG_BUFSIZ];
 	va_list ap;
 	struct strbuf sb;
+
 	log_buf_init();
 	strbuf_init(&sb, buf, sizeof(buf));
 	log_fill_hdr(&sb);
@@ -431,10 +429,9 @@ log_abort(const char *filename, int line, int errnum, const char *expr,
 	}
 	log_fill_sfx(&sb, errnum);
 	log_write(&sb, 1);
-	log_backtrace(1);
 	abort();
 }
-#endif /* NDEBUG */
+
 void
 log_buf_init()
 {

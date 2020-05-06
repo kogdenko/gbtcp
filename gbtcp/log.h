@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 license
 #ifndef GBTCP_LOG_H
 #define GBTCP_LOG_H
 
@@ -65,9 +65,9 @@ do { \
 #define ASSERT3(err, expr, fmt, ...) \
 	((expr) ? \
 	(void)(0) : \
-	log_abort(__FILE__, __LINE__, err, #expr, fmt, ##__VA_ARGS__))
+	log_abort(NULL, __FILE__, __LINE__, err, #expr, fmt, ##__VA_ARGS__))
 #define BUG2(err, fmt, ...) \
-	log_abort(__FILE__, __LINE__, err, NULL, fmt, ##__VA_ARGS__)
+	log_abort(NULL, __FILE__, __LINE__, err, NULL, fmt, ##__VA_ARGS__)
 #endif /* NDEBUG */
 
 #define ASSERT2(err, expr) ASSERT3(err, expr, NULL)
@@ -75,6 +75,9 @@ do { \
 
 #define BUG1(fmt, ...) BUG2(0, fmt, ##__VA_ARGS__)
 #define BUG BUG1(NULL)
+
+#define die(log, errnum, fmt, ...) \
+	log_abort(log, __FILE__, __LINE__, errnum, NULL, fmt, ##__VA_ARGS__)
 
 void log_init_early();
 
@@ -85,29 +88,23 @@ void log_mod_deinit(struct log *, void *);
 void log_mod_detach(struct log *);
 
 void log_scope_init_early(struct log_scope *, const char *);
-
 void log_scope_init(struct log_scope *, const char *);
-
 void log_scope_deinit(struct log *, struct log_scope *);
 
-struct log *log_copy(struct log *, int, struct log *);
+void log_set_level(int);
 
 int log_is_enabled(struct log_scope *, int, int);
-
 void log_vprintf(struct log *, int, int, const char *, va_list);
-
 void log_printf(struct log *, int, int, const char *, ...)
 	__attribute__((format(printf, 4, 5)));
 
 void log_backtrace(int depth_off);
-
 void log_hexdump_ascii(uint8_t *data, int cnt);
 
-void log_abort(const char *, int, int, const char *, const char *, ...)
-	__attribute__((format(printf, 5, 6)));
+void log_abort(struct log *, const char *, int, int, const char *,
+	const char *, ...) __attribute__((format(printf, 6, 7)));
 
 void log_buf_init();
-
 struct strbuf *log_buf_alloc_space();
 
 const char *log_add_ipaddr(int, const void *);
@@ -132,7 +129,7 @@ const char *log_add_sigprocmask_how(int);
 const char *log_add_clone_flags(int);
 const char *log_add_epoll_op(int);
 const char *log_add_epoll_event_events(short);
-#else /* __linux__ */
-#endif /* __linux__ */
+#else // __linux__
+#endif // __linux__
 
-#endif /* GBTCP_LOG_H */
+#endif // GBTCP_LOG_H

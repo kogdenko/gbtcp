@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 license
 #ifndef GBTCP_SUBR_H
 #define GBTCP_SUBR_H
 
@@ -91,7 +91,7 @@
 
 #define IP6ADDR_LEN 16
 
-#define RSSKEYSIZ 40
+#define RSS_KEY_SIZE 40
 
 #define NETMAP_PFX "netmap:"
 #define NETMAP_PFX_LEN (sizeof(NETMAP_PFX) - 1)
@@ -115,7 +115,7 @@ struct ethaddr {
 	uint8_t etha_bytes[ETHADDR_LEN];
 } __attribute__((packed));
 
-struct gt_sock_tuple {
+struct sock_tuple {
 	be32_t sot_laddr;
 	be32_t sot_faddr;
 	be16_t sot_lport;
@@ -207,11 +207,11 @@ struct proc;
 #define GT_UNIQV_CAT(x, y, z) GT_UNIQV_CAT2(x, y, z)
 #define GT_UNIQV(n) GT_UNIQV_CAT(n, gt_uniqv_, __LINE__)
 
-#define GT_MEM_PREFETCH(ptr) \
+#define MEM_PREFETCH(ptr) \
 	__builtin_prefetch(ptr)
 
 
-#define gt_printf_rl(period, fmt, ...) \
+#define printf_rl(period, fmt, ...) \
 do { \
 	static uint64_t GT_UNIQV(last); \
 	static uint64_t GT_UNIQV(now); \
@@ -281,7 +281,7 @@ uint32_t gt_custom_hash32(uint32_t data, uint32_t initval);
 
 uint32_t gt_custom_hash(const void *data, size_t cnt, uint32_t val);
 
-uint32_t toeplitz_hash(const uint8_t *data, int cnt, const uint8_t *key);
+uint32_t toeplitz_hash(const u_char *, int, const u_char *);
 
 int proc_get_name(struct log *, char *, int);
 
@@ -295,20 +295,22 @@ int fcntl_setfl_nonblock(struct log *, int, int *);
 #define fcntl_setfl_nonblock2(log, fd) \
 	fcntl_setfl_nonblock(log, fd, NULL)
 
-int connect_timed(struct log *, int fd, const struct sockaddr *addr,
-	socklen_t addrlen, uint64_t *to);
+int connect_timed(struct log *, int, const struct sockaddr *,
+	socklen_t, uint64_t *);
 
-ssize_t read_timed(struct log *, int fd, void *buf, size_t count, uint64_t *to);
+ssize_t read_timed(struct log *, int, void *, size_t, uint64_t *);
 
-ssize_t write_all(struct log *log, int fd, const void *buf, size_t count);
+ssize_t write_full_buf(struct log *, int, const void *, size_t);
+ssize_t send_full_buf(struct log *, int, const void *, size_t, int);
 
-int read_rsskey(struct log *, const char *, u_char *);
+int read_rss_key(struct log *, const char *, u_char *);
 
 long gettid();
+
 uint64_t rdtsc();
+void rdtsc_update_time();
 
 uint64_t gt_rand64();
-
 uint32_t gt_rand32();
 
 // to string

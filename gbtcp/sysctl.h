@@ -13,55 +13,58 @@
 #define SYSCTL_CONTROLLER_PATH SYSCTL_PATH"/controller.sock"
 
 #define SYSCTL_FILE_FIRST_FD "file.first_fd"
+#define SYSCTL_PROC_CONTROLLER_PID "proc.controller.pid"
+#define SYSCTL_PROC_SERVICE_ACTIVATE "proc.service.activate"
+#define SYSCTL_ROUTE "route"
+#define SYSCTL_ROUTE_RSS_KEY "route.rss.key"
+#define SYSCTL_ROUTE_MONITOR "route.monitor"
+#define SYSCTL_ROUTE_RSS_QID "route.rss.qid"
+#define SYSCTL_ROUTE_IF_LIST "route.if.list"
+#define SYSCTL_ROUTE_IF_ADD "route.if.add"
+#define SYSCTL_ROUTE_IF_DEL "route.if.del"
+#define SYSCTL_ROUTE_ADDR_LIST "route.addr.list"
+#define SYSCTL_ROUTE_ROUTE_LIST "route.route.list"
+
 #define GT_CTL_INET_RX_CKSUM_OFFLOAD "inet.rx_cksum_offload"
 #define GT_CTL_INET_TX_CKSUM_OFFLOAD "inet.tx_cksum_offload"
-#define GT_CTL_ROUTE_MONITOR "route.monitor"
-#define GT_CTL_ROUTE_RSS_KEY "route.rss.key"
-#define GT_CTL_ROUTE_RSS_QUEUE_ID "route.rss.queue.id"
-#define GT_CTL_ROUTE_RSS_QUEUE_CNT "route.rss.queue.cnt"
-#define GT_CTL_ROUTE_PORT_PAIRITY "route.port_pairity"
-#define GT_CTL_ROUTE_IF_LIST "route.if.list"
-#define GT_CTL_ROUTE_IF_ADD "route.if.add"
-#define GT_CTL_ROUTE_IF_DEL "route.if.del"
-#define GT_CTL_ROUTE_ADDR_LIST "route.addr.list"
-#define GT_CTL_ROUTE_ADDR_ADD "route.addr.add"
-#define GT_CTL_ROUTE_ADDR_DEL "route.addr.del"
-#define GT_CTL_ROUTE_ROUTE_LIST "route.route.list"
-#define GT_CTL_ROUTE_ROUTE_ADD "route.route.add"
-#define GT_CTL_ROUTE_ROUTE_DEL "route.route.del"
+
 #define GT_CTL_SOCK_LIST "sock.list"
 
 struct sysctl_conn {
 	void (*sccn_close_fn)(struct log *, struct sysctl_conn *);
-	int (*sccn_accept_fn)(struct log *, struct sysctl_conn *);
 	struct gt_fd_event *sccn_event;
+	int sccn_is_listen;
+	int sccn_peer_pid;
 };
 
 struct strbuf;
 
-typedef int (*sysctl_f)(struct log *, void *, int, char *);
-typedef int (*sysctl_node_f)(struct log *, void *, const char *,
-	struct strbuf *);
+typedef int (*sysctl_f)(struct log *, void *, const char *, struct strbuf *);
 typedef int (*sysctl_list_next_f)(void *, int);
 typedef int (*sysctl_list_f)(void *, int, const char *, struct strbuf *out);
 
 int sysctl_mod_init(struct log *, void **);
 int sysctl_mod_attach(struct log *, void *);
 int sysctl_proc_init(struct log *, struct proc *);
+int sysctl_root_init(struct log *);
 void sysctl_mod_deinit(struct log *, void *);
 void sysctl_mod_detach(struct log *);
+void sysctl_root_deinit(struct log *);
 
 void sysctl_make_sockaddr_un(struct sockaddr_un *, int);
 
 int sysctl_read_file(struct log *, const char *);
 
-int sysctl_bind(struct log *, const struct sockaddr_un *);
-int sysctl_conn_open(struct log *, struct sysctl_conn *, int);
-int sysctl_conn_accept(struct log *, struct sysctl_conn *, int *);
+int sysctl_bind(struct log *, const struct sockaddr_un *, int);
+int sysctl_send_req(struct log *, int, const char *, const char *);
+int sysctl_recv_rpl(struct log *, int, char *);
+int sysctl_req(struct log *, int, const char *, char *, const char *);
+
+int sysctl_conn_open(struct log *, struct sysctl_conn **, int);
 void sysctl_conn_close(struct log *, struct sysctl_conn *);
 
 void sysctl_add(struct log *, const char *, int, void *,
-	void (*)(void *), sysctl_node_f);
+	void (*)(void *), sysctl_f);
 
 void sysctl_add_intfn(struct log *, const char *, int mode,
 	int (*intfn)(const long long *, long long *), int, int);

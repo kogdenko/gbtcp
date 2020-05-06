@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 license
 #ifndef GBTCP_DEV_H
 #define GBTCP_DEV_H
 
@@ -73,7 +73,7 @@ void dev_mod_deinit(struct log *, void *);
 void dev_mod_detach(struct log *);
 
 int dev_init(struct log *, struct dev *, const char *, dev_f);
-void dev_deinit(struct dev *);
+void dev_deinit(struct log *, struct dev *);
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);
 int dev_not_empty_txr(struct dev *, struct dev_pkt *);
@@ -86,7 +86,7 @@ dev_prefetch(struct netmap_ring *ring)
 {
 	int cur;
 	cur = nm_ring_next(ring, ring->cur);
-	GT_MEM_PREFETCH(NETMAP_BUF(ring, (ring->slot + cur)->buf_idx));
+	MEM_PREFETCH(NETMAP_BUF(ring, (ring->slot + cur)->buf_idx));
 }
 
-#endif /* GBTCP_DEV_H */
+#endif // GBTCP_DEV_H

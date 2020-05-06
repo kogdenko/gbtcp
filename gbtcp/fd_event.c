@@ -116,9 +116,9 @@ gt_fd_event_mod_wait()
 	log = log_trace0();
 	set.fdes_to = TIMER_TIMO;
 	gt_fd_event_set_init(&set, pfds);
-	GT_GLOBAL_UNLOCK;
+	SERVICE_UNLOCK;
 	rc = sys_ppoll(log, pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
-	GT_GLOBAL_LOCK;
+	SERVICE_LOCK;
 	gt_fd_event_set_call(&set, pfds);
 	return rc < 0 ? rc : 0;
 }
@@ -300,7 +300,6 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 	struct gt_fd_event *e;
 
 	ASSERT3(0, gt_fd_event_in_cb == 0, "recursive wait");
-	rdtsc_update_time(); // ?????????????????????????????????????????
 	set->fdes_again = 0;
 	set->fdes_time = nanoseconds;
 	set->fdes_nr_used = 0;
@@ -359,7 +358,6 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 	struct gt_fd_event *e;
 
 	gt_fd_event_epoch++;
-	rdtsc_update_time();
 	dt = nanoseconds - set->fdes_time;
 	if (dt > set->fdes_to) {
 		set->fdes_to = 0;

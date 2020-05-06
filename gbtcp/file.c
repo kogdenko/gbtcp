@@ -79,7 +79,7 @@ void
 file_mod_detach(struct log *log)
 {
 	//ASSERT(mbuf_pool_is_empty(file_pool));
-	mbuf_pool_deinit(&current->p_file_pool);
+	//mbuf_pool_deinit(&current->p_file_pool);
 	curmod = NULL;
 }
 

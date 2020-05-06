@@ -1,11 +1,4 @@
-#include "sys.h"
-#include "log.h"
-#include "fd_event.h"
-#include "file.h"
-#include "mm.h"
-#include "tcp.h"
-#include "service.h"
-#include "global.h"
+#include "internals.h"
 
 struct gt_poll;
 
@@ -146,6 +139,7 @@ gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 	int n, m, a, b, sys, rc;
 	struct gt_poll poll;
 	struct gt_fd_event_set set;
+
 	UNUSED(b);
 	UNUSED(a);
 	if (npfds > FD_SETSIZE) {
@@ -155,7 +149,7 @@ gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 	set.fdes_to = to;
 	do {
 		gt_fd_event_set_init(&set, poll.p_pfds + sys);
-		GT_GLOBAL_UNLOCK;
+		SERVICE_UNLOCK;
 		if (poll.p_n) {
 			// If some events already occured - do not wait in poll
 			set.fdes_ts.tv_nsec = 0;
@@ -163,7 +157,7 @@ gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 		rc = sys_ppoll(NULL, poll.p_pfds,
 		               sys + set.fdes_nr_used,
 		               &set.fdes_ts, sigmask);
-		GT_GLOBAL_LOCK;
+		SERVICE_LOCK;
 		m = gt_fd_event_set_call(&set, poll.p_pfds + sys);
 		if (rc < 0) {
 			return rc;

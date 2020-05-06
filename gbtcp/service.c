@@ -139,7 +139,7 @@ static int
 gt_service_in(struct route_if *ifp, uint8_t *data, int len)
 {
 	int rc;
-	struct gt_sock_tuple so_tuple;
+	struct sock_tuple so_tuple;
 	struct gt_inet_context ctx;
 
 	rc = gt_inet_eth_in(&ctx, ifp, data, len);
@@ -441,24 +441,7 @@ err:
 }
 #endif
 
-int route_create_devs(struct log *log);
 
-
-int
-service_start(struct log *log)
-{
-	assert(current);
-	printf("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS %d\n", getpid());
-	if (gt_route_rss_q_id != -1)
-		return 0;
-	assert(gt_route_rss_q_id == -1);
-	gt_route_rss_q_id = 0;
-	printf("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOKKKKKKKKKKKKKKKKKKKKKKKK %d\n", gt_route_rss_q_id);
-	route_create_devs(log);
-
-//	     gt_route_rss_q_cnt, gt_route_port_pairity);
-	return 0;
-}
 
 #if 0
 static void
@@ -630,7 +613,8 @@ gt_service_clone_fn_locked(void *arg)
 	log = log_trace0();
 	gt_service_in_child(log);
 	fn = gt_service_clone_fn;
-	GT_GLOBAL_UNLOCK;
+	assert(0);
+//	GT_GLOBAL_UNLOCK; ???
 	return (*fn)(arg);
 }
 

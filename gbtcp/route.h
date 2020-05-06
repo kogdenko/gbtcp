@@ -28,7 +28,7 @@ struct gt_route_entry_long {
 
 struct route_mod {
 	struct log_scope log_scope;
-	int route_rssq_cnt;
+	u_char route_rss_key[RSS_KEY_SIZE];
 	struct lptree route_lptree;
 	struct mbuf_pool route_pool;
 	struct dlist route_if_head;
@@ -43,31 +43,27 @@ struct gt_route_if_addr {
 	uint16_t ria_cur_ephemeral_port;
 };
 
-struct route_if_rss {
-	struct dev rifrss_dev;
-	struct dlist rifrss_txq;
-};
-
 struct route_if {
 	struct dlist rif_list;
-	int rif_idx;
-	int rif_flags;
+	int rifindex;
+	int rifflags;
 	int rif_is_pipe;
 	int rif_mtu;
 	int rif_nr_addrs;
-	int rif_name_len[2];
+	int rifname_len[2];
 	struct gt_route_if_addr **rif_addrs;
 	struct ethaddr rif_hwaddr;
 	struct dlist rif_routes;
 	struct dev rif_host_dev;
-	struct route_if_rss rif_rss[GT_RSSQ_COUNT_MAX];
+	struct dev rif_dev[GT_SERVICE_COUNT_MAX];
+	struct dlist rif_txq[GT_SERVICE_COUNT_MAX];
 	uint64_t rif_cnt_rx_pkts;
 	uint64_t rif_cnt_rx_bytes;
 	uint64_t rif_cnt_rx_drop;
 	uint64_t rif_cnt_tx_pkts;
 	uint64_t rif_cnt_tx_bytes;
 	uint64_t rif_cnt_tx_drop;
-	char rif_name[NM_IFNAMSIZ];
+	char rifname[NM_IFNAMSIZ];
 };
 
 enum gt_route_msg_type {
@@ -122,10 +118,6 @@ struct gt_route_msg {
 
 typedef void (*gt_route_msg_f)(struct gt_route_msg *msg);
 
-extern int gt_route_rss_q_id;
-extern int gt_route_port_pairity;
-extern uint8_t gt_route_rss_key[RSSKEYSIZ];
-
 int route_mod_init(struct log *, void **);
 int route_mod_attach(struct log *, void *);
 int route_proc_init(struct log *, struct proc *);
@@ -141,6 +133,9 @@ struct route_if *gt_route_if_get_by_name(const char *if_name,
 
 struct gt_route_if_addr *route_ifaddr_get(int af,
 	const struct ipaddr *a);
+
+void route_set_rss_qid(struct log *);
+int route_calc_rss_qid(struct sock_tuple *, int);
 
 struct gt_route_if_addr *gt_route_if_addr_get4(be32_t a4);
 
@@ -161,7 +156,9 @@ int gt_route_read(int fd, gt_route_msg_f fn);
 
 int route_open(struct route_mod *, struct log *);
 
-int gt_route_dump(gt_route_msg_f fn);
+int route_dump(gt_route_msg_f fn);
+
+
 
 static inline struct ipaddr *
 gt_route_get_next_hop(struct gt_route_entry *r)

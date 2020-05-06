@@ -54,7 +54,7 @@ static const char *gt_tcp_flags_str(struct strbuf *sb, int proto,
 static const char *gt_log_add_sock(struct gt_sock *so)
 	__attribute__((unused));
 
-int gt_calc_rss_q_id(struct gt_sock_tuple *so_tuple);
+int gt_calc_rss_q_id(struct sock_tuple *so_tuple);
 
 static void gt_set_sockaddr(struct sockaddr *addr, socklen_t *addrlen,
 	be32_t s_addr, be16_t port);
@@ -105,7 +105,7 @@ static void gt_tcp_timeout_tcp_fin_timeout(struct gt_timer *timer);
 
 static void gt_tcp_rcv_syn_sent(struct gt_sock *so, struct gt_tcpcb *tcb);
 
-static void gt_tcp_rcv_syn(struct gt_sock *lso, struct gt_sock_tuple *so_tuple,
+static void gt_tcp_rcv_syn(struct gt_sock *lso, struct sock_tuple *so_tuple,
 	struct gt_tcpcb *tcb);
 
 static void gt_tcp_rcv_data(struct gt_sock *so, struct gt_tcpcb *tcb,
@@ -165,7 +165,7 @@ static const char *gt_sock_str(struct strbuf *sb, struct gt_sock *so);
 
 static void gt_sock_dec_nr_opened();
 
-static uint32_t gt_sock_tuple_hash(struct gt_sock_tuple *so_tuple);
+static uint32_t gt_sock_tuple_hash(struct sock_tuple *so_tuple);
 
 static uint32_t gt_sock_hash(void *elem);
 
@@ -177,21 +177,21 @@ static void gt_sock_htable_add(struct gt_sock *so);
 
 static int gt_sock_fd(struct gt_sock *so);
 
-static struct gt_sock *gt_sock_find(int proto, struct gt_sock_tuple *so_tuple);
+static struct gt_sock *gt_sock_find(int proto, struct sock_tuple *so_tuple);
 
 static struct gt_sock *gt_sock_get_binded(int proto,
-	struct gt_sock_tuple *so_tuple);
+	struct sock_tuple *so_tuple);
 
-static int gt_sock_bind_ephemeral_port(struct gt_sock *so,
+static int sock_bind_ephemeral_port(struct gt_sock *so,
 	struct gt_route_if_addr *ifa);
 
 static int gt_sock_connect_check_state(struct gt_sock *so);
 
-static int gt_sock_route(struct gt_sock *so, struct gt_route_entry *r);
+static int sock_route(struct gt_sock *so, struct gt_route_entry *r);
 
 static int gt_sock_in_txq(struct gt_sock *so);
 
-static void gt_sock_add_txq(struct route_if *ifp, struct gt_sock *so);
+static void sock_add_txq(struct route_if *ifp, struct gt_sock *so);
 
 static void gt_sock_del_txq(struct gt_sock *so);
 
@@ -209,7 +209,7 @@ static int gt_sock_rcvbuf_add(struct gt_sock *so, const void *src, int cnt,
 	int all);
 
 static int gt_sock_on_rcv(struct gt_sock *so, void *buf, int len,
-	struct gt_sock_tuple *so_tuple);
+	struct sock_tuple *so_tuple);
 
 static int gt_sock_xmit(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so);
@@ -432,7 +432,7 @@ gt_sock_nread(struct file *fp)
 }
 
 int
-gt_sock_in(int ipproto, struct gt_sock_tuple *so_tuple, struct gt_tcpcb *tcb,
+gt_sock_in(int ipproto, struct sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 	void *payload)
 {
 	int proto;
@@ -495,7 +495,7 @@ gt_sock_in(int ipproto, struct gt_sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 }
 
 void
-gt_sock_in_err(int ipproto, struct gt_sock_tuple *so_tuple, int eno)
+gt_sock_in_err(int ipproto, struct sock_tuple *so_tuple, int eno)
 {
 	int err, proto;
 	struct log *log;
@@ -567,38 +567,29 @@ gt_sock_connect(struct file *fp, const struct sockaddr_in *faddr_in,
 	struct gt_route_entry r;
 	struct gt_sock *so;
 
-	gt_dbg("CONN");
 	so = (struct gt_sock *)fp;
 	if (faddr_in->sin_port == 0 || faddr_in->sin_addr.s_addr == 0) {
-		gt_dbg("CONN1");	
 		return -EINVAL;
 	}
 	rc = gt_sock_connect_check_state(so);
 	if (rc) {
-		gt_dbg("CONN2");
 		return rc;
 	}
 	ASSERT(!gt_sock_in_txq(so));
 	if (so->so_tuple.sot_lport) {
-		gt_dbg("CONN3");
 		return -ENOTSUP;
 	}
 	so->so_tuple.sot_faddr = faddr_in->sin_addr.s_addr;
 	so->so_tuple.sot_fport = faddr_in->sin_port;
-	rc = gt_sock_route(so, &r);
+	rc = sock_route(so, &r);
 	if (rc) {
-		gt_dbg("CONN4");	
 		return rc;
 	}
-	gt_dbg("CONN 6");
-
 	so->so_tuple.sot_laddr = r.rt_ifa->ria_addr.ipa_4;
-	rc = gt_sock_bind_ephemeral_port(so, r.rt_ifa);
+	rc = sock_bind_ephemeral_port(so, r.rt_ifa);
 	if (rc < 0) {
 		return rc;
 	}
-	gt_dbg("CONN 7");
-
 	log = log_trace0();
 	DBG(log, 0, "ok; tuple=%s:%hu>%s:%hu, fd=%d",
 	    log_add_ipaddr(AF_INET, &so->so_tuple.sot_laddr),
@@ -1352,7 +1343,7 @@ gt_tcp_rcv_syn_sent(struct gt_sock *so, struct gt_tcpcb *tcb)
 }
 
 static void
-gt_tcp_rcv_syn(struct gt_sock *lso, struct gt_sock_tuple *so_tuple,
+gt_tcp_rcv_syn(struct gt_sock *lso, struct sock_tuple *so_tuple,
 	struct gt_tcpcb *tcb)
 {
 	struct log *log;
@@ -1714,12 +1705,12 @@ gt_tcp_into_sndq(struct gt_sock *so)
 
 	ASSERT(GT_SOCK_ALIVE(so));
 	if (!gt_sock_in_txq(so)) {
-		rc = gt_sock_route(so, &r);
+		rc = sock_route(so, &r);
 		if (rc != 0) {
 			ASSERT(0); // TODO: v0.1
 			return;
 		}
-		gt_sock_add_txq(r.rt_ifp, so);
+		sock_add_txq(r.rt_ifp, so);
 	}
 }
 
@@ -1989,17 +1980,17 @@ gt_tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h, struct gt_tcpcb *tcb,
 }
 
 void
-gt_tcp_flush_if(struct route_if *ifp)
+tcp_flush_if(struct route_if *ifp)
 {
 	int rc, n;
 	struct dev_pkt pkt;
 	struct gt_sock *so;
 	struct dlist *txq;
 
-	if (gt_route_rss_q_id < 0 || gt_route_rss_q_id > 3)
-		return; 
 	n = 0;
-	txq = &ifp->rif_rss[gt_route_rss_q_id].rifrss_txq;
+	txq = ifp->rif_txq + service_id();
+	if (current->p_rss_qid < 0)
+		return; // TODO: ??????????????????????????????????
 	while (!dlist_is_empty(txq) && n < 128) {
 		so = DLIST_FIRST(txq, struct gt_sock, so_txl);
 		do {
@@ -2089,7 +2080,7 @@ gt_udp_sendto(struct gt_sock *so, const struct iovec *iov, int iovcnt,
 	if (faddr == 0 || fport == 0) {
 		return -EDESTADDRREQ;
 	}
-	rc = gt_sock_route(so, &dev);
+	rc = sock_route(so, &dev);
 	if (rc) {
 		return rc;
 	}
@@ -2300,7 +2291,7 @@ gt_sock_dec_nr_opened()
 }
 
 static uint32_t
-gt_sock_tuple_hash(struct gt_sock_tuple *so_tuple)
+gt_sock_tuple_hash(struct sock_tuple *so_tuple)
 {
 	uint32_t hash;
 
@@ -2358,7 +2349,7 @@ gt_sock_fd(struct gt_sock *so)
 }
 
 static struct gt_sock *
-gt_sock_find(int proto, struct gt_sock_tuple *so_tuple)
+gt_sock_find(int proto, struct sock_tuple *so_tuple)
 {
 	uint32_t hash;
 	struct dlist *bucket;
@@ -2379,7 +2370,7 @@ gt_sock_find(int proto, struct gt_sock_tuple *so_tuple)
 }
 
 static struct gt_sock *
-gt_sock_get_binded(int proto, struct gt_sock_tuple *so_tuple)
+gt_sock_get_binded(int proto, struct sock_tuple *so_tuple)
 {
 	uint32_t lport;
 	struct dlist *bucket;
@@ -2401,37 +2392,40 @@ gt_sock_get_binded(int proto, struct gt_sock_tuple *so_tuple)
 	return binded;
 }
 
-int get_rssq_cnt();
-
 static int
-gt_sock_bind_ephemeral_port(struct gt_sock *so, struct gt_route_if_addr *ifa)
+sock_bind_ephemeral_port(struct gt_sock *so, struct gt_route_if_addr *ifa)
 {
-	int i, n, rss_q_id, ephemeral_port;
-	int rssq_cnt;
-	struct gt_sock *x;
+	int i, n, rss_qid, rss_nq, ephemeral_port;
+	struct gt_sock *found;
 
-	rssq_cnt = get_rssq_cnt();
-	gt_dbg("ephemeral cnt=%d, id=%d pid=%d", rssq_cnt,   gt_route_rss_q_id, getpid());
-
-
+	rss_nq = get_rss_nq();
+	gt_dbg("ephemeral cnt=%d, id=%d pid=%d",
+	       rss_nq, current->p_rss_qid, getpid());
+	if (rss_nq <= 0) {
+		return -ENETUNREACH;
+	}
+	if (current->p_rss_qid >= rss_nq) {
+		return -ENETUNREACH;
+	}
 	n = EPHEMERAL_PORT_MAX - EPHEMERAL_PORT_MIN + 1;
 	for (i = 0; i < n; ++i) {
 		ephemeral_port = ifa->ria_cur_ephemeral_port;
 		so->so_tuple.sot_lport = GT_HTON16(ephemeral_port);
-		if (rssq_cnt > 1) {
-			rss_q_id = gt_calc_rss_q_id(&so->so_tuple);
-		} else {
-			rss_q_id = 0;
-		}
 		if (ephemeral_port == EPHEMERAL_PORT_MAX) {
 			ifa->ria_cur_ephemeral_port = EPHEMERAL_PORT_MIN;
 		} else {
 			ifa->ria_cur_ephemeral_port++;
 		}
-		if (rss_q_id == gt_route_rss_q_id) {
-			gt_dbg("??");
-			x = gt_sock_find(so->so_proto, &so->so_tuple);
-			if (x == NULL) {
+		if (current->p_rss_qid < 0) {
+			rss_qid = current->p_rss_qid;
+		} else if (rss_nq > 1) {
+			rss_qid = route_calc_rss_qid(&so->so_tuple, rss_nq);
+		} else {
+			rss_qid = 0;
+		}
+		if (rss_qid == current->p_rss_qid) {
+			found = gt_sock_find(so->so_proto, &so->so_tuple);
+			if (found == NULL) {
 				return 0;
 			}
 		}
@@ -2463,7 +2457,7 @@ gt_sock_connect_check_state(struct gt_sock *so)
 }
 
 static int
-gt_sock_route(struct gt_sock *so, struct gt_route_entry *r)
+sock_route(struct gt_sock *so, struct gt_route_entry *r)
 {
 	int rc;
 
@@ -2484,13 +2478,11 @@ gt_sock_in_txq(struct gt_sock *so)
 }
 
 static void
-gt_sock_add_txq(struct route_if *ifp, struct gt_sock *so)
+sock_add_txq(struct route_if *ifp, struct gt_sock *so)
 {
 	struct dlist *txq;
-	if (gt_route_rss_q_id < 0 || gt_route_rss_q_id > 3)
-		return; 
-	txq = &ifp->rif_rss[gt_route_rss_q_id].rifrss_txq;
 
+	txq = ifp->rif_txq + service_id();
 	DLIST_INSERT_TAIL(txq, so, so_txl);
 }
 
@@ -2616,7 +2608,7 @@ gt_sock_rcvbuf_add(struct gt_sock *so, const void *src, int cnt, int all)
 
 static int
 gt_sock_on_rcv(struct gt_sock *so, void *buf, int len,
-	struct gt_sock_tuple *so_tuple)
+	struct sock_tuple *so_tuple)
 {
 	int rc, rem;
 	struct sockbuf_msg msg;

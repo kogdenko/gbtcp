@@ -356,9 +356,9 @@ arp_mod_deinit(struct log *log, void *raw_mod)
 void
 arp_mod_detach(struct log *log)
 {
-	mbuf_pool_deinit(&current->p_arp_pkt_pool);
-	mbuf_pool_deinit(&current->p_arp_entry_pool);
-	gt_timer_del(&gt_arp_timer_calc_reachable_time);
+//	mbuf_pool_deinit(&current->p_arp_pkt_pool);
+//	mbuf_pool_deinit(&current->p_arp_entry_pool);
+//	gt_timer_del(&gt_arp_timer_calc_reachable_time);
 	curmod = NULL;
 }
 

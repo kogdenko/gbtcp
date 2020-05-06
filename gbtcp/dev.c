@@ -149,12 +149,10 @@ dev_init(struct log *log, struct dev *dev, const char *ifname, dev_f dev_fn)
 }
 
 void
-dev_deinit(struct dev *dev)
+dev_deinit(struct log *log, struct dev *dev)
 {
-	struct log *log;
-
 	if (dev->dev_fn != NULL) {
-		log = log_trace0();
+		LOG_TRACE(log);
 		dev->dev_fn = NULL;
 		gt_fd_event_del(dev->dev_event);
 		dev->dev_event = NULL;
@@ -186,7 +184,9 @@ dev_not_empty_txr(struct dev *dev, struct dev_pkt *pkt)
 	struct netmap_ring *txr;
 	struct netmap_slot *slot;
 
-	ASSERT(dev->dev_nmd != NULL);
+	if (dev->dev_nmd == NULL) {
+		return -ENODEV;
+	}
 	if (dev->dev_tx_full) {
 		return -ENOBUFS;
 	}

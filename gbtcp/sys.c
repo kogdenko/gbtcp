@@ -910,23 +910,40 @@ sys_getifaddrs(struct log *log, struct ifaddrs **ifap)
 }
 
 int
-sys_if_indextoname(struct log *log, int if_idx, char *if_name)
+sys_if_indextoname(struct log *log, int ifindex, char *ifname)
 {
 	int rc;
 	char *s;
 
-	s = if_indextoname(if_idx, if_name);
+	s = if_indextoname(ifindex, ifname);
 	if (s == NULL) {
 		rc = -errno;
 		ASSERT(rc);
 		if (log != NULL) {
 			LOG_TRACE(log);
-			LOGF(log, LOG_ERR, -rc, "failed; if_idx=%d", if_idx);
+			LOGF(log, LOG_ERR, -rc, "failed; ifindex=%d", ifindex);
 		}
 		return rc;
 	}
-	ASSERT(s == if_name);
+	ASSERT(s == ifname);
 	return 0;
+}
+
+int
+sys_if_nametoindex(struct log *log, const char *ifname)
+{
+	int rc;
+
+	rc = if_nametoindex(ifname);
+	if (rc == 0) {
+		rc = -errno;
+		ASSERT(rc);
+		if (log != NULL) {
+			LOG_TRACE(log);
+			LOGF(log, LOG_ERR, -rc, "failed; ifname='%s'", ifname);
+		}
+	}
+	return rc;
 }
 
 int
