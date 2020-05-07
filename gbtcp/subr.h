@@ -109,7 +109,8 @@ typedef uint32_t be32_t;
 typedef uint64_t be64_t;
 
 struct log;
-struct gt_strbuf;
+struct strbuf;
+struct proc;
 
 struct ethaddr {
 	uint8_t etha_bytes[ETHADDR_LEN];
@@ -134,7 +135,6 @@ struct gt_profiler {
 	uint64_t prf_spended;
 };
 
-struct proc;
 
 #ifndef field_off
 #define field_off(type, field) ((intptr_t)&((type *)0)->field)

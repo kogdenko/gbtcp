@@ -35,8 +35,6 @@ static int gt_service_in(struct route_if *ifp, uint8_t *data, int len);
 
 static void gt_service_if_in(struct route_if *ifp, uint8_t *data, int len);
 
-void gt_service_rxtx(struct dev *dev, short revents);
-
 //static int gt_service_dev_init(struct log *log, struct route_if *ifp);
 
 //static int gt_service_route_if_set_link_status(struct log *log,
@@ -243,7 +241,7 @@ service_pipe_rxtx(struct dev *dev, short revents)
 #endif
 
 void
-gt_service_rxtx(struct dev *dev, short revents)
+service_rxtx(struct dev *dev, short revents)
 {
 	int i, n, len;
 	void *data;

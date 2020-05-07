@@ -45,7 +45,7 @@ gt_route_foreach_set_saddrs(struct log *log, struct route_if *ifp)
 }
 
 void gtd_host_rxtx(struct dev *dev, short revents);
-void gt_service_rxtx(struct dev *dev, short revents);
+void service_rxtx(struct dev *dev, short revents);
 
 void
 gtd_host_rxtx(struct dev *dev, short revents)
@@ -124,14 +124,16 @@ route_set_rss_qid(struct log *log)
 	struct route_if *ifp;
 
 	LOG_TRACE(log);
-	ASSERT(current->p_rss_qid != current->p_rss_qid_saved);
+	if (current->p_rss_qid == current->p_rss_qid_saved) {
+		return;
+	}
 	ROUTE_IF_FOREACH(ifp) {
 		dev = ifp->rif_dev + service_id();
 		dev_deinit(log, dev);
 		if (current->p_rss_qid >= 0) {
 			snprintf(buf, sizeof(buf), "%s-%d",
 			         ifp->rifname, current->p_rss_qid);
-			dev_init(log, dev, buf, gt_service_rxtx);
+			dev_init(log, dev, buf, service_rxtx);
 			dev->dev_udata = ifp;
 		}
 	}
@@ -162,6 +164,7 @@ route_if_get(const char *ifname, int ifname_len, int ifname_type)
 	}
 	return NULL;
 }
+
 static int
 route_if_add(struct log *log, const char *ifname, struct route_if **ifpp)
 {
@@ -571,7 +574,7 @@ err:
 }
 
 static int
-sysctl_route_if_del(struct log *log, void *udata, const char *new,
+sysctl_route_if_del(struct log *log, int pid, void *udata, const char *new,
 	struct strbuf *out)
 {
 	int rc;
@@ -634,7 +637,7 @@ sysctl_route_if_list(void *udata, int id, const char *new, struct strbuf *out)
 }
 
 static int
-sysctl_route_rss_key(struct log *log, void *udata, const char *new,
+sysctl_route_rss_key(struct log *log, int pid, void *udata, const char *new,
 	struct strbuf *out)
 {
 	strbuf_add_rss_key(out, curmod->route_rss_key);
@@ -642,7 +645,7 @@ sysctl_route_rss_key(struct log *log, void *udata, const char *new,
 }
 
 static int
-sysctl_route_if_add(struct log *log, void *udata, const char *new,
+sysctl_route_if_add(struct log *log, int pid, void *udata, const char *new,
 	struct strbuf *out)
 {
 	int rc;
@@ -752,7 +755,7 @@ out:
 }
 
 static int
-sysctl_route_monitor(struct log *log, void *udata, const char *new,
+sysctl_route_monitor(struct log *log, int pid, void *udata, const char *new,
 	struct strbuf *out)
 {
 	int rc, flag;

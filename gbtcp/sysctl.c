@@ -4,7 +4,6 @@
 #define SYSCTL_NODE_NAME_MAX 128
 #define SYSCTL_NTOKENS_MAX 3
 
-
 struct sysctl_mod {
 	struct log_scope log_scope;
 };
@@ -22,8 +21,8 @@ struct sysctl_int_data {
 };
 
 struct sysctl_list_data {
-	sysctl_list_next_f sld_next_fn;
-	sysctl_list_f sld_fn;
+	sysctl_list_next_f l_next_fn;
+	sysctl_list_f l_fn;
 };
 
 struct sysctl_node {
@@ -53,56 +52,26 @@ struct sysctl_node {
 static struct sysctl_node *sysctl_root;
 static struct sysctl_mod *curmod;
 
-// conn
-
-static int
-sysctl_in_pdu(struct sysctl_conn *cp, char *msg);
-
-
-// in
-static int sysctl_in(struct log *log, const char *path, int load,
-	const char *new, struct strbuf *out);
-
-// node
-//static int sysctl_node_get_path(struct sysctl_node *node, char *buf);
-
-void sysctl_strbuf_add_node(struct strbuf *sb, struct sysctl_node *node);
-
-const char *sysctl_log_add_node(struct sysctl_node *node);
-
-static struct sysctl_node *sysctl_find_child(struct sysctl_node *node,
-        const char *name, int name_len);
-
-static int sysctl_node_add(struct log *log, const char *path, int mode,
-	void *udata, void (*free_fn)(void *), sysctl_f fn,
-	struct sysctl_node **pnode);
-
-static void sysctl_node_del(struct log *log, struct sysctl_node *node);
-
-static int sysctl_node_process(struct log *log,
-	struct sysctl_node *node, char *tail, int load,
-	const char *new, struct strbuf *out);
-
-
-// add
-static void sysctl_add6(struct log *log, const char *path,
-	int mode, void *udata, void (*free_fn)(void *), sysctl_f fn,
-	struct sysctl_node **pnode);
-
-static int sysctl_find(struct log *, const char *,
-	struct sysctl_node **, char **);
-
 static int sysctl_node_alloc(struct log *, struct sysctl_node **,
 	struct sysctl_node *, const char *, int);
 
+static void sysctl_node_del(struct log *log, struct sysctl_node *node);
+
+static int sysctl_node_in_list(struct sysctl_node *,
+	const char *, const char *, struct strbuf *);
+
+static int sysctl_node_in_branch(struct sysctl_node *,
+	const char *, struct strbuf *);
+
+static int sysctl_node_in_leaf(struct log *log, int, struct sysctl_node *,
+	const char *, struct strbuf *);
+
 static int sysctl_process_events(void *udata, short revents);
 
-static int
-sysctl_node_process_list(struct sysctl_node *node,
-	const char *tail, const char *new, struct strbuf *out);
+static int sysctl_in(struct log *, int, const char *, int,
+	const char *, struct strbuf *);
 
-static int sysctl_process_dir(struct sysctl_node *, const char *,
-	struct strbuf *);
+static int sysctl_in_req(struct sysctl_conn *, struct iovec *);
 
 static int
 sysctl_verify(const char *s)
@@ -129,14 +98,6 @@ sysctl_verify(const char *s)
 		}
 	}
 	return 1;
-}
-
-void
-sysctl_make_sockaddr_un(struct sockaddr_un *a, int pid)
-{
-	a->sun_family = AF_UNIX;
-	snprintf(a->sun_path, sizeof(a->sun_path), "%s/%d.sock",
-	         SYSCTL_PATH, pid);
 }
 
 int
@@ -206,162 +167,6 @@ sysctl_root_deinit(struct log *log)
 }
 
 static int
-sysctl_parse_line(struct log *log, char *s)
-{
-	int rc;
-	char *ptr, *path, *new;
-	ptr = strchr(s, '#');
-	if (ptr != NULL) {
-		*ptr = '\0';
-	}
-	new = strchr(s, '=');
-	if (new != NULL) {
-		*new = '\0';
-		new = strtrim(new + 1);
-	}
-	path = strtrim(s);
-	rc = sysctl_in(log, path, 1, new, NULL);
-	return rc;
-}
-int
-sysctl_read_file(struct log *log, const char *proc_name)
-{
-	int rc, line;
-	const char *path;
-	char path_buf[PATH_MAX];
-	char str[2000];
-	FILE *file;
-
-	LOG_TRACE(log);
-	path = getenv("GBTCP_CTL");
-	if (path != NULL) { 
-		rc = sys_realpath(log, path, path_buf);
-		if (rc) {
-			return rc;
-		}
-	} else {
-		snprintf(path_buf, sizeof(path_buf), "%s/ctl/%s.conf",
-		         GT_PREFIX, proc_name);
-	}
-	path = path_buf;
-	rc = sys_fopen(log, &file, path, "r");
-	if (rc) {
-		return rc;
-	}
-	rc = 0;
-	line = 0;
-	while (fgets(str, sizeof(str), file) != NULL) {
-		line++;
-		rc = sysctl_parse_line(log, str);
-		if (rc) {
-			LOGF(log, LOG_ERR, -rc,
-			     "bad line; file='%s', line=%d",  path, line);
-		}
-	}
-	fclose(file);
-	LOGF(log, LOG_INFO, 0, "ok; file='%s'", path);
-	return rc;
-}
-
-void
-sysctl_add(struct log *log, const char *path, int mode, void *udata,
-	void (*free_fn)(void *), sysctl_f fn)
-{
-	struct sysctl_node *node;
-
-	sysctl_add6(log, path, mode, udata, free_fn, fn, &node);
-}
-
-void
-sysctl_add_list(struct log *log, const char *path, int mode,
-	void *udata, sysctl_list_next_f next_fn, sysctl_list_f fn)
-{
-	struct sysctl_node *node;
-	struct sysctl_list_data *data;
-
-	sysctl_add6(log, path, mode, NULL, NULL, NULL, &node);
-	node->n_is_list = 1;
-	data = &node->n_udata_buf.n_list_data;
-	node->n_udata = udata;
-	data->sld_next_fn = next_fn;
-	data->sld_fn = fn;
-}
-
-int
-sysctl_del(struct log *log, const char *path)
-{
-	int rc;
-	struct sysctl_node *node;
-	LOG_TRACE(log);
-	rc = sysctl_find(log, path, &node, NULL);
-	if (rc == 0)
-		sysctl_node_del(log, node);
-	return rc;
-}
-
-int
-sysctl_delf(struct log *log, const char *fmt, ...)
-{
-	int rc;
-	va_list ap;
-	char path[PATH_MAX];
-	va_start(ap, fmt);
-	vsnprintf(path, sizeof(path), fmt, ap);
-	va_end(ap);
-	rc = sysctl_del(log, path);
-	return rc;
-}
-
-
-static int
-sysctl_split_path(struct log *log, const char *path, struct iovec *iovec)
-{
-	int i, rc;
-
-	rc = strsplit(path, ".", iovec, SYSCTL_DEPTH_MAX);
-	if (rc > SYSCTL_DEPTH_MAX) {
-		LOGF(log, LOG_ERR, 0, "too many dirs; path='%s'", path);
-		return -ENAMETOOLONG;
-	}
-	for (i = 0; i < rc; ++i) {
-		if (iovec[i].iov_len >= SYSCTL_NODE_NAME_MAX) {
-			LOGF(log, LOG_ERR, 0,
-			     "too long dir; path='%s', idx=%d", path, i);
-			return -ENAMETOOLONG;
-		}
-	}
-	return rc;
-}
-
-static void
-sysctl_split_msg(struct iovec *tokens, char *msg)
-{
-	int i, rc;
-	char *tmp;
-	struct iovec *token;
-
-	rc = strsplit(msg, " \r\n\t", tokens, SYSCTL_NTOKENS_MAX);
-	for (i = 0; i < rc; ++i) {
-		token = tokens + i;
-		tmp = token->iov_base;
-		tmp[token->iov_len] = '\0';
-	}
-	for (; i < SYSCTL_NTOKENS_MAX; ++i) {
-		tokens[i].iov_base = NULL;
-		tokens[i].iov_len = 0;
-	}
-	if (tokens[0].iov_base == NULL) {
-		tokens[0].iov_base = "";
-	}
-}
-
-static int
-sysctl_conn_fd(struct sysctl_conn *cp)
-{
-	return cp->sccn_event->fde_fd;
-}
-
-static int
 sysctl_setsockopt(struct log *log, int fd)
 {
 	int rc, opt;
@@ -382,254 +187,15 @@ sysctl_setsockopt(struct log *log, int fd)
 	return rc;
 }
 
-int
-sysctl_conn_open(struct log *log, struct sysctl_conn **cpp, int fd)
-{
-	int rc;
-	char name[PATH_MAX];
-	struct sysctl_conn *cp;
-
-	LOG_TRACE(log);
-	rc = sys_malloc(log, (void **)cpp, sizeof(*cp));
-	if (rc) {
-		return rc;
-	}
-	cp = *cpp;
-	memset(cp, 0, sizeof(*cp));
-	snprintf(name, sizeof(name), "sysctl.%d", fd);
-	rc = gt_fd_event_new(log, &cp->sccn_event, fd, name,
-	                     sysctl_process_events, cp);
-	if (rc < 0) {
-		sys_free(cp);
-	} else {
-		gt_fd_event_set(cp->sccn_event, POLLIN);
-	}
-	return rc;
-}
-
-int
-sysctl_conn_accept(struct log *log, struct sysctl_conn *cp)
-{
-	int rc, fd, peer_pid, new_fd;
-	char *endptr;
-	const char *filename;
-	socklen_t sa_len;
-	struct sockaddr_un a;
-	struct sysctl_conn *new_cp;
-
-	LOG_TRACE(log);
-	sa_len = sizeof(a);
-	fd = sysctl_conn_fd(cp);
-	rc = sys_accept4(log, fd, (struct sockaddr *)&a, &sa_len,
-	                 SOCK_NONBLOCK|SOCK_CLOEXEC);
-	if (rc < 0) {
-		return rc;
-	}
-	new_fd = rc;
-	peer_pid = 0;
-	if (sa_len >= sizeof(sa_family_t)) {
-		sa_len -= sizeof(sa_family_t);
-		ASSERT(sa_len < sizeof(a.sun_path));
-		a.sun_path[sa_len] = '\0';
-		filename = basename(a.sun_path);
-		rc = strtoul(filename, &endptr, 10);
-		if (!strcmp(endptr, ".sock")) {
-			peer_pid = rc;
-		}
-	}
-	rc = sysctl_setsockopt(log, fd);
-	if (rc) {
-		goto err;
-	}
-	rc = sysctl_conn_open(log, &new_cp, new_fd);
-	if (rc) {
-		goto err;
-	}
-	new_cp->sccn_is_listen = 0;
-	new_cp->sccn_peer_pid = peer_pid;
-	new_cp->sccn_close_fn = cp->sccn_close_fn;
-	return 0;
-err:
-	sys_close(log, fd);
-	return rc;
-}
-
-static int
-sysctl_conn_recv(struct log *log, struct sysctl_conn *cp)
-{
-	int rc, fd;
-	char *ptr;
-	char buf[GT_SYSCTL_BUFSIZ];
-
-	LOG_TRACE(log);
-	fd = sysctl_conn_fd(cp);
-	rc = sys_read(log, fd, buf, sizeof(buf));
-	if (rc < 0) {
-		if (rc == -EAGAIN) {
-			return 0;
-		} else {
-			return rc;
-		}
-	} else if (rc == 0) {
-		return -ECONNRESET;
-	} else {
-		ptr = memchr(buf, '\n', rc);
-		if (ptr == NULL) {
-			return -EPROTO;
-		}		
-		*ptr = '\0';
-		rc = sysctl_in_pdu(cp, buf);
-		return rc;
-	}
-}
-
-static int
-sysctl_process_events(void *udata, short revents)
-{
-	int rc;
-	struct log *log;
-	struct sysctl_conn *cp;
-
-	log = log_trace0();
-	cp = udata;
-	if (cp->sccn_is_listen) {
-		do {
-			rc = sysctl_conn_accept(log, cp);
-		} while (rc == 0);
-	} else {
-		rc = sysctl_conn_recv(log, cp);
-		if (rc < 0) {
-			sysctl_conn_close(log, cp);
-		}
-	}
-	return 0;
-}
-
-
 void
-sysctl_conn_close(struct log *log, struct sysctl_conn *cp)
+sysctl_make_sockaddr_un(struct sockaddr_un *a, int pid)
 {
-	LOG_TRACE(log);
-	if (cp == NULL) {
-		return;
-	}
-	if (cp->sccn_close_fn != NULL) {
-		(*cp->sccn_close_fn)(log, cp);
-	}
-	sys_close(log, sysctl_conn_fd(cp));
-	gt_fd_event_del(cp->sccn_event);
+	a->sun_family = AF_UNIX;
+	snprintf(a->sun_path, sizeof(a->sun_path), "%s/%d.sock",
+	         SYSCTL_PATH, pid);
 }
 
-int
-sysctl_bind(struct log *log, const struct sockaddr_un *a, int is_listen)
-{
-	int rc, fd;
-	struct stat stat;
-	struct group *group;
-
-	LOG_TRACE(log);
-	rc = sys_socket(log, AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0);
-	if (rc < 0) {
-		return rc;
-	}
-	fd = rc;
-	sys_unlink(log, a->sun_path);
-	rc = sys_bind(log, fd, (const struct sockaddr *)a, sizeof(*a));
-	if (rc < 0) {
-		goto err;
-	}
-	rc = sys_getgrnam(log, GT_GROUP_NAME, &group);
-	if (rc == 0) {
-		sys_chown(log, a->sun_path, -1, group->gr_gid);
-	}
-	rc = sys_stat(log, a->sun_path, &stat);
-	if (rc == 0) {
-		sys_chmod(log, a->sun_path,
-		          stat.st_mode|S_IRGRP|S_IWGRP|S_IXGRP);
-	}
-	if (is_listen) {
-		rc = sys_listen(log, fd, 5);
-	} else {
-		rc = sysctl_setsockopt(log, fd);
-	}
-	if (rc) {
-		goto err;
-	}
-	return fd;
-err:
-	sys_close(log, fd);
-	return rc;
-}
-
-static int
-sysctl_conn_send(struct log *log, struct sysctl_conn *cp, struct strbuf *sb)
-{
-	int rc, fd;
-
-	LOG_TRACE(log);
-	fd = sysctl_conn_fd(cp);
-	rc = sys_send(log, fd, sb->sb_buf, sb->sb_len, MSG_NOSIGNAL);
-	if (rc < 0) {
-		return rc;
-	} else if (rc != sb->sb_len) {
-		return -ENOBUFS;
-	} else {
-		return 0;
-	}
-}
-
-static int
-sysctl_in_req(struct sysctl_conn *cp, struct iovec *tokens)
-{
-	int rc;
-	char buf[GT_SYSCTL_BUFSIZ];
-	const char *path;
-	struct strbuf sb;
-	struct log *log;
-
-	log = log_trace0();
-	path = tokens[0].iov_base;
-	strbuf_init(&sb, buf, sizeof(buf));
-	rc = sysctl_in(log, path, 0, tokens[1].iov_base, &sb);
-	if (rc) {
-		strbuf_addf(&sb, "error %d", -rc);
-	}
-	strbuf_add_ch(&sb, '\n');
-	if (strbuf_space(&sb) == 0) {
-		LOGF(log, LOG_ERR, 0, "too long msg; path='%s'", path);
-		return -ENOBUFS;
-	}
-	rc = sysctl_conn_send(log, cp, &sb);
-	return rc;
-}
-
-static int
-sysctl_in_pdu(struct sysctl_conn *cp, char *msg)
-{
-	int rc;
-	struct iovec tokens[SYSCTL_NTOKENS_MAX];
-
-	sysctl_split_msg(tokens, msg);
-	rc = sysctl_in_req(cp, tokens);
-	return rc;
-}
-
-static int
-sysctl_in(struct log *log, const char *path, int load,
-          const char *new, struct strbuf *out)
-{
-	int rc;
-	char *tail;
-	struct sysctl_node *node;
-	LOG_TRACE(log);
-	rc = sysctl_find(log, path, &node, &tail);
-	if (rc == 0) {
-		rc = sysctl_node_process(log, node, tail, load, new, out);
-	}
-	return rc;
-}
-
-void
+static void
 sysctl_strbuf_add_node(struct strbuf *sb, struct sysctl_node *node)
 {
 	int i, n;
@@ -661,6 +227,100 @@ sysctl_log_add_node(struct sysctl_node *node)
 }
 
 static int
+sysctl_split_path(struct log *log, const char *path, struct iovec *iovec)
+{
+	int i, rc;
+
+	rc = strsplit(path, ".", iovec, SYSCTL_DEPTH_MAX);
+	if (rc > SYSCTL_DEPTH_MAX) {
+		return -ENAMETOOLONG;
+	}
+	for (i = 0; i < rc; ++i) {
+		if (iovec[i].iov_len >= SYSCTL_NODE_NAME_MAX) {
+			return -ENAMETOOLONG;
+		}
+	}
+	return rc;
+}
+
+static void
+sysctl_split_msg(struct iovec *t, char *msg)
+{
+	int i, rc;
+
+	rc = strsplit(msg, " \r\n\t", t, SYSCTL_NTOKENS_MAX);
+	for (i = 0; i < rc; ++i) {
+		((char *)t[i].iov_base)[t[i].iov_len] = '\0';
+	}
+	for (; i < SYSCTL_NTOKENS_MAX; ++i) {
+		t[i].iov_base = NULL;
+		t[i].iov_len = 0;
+	}
+	if (t[0].iov_base == NULL) {
+		t[0].iov_base = "";
+	}
+}
+
+static int
+sysctl_parse_line(struct log *log, char *s)
+{
+	int rc;
+	char *ptr, *path, *new;
+	ptr = strchr(s, '#');
+	if (ptr != NULL) {
+		*ptr = '\0';
+	}
+	new = strchr(s, '=');
+	if (new != NULL) {
+		*new = '\0';
+		new = strtrim(new + 1);
+	}
+	path = strtrim(s);
+	rc = sysctl_in(log, 0, path, 1, new, NULL);
+	return rc;
+}
+
+int
+sysctl_read_file(struct log *log, const char *proc_name)
+{
+	int rc, line;
+	const char *path;
+	char path_buf[PATH_MAX];
+	char str[2000];
+	FILE *file;
+
+	LOG_TRACE(log);
+	path = getenv("GBTCP_CTL");
+	if (path != NULL) { 
+		rc = sys_realpath(log, path, path_buf);
+		if (rc) {
+			return rc;
+		}
+	} else {
+		snprintf(path_buf, sizeof(path_buf), "%s/sysctl/%s.conf",
+		         GT_PREFIX, proc_name);
+	}
+	path = path_buf;
+	rc = sys_fopen(log, &file, path, "r");
+	if (rc) {
+		return rc;
+	}
+	rc = 0;
+	line = 0;
+	while (fgets(str, sizeof(str), file) != NULL) {
+		line++;
+		rc = sysctl_parse_line(log, str);
+		if (rc) {
+			LOGF(log, LOG_ERR, -rc,
+			     "bad line; file='%s', line=%d",  path, line);
+		}
+	}
+	fclose(file);
+	LOGF(log, LOG_INFO, 0, "ok; file='%s'", path);
+	return rc;
+}
+
+static int
 sysctl_node_alloc(struct log *log, struct sysctl_node **pnode,
 	struct sysctl_node *parent, const char *name, int name_len)
 {
@@ -669,23 +329,26 @@ sysctl_node_alloc(struct log *log, struct sysctl_node **pnode,
 
 	LOG_TRACE(log);
 	rc = sys_malloc(log, (void **)pnode, sizeof(struct sysctl_node));
-	if (rc == 0) {
-		node = *pnode;
-		ASSERT(name_len < SYSCTL_NODE_NAME_MAX);
-		memset(node, 0, sizeof(*node));
-		node->n_name_len = name_len;
-		memcpy(node->n_name, name, name_len);
-		node->n_name[name_len] = '\0';
-		dlist_init(&node->n_children);
-		node->n_parent = parent;
-		if (parent != NULL)
-			DLIST_INSERT_TAIL(&parent->n_children, node, n_list);
+	if (rc) {
+		return rc;
 	}
-	return rc;
+	node = *pnode;
+	ASSERT(name_len < SYSCTL_NODE_NAME_MAX);
+	memset(node, 0, sizeof(*node));
+	node->n_name_len = name_len;
+	memcpy(node->n_name, name, name_len);
+	node->n_name[name_len] = '\0';
+	dlist_init(&node->n_children);
+	node->n_parent = parent;
+	if (parent != NULL) {
+		DLIST_INSERT_TAIL(&parent->n_children, node, n_list);
+	}
+	return 0;
 }
 
 static struct sysctl_node *
-sysctl_find_child(struct sysctl_node *node, const char *name, int name_len)
+sysctl_node_find_child(struct sysctl_node *node, const char *name,
+	int name_len)
 {
 	struct sysctl_node *child;
 
@@ -699,8 +362,8 @@ sysctl_find_child(struct sysctl_node *node, const char *name, int name_len)
 }
 
 static int
-sysctl_find(struct log *log, const char *path,	struct sysctl_node **pnode,
-	char **ptail)
+sysctl_node_find(struct log *log, const char *path,
+	struct sysctl_node **pnode, char **ptail)
 {
 	int i, rc, name_len, path_iovcnt;
 	char *name;
@@ -717,7 +380,7 @@ sysctl_find(struct log *log, const char *path,	struct sysctl_node **pnode,
 	for (i = 0; i < path_iovcnt; ++i) {
 		name = path_iov[i].iov_base;
 		name_len = path_iov[i].iov_len;
-		child = sysctl_find_child(node, name, name_len);
+		child = sysctl_node_find_child(node, name, name_len);
 		if (child == NULL) {
 			if (i < path_iovcnt - 1) {
 				return -ENOENT;
@@ -757,13 +420,14 @@ sysctl_node_add(struct log *log, const char *path, int mode,
 		return -EINVAL;
 	}
 	rc = sysctl_split_path(log, path, path_iov);
-	if (rc < 0)
+	if (rc < 0) {
 		return rc;
+	}
 	path_iovcnt = rc;
 	for (i = 0; i < path_iovcnt; ++i) {
 		name = path_iov[i].iov_base;
 		name_len = path_iov[i].iov_len;
-		child = sysctl_find_child(node, name, name_len);
+		child = sysctl_node_find_child(node, name, name_len);
 		if (child == NULL) {
 			rc = sysctl_node_alloc(log, &child, node,
 			                       name, name_len);
@@ -799,8 +463,6 @@ sysctl_node_del(struct log *log, struct sysctl_node *node)
 	if (node == NULL) {
 		return;
 	}
-	LOGF(log, LOG_INFO, 0, "hit; node='%s'",
-	     sysctl_log_add_node(node));
 	while (!dlist_is_empty(&node->n_children)) {
 		child = DLIST_FIRST(&node->n_children,
 		                    struct sysctl_node, n_list);
@@ -814,32 +476,7 @@ sysctl_node_del(struct log *log, struct sysctl_node *node)
 }
 
 static int
-sysctl_node_process_leaf(struct log *log, struct sysctl_node *node,
-	const char *new, struct strbuf *out)
-{
-	int rc, off;
-	char *old;
-
-	off = out->sb_len;
-	rc = (*node->n_fn)(log, node->n_udata, new, out);
-	if (rc < 0) {
-		LOGF(log, LOG_ERR, -rc,
-		     "handler failed; path='%s', new='%s'",
-		     sysctl_log_add_node(node), new);
-		return rc;
-	}
-	if (off < out->sb_cap) {
-		old = strbuf_cstr(out) + off;
-		rc = sysctl_verify(old);
-		if (rc == 0) {
-			return -EINVAL;
-		}
-	}	 
-	return 0;
-}
-
-static int
-sysctl_node_process(struct log *log, struct sysctl_node *node,
+sysctl_node_in(struct log *log, int pid, struct sysctl_node *node,
 	char *tail, int load, const char *new, struct strbuf *out)
 {
 	int rc, len;
@@ -875,29 +512,28 @@ sysctl_node_process(struct log *log, struct sysctl_node *node,
 	}
 	len = out->sb_len;
 	if (node->n_is_list) {
-		rc = sysctl_node_process_list(node, tail, new, out);
+		rc = sysctl_node_in_list(node, tail, new, out);
 	} else if (node->n_fn == NULL) {
-		rc = sysctl_process_dir(node, tail, out);
+		rc = sysctl_node_in_branch(node, tail, out);
 	} else {
 		if (tail[0] != '\0') {
 			rc = 1;
 		} else {
-			rc = sysctl_node_process_leaf(log, node, new, out);
+			rc = sysctl_node_in_leaf(log, pid, node, new, out);
 		}
 	}
 	if (rc == 1) {
-		LOGF(log, LOG_ERR, 0,
-		     "not exists; path='%s.%s'",
-		     sysctl_log_add_node(node), tail);
 		return -ENOENT;
 	}
-	if (rc < 0)
+	if (rc < 0) {
 		out->sb_len = len;
+	}
 	return rc;
 }
+
 static int
-sysctl_node_process_list(struct sysctl_node *node,
-	const char *tail, const char *new, struct strbuf *out)
+sysctl_node_in_list(struct sysctl_node *node, const char *tail,
+	const char *new, struct strbuf *out)
 {
 	int rc, id;
 	char *endptr;
@@ -911,7 +547,7 @@ sysctl_node_process_list(struct sysctl_node *node,
 	id = strtoul(tail, &endptr, 10);
 	switch (*endptr) {
 	case '\0':
-		rc = (data->sld_fn)(node->n_udata, id, new, out);
+		rc = (data->l_fn)(node->n_udata, id, new, out);
 		ASSERT3(0, rc <= 0, "%s", sysctl_log_add_node(node));
 		return rc;
 	case '+':
@@ -920,7 +556,7 @@ sysctl_node_process_list(struct sysctl_node *node,
 		}
 		id++;
 next:
-		rc = (*data->sld_next_fn)(node->n_udata, id);
+		rc = (*data->l_next_fn)(node->n_udata, id);
 		if (rc >= 0) {
 			strbuf_addf(out, ",%d", rc);
 		}
@@ -931,11 +567,12 @@ next:
 }
 
 static int
-sysctl_process_dir(struct sysctl_node *node, const char *tail,
+sysctl_node_in_branch(struct sysctl_node *node, const char *tail,
 	struct strbuf *out)
 {
 	int len;
 	struct sysctl_node *x, *first, *last;
+
 	if (dlist_is_empty(&node->n_children)) {
 		return 0;
 	}
@@ -948,7 +585,7 @@ sysctl_process_dir(struct sysctl_node *node, const char *tail,
 		if (tail[len - 1] != '+') {
 			return 1;
 		}
-		x = sysctl_find_child(node, tail, len - 1);
+		x = sysctl_node_find_child(node, tail, len - 1);
 		if (x == NULL || x == last) {
 			return 0;
 		}
@@ -959,7 +596,32 @@ sysctl_process_dir(struct sysctl_node *node, const char *tail,
 }
 
 static int
-sysctl_node_process_int(struct log *log, void *udata, const char *new,
+sysctl_node_in_leaf(struct log *log, int pid, struct sysctl_node *node,
+	const char *new, struct strbuf *out)
+{
+	int rc, off;
+	char *old;
+
+	off = out->sb_len;
+	rc = (*node->n_fn)(log, pid, node->n_udata, new, out);
+	if (rc < 0) {
+		LOGF(log, LOG_ERR, -rc,
+		     "handler failed; path='%s', new='%s'",
+		     sysctl_log_add_node(node), new);
+		return rc;
+	}
+	if (off < out->sb_cap) {
+		old = strbuf_cstr(out) + off;
+		rc = sysctl_verify(old);
+		if (rc == 0) {
+			return -EINVAL;
+		}
+	}	 
+	return 0;
+}
+
+static int
+sysctl_node_in_int(struct log *log, int pid, void *udata, const char *new,
 	struct strbuf *out)
 {
 	int rc;
@@ -1013,6 +675,212 @@ sysctl_node_process_int(struct log *log, void *udata, const char *new,
 	return rc;
 }
 
+
+
+static int
+sysctl_conn_fd(struct sysctl_conn *cp)
+{
+	return cp->sccn_event->fde_fd;
+}
+
+int
+sysctl_conn_open(struct log *log, struct sysctl_conn **cpp, int fd)
+{
+	int rc;
+	char name[PATH_MAX];
+	struct sysctl_conn *cp;
+
+	LOG_TRACE(log);
+	rc = sys_malloc(log, (void **)cpp, sizeof(*cp));
+	if (rc) {
+		return rc;
+	}
+	cp = *cpp;
+	memset(cp, 0, sizeof(*cp));
+	snprintf(name, sizeof(name), "sysctl.%d", fd);
+	rc = gt_fd_event_new(log, &cp->sccn_event, fd, name,
+	                     sysctl_process_events, cp);
+	if (rc < 0) {
+		sys_free(cp);
+	} else {
+		gt_fd_event_set(cp->sccn_event, POLLIN);
+	}
+	return rc;
+}
+
+static int
+sysctl_conn_accept(struct log *log, struct sysctl_conn *cp)
+{
+	int rc, fd, peer_pid, new_fd;
+	char *endptr;
+	const char *filename;
+	socklen_t sa_len;
+	struct sockaddr_un a;
+	struct sysctl_conn *new_cp;
+
+	LOG_TRACE(log);
+	sa_len = sizeof(a);
+	fd = sysctl_conn_fd(cp);
+	rc = sys_accept4(log, fd, (struct sockaddr *)&a, &sa_len,
+	                 SOCK_NONBLOCK|SOCK_CLOEXEC);
+	if (rc < 0) {
+		return rc;
+	}
+	new_fd = rc;
+	peer_pid = 0;
+	if (sa_len >= sizeof(sa_family_t)) {
+		sa_len -= sizeof(sa_family_t);
+		ASSERT(sa_len < sizeof(a.sun_path));
+		a.sun_path[sa_len] = '\0';
+		filename = basename(a.sun_path);
+		rc = strtoul(filename, &endptr, 10);
+		if (!strcmp(endptr, ".sock")) {
+			peer_pid = rc;
+		}
+	}
+	rc = sysctl_setsockopt(log, fd);
+	if (rc) {
+		goto err;
+	}
+	rc = sysctl_conn_open(log, &new_cp, new_fd);
+	if (rc) {
+		goto err;
+	}
+	new_cp->sccn_is_listen = 0;
+	new_cp->sccn_peer_pid = peer_pid;
+	new_cp->sccn_close_fn = cp->sccn_close_fn;
+	return 0;
+err:
+	sys_close(log, fd);
+	return rc;
+}
+
+static int
+sysctl_conn_recv(struct log *log, struct sysctl_conn *cp)
+{
+	int rc, fd;
+	char *ptr;
+	struct iovec t[SYSCTL_NTOKENS_MAX];
+	char buf[GT_SYSCTL_BUFSIZ];
+
+	LOG_TRACE(log);
+	fd = sysctl_conn_fd(cp);
+	rc = sys_read(log, fd, buf, sizeof(buf));
+	if (rc < 0) {
+		if (rc == -EAGAIN) {
+			return 0;
+		} else {
+			return rc;
+		}
+	} else if (rc == 0) {
+		return -ECONNRESET;
+	} else {
+		ptr = memchr(buf, '\n', rc);
+		if (ptr == NULL) {
+			return -EPROTO;
+		}		
+		*ptr = '\0';
+		sysctl_split_msg(t, buf);
+		rc = sysctl_in_req(cp, t);
+		return rc;
+	}
+}
+
+void
+sysctl_conn_close(struct log *log, struct sysctl_conn *cp)
+{
+	LOG_TRACE(log);
+	if (cp == NULL) {
+		return;
+	}
+	if (cp->sccn_close_fn != NULL) {
+		(*cp->sccn_close_fn)(log, cp);
+	}
+	sys_close(log, sysctl_conn_fd(cp));
+	gt_fd_event_del(cp->sccn_event);
+}
+
+static int
+sysctl_conn_send(struct log *log, struct sysctl_conn *cp, struct strbuf *sb)
+{
+	int rc, fd;
+
+	LOG_TRACE(log);
+	fd = sysctl_conn_fd(cp);
+	rc = sys_send(log, fd, sb->sb_buf, sb->sb_len, MSG_NOSIGNAL);
+	if (rc < 0) {
+		return rc;
+	} else if (rc != sb->sb_len) {
+		return -ENOBUFS;
+	} else {
+		return 0;
+	}
+}
+
+static int
+sysctl_process_events(void *udata, short revents)
+{
+	int rc;
+	struct log *log;
+	struct sysctl_conn *cp;
+
+	log = log_trace0();
+	cp = udata;
+	if (cp->sccn_is_listen) {
+		do {
+			rc = sysctl_conn_accept(log, cp);
+		} while (rc == 0);
+	} else {
+		rc = sysctl_conn_recv(log, cp);
+		if (rc < 0) {
+			sysctl_conn_close(log, cp);
+		}
+	}
+	return 0;
+}
+
+static int
+sysctl_in(struct log *log, int pid, const char *path, int load,
+          const char *new, struct strbuf *out)
+{
+	int rc;
+	char *tail;
+	struct sysctl_node *node;
+
+	LOG_TRACE(log);
+	rc = sysctl_node_find(log, path, &node, &tail);
+	if (rc == 0) {
+		rc = sysctl_node_in(log, pid, node, tail, load, new, out);
+	}
+	return rc;
+}
+
+static int
+sysctl_in_req(struct sysctl_conn *cp, struct iovec *t)
+{
+	int rc;
+	char buf[GT_SYSCTL_BUFSIZ];
+	const char *path;
+	struct strbuf sb;
+	struct log *log;
+
+	log = log_trace0();
+	path = t[0].iov_base;
+	strbuf_init(&sb, buf, sizeof(buf));
+	rc = sysctl_in(log, cp->sccn_peer_pid, path, 0, t[1].iov_base, &sb);
+	if (rc) {
+		strbuf_addf(&sb, "error %d", -rc);
+	}
+	strbuf_add_ch(&sb, '\n');
+	if (strbuf_space(&sb) == 0) {
+		LOGF(log, LOG_ERR, 0, "too long msg; path='%s'", path);
+		return -ENOBUFS;
+	}
+	rc = sysctl_conn_send(log, cp, &sb);
+	return rc;
+}
+
+// Add/Del
 static void
 sysctl_add6(struct log *log, const char *path, int mode, void *udata,
 	void (*free_fn)(void *), sysctl_f fn, struct sysctl_node **pnode)
@@ -1026,6 +894,15 @@ sysctl_add6(struct log *log, const char *path, int mode, void *udata,
 	}
 }
 
+void
+sysctl_add(struct log *log, const char *path, int mode, void *udata,
+	void (*free_fn)(void *), sysctl_f fn)
+{
+	struct sysctl_node *node;
+
+	sysctl_add6(log, path, mode, udata, free_fn, fn, &node);
+}
+
 static void
 sysctl_add_int_union(struct log *log, const char *path,
 	int mode, void *ptr, int int_sizeof, int64_t min, int64_t max)
@@ -1035,7 +912,7 @@ sysctl_add_int_union(struct log *log, const char *path,
 	
 	ASSERT(min <= max);
 	sysctl_add6(log, path, mode, NULL, NULL,
-	            sysctl_node_process_int, &node);
+	            sysctl_node_in_int, &node);
 	data = &node->n_udata_buf.n_int_data;
 	node->n_udata = data;
 	data->i_ptr = ptr;
@@ -1074,6 +951,49 @@ sysctl_add_uint64(struct log *log, const char *path, int mode,
 	sysctl_add_int_union(log, path, mode, ptr, sizeof(*ptr), min, max);
 }
 
+void
+sysctl_add_list(struct log *log, const char *path, int mode,
+	void *udata, sysctl_list_next_f next_fn, sysctl_list_f fn)
+{
+	struct sysctl_node *node;
+	struct sysctl_list_data *data;
+
+	sysctl_add6(log, path, mode, NULL, NULL, NULL, &node);
+	node->n_is_list = 1;
+	data = &node->n_udata_buf.n_list_data;
+	node->n_udata = udata;
+	data->l_next_fn = next_fn;
+	data->l_fn = fn;
+}
+
+int
+sysctl_del(struct log *log, const char *path)
+{
+	int rc;
+	struct sysctl_node *node;
+
+	LOG_TRACE(log);
+	rc = sysctl_node_find(log, path, &node, NULL);
+	if (rc == 0) {
+		sysctl_node_del(log, node);
+	}
+	return rc;
+}
+
+int
+sysctl_delf(struct log *log, const char *fmt, ...)
+{
+	int rc;
+	va_list ap;
+	char path[PATH_MAX];
+
+	va_start(ap, fmt);
+	vsnprintf(path, sizeof(path), fmt, ap);
+	va_end(ap);
+	rc = sysctl_del(log, path);
+	return rc;
+}
+
 static int
 sysctl_connect(struct log *log)
 {
@@ -1099,6 +1019,47 @@ sysctl_connect(struct log *log)
 }
 
 int
+sysctl_bind(struct log *log, const struct sockaddr_un *a, int is_listen)
+{
+	int rc, fd;
+	struct stat stat;
+	struct group *group;
+
+	LOG_TRACE(log);
+	rc = sys_socket(log, AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0);
+	if (rc < 0) {
+		return rc;
+	}
+	fd = rc;
+	sys_unlink(log, a->sun_path);
+	rc = sys_bind(log, fd, (const struct sockaddr *)a, sizeof(*a));
+	if (rc < 0) {
+		goto err;
+	}
+	rc = sys_getgrnam(log, GT_GROUP_NAME, &group);
+	if (rc == 0) {
+		sys_chown(log, a->sun_path, -1, group->gr_gid);
+	}
+	rc = sys_stat(log, a->sun_path, &stat);
+	if (rc == 0) {
+		sys_chmod(log, a->sun_path,
+		          stat.st_mode|S_IRGRP|S_IWGRP|S_IXGRP);
+	}
+	if (is_listen) {
+		rc = sys_listen(log, fd, 5);
+	} else {
+		rc = sysctl_setsockopt(log, fd);
+	}
+	if (rc) {
+		goto err;
+	}
+	return fd;
+err:
+	sys_close(log, fd);
+	return rc;
+}
+
+int
 sysctl_send_req(struct log *log, int fd, const char *path, const char *new)
 {
 	int rc, len;
@@ -1116,7 +1077,7 @@ sysctl_send_req(struct log *log, int fd, const char *path, const char *new)
 int
 sysctl_recv_rpl(struct log *log, int fd, char *old)
 {
-	int rc, len;
+	int rc, len, errnum;
 	char *ptr;
 	uint64_t to;
 	struct iovec t[SYSCTL_NTOKENS_MAX];
@@ -1146,19 +1107,19 @@ sysctl_recv_rpl(struct log *log, int fd, char *old)
 	}
 	sysctl_split_msg(t, old);
 	if (t[1].iov_len) {
-		rc = strtoul(t[1].iov_base, &ptr, 10);
+		errnum = strtoul(t[1].iov_base, &ptr, 10);
 		if (strcmp(t[0].iov_base, "error") ||
-		    rc == 0 || *ptr != '\0') {
+		    errnum == 0 || *ptr != '\0') {
 			return -EPROTO;
 		} else {
-			return -rc;
+			return errnum;
 		}
 	} else {
 		rc = sysctl_verify(t[0].iov_base);
 		if (!rc) {
 			return -EPROTO;
 		}
-		return t[0].iov_len;
+		return 0;
 	}
 }
 

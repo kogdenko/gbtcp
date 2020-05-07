@@ -230,7 +230,7 @@ gt_arp_calc_reachable_time_timeout(struct gt_timer *timer)
 }
 
 static int
-gt_arp_ctl_add(struct log *log, void *udata, const char *new,
+sysctl_arp_add(struct log *log, int pid, void *udata, const char *new,
 	struct strbuf *out)
 {
 	int rc;
@@ -308,7 +308,7 @@ arp_mod_init(struct log *log, void **pp)
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "arp");
 	sysctl_add(log, "arp.add", SYSCTL_WR,
-	           NULL, NULL, gt_arp_ctl_add);
+	           NULL, NULL, sysctl_arp_add);
 //	sysctl_add_list(log, "arp.list", SYSCTL_RD, NULL,
 //	                gt_arp_ctl_list_next, gt_arp_ctl_list);
 	return 0;

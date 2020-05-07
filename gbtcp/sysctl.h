@@ -37,11 +37,10 @@ struct sysctl_conn {
 	int sccn_peer_pid;
 };
 
-struct strbuf;
-
-typedef int (*sysctl_f)(struct log *, void *, const char *, struct strbuf *);
+typedef int (*sysctl_f)(struct log *, int, void *,
+	const char *, struct strbuf *);
 typedef int (*sysctl_list_next_f)(void *, int);
-typedef int (*sysctl_list_f)(void *, int, const char *, struct strbuf *out);
+typedef int (*sysctl_list_f)(void *, int, const char *, struct strbuf *);
 
 int sysctl_mod_init(struct log *, void **);
 int sysctl_mod_attach(struct log *, void *);
@@ -55,13 +54,13 @@ void sysctl_make_sockaddr_un(struct sockaddr_un *, int);
 
 int sysctl_read_file(struct log *, const char *);
 
+int sysctl_conn_open(struct log *, struct sysctl_conn **, int);
+void sysctl_conn_close(struct log *, struct sysctl_conn *);
+
 int sysctl_bind(struct log *, const struct sockaddr_un *, int);
 int sysctl_send_req(struct log *, int, const char *, const char *);
 int sysctl_recv_rpl(struct log *, int, char *);
 int sysctl_req(struct log *, int, const char *, char *, const char *);
-
-int sysctl_conn_open(struct log *, struct sysctl_conn **, int);
-void sysctl_conn_close(struct log *, struct sysctl_conn *);
 
 void sysctl_add(struct log *, const char *, int, void *,
 	void (*)(void *), sysctl_f);

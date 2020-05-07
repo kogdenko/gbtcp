@@ -11,9 +11,6 @@
 #define SERVICE_LOCK do { \
 	spinlock_lock(&current->p_lock); \
 	rdtsc_update_time(); \
-	if (current->p_rss_qid != current->p_rss_qid_saved) { \
-		route_set_rss_qid(NULL); \
-	} \
 } while (0)
 
 #define SERVICE_UNLOCK \

@@ -330,19 +330,6 @@ restart:
 	return 0;
 }
 
-static int
-controller_service_lock(struct log *log, struct proc *s)
-{
-	spinlock_lock(&s->p_lock);
-	return 0;
-}
-
-static void
-controller_service_unlock(struct proc *s)
-{
-	spinlock_unlock(&s->p_lock);
-}
-
 int
 get_rss_nq()
 {
@@ -352,15 +339,11 @@ get_rss_nq()
 int
 controller_service_activate(struct log *log, struct proc *s)
 {
-	int i, rc;
+	int i;
 
 	for (i = 0; i < ih->ih_rss_nq; ++i) {
 		if (ih->ih_rss[i] == 0) {
-			rc = controller_service_lock(log, s);
-			if (rc == 0) {
-				s->p_rss_qid = i;
-				controller_service_unlock(s);
-			}
+			s->p_rss_qid = i;
 			ih->ih_rss[i] = s->p_pid;
 			return 1;
 		}
@@ -386,11 +369,7 @@ controller_set_rss_nq(struct log *log, int rss_nq)
 				ASSERT(s->p_rss_qid < rss_nq_old);
 				ASSERT(ih->ih_rss[s->p_rss_qid] == s->p_pid);
 				ih->ih_rss[s->p_rss_qid] = 0;
-				rc = controller_service_lock(log, s);
-				if (rc == 0) {
-					s->p_rss_qid = -1;
-					controller_service_unlock(s);
-				}
+				s->p_rss_qid = -1;
 			}
 		}
 		for (i = 0; i < rss_nq_old; ++i) {
@@ -422,18 +401,17 @@ controller_close_service(struct log *log, struct sysctl_conn *cp)
 }
 
 static int
-sysctl_proc_service_activate(struct log *log, void *udata,
+sysctl_controller_service_activate(struct log *log, int pid, void *udata,
 	const char *new, struct strbuf *old)
 {
-	int i, rc, fd, pid;
+	int i, rc, fd;
 	struct proc *s;
 
-	if (new == NULL) {
+	if (pid == 0) {
 		return 0;
 	}
 	rc = -ENOENT;
 	fd = controller_lock(log);
-	pid = strtoul(new, NULL, 10);
 	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
 		s = ih->ih_services + i;
 		if (s->p_pid == pid) {
@@ -455,7 +433,7 @@ controller_bind(struct log *log, int pid)
 	sysctl_add_int(log, SYSCTL_PROC_CONTROLLER_PID, SYSCTL_RD,
 	               &ih->ih_controller.p_pid, 0, 0);
 	sysctl_add(log, SYSCTL_PROC_SERVICE_ACTIVATE, SYSCTL_WR,
-	           NULL, NULL, sysctl_proc_service_activate);
+	           NULL, NULL, sysctl_controller_service_activate);
 	sysctl_make_sockaddr_un(&a, pid);
 	rc = sysctl_bind(log, &a, 1);
 	if (rc < 0) {
@@ -616,7 +594,6 @@ service_attach(struct log *log, const char *proc_name)
 	struct sockaddr_un a;
 
 	rc = shm_attach(log, (void **)&ih);
-	dbg("ih=%p", ih);
 	if (rc) {
 		return rc;
 	}
@@ -641,7 +618,6 @@ service_init_locked(struct log *log)
 	struct sockaddr_un a;
 	char proc_name[PROC_NAME_SIZE_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
-	struct timeval tv;
 
 	// Check again under the lock
 	if (current != NULL) {
@@ -672,7 +648,11 @@ service_init_locked(struct log *log)
 			}
 		}
 	}
-	if (rc) {
+	if (rc < 0) {
+		goto err;
+	}
+	rc = sysctl_root_init(log);
+	if (rc < 0) {
 		goto err;
 	}
 	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
@@ -693,7 +673,6 @@ service_init_locked(struct log *log)
 	current->p_rss_qid = -1;
 	current->p_rss_qid_saved = -1;
 	strzcpy(current->p_name, proc_name, sizeof(current->p_name));
-	gettimeofday(&tv, NULL);
 	rc = mod_foreach_mod_attach(log);
 	if (rc) {
 		goto err;
@@ -709,6 +688,7 @@ err:
 		current = NULL;
 	}
 	mod_foreach_mod_detach(log);
+	sysctl_root_deinit(log);
 	shm_detach(log);
 	return rc;
 }
@@ -754,27 +734,15 @@ service_activate(struct log *log)
 	}
 	LOG_TRACE(log);
 	snprintf(buf, sizeof(buf), "%d", current->p_pid);
-	SERVICE_UNLOCK;
 	rc = sysctl_req(log, service_fd,
 	                SYSCTL_PROC_SERVICE_ACTIVATE, buf, buf);
-	SERVICE_LOCK;
+	if (rc == 0) {
+		route_set_rss_qid(log);
+	}
 	return rc;
 }
 
 void
 service_deinit(struct log *log)
 {
-}
-
-void
-rdtsc_update_time()
-{
-	uint64_t t, ns;
-
-	t = rdtsc();
-	ns = 1000 * t / mHZ;
-	// tsc can fall after suspend
-	if (ns > nanoseconds) {
-		nanoseconds = ns;
-	}
 }

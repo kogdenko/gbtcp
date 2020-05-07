@@ -748,6 +748,19 @@ rdtsc()
 	return tsc.tsc_64;;
 }
 
+void
+rdtsc_update_time()
+{
+	uint64_t t, ns;
+
+	t = rdtsc();
+	ns = 1000 * t / mHZ;
+	// tsc can fall after suspend
+	if (ns > nanoseconds) {
+		nanoseconds = ns;
+	}
+}
+
 uint64_t
 gt_rand64()
 {
