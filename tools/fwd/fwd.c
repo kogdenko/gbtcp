@@ -248,7 +248,7 @@ parse(void *data, unsigned int len, struct pdu *pdu)
 //	gt_dbg("rem=%d, udp_len=%d, udp_h_len=%d",
 //	       total_len - (ip4_h_len + (int)sizeof(*pdu->udp_h)),
 //	       GT_NTOH16(pdu->udp_h->len), (int)sizeof(*pdu->udp_h));
-	udp_len = GT_NTOH16(pdu->udp_h->len);
+	udp_len = ntoh16(pdu->udp_h->len);
 	if (udp_len < sizeof(*pdu->udp_h)) {
 		return -EINVAL;
 	}
@@ -431,7 +431,7 @@ fwd(struct fwd_dev *src, struct fwd_dev *dst)
 				tuple.sot_faddr = pdu.ip4_h->daddr;
 				tuple.sot_lport = pdu.udp_h->sport;
 				tuple.sot_fport = pdu.udp_h->dport;
-				hash = gt_custom_hash(&tuple, sizeof(tuple), 0);
+				hash = custom_hash(&tuple, sizeof(tuple), 0);
 				bucket = sock_hash + (hash & sock_hash_mask);
 				found = 0;
 				DLIST_FOREACH(so, bucket, so_list) {

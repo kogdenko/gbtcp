@@ -484,7 +484,6 @@ sysctl_node_in(struct log *log, int pid, struct sysctl_node *node,
 	const char *access;
 	struct strbuf stub;
 
-	LOG_TRACE(log);
 	if (tail == NULL) {
 		tail = "";
 	}
@@ -746,7 +745,7 @@ sysctl_conn_accept(struct log *log, struct sysctl_conn *cp)
 	if (rc) {
 		goto err;
 	}
-	new_cp->sccn_is_listen = 0;
+	new_cp->sccn_accept_conn = 0;
 	new_cp->sccn_peer_pid = peer_pid;
 	new_cp->sccn_close_fn = cp->sccn_close_fn;
 	return 0;
@@ -826,7 +825,7 @@ sysctl_process_events(void *udata, short revents)
 
 	log = log_trace0();
 	cp = udata;
-	if (cp->sccn_is_listen) {
+	if (cp->sccn_accept_conn) {
 		do {
 			rc = sysctl_conn_accept(log, cp);
 		} while (rc == 0);
@@ -1019,7 +1018,7 @@ sysctl_connect(struct log *log)
 }
 
 int
-sysctl_bind(struct log *log, const struct sockaddr_un *a, int is_listen)
+sysctl_bind(struct log *log, const struct sockaddr_un *a, int accept_conn)
 {
 	int rc, fd;
 	struct stat stat;
@@ -1045,7 +1044,7 @@ sysctl_bind(struct log *log, const struct sockaddr_un *a, int is_listen)
 		sys_chmod(log, a->sun_path,
 		          stat.st_mode|S_IRGRP|S_IWGRP|S_IXGRP);
 	}
-	if (is_listen) {
+	if (accept_conn) {
 		rc = sys_listen(log, fd, 5);
 	} else {
 		rc = sysctl_setsockopt(log, fd);

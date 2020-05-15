@@ -27,6 +27,9 @@ api_lock()
 	int rc;
 	ptrdiff_t stack_off;
 
+	if (proc_type == PROC_TYPE_CONTROLLER) {
+		return 0;
+	}
 	if (api_locked) {
 		return 0;
 	}

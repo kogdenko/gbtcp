@@ -31,9 +31,9 @@ static int (*gt_service_clone_fn)(void *);
 #else /* __linux__ */
 #endif /* __linux__ */
 
-static int gt_service_in(struct route_if *ifp, uint8_t *data, int len);
+//static int gt_service_in(struct route_if *ifp, uint8_t *data, int len);
 
-static void gt_service_if_in(struct route_if *ifp, uint8_t *data, int len);
+//static void gt_service_if_in(struct route_if *ifp, uint8_t *data, int len);
 
 //static int gt_service_dev_init(struct log *log, struct route_if *ifp);
 
@@ -133,60 +133,6 @@ gt_service_status_str(int status)
 	}
 }
 
-static int
-gt_service_in(struct route_if *ifp, uint8_t *data, int len)
-{
-	int rc;
-	struct sock_tuple so_tuple;
-	struct gt_inet_context ctx;
-
-	rc = gt_inet_eth_in(&ctx, ifp, data, len);
-	if (rc == GT_INET_OK &&
-	    (ctx.inp_ipproto == IPPROTO_UDP ||
-	     ctx.inp_ipproto == IPPROTO_TCP)) {
-		so_tuple.sot_laddr = ctx.inp_ip4_h->ip4h_daddr;
-		so_tuple.sot_faddr = ctx.inp_ip4_h->ip4h_saddr;
-		so_tuple.sot_lport = ctx.inp_udp_h->udph_dport;
-		so_tuple.sot_fport = ctx.inp_udp_h->udph_sport;
-		rc = gt_sock_in(ctx.inp_ipproto, &so_tuple, &ctx.inp_tcb,
-		                ctx.inp_payload);
-	} else if (rc == GT_INET_BCAST && 
-	           ctx.inp_ipproto == IPPROTO_ICMP && ctx.inp_eno &&
-	           (ctx.inp_emb_ipproto == IPPROTO_UDP ||
-	            ctx.inp_emb_ipproto == IPPROTO_TCP)) {
-		so_tuple.sot_laddr = ctx.inp_emb_ip4_h->ip4h_saddr;
-		so_tuple.sot_faddr = ctx.inp_emb_ip4_h->ip4h_daddr;
-		so_tuple.sot_lport = ctx.inp_emb_udp_h->udph_sport;
-		so_tuple.sot_fport = ctx.inp_emb_udp_h->udph_dport;
-		gt_sock_in_err(ctx.inp_emb_ipproto, &so_tuple, ctx.inp_eno);
-	}
-	return rc;
-}
-
-static void
-gt_service_if_in(struct route_if *ifp, uint8_t *data, int len)
-{
-	int rc;
-//	struct gt_service_msg msg;
-
-	rc = gt_service_in(ifp, data, len);
-	switch (rc) {
-	case GT_INET_OK:
-	case GT_INET_DROP:
-		break;
-	case GT_INET_BYPASS:
-	case GT_INET_BCAST:
-//		msg.svcm_cmd = rc;
-//		msg.svcm_if_idx = ifp->rif_idx;
-//		memcpy(data + len, &msg, sizeof(msg));
-//		len += sizeof(msg);
-//		dev_tx3(&gt_service_pipe, data, len);
-		break;
-	default:
-		BUG;
-		break;
-	}
-}
 
 #if 0
 static int
@@ -239,29 +185,6 @@ service_pipe_rxtx(struct dev *dev, short revents)
 	}
 }
 #endif
-
-void
-service_rxtx(struct dev *dev, short revents)
-{
-	int i, n, len;
-	void *data;
-	struct netmap_ring *rxr;
-	struct netmap_slot *slot;
-	struct route_if *ifp;
-
-	ifp = dev->dev_udata;
-	DEV_FOREACH_RXRING(rxr, dev) {
-		n = dev_rxr_space(dev, rxr);
-		for (i = 0; i < n; ++i) {
-			//DEV_RX_PREFETCH(rxr);
-			slot = rxr->slot + rxr->cur;
-			data = NETMAP_BUF(rxr, slot->buf_idx);
-			len = slot->len;
-			gt_service_if_in(ifp, data, len);
-			gt_route_if_rxr_next(ifp, rxr);
-		}
-	}
-}
 
 /*static int
 gt_service_route_if_set_link_status(struct log *log,

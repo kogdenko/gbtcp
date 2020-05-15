@@ -81,8 +81,7 @@ static void
 dev_nm_close(struct log *log, struct dev *dev)
 {
 	LOG_TRACE(log);
-	LOGF(log, LOG_INFO, 0, "ok; dev='%s', nmd=%p",
-	     dev->dev_name, dev->dev_nmd);
+	LOGF(log, LOG_INFO, 0, "ok; nmd=%p", dev->dev_nmd);
 	if (dev->dev_nmd->fd != -1) {
 		sys_close(log, dev->dev_nmd->fd);
 		dev->dev_nmd->fd = -1;
@@ -92,7 +91,7 @@ dev_nm_close(struct log *log, struct dev *dev)
 }
 
 static int
-dev_nm_open(struct log *log, struct dev *dev)
+dev_nm_open(struct log *log, struct dev *dev, const char *dev_name)
 {
 	int rc, flags;
 	struct nmreq nmr;
@@ -100,49 +99,52 @@ dev_nm_open(struct log *log, struct dev *dev)
 	LOG_TRACE(log);
 	memset(&nmr, 0, sizeof(nmr));
 	flags = 0;
-	dev->dev_nmd = nm_open(dev->dev_name, &nmr, flags, NULL);
+	dev->dev_nmd = nm_open(dev_name, &nmr, flags, NULL);
 	if (dev->dev_nmd != NULL) {
 		ASSERT(dev->dev_nmd->nifp != NULL);
-		sys_fcntl(log, dev->dev_nmd->fd,
-		          F_SETFD, FD_CLOEXEC);
+		sys_fcntl(log, dev->dev_nmd->fd, F_SETFD, FD_CLOEXEC);
 		nmr = dev->dev_nmd->req;
 		LOGF(log, LOG_INFO, 0,
 		     "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
-		     dev->dev_name, dev->dev_nmd,
+		     dev_name, dev->dev_nmd,
 	             nmr.nr_rx_rings, nmr.nr_rx_slots,
 		     nmr.nr_tx_rings, nmr.nr_tx_slots);
 		return 0;
 	} else {
 		rc = -errno;
 		ASSERT(rc);
-		LOGF(log, LOG_ERR, -rc, "failed; dev='%s'", dev->dev_name);
+		LOGF(log, LOG_ERR, -rc, "failed; dev='%s'", dev_name);
 		return rc;
 	}
+}
+
+int
+dev_is_inited(struct dev *dev)
+{
+	return dev->dev_fn != NULL;
 }
 
 int
 dev_init(struct log *log, struct dev *dev, const char *ifname, dev_f dev_fn)
 {
 	int rc;
-	const char *name;
+	char dev_name[NM_IFNAMSIZ];
 
 	ASSERT(dev_fn != NULL);
 	LOG_TRACE(log);
 	memset(dev, 0, sizeof(*dev));
-	snprintf(dev->dev_name, NM_IFNAMSIZ, "%s%s", NETMAP_PFX, ifname);
-	rc = dev_nm_open(log, dev);
+	snprintf(dev_name, sizeof(dev_name), "%s%s", NETMAP_PFX, ifname);
+	rc = dev_nm_open(log, dev, dev_name);
 	if (rc) {
 		return rc;
 	}
-	name = dev->dev_name + NETMAP_PFX_LEN;
 	dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
 	rc = gt_fd_event_new(log, &dev->dev_event, dev->dev_nmd->fd,
-	                     name, dev_rxtx, dev);
+	                     dev_name + NETMAP_PFX_LEN, dev_rxtx, dev);
 	if (rc) {
 		dev_nm_close(log, dev);
 		return rc;
 	}
-//	fd_event_init_sysctl(dev->event);
 	dev->dev_fn = dev_fn;
 	dev_rx_on(dev);
 	return 0;
@@ -153,11 +155,10 @@ dev_deinit(struct log *log, struct dev *dev)
 {
 	if (dev->dev_fn != NULL) {
 		LOG_TRACE(log);
-		dev->dev_fn = NULL;
 		gt_fd_event_del(dev->dev_event);
 		dev->dev_event = NULL;
 		dev_nm_close(log, dev);
-		DLIST_REMOVE(dev, dev_list);
+		dev->dev_fn = NULL;
 	}
 }
 

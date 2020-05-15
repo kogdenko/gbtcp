@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 license
 #ifndef GBTCP_H
 #define GBTCP_H
 
@@ -13,10 +13,10 @@
 #include <sys/socket.h>
 #ifdef __linux__
 #include <sys/epoll.h>
-#else /* __linux__ */
+#else // __linux__
 #include <sys/event.h>
 #include <sys/time.h>
-#endif /* __linux__ */
+#endif // __linux__
 
 #define GT_TCP_S_CLOSED 0
 #define GT_TCP_S_LISTEN 1
@@ -34,7 +34,7 @@
 #define GT_SYSCTL_BUFSIZ 4096
 #define GT_RSS_NQ_MAX 32
 // (GT_SERVICECOUNT_MAX + 1) must be <= maximum number of vale ports
-#define GT_SERVICE_COUNT_MAX 128
+#define GT_PROC_COUNT_MAX 128
 #define GT_GROUP_NAME "gbtcp"
 
 #define GT_TCP_STAT(x) \
@@ -241,8 +241,8 @@ int gbtcp_epoll_pwait(int epfd, struct epoll_event *events,
 
 int gbtcp_kqueue();
 
-int gbtcp_kevent(int kq, const struct kevent *changelist, int nchanges,
-	struct kevent *eventlist, int nevents, const struct timespec *timeout);
+int gbtcp_kevent(int, const struct kevent *, int, struct kevent *, int,
+	const struct timespec *);
 
 #endif /* __linux__ */
 
@@ -250,10 +250,10 @@ int gbtcp_kevent(int kq, const struct kevent *changelist, int nchanges,
 #define gt_dbg(f, ...) \
 do { \
 	printf("%-6d: %-20s: %-4d: %-20s: ", \
-	       getpid(),__FILE__, __LINE__, __func__); \
+	       getpid(), __FILE__, __LINE__, __func__); \
 	printf(f, ##__VA_ARGS__); \
 	printf("\n"); \
 } while (0)
-#endif /* gt_dbg */
+#endif // gt_dbg
 
-#endif /* GBTCP_H */
+#endif // GBTCP_H

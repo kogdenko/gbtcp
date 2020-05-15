@@ -55,7 +55,6 @@ shm_init(struct log *log, void **pp, int size)
 	assert(!(((uintptr_t)ptr) & (PAGE_SIZE - 1)));
 	shm = ptr;
 	shm->shm_addr = (uintptr_t)ptr;
-	printf("INIT1 %p %p\n", ptr, (void *)shm->shm_addr);
 	spinlock_init(&shm->shm_lock);
 	dlist_init(&shm->shm_free_region_head);
 	shm->shm_npages = npages;
@@ -67,7 +66,6 @@ shm_init(struct log *log, void **pp, int size)
 	}
 	*pp  = ((u_char *)shm) + sizeof(*shm) + npages;
 	memset(*pp, 0, size);
-	printf("INIT2 %d\n", n);
 	return 0;
 err:
 	shm_deinit(log);
@@ -83,7 +81,6 @@ shm_attach(struct log *log, void **pp)
 	LOG_TRACE(log);
 	rc = shm_open(NAME, O_RDWR, 0666);
 	if (rc == -1) {
-		printf("== 1\n");
 		return -errno;
 	}
 	shm_fd = rc;
@@ -95,7 +92,6 @@ shm_attach(struct log *log, void **pp)
 	}
 	shm = ptr;
 	size = shm->shm_npages * PAGE_SIZE;
-	printf("ATTACH %p, %p, size=%d\n", shm, (void *)shm->shm_addr, size);
 	addr = (void *)shm->shm_addr;
 	munmap(ptr, sizeof(*shm));
 	ptr = mmap(addr, size, PROT_READ|PROT_WRITE,
@@ -219,9 +215,7 @@ shm_alloc(struct log *log, void **pp, int size)
 	rc = shm_alloc_locked(log, pp, size);
 	SHM_UNLOCK;
 	if (rc) {
-		printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
 	} else {
-//		printf("A %p %d\n", *pp, size);
 		memset(*pp, 0, size);
 	}
 
@@ -266,9 +260,7 @@ shm_alloc_page(struct log *log, void **pp, int alignment, int size)
 	rc = shm_alloc_page_locked(log, pp, alignment, size);
 	SHM_UNLOCK;
 	if (rc) {
-		printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
 	} else {
-//		printf("A %p %d\n", *pp, size);
 	}
 	return rc;
 }

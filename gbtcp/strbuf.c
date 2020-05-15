@@ -281,7 +281,7 @@ strbuf_add_tcp_state(struct strbuf *sb, int tcp_state)
 {
 	const char *s;
 
-	s = gt_tcp_state_str(tcp_state);
+	s = tcp_state_str(tcp_state);
 	if (s != NULL) {
 		strbuf_add_str(sb, s);
 	} else {
@@ -294,7 +294,7 @@ strbuf_add_socket_domain(struct strbuf *sb, int domain)
 {
 	const char *s;
 
-	s = gt_socket_domain_str(domain);
+	s = socket_domain_str(domain);
 	if (s != NULL) {
 		strbuf_add_str(sb, s);
 	} else {
@@ -306,7 +306,8 @@ void
 strbuf_add_socket_type(struct strbuf *sb, int type)
 {
 	const char *s;
-	s = gt_socket_type_str(type);
+
+	s = socket_type_str(type);
 	if (s != NULL) {
 		strbuf_add_str(sb, s);
 	} else {
@@ -329,7 +330,8 @@ void
 strbuf_add_shutdown_how(struct strbuf *sb, int how)
 {
 	const char *s;
-	s = gt_shutdown_how_str(how);
+
+	s = shutdown_how_str(how);
 	if (s != NULL) {
 		strbuf_add_str(sb, s);
 	} else {
@@ -342,7 +344,7 @@ strbuf_add_fcntl_cmd(struct strbuf *sb, int cmd)
 {
 	const char *s;
 
-	s = gt_fcntl_cmd_str(cmd);
+	s = fcntl_cmd_str(cmd);
 	if (s != NULL) {
 		strbuf_add_str(sb, s);
 	} else {
@@ -374,7 +376,7 @@ strbuf_add_ioctl_req(struct strbuf *sb, unsigned long req)
 {
 	const char *s;
 
-	s = gt_ioctl_req_str(req);
+	s = ioctl_req_str(req);
 	if (s != NULL) {
 		strbuf_add_str(sb, s);
 	} else {
@@ -387,7 +389,7 @@ strbuf_add_sockopt_level(struct strbuf *sb, int level)
 {
 	const char *s;
 
-	s = gt_sockopt_level_str(level);
+	s = sockopt_level_str(level);
 	if (s != NULL) {
 		strbuf_add_str(sb, s);
 	} else {
@@ -400,7 +402,7 @@ strbuf_add_sockopt_optname(struct strbuf *sb, int level, int optname)
 {
 	const char *s;
 
-	s = gt_sockopt_optname_str(level, optname);
+	s = sockopt_optname_str(level, optname);
 	if (s != NULL) {
 		strbuf_add_str(sb, s);
 	} else {
@@ -466,7 +468,7 @@ strbuf_add_sighandler(struct strbuf *sb, void *fn)
 {
 	const char *s;
 
-	s = gt_sighandler_str(fn);
+	s = sighandler_str(fn);
 	if (s != NULL) {
 		strbuf_add_str(sb, s);
 	} else {
@@ -479,7 +481,7 @@ strbuf_add_sigprocmask_how(struct strbuf *sb, int how)
 {
 	const char *s;
 
-	s = gt_sigprocmask_how_str(how);
+	s = sigprocmask_how_str(how);
 	if (s != NULL) {
 		strbuf_add_str(sb, s);
 	} else {
@@ -510,7 +512,7 @@ strbuf_add_epoll_op(struct strbuf *sb, int op)
 {
 	const char *s;
 
-	s = gt_epoll_op_str(op);
+	s = epoll_op_str(op);
 	if (s != NULL) {
 		strbuf_add_str(sb, s);
 	} else {

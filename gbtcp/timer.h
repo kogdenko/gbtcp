@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 license
 #ifndef GBTCP_TIMER_H
 #define GBTCP_TIMER_H
 
@@ -11,12 +11,12 @@
 #define TIMER_RING_ID_SHIFT 3
 #define TIMER_EXPIRE_MAX (5 * NANOSECONDS_HOUR)
 
-struct gt_timer {
+struct timer {
 	struct dlist tm_list;
 	uintptr_t tm_data;
 };
 
-typedef void (*gt_timer_f)(struct gt_timer *);
+typedef void (*timer_f)(struct timer *);
 
 int timer_mod_init(struct log *, void **);
 int timer_mod_attach(struct log *, void *);
@@ -24,16 +24,12 @@ int timer_proc_init(struct log *, struct proc *);
 void timer_mod_deinit(struct log *, void *);
 void timer_mod_detach(struct log *);
 
-void gt_timer_mod_check();
+void timer_mod_check();
 
-void gt_timer_init(struct gt_timer *timer);
+void timer_init(struct timer *);
+int timer_is_running(struct timer *);
+uint64_t timer_timeout(struct timer *);
+void timer_set(struct timer *, uint64_t, timer_f);
+void timer_del(struct timer *);
 
-int gt_timer_is_running(struct gt_timer *timer);
-
-uint64_t gt_timer_timeout(struct gt_timer *timer);
-
-void gt_timer_set(struct gt_timer *timer, uint64_t expire, gt_timer_f fn);
-
-void gt_timer_del(struct gt_timer *timer);
-
-#endif /* GBTCP_TIMER_H */
+#endif // GBTCP_TIMER_H

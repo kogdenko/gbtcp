@@ -1,4 +1,4 @@
-#include "ip_addr.h"
+#include "internals.h"
 
 struct ipaddr ipaddr_zero;
 
@@ -42,7 +42,7 @@ ipaddr_pfx(int af, const struct ipaddr *addr)
 	pfx = 0;
 	n = af == AF_INET ? 1 : 4;
 	for (i = 0; i < n; ++i) {
-		x = GT_NTOH32(addr->ipa_data_32[i]);
+		x = ntoh32(addr->ipa_data_32[i]);
 		if (x == -1) {
 			pfx += 32; 
 		} else {
@@ -85,13 +85,13 @@ ipaddr_aton(be32_t *dst, const char *src)
 int
 ipaddr4_is_loopback(be32_t ip)
 {
-	return (ip & GT_HTON32(0xff000000)) == GT_HTON32(0x7f000000);
+	return (ip & hton32(0xff000000)) == hton32(0x7f000000);
 }
 
 int
 ipaddr4_is_mcast(be32_t ip)
 {
-	return (ip & GT_HTON32(0xf0000000)) == GT_HTON32(0xe0000000);
+	return (ip & hton32(0xf0000000)) == hton32(0xe0000000);
 }
 
 int
@@ -147,7 +147,7 @@ ipaddr6_net_cmp(const uint8_t *a, const uint8_t *b, int len)
 	uint8_t m;
 
 	i = len >> 3;
-	assert(i <= 16);
+	ASSERT(i <= 16);
 	rc = memcmp(a, b, i);
 	if (rc != 0) {
 		return rc;

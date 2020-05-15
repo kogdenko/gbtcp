@@ -4,19 +4,19 @@
 #include "route.h"
 
 #define GT_ETH_TYPE_IP4 0x0800
-#define GT_ETH_TYPE_IP4_BE GT_HTON16(GT_ETH_TYPE_IP4)
+#define GT_ETH_TYPE_IP4_BE hton16(GT_ETH_TYPE_IP4)
 #define GT_ETH_TYPE_IP6 0x86DD
-#define GT_ETH_TYPE_IP6_BE GT_HTON16(GT_ETH_TYPE_IP6)
+#define GT_ETH_TYPE_IP6_BE hton16(GT_ETH_TYPE_IP6)
 #define GT_ETH_TYPE_ARP 0x0806
-#define GT_ETH_TYPE_ARP_BE GT_HTON16(GT_ETH_TYPE_ARP)
+#define GT_ETH_TYPE_ARP_BE hton16(GT_ETH_TYPE_ARP)
 
 #define GT_ARP_HRD_ETH 1
-#define GT_ARP_HRD_ETH_BE GT_HTON16(GT_ARP_HRD_ETH)
+#define GT_ARP_HRD_ETH_BE hton16(GT_ARP_HRD_ETH)
 
 #define GT_ARP_OP_REQUEST 1
-#define GT_ARP_OP_REQUEST_BE GT_HTON16(GT_ARP_OP_REQUEST)
+#define GT_ARP_OP_REQUEST_BE hton16(GT_ARP_OP_REQUEST)
 #define GT_ARP_OP_REPLY 2
-#define GT_ARP_OP_REPLY_BE GT_HTON16(GT_ARP_OP_REPLY)
+#define GT_ARP_OP_REPLY_BE hton16(GT_ARP_OP_REPLY)
 
 #define GT_IP4_MTU_MIN 68
 
@@ -263,4 +263,4 @@ int gt_tcp_opts_fill(struct gt_tcp_opts *opt, void *buf);
 
 int gt_tcp_opts_len(struct gt_tcp_opts *opt);
 
-#endif /* GBTCP_INET_H */
+#endif // GBTCP_INET_H

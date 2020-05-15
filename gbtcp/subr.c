@@ -4,7 +4,7 @@ struct subr_mod {
 	struct log_scope log_scope;
 };
 
-union gt_tsc {
+union tsc {
 	uint64_t tsc_64;
 	struct {
 		uint32_t lo_32;
@@ -30,7 +30,7 @@ do { \
 } while (0)
 
 static uint32_t
-gt_murmur(const void * key, unsigned int len, uint32_t init_val)
+murmur(const void * key, unsigned int len, uint32_t init_val)
 {
 	int r;
 	unsigned int k, l, m, h, t;
@@ -99,28 +99,22 @@ err:
 }
 #else /* __linux__ */
 static int
-proc_get_name()
+proc_get_name(struct log *log, char *name, int pid)
 {
 	int rc;
 	struct kinfo_proc *info;
 
-	info = kinfo_getproc(gt_application_pid);
+	info = kinfo_getproc(pid);
 	if (info == NULL) {
 		rc = -errno;
-		GT_ASSERT(rc);
+		ASSERT(rc);
 		return rc;
 	}
-	strzcpy(gt_application_name_buf, info->ki_comm,
-	        sizeof(gt_application_name_buf));
+	strzcpy(name, info->ki_comm, PROC_NAME_SIZE_MAX);
 	free(info);
-	gt_application_name = gt_application_name_buf;
 	return 0;
 }
 #endif /* __linux__ */
-
-//service {
-//	svc_app_name
-//};
 
 int
 subr_mod_init(struct log *log, void **pp)
@@ -243,14 +237,14 @@ spinlock_unlock(struct spinlock *sl)
 }
 
 void
-gt_profiler_enter(struct gt_profiler *p)
+profiler_enter(struct profiler *p)
 {
 	assert(p->prf_tsc == 0);
 	p->prf_tsc = rdtsc();
 }
 
 void
-gt_profiler_leave(struct gt_profiler *p)
+profiler_leave(struct profiler *p)
 {
 	uint64_t t, dt, elapsed;
 	double avg;
@@ -377,15 +371,15 @@ strzcpy(char *dest, const char *src, size_t n)
 }
 
 uint32_t
-gt_custom_hash32(uint32_t data, uint32_t initval)
+custom_hash32(uint32_t data, uint32_t initval)
 {
-	return gt_murmur(&data, sizeof(data), initval);
+	return murmur(&data, sizeof(data), initval);
 }
 
 uint32_t
-gt_custom_hash(const void *data, size_t cnt, uint32_t initval)
+custom_hash(const void *data, size_t cnt, uint32_t initval)
 {
-	return gt_murmur(data, cnt, initval);
+	return murmur(data, cnt, initval);
 }
 
 uint32_t
@@ -740,7 +734,7 @@ gettid()
 uint64_t
 rdtsc()
 {
-	union gt_tsc tsc;
+	union tsc tsc;
 
 	asm volatile("rdtsc" :
 		"=a" (tsc.lo_32),
@@ -762,7 +756,7 @@ rdtsc_update_time()
 }
 
 uint64_t
-gt_rand64()
+rand64()
 {
 	uint64_t x, y;
 
@@ -773,13 +767,13 @@ gt_rand64()
 }
 
 uint32_t
-gt_rand32()
+rand32()
 {
 	return lrand48();
 }
 
 const char *
-gt_tcp_state_str(int tcp_state)
+tcp_state_str(int tcp_state)
 {
 	switch (tcp_state) {
 	case GT_TCP_S_CLOSED: return "CLOSED";
@@ -798,7 +792,7 @@ gt_tcp_state_str(int tcp_state)
 }
 
 const char *
-gt_socket_domain_str(int domain)
+socket_domain_str(int domain)
 {
 	switch (domain) {
 	case AF_LOCAL: return "AF_LOCAL";
@@ -810,7 +804,7 @@ gt_socket_domain_str(int domain)
 
 #ifdef __linux__
 static const char *
-gt_socket_type_str_os(int type)
+socket_type_str_os(int type)
 {
 	switch (type) {
 	case SOCK_PACKET: return "SOCK_PACKET";
@@ -819,14 +813,14 @@ gt_socket_type_str_os(int type)
 }
 #else /* __linux__ */
 static const char *
-gt_socket_type_str_os(int type)
+socket_type_str_os(int type)
 {
 	return NULL;
 }
 #endif /* __linux__ */
 
 const char *
-gt_socket_type_str(int type)
+socket_type_str(int type)
 {
 	const char *s;
 
@@ -837,13 +831,13 @@ gt_socket_type_str(int type)
 	case SOCK_RAW: return "SOCK_RAW";
 	case SOCK_RDM: return "SOCK_DRM";
 	default:
-		s = gt_socket_type_str_os(type);
+		s = socket_type_str_os(type);
 		return s;
 	}
 }
 
 const char *
-gt_sockopt_level_str(int level)
+sockopt_level_str(int level)
 {
 	switch (level) {
 	case IPPROTO_TCP: return "IPPROTO_TCP";
@@ -853,7 +847,7 @@ gt_sockopt_level_str(int level)
 }
 
 const char *
-gt_sockopt_optname_str(int level, int optname)
+sockopt_optname_str(int level, int optname)
 {
 	switch (level) {
 	case IPPROTO_TCP:
@@ -882,7 +876,7 @@ gt_sockopt_optname_str(int level, int optname)
 }
 
 const char *
-gt_fcntl_cmd_str(int cmd)
+fcntl_cmd_str(int cmd)
 {
 	switch (cmd) {
 	case F_GETFD: return "F_GETFD";
@@ -894,7 +888,7 @@ gt_fcntl_cmd_str(int cmd)
 }
 
 const char *
-gt_ioctl_req_str(unsigned long req)
+ioctl_req_str(unsigned long req)
 {
 	switch (req) {
 	case FIONBIO: return "FIONBIO";
@@ -903,7 +897,7 @@ gt_ioctl_req_str(unsigned long req)
 }
 
 const char *
-gt_shutdown_how_str(int how)
+shutdown_how_str(int how)
 {
 	switch (how) {
 	case SHUT_RD: return "SHUT_RD";
@@ -914,7 +908,7 @@ gt_shutdown_how_str(int how)
 }
 
 const char *
-gt_sighandler_str(void *fn)
+sighandler_str(void *fn)
 {
 	if (fn == SIG_ERR) {
 		return "SIG_ERR";
@@ -928,7 +922,7 @@ gt_sighandler_str(void *fn)
 }
 
 const char *
-gt_sigprocmask_how_str(int how)
+sigprocmask_how_str(int how)
 {
 	switch (how) {
 	case SIG_BLOCK: return "SIG_BLOCK";
@@ -940,7 +934,7 @@ gt_sigprocmask_how_str(int how)
 
 #ifdef __linux__
 const char *
-gt_epoll_op_str(int op)
+epoll_op_str(int op)
 {
 	switch (op) {
 	case EPOLL_CTL_ADD: return "EPOLL_CTL_ADD";
@@ -975,6 +969,3 @@ print_backtrace(int depth_off)
 	s = strbuf_cstr(&sb);
 	printf("%s", s);
 }
-
-
-

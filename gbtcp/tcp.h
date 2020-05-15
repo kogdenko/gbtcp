@@ -69,8 +69,8 @@ struct gt_sock {
 	be32_t so_next_hop;
 	uint16_t so_lmss;
 	uint16_t so_rmss;
-	struct gt_timer so_timer;
-	struct gt_timer so_timer_delack;
+	struct timer so_timer;
+	struct timer so_timer_delack;
 	union {
 		struct {
 			uint32_t so_rseq;

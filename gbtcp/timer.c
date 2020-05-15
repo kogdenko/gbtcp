@@ -19,7 +19,7 @@ static int timer_nrings;
 static struct timer_ring *timer_rings[TIMER_NRINGS_MAX];
 
 static int
-gt_timer_ring_get_id(struct gt_timer *timer)
+timer_ring_get_id(struct timer *timer)
 {
 	return timer->tm_data & TIMER_RING_ID_MASK;
 }
@@ -143,15 +143,15 @@ timer_mod_detach(struct log *log)
 }
 
 static void
-gt_timer_mod_call(struct dlist *queue)
+timer_mod_call(struct dlist *queue)
 {
-	struct gt_timer *timer;
-	gt_timer_f fn;
+	struct timer *timer;
+	timer_f fn;
 
 	while (!dlist_is_empty(queue)) {
-		timer = DLIST_FIRST(queue, struct gt_timer, tm_list);
+		timer = DLIST_FIRST(queue, struct timer, tm_list);
 		DLIST_REMOVE(timer, tm_list);
-		fn = (gt_timer_f)(timer->tm_data & ~TIMER_RING_ID_MASK);
+		fn = (timer_f)(timer->tm_data & ~TIMER_RING_ID_MASK);
 		timer->tm_data = 0;
 		(*fn)(timer);
 	}
@@ -162,7 +162,7 @@ timer_ring_check(struct timer_ring *ring, struct dlist *queue)
 {
 	int i;
 	uint64_t pos;
-	struct gt_timer *timer;
+	struct timer *timer;
 	struct dlist *head;
 
 	pos = ring->r_cur;
@@ -176,7 +176,7 @@ timer_ring_check(struct timer_ring *ring, struct dlist *queue)
 		while (!dlist_is_empty(head)) {
 			ring->r_ntimers--;
 			ASSERT(ring->r_ntimers >= 0);
-			timer = DLIST_FIRST(head, struct gt_timer, tm_list);
+			timer = DLIST_FIRST(head, struct timer, tm_list);
 			DLIST_REMOVE(timer, tm_list);
 			DLIST_INSERT_HEAD(queue, timer, tm_list);
 		}
@@ -187,7 +187,7 @@ timer_ring_check(struct timer_ring *ring, struct dlist *queue)
 }
 
 void
-gt_timer_mod_check()
+timer_mod_check()
 {
 	int i;
 	static uint64_t last_time;
@@ -203,33 +203,33 @@ gt_timer_mod_check()
 		ring = timer_rings[i];
 		timer_ring_check(ring, &queue);
 	}
-	gt_timer_mod_call(&queue);
+	timer_mod_call(&queue);
 }
 
 void
-gt_timer_init(struct gt_timer *timer)
+timer_init(struct timer *timer)
 {
 	timer->tm_data = 0;
 }
 
 int
-gt_timer_is_running(struct gt_timer *timer)
+timer_is_running(struct timer *timer)
 {
 	return timer->tm_data != 0;
 }
 
 uint64_t
-gt_timer_timeout(struct gt_timer *timer)
+timer_timeout(struct timer *timer)
 {
 	int ring_id;
 	uint64_t e, b, dist;
 	struct dlist *list;
 	struct timer_ring *ring;
 
-	if (!gt_timer_is_running(timer)) {
+	if (!timer_is_running(timer)) {
 		return 0;
 	}
-	ring_id = gt_timer_ring_get_id(timer);
+	ring_id = timer_ring_get_id(timer);
 	ASSERT(ring_id <= timer_nrings);
 	if (ring_id == timer_nrings) {
 		return 0;
@@ -254,7 +254,7 @@ gt_timer_timeout(struct gt_timer *timer)
 }
 
 void
-gt_timer_set(struct gt_timer *timer, uint64_t expire, gt_timer_f fn)
+timer_set(struct timer *timer, uint64_t expire, timer_f fn)
 {
 	int ring_id;
 	uintptr_t uint_fn;
@@ -267,7 +267,7 @@ gt_timer_set(struct gt_timer *timer, uint64_t expire, gt_timer_f fn)
 	ASSERT(uint_fn != 0);
 	ASSERT((uint_fn & TIMER_RING_ID_MASK) == 0);
 	ASSERT(expire <= TIMER_EXPIRE_MAX);
-	gt_timer_del(timer);
+	timer_del(timer);
 	dist = 0;
 	for (ring_id = 0; ring_id < timer_nrings; ++ring_id) {
 		ring = timer_rings[ring_id];
@@ -298,14 +298,14 @@ gt_timer_set(struct gt_timer *timer, uint64_t expire, gt_timer_f fn)
 }
 
 void
-gt_timer_del(struct gt_timer *timer)
+timer_del(struct timer *timer)
 {
 	int ring_id;
 	struct log *log;
 	struct timer_ring *ring;
 
-	if (gt_timer_is_running(timer)) {
-		ring_id = gt_timer_ring_get_id(timer);
+	if (timer_is_running(timer)) {
+		ring_id = timer_ring_get_id(timer);
 		ring = timer_rings[ring_id];
 		ring->r_ntimers--;
 		log = log_trace0();

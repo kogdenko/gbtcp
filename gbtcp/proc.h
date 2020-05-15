@@ -8,9 +8,15 @@
 
 #define PROC_NAME_SIZE_MAX 32
 
+#define PROC_TYPE_SERVICE 0
+#define PROC_TYPE_CONTROLLER 1
+
 #define SERVICE_LOCK do { \
 	spinlock_lock(&current->p_lock); \
 	rdtsc_update_time(); \
+	if (current->p_dirty_devs) { \
+		service_update_devs(NULL); \
+	} \
 } while (0)
 
 #define SERVICE_UNLOCK \
@@ -22,10 +28,12 @@ struct proc {
 	struct spinlock p_lock;
 	int p_pid;
 	u_char p_service_id;
-	int p_rss_qid;
-	int p_rss_qid_saved;
+	u_char p_dirty_devs;
 	u_char p_active;
-	u_int p_init_id;
+	u_char p_rss_qid;
+	u_char p_rss_qid_min;
+	u_char p_rss_qid_max;
+	int p_service_fd;
 	struct mbuf_pool p_file_pool;
 	struct mbuf_pool p_sockbuf_pool;
 	struct mbuf_pool p_arp_entry_pool;
@@ -37,15 +45,16 @@ void proc_init();
 
 int controller_init(int, const char *);
 void controller_loop();
-void controller_set_rss_nq(struct log *, int);
 
 int service_init();
 int service_activate(struct log *);
+void service_deactivate(struct log *);
+void service_update_devs(struct log *);
 
-int get_rss_nq();
+void rss_table_update();
 
 extern struct proc *current;
-extern struct proc *services;
+extern int proc_type;
 uint64_t nanoseconds;
 
 #endif // GBTCP_PROC_H

@@ -111,6 +111,8 @@ typedef uint64_t be64_t;
 struct log;
 struct strbuf;
 struct proc;
+struct dev;
+struct route_if;
 
 struct ethaddr {
 	uint8_t etha_bytes[ETHADDR_LEN];
@@ -127,7 +129,7 @@ struct spinlock {
 	volatile int spinlock_locked;
 };
 
-struct gt_profiler {
+struct profiler {
 	const char *prf_name;
 	uint64_t prf_hits;
 	uint64_t prf_tsc;
@@ -170,26 +172,26 @@ struct gt_profiler {
 #define ROUND_UP(x, y) ((((x) - 1) | (((__typeof__(x))(y)) - 1)) + 1)
 #define ROUND_DOWN(x, y) ((x) & (~((y) - 1 )))
 
-#define GT_BSWAP16(x) \
+#define BSWAP16(x) \
 	(((((uint16_t)(x)) & ((uint16_t)0x00FF)) << 8) | \
 	 ((((uint16_t)(x)) & ((uint16_t)0xFF00)) >> 8))
 
-#define GT_BSWAP32(x) \
+#define BSWAP32(x) \
 	(((((uint32_t)(x)) & ((uint32_t)0x000000FF)) << 24) | \
 	 ((((uint32_t)(x)) & ((uint32_t)0x0000FF00)) <<  8) | \
 	 ((((uint32_t)(x)) & ((uint32_t)0x00FF0000)) >>  8) | \
 	 ((((uint32_t)(x)) & ((uint32_t)0xFF000000)) >> 24))
 
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#define GT_HTON16(x) ((uint16_t)(x))
-#define GT_HTON32(x) ((uint32_t)(x))
-#define GT_NTOH16(x) ((uint16_t)(x))
-#define GT_NTOH32(x) ((uint32_t)(x))
+#define hton16(x) ((uint16_t)(x))
+#define hton32(x) ((uint32_t)(x))
+#define ntoh16(x) ((uint16_t)(x))
+#define ntoh32(x) ((uint32_t)(x))
 #else  // __BIG_ENDIAN
-#define GT_HTON16(x) ((uint16_t)GT_BSWAP16(x))
-#define GT_HTON32(x) ((uint32_t)GT_BSWAP32(x))
-#define GT_NTOH16(x) ((uint16_t)GT_BSWAP16(x))
-#define GT_NTOH32(x) ((uint32_t)GT_BSWAP32(x))
+#define hton16(x) ((uint16_t)BSWAP16(x))
+#define hton32(x) ((uint32_t)BSWAP32(x))
+#define ntoh16(x) ((uint16_t)BSWAP16(x))
+#define ntoh32(x) ((uint32_t)BSWAP32(x))
 #endif // __BIG_ENDIAN
 
 #define mb _mm_mfence
@@ -205,7 +207,7 @@ struct gt_profiler {
 #define GT_UNIQV_CAT3(x, res) res
 #define GT_UNIQV_CAT2(x, y, z) GT_UNIQV_CAT3(~, x##y##z)
 #define GT_UNIQV_CAT(x, y, z) GT_UNIQV_CAT2(x, y, z)
-#define GT_UNIQV(n) GT_UNIQV_CAT(n, gt_uniqv_, __LINE__)
+#define GT_UNIQV(n) GT_UNIQV_CAT(n, uniqv_, __LINE__)
 
 #define MEM_PREFETCH(ptr) \
 	__builtin_prefetch(ptr)
@@ -234,13 +236,16 @@ do { \
 #define GT_PRF_LEAVE(x)
 #else
 #define GT_PRF_INIT(x) \
-	static struct gt_profiler prf_##x = { .prf_name = #x };
+	static struct profiler prf_##x = { .prf_name = #x };
 #define GT_PRF_ENTER(x) profiler_enter(&prf_##x)
 #define GT_PRF_LEAVE(x) profiler_leave(&prf_##x)
 #endif
 
 #define dbg gt_dbg
 #define dbg0 dbg("D")
+
+#define WRITE_ONCE(x, val) (x) = (val);
+#define READ_ONCE(x) (x)
 
 extern uint64_t nanoseconds;
 extern uint64_t HZ;
@@ -266,9 +271,8 @@ void spinlock_lock(struct spinlock *);
 int spinlock_trylock(struct spinlock *);
 void spinlock_unlock(struct spinlock *);
 
-void gt_profiler_enter(struct gt_profiler *);
-
-void gt_profiler_leave(struct gt_profiler *);
+void profiler_enter(struct profiler *);
+void profiler_leave(struct profiler *);
 
 char *strltrim(const char *);
 char *strtrim(char *);
@@ -277,9 +281,9 @@ int strsplit(const char *, const char *, struct iovec *, int);
 char *strzcpy(char *, const char *, size_t);
 
 // hash
-uint32_t gt_custom_hash32(uint32_t data, uint32_t initval);
+uint32_t custom_hash32(uint32_t data, uint32_t initval);
 
-uint32_t gt_custom_hash(const void *data, size_t cnt, uint32_t val);
+uint32_t custom_hash(const void *data, size_t cnt, uint32_t val);
 
 uint32_t toeplitz_hash(const u_char *, int, const u_char *);
 
@@ -310,23 +314,23 @@ long gettid();
 uint64_t rdtsc();
 void rdtsc_update_time();
 
-uint64_t gt_rand64();
-uint32_t gt_rand32();
+uint64_t rand64();
+uint32_t rand32();
 
 // to string
-const char *gt_tcp_state_str(int tcp_state);
-const char *gt_socket_domain_str(int domain);
-const char *gt_socket_type_str(int type);
-const char *gt_sockopt_level_str(int level);
-const char *gt_sockopt_optname_str(int level, int optname);
-const char *gt_fcntl_cmd_str(int cmd);
-const char *gt_ioctl_req_str(unsigned long req);
-const char *gt_shutdown_how_str(int how);
-const char *gt_sighandler_str(void *fn);
-const char *gt_sigprocmask_how_str(int how);
+const char *tcp_state_str(int tcp_state);
+const char *socket_domain_str(int domain);
+const char *socket_type_str(int type);
+const char *sockopt_level_str(int level);
+const char *sockopt_optname_str(int level, int optname);
+const char *fcntl_cmd_str(int cmd);
+const char *ioctl_req_str(unsigned long req);
+const char *shutdown_how_str(int how);
+const char *sighandler_str(void *fn);
+const char *sigprocmask_how_str(int how);
 
 #ifdef __linux__
-const char *gt_epoll_op_str(int op);
+const char *epoll_op_str(int op);
 #else /* __linux__ */
 #endif /* __linux__ */
 

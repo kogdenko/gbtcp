@@ -170,7 +170,7 @@ write_pidfile(struct log * log, const char *filename, int pid)
 }
 
 int
-pidwait_init(struct log *log, struct pidwait * pw, int flags)
+pid_wait_init(struct log *log, struct pid_wait * pw, int flags)
 {
 	LOG_TRACE(log);
 	pw->pw_nentries = 0;
@@ -179,7 +179,7 @@ pidwait_init(struct log *log, struct pidwait * pw, int flags)
 }
 
 void
-pidwait_deinit(struct log *log, struct pidwait* pw)
+pid_wait_deinit(struct log *log, struct pid_wait* pw)
 {
 	if (pw->pw_fd >= 0) {
 		LOG_TRACE(log);
@@ -190,13 +190,13 @@ pidwait_deinit(struct log *log, struct pidwait* pw)
 }
 
 int
-pidwait_is_empty(struct pidwait *pw)
+pid_wait_is_empty(struct pid_wait *pw)
 {
 	return pw->pw_nentries == 0;
 }
 
 int
-pidwait_add(struct log *log, struct pidwait *pw, int pid)
+pid_wait_add(struct log *log, struct pid_wait *pw, int pid)
 {
 	int i, rc;
 	char path[32];
@@ -209,7 +209,7 @@ pidwait_add(struct log *log, struct pidwait *pw, int pid)
 			goto err;
 		}
 	}
-	if (pw->pw_nentries == PIDWAIT_NENTRIES_MAX) {
+	if (pw->pw_nentries == GT_PROC_COUNT_MAX) {
 		rc = -ENOSPC;
 		goto err;
 	}
@@ -228,10 +228,10 @@ err:
 }
 
 static int 
-pidwait_del_entry(struct log *log, struct pidwait *pw, int i)
+pid_wait_del_entry(struct log *log, struct pid_wait *pw, int i)
 {
 	int rc;
-	struct pidwait_entry *e;
+	struct pid_wait_entry *e;
 
 	e = pw->pw_entries + i;
 	rc = sys_inotify_rm_watch(log, pw->pw_fd, e->wd);
@@ -240,14 +240,14 @@ pidwait_del_entry(struct log *log, struct pidwait *pw, int i)
 }
 
 int
-pidwait_del(struct log *log, struct pidwait *pw, int pid)
+pid_wait_del(struct log *log, struct pid_wait *pw, int pid)
 {
 	int i, rc;
 
 	LOG_TRACE(log);
 	for (i = 0; i < pw->pw_nentries; ++i) {
 		if (pw->pw_entries[i].pid == pid) {
-			rc = pidwait_del_entry(log, pw, i);
+			rc = pid_wait_del_entry(log, pw, i);
 			return rc;
 		}
 	}
@@ -257,7 +257,7 @@ pidwait_del(struct log *log, struct pidwait *pw, int pid)
 }
 
 int
-pidwait_read(struct log *log, struct pidwait *pw, uint64_t *to,
+pid_wait_read(struct log *log, struct pid_wait *pw, uint64_t *to,
 	int *pids, int npids)
 {
 	int i, n, rc;
@@ -266,10 +266,7 @@ pidwait_read(struct log *log, struct pidwait *pw, uint64_t *to,
 	ASSERT(npids);
 	LOG_TRACE(log);
 	n = 0;
-	if (pidwait_is_empty(pw)) {
-		return 0;
-	}
-	while (1) {
+	while (!pid_wait_is_empty(pw)) {
 		rc = read_timed(log, pw->pw_fd, &ev, sizeof(ev), to);
 		if (rc < 0) {
 			return n ? n : rc;
@@ -281,15 +278,16 @@ pidwait_read(struct log *log, struct pidwait *pw, uint64_t *to,
 					pids[n] = pw->pw_entries[i].pid;
 				}
 				n++;
-				pidwait_del_entry(log, pw, i);
+				pid_wait_del_entry(log, pw, i);
 				break;
 			}
 		}
 	}
+	return n;
 }
 
 int
-pidwait_kill(struct log *log, struct pidwait *pw, int signum,
+pid_wait_kill(struct log *log, struct pid_wait *pw, int signum,
 	int *pids, int npids)
 {
 	int i, n, rc, pid;
@@ -299,12 +297,14 @@ pidwait_kill(struct log *log, struct pidwait *pw, int signum,
 	for (i = 0; i < pw->pw_nentries;) {
 		pid = pw->pw_entries[i].pid;
 		rc = sys_kill(log, pid, signum);
-		if (rc == ESRCH) {
+		if (rc == -ESRCH) {
 			if (n < npids) {
 				pids[n] = pid;
 			}
 			n++;
-			pidwait_del_entry(log, pw, i);	
+			pid_wait_del_entry(log, pw, i);	
+		} else if (rc < 0) {
+			return rc;
 		} else {
 			++i;
 		}

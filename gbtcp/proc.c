@@ -1,7 +1,7 @@
 // GPL2 license
 #include "internals.h"
 
-struct init_mod {
+struct proc_mod {
 	struct log_scope log_scope;
 };
 
@@ -57,41 +57,42 @@ enum {
 	MOD_COUNT_MAX
 };
 
+int proc_type = PROC_TYPE_SERVICE;
 struct proc *current;
 
 static struct spinlock service_init_lock;
-static int service_fd = -1;
 static struct sysctl_conn *controller_cp;
 static struct init_hdr *ih;
-static struct init_mod *curmod;
+static struct proc_mod *curmod;
 
 #define IH_VERSION 2
 
 struct init_hdr {
 	int ih_version;
-	int ih_rss_nq;
 	uint64_t ih_HZ;
 	void *ih_mods[MOD_COUNT_MAX];
 	union {
-		struct proc ih_procs[GT_SERVICE_COUNT_MAX + 1];
+		struct proc ih_procs[GT_PROC_COUNT_MAX];
 		struct {
 			struct proc ih_controller;
-			struct proc ih_services[GT_SERVICE_COUNT_MAX];
+			struct proc ih_services[GT_PROC_COUNT_MAX - 1];
 		};
 	};
-	int ih_rss[GT_RSS_NQ_MAX];
+	int ih_rss_table_size;
+	int ih_rss_table[GT_RSS_NQ_MAX];
 };
 
 int
 proc_mod_init(struct log *log, void **pp)
 {
 	int rc;
-	struct init_mod *mod;
+	struct proc_mod *mod;
+
 	LOG_TRACE(log);
 	rc = shm_alloc(log, pp, sizeof(*mod));
-	if (!rc) {
+	if (rc == 0) {
 		mod = *pp;
-		log_scope_init(&mod->log_scope, "init");
+		log_scope_init(&mod->log_scope, "proc");
 	}
 	return rc;
 }
@@ -111,7 +112,7 @@ proc_proc_init(struct log *log, struct proc *p)
 void
 proc_mod_deinit(struct log *log, void *raw_mod)
 {
-	struct init_mod *mod;
+	struct proc_mod *mod;
 
 	LOG_TRACE(log);
 	mod = raw_mod;
@@ -187,25 +188,26 @@ proc_init()
 {
 	dlsym_all();
 	rdtsc_update_time();
+	srand48(time(NULL));
 	log_init_early();
 }
+
+#define CONTROLLER_LOCK_PATH GT_PREFIX"/controller.lock"
 
 static int
 controller_lock(struct log *log)
 {
 	int rc, fd;
-	const char *path;
 
 	LOG_TRACE(log);
-	path = GT_PREFIX"/controller.lock";
-	rc = sys_open(log, path, O_CREAT|O_RDWR, 0666);
+	rc = sys_open(log, CONTROLLER_LOCK_PATH, O_CREAT|O_RDWR, 0666);
 	if (rc < 0) {
-		die(log, -rc, "open('%s') failed;", path);
+		die(log, -rc, "open('%s') failed;", CONTROLLER_LOCK_PATH);
 	}
 	fd = rc;
 	rc = sys_flock(log, fd, LOCK_EX);
 	if (rc < 0) {
-		die(log, -rc, "flock('%s') failed", path);
+		die(log, -rc, "flock('%s') failed", CONTROLLER_LOCK_PATH);
 	}
 	return fd;
 }
@@ -214,6 +216,7 @@ static void
 controller_unlock(struct log *log, int fd)
 {
 	sys_close(log, fd);
+	sys_unlink(log, CONTROLLER_LOCK_PATH);
 }
 
 static int
@@ -268,20 +271,20 @@ can_connect(struct log *log, int pid)
 }
 
 static int
-controller_kill_all(struct log *log)
+kill_wait_pids(struct log *log)
 {
-	int i, rc, pid, npids, enospc;
+	int i, rc, pid, npids, again;
 	uint64_t to;
-	int pids[PIDWAIT_NENTRIES_MAX];
+	int pids[GT_PROC_COUNT_MAX];
 	struct sockaddr_un a;
 	DIR *dir;
 	struct dirent *entry;
-	struct pidwait pw;
+	struct pid_wait pw;
 
 	LOG_TRACE(log);
 restart:
-	enospc = 0;
-	pidwait_init(log, &pw, PIDWAIT_NONBLOCK);
+	again = 0;
+	pid_wait_init(log, &pw, PID_WAIT_NONBLOCK);
 	rc = sys_opendir(log, &dir, SYSCTL_PATH);
 	if (rc) {
 		return rc;
@@ -296,21 +299,27 @@ restart:
 			closedir(dir);
 			return rc;
 		} else if (rc) {
-			rc = pidwait_add(log, &pw, pid);
+			rc = pid_wait_add(log, &pw, pid);
 			if (rc == -ENOSPC) {
-				enospc = 1;
+				again = 1;
 				break;
+			} else if (rc < 0) {
+				goto out;
 			}
 		}
 	}
 	closedir(dir);
 	npids = 0;
 	to = 3 * NANOSECONDS_SECOND;
-	while (to && !pidwait_is_empty(&pw)) {
-		rc = pidwait_kill(log, &pw, SIGKILL,
-		                  pids, ARRAY_SIZE(pids) - npids);
-		rc = pidwait_read(log, &pw, &to,
-		                  pids + npids, ARRAY_SIZE(pids) - npids);
+	while (to && !pid_wait_is_empty(&pw)) {
+		rc = pid_wait_kill(log, &pw, SIGKILL,
+		                   pids, ARRAY_SIZE(pids) - npids);
+		if (rc < 0) {
+			goto out;
+		}
+		npids += rc;
+		rc = pid_wait_read(log, &pw, &to,
+		                   pids + npids, ARRAY_SIZE(pids) - npids);
 		if (rc > 0) {
 			npids += rc;
 		}
@@ -319,109 +328,228 @@ restart:
 		sysctl_make_sockaddr_un(&a, pids[i]);
 		sys_unlink(log, a.sun_path);
 	}
-	if (!pidwait_is_empty(&pw)) {
-		LOGF(log, LOG_ERR, -ETIMEDOUT, "failed");
-		return -ETIMEDOUT;
+	if (pid_wait_is_empty(&pw)) {
+		rc = 0;
+	} else {
+		LOGF(log, LOG_ERR, -ETIMEDOUT, "failed;");
+		rc = -ETIMEDOUT;
 	}
-	pidwait_deinit(log, &pw);
-	if (enospc) {
+out:
+	pid_wait_deinit(log, &pw);
+	if (rc == 0 && again) {
 		goto restart;
 	}
+	return rc;
+}
+
+// TODO: priority - tx pps
+static int
+service_priority(struct proc *s)
+{
 	return 0;
 }
 
-int
-get_rss_nq()
+static int
+service_compar(const void *p1, const void *p2)
 {
-	return ih->ih_rss_nq;
+	int prio1, prio2;
+	struct proc **ps1, **ps2;
+
+	ps1 = (struct proc **)p1;
+	ps2 = (struct proc **)p2;
+	prio1 = service_priority(*ps1);
+	prio2 = service_priority(*ps2);
+	return prio1 - prio2;
 }
 
-int
-controller_service_activate(struct log *log, struct proc *s)
+static struct proc *
+service_get(int pid)
+{
+	int i;
+	struct proc *s;
+
+	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
+		s = ih->ih_services + i;
+		if (s->p_pid == pid) {
+			return s;
+		}
+	}
+	return NULL;
+}
+
+static void
+service_lock(struct log *log, struct proc *s)
+{
+}
+
+static void
+service_unlock(struct proc *s)
+{
+}
+
+
+/*static int
+rss_table_get(int N)
+{
+	int n;
+
+	n = READ_ONCE(ih->ih_rss_table_size);
+	if (n
+}*/
+
+static int
+service_activate2(struct log *log, struct proc *s)
 {
 	int i;
 
-	for (i = 0; i < ih->ih_rss_nq; ++i) {
-		if (ih->ih_rss[i] == 0) {
+	for (i = 0; i < ih->ih_rss_table_size; ++i) {
+		if (ih->ih_rss_table[i] == 0) {
+			service_lock(log, s);
+			s->p_dirty_devs = 1;
 			s->p_rss_qid = i;
-			ih->ih_rss[i] = s->p_pid;
-			return 1;
+			s->p_rss_qid_min = i;
+			s->p_rss_qid_max = i;
+			service_unlock(s);
+			WRITE_ONCE(ih->ih_rss_table[i], s->p_pid);
+			break;
 		}
 	}
 	return 0;
 }
 
-void
-controller_set_rss_nq(struct log *log, int rss_nq)
+static void
+service_deactivate2(struct log *log, struct proc *s)
 {
-	int i, rc, fd, rss_nq_old;
+	if (s->p_rss_qid < 0) {
+		return;
+	}
+}
+
+
+static void
+rss_table_reduce(struct log *log, int n)
+{
+	int i, N, pid;
 	struct proc *s;
 
+	N = ih->ih_rss_table_size;
+	WRITE_ONCE(ih->ih_rss_table_size, n);
+	for (i = 0; i < N; ++i) {
+		pid = ih->ih_rss_table[i];
+		if (pid == 0) {
+			return;
+		}
+		s = service_get(pid);
+		ASSERT(s != NULL);
+		ASSERT(s->p_rss_qid_min == i);
+		service_lock(log, s);
+		if (i < n) {
+			if (s->p_rss_qid_max >= n) {
+				s->p_rss_qid_max = n - 1;
+			}
+		} else {
+			WRITE_ONCE(ih->ih_rss_table[i], 0);
+			s->p_rss_qid_min = -1;
+			s->p_rss_qid_max = -1;
+		}
+		s->p_dirty_devs = 1;
+		service_unlock(s);
+	}
+}
+
+static void
+rss_table_expand(struct log *log, int N)
+{
+	int i, j, pid, qlen;
+	struct proc *s, *q[GT_PROC_COUNT_MAX];
+
+	qlen = 0;
+	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
+		s = ih->ih_services + i;
+		if (s->p_pid && s->p_active && s->p_rss_qid_min == -1) {
+			q[qlen++] = s;
+		}
+	}
+	qsort(q, qlen, sizeof(struct proc *), service_compar);
+	for (i = 0; i < N; ++i) {
+		pid = ih->ih_rss_table[i];
+		if (pid == 0) {
+			break;
+		}
+	}
+	for (j = 0; i < N && j < qlen; ++i, ++j) {
+		WRITE_ONCE(ih->ih_rss_table[i], q[j]->p_pid);
+	}
+	for (i = 0; i < N; ++i) {
+		pid = ih->ih_rss_table[i];
+		if (pid == 0) {
+			break;
+		}
+		s = service_get(pid);
+		ASSERT(s != 0);
+		service_lock(log, s);
+		s->p_rss_qid_min = i;
+		if (i < N - 1 && ih->ih_rss_table[i + 1] == 0) {
+			s->p_rss_qid_max = N - 1;	
+		} else {
+			s->p_rss_qid_max = i;
+		}
+		s->p_dirty_devs = 1;
+		service_unlock(s);
+	}
+	WRITE_ONCE(ih->ih_rss_table_size, N);
+}
+
+void
+rss_table_update(struct log *log)
+{
+	int fd, rss_nq_max;
+	struct route_if *ifp;
+
 	LOG_TRACE(log);
+	rss_nq_max = 0;
+	ROUTE_IF_FOREACH(ifp) {
+		if (ifp->rif_flags & IFF_UP) {
+			if (rss_nq_max < ifp->rif_rss_nq) {
+				rss_nq_max = ifp->rif_rss_nq;
+			}
+		}
+	}
 	fd = controller_lock(log);
-	rss_nq_old = ih->ih_rss_nq;
-	ASSERT(rss_nq_old != rss_nq);
-	ih->ih_rss_nq = rss_nq;
-	if (rss_nq == 0) {
-		for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
-			s = ih->ih_services + i;
-			if (s->p_rss_qid >= 0) {
-				ASSERT(s->p_rss_qid < rss_nq_old);
-				ASSERT(ih->ih_rss[s->p_rss_qid] == s->p_pid);
-				ih->ih_rss[s->p_rss_qid] = 0;
-				s->p_rss_qid = -1;
-			}
-		}
-		for (i = 0; i < rss_nq_old; ++i) {
-			ASSERT(ih->ih_rss[i] == 0);
-		}
+	if (ih->ih_rss_table_size <= rss_nq_max) {
+		rss_table_reduce(log, rss_nq_max);
 	} else {
-		for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
-			s = ih->ih_services + i;
-			if (s->p_pid != 0 && s->p_active) {
-				rc = controller_service_activate(log, s);
-				if (rc) {
-					break;
-				}
-			}
-		}	
+		rss_table_expand(log, rss_nq_max);
 	}
 	controller_unlock(log, fd);
 }
 
 static void
-controller_close_service(struct log *log, struct sysctl_conn *cp)
+service_close(struct log *log, struct proc *s)
 {
-	int pid;
-
-	pid = cp->sccn_peer_pid;
-	if (pid) {
-		dbg("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! %d", pid);
-	}
+	service_deactivate2(log, s);
+	s->p_pid = 0;
 }
 
-static int
-sysctl_controller_service_activate(struct log *log, int pid, void *udata,
-	const char *new, struct strbuf *old)
+static void
+controller_service_close(struct log *log, struct sysctl_conn *cp)
 {
-	int i, rc, fd;
+	int fd, pid;
 	struct proc *s;
 
+	pid = cp->sccn_peer_pid;
 	if (pid == 0) {
-		return 0;
+		return;
 	}
-	rc = -ENOENT;
+	LOG_TRACE(log);
 	fd = controller_lock(log);
-	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
-		s = ih->ih_services + i;
-		if (s->p_pid == pid) {
-			rc = 0;
-			controller_service_activate(log, s);
-			break;	
-		}
+	s = service_get(pid);
+	if (s != NULL) {
+		service_lock(log, s);
+		service_close(log, s);
+		service_unlock(s);
 	}
 	controller_unlock(log, fd);
-	return rc;
 }
 
 static int
@@ -432,8 +560,6 @@ controller_bind(struct log *log, int pid)
 
 	sysctl_add_int(log, SYSCTL_PROC_CONTROLLER_PID, SYSCTL_RD,
 	               &ih->ih_controller.p_pid, 0, 0);
-	sysctl_add(log, SYSCTL_PROC_SERVICE_ACTIVATE, SYSCTL_WR,
-	           NULL, NULL, sysctl_controller_service_activate);
 	sysctl_make_sockaddr_un(&a, pid);
 	rc = sysctl_bind(log, &a, 1);
 	if (rc < 0) {
@@ -450,8 +576,8 @@ controller_bind(struct log *log, int pid)
 	if (rc) {
 		sysctl_conn_close(log, controller_cp);
 	}
-	controller_cp->sccn_is_listen = 1;
-	controller_cp->sccn_close_fn = controller_close_service;
+	controller_cp->sccn_accept_conn = 1;
+	controller_cp->sccn_close_fn = controller_service_close;
 	return rc;
 }
 
@@ -469,7 +595,7 @@ controller_init(int daemonize, const char *proc_name)
 			return rc;
 		}
 	}
-	rc = controller_kill_all(log);
+	rc = kill_wait_pids(log);
 	if (rc) {
 		return rc;
 	}
@@ -507,6 +633,7 @@ controller_init(int daemonize, const char *proc_name)
 	if (rc) {
 		goto err;
 	}
+	LOGF(log, LOG_NOTICE, 0, "ok; pid=%d", pid);
 	return 0;
 err:
 	if (current != NULL) {
@@ -533,11 +660,38 @@ controller_loop()
 }
 
 static int
-service_fork_controller(struct log *log, const char *proc_name)
+wait_controller_init(struct log *log, int pipe_fd[2])
+{
+	int rc, msg;
+	uint64_t to;
+
+	to = 4 * NANOSECONDS_SECOND;
+	rc = read_timed(log, pipe_fd[0], &msg, sizeof(msg), &to);
+	if (rc == 0) {
+		LOGF(log, LOG_ERR, 0, "peer closed;");
+		rc = -EPIPE;
+	} else if (rc == 4) {
+		if (msg == 0) {
+			rc = 0;
+			LOGF(log, LOG_ERR, 0, "ok;");
+		} else if (msg > 0) {
+			rc = -EINVAL;
+			LOGF(log, LOG_ERR, 0, "invalid reply; msg=%d", msg);
+		} else {
+			rc = msg;
+			LOGF(log, LOG_ERR, -rc, "failed;");
+		}
+	} else if (rc > 0) {
+		LOGF(log, LOG_ERR, 0, "truncated reply; len=%d", rc);
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static int
+fork_controller(struct log *log, const char *proc_name)
 {
 	int rc, pipe_fd[2];
-	uint64_t to;
-	int msg;
 
 	LOG_TRACE(log);
 	rc = sys_pipe(log, pipe_fd);
@@ -548,7 +702,7 @@ service_fork_controller(struct log *log, const char *proc_name)
 	if (rc < 0) {
 		return rc;
 	} else if (rc == 0) {
-		api_locked = 100;
+		proc_type = PROC_TYPE_CONTROLLER;
 		log = log_trace0();
 		sys_close(log, pipe_fd[0]);
 		rc = controller_init(1, proc_name);
@@ -559,35 +713,14 @@ service_fork_controller(struct log *log, const char *proc_name)
 		}
 		return rc;
 	}
-	to = 4 * NANOSECONDS_SECOND;
-	rc = read_timed(log, pipe_fd[0], &msg, sizeof(msg), &to);
-	if (rc == 0) {
-		LOGF(log, LOG_ERR, 0, "controller peer closed;");
-		rc = -EPIPE;
-	} else if (rc == 4) {
-		if (msg == 0) {
-			rc = 0;
-			LOGF(log, LOG_ERR, 0, "controller ok;");
-		} else if (msg > 0) {
-			rc = -EINVAL;
-			LOGF(log, LOG_ERR, 0,
-			     "controller invalid reply; msg=%d", msg);
-		} else {
-			rc = msg;
-			LOGF(log, LOG_ERR, -rc, "controller failed;");
-		}
-	} else if (rc > 0) {
-		LOGF(log, LOG_ERR, 0,
-		     "controller truncated reply; len=%d", rc);
-		return -EINVAL;
-	}
+	rc = wait_controller_init(log, pipe_fd);
 	sys_close(log, pipe_fd[0]);
 	sys_close(log, pipe_fd[1]);
 	return rc;
 }
 
 int
-service_attach(struct log *log, const char *proc_name)
+service_attach(struct log *log, int fd, const char *proc_name)
 {
 	int rc, pid;
 	uint64_t to;
@@ -603,8 +736,7 @@ service_attach(struct log *log, const char *proc_name)
 	pid = ih->ih_controller.p_pid;
 	sysctl_make_sockaddr_un(&a, pid);
 	to = 2 * NANOSECONDS_SECOND;
-	rc = connect_timed(log, service_fd,
-	                   (struct sockaddr *)&a, sizeof(a), &to);
+	rc = connect_timed(log, fd, (struct sockaddr *)&a, sizeof(a), &to);
 	if (rc == 0) {
 		LOGF(log, LOG_NOTICE, 0, "attached; pid=%d", pid);
 	}
@@ -614,7 +746,7 @@ service_attach(struct log *log, const char *proc_name)
 int
 service_init_locked(struct log *log)
 {
-	int i, rc, pid;
+	int i, rc, fd, pid;
 	struct sockaddr_un a;
 	char proc_name[PROC_NAME_SIZE_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
@@ -623,35 +755,30 @@ service_init_locked(struct log *log)
 	if (current != NULL) {
 		return 0;
 	}
-	srand48(time(NULL));
 	pid = getpid();
 	rc = proc_get_name(log, proc_name, pid);
 	if (rc) {
-		return rc;
+		goto err;
 	}
 	sysctl_make_sockaddr_un(&a, pid);
 	rc = sysctl_bind(log, &a, 0);
 	if (rc < 0) {
-		return rc;
+		goto err;
 	}
-	service_fd = rc;
+	fd = rc;
 	for (i = 0; i < 3; ++i) {
 		if (i == 0) {
 			rc = 0;
 		} else {
-			rc = service_fork_controller(log, proc_name);
+			rc = fork_controller(log, proc_name);
 		}
 		if (rc == 0) {
-			rc = service_attach(log, proc_name);
+			rc = service_attach(log, fd, proc_name);
 			if (rc == 0) {
 				break;
 			}
 		}
 	}
-	if (rc < 0) {
-		goto err;
-	}
-	rc = sysctl_root_init(log);
 	if (rc < 0) {
 		goto err;
 	}
@@ -665,13 +792,16 @@ service_init_locked(struct log *log)
 		rc = -ENOENT;
 		goto err;
 	}
-	rc = sysctl_req(log, service_fd, SYSCTL_PROC_CONTROLLER_PID, buf, "");
+	rc = sysctl_req(log, fd, SYSCTL_PROC_CONTROLLER_PID, buf, "");
 	if (rc < 0) {
 		goto err;
 	}
 	current->p_pid = pid;
-	current->p_rss_qid = -1;
-	current->p_rss_qid_saved = -1;
+	current->p_service_fd = fd;
+	current->p_rss_qid = UCHAR_MAX;
+	current->p_rss_qid_min = UCHAR_MAX;
+	current->p_rss_qid_max = UCHAR_MAX;
+	current->p_dirty_devs = 0;
 	strzcpy(current->p_name, proc_name, sizeof(current->p_name));
 	rc = mod_foreach_mod_attach(log);
 	if (rc) {
@@ -679,16 +809,15 @@ service_init_locked(struct log *log)
 	}
 	return 0;
 err:
-	if (service_fd >= 0) {
-		sys_close(log, service_fd);
-		service_fd = -1;
+	if (fd >= 0) {
+		sys_close(log, fd);
+		fd = -1;
 	}
 	if (current != NULL) {
 		current->p_pid = 0;
 		current = NULL;
 	}
 	mod_foreach_mod_detach(log);
-	sysctl_root_deinit(log);
 	shm_detach(log);
 	return rc;
 }
@@ -722,27 +851,159 @@ service_init()
 int
 service_activate(struct log *log)
 {
-	int rc;
-	char buf[GT_SYSCTL_BUFSIZ];
+	int rc, fd;
 
 	if (current->p_active) {
 		return 0;
 	}
-	current->p_active = 1;
-	if (current->p_rss_qid >= 0) {
-		return 0;
-	}
+	dbg("aaaaaaaa");
 	LOG_TRACE(log);
-	snprintf(buf, sizeof(buf), "%d", current->p_pid);
-	rc = sysctl_req(log, service_fd,
-	                SYSCTL_PROC_SERVICE_ACTIVATE, buf, buf);
+	LOGF(log, LOG_NOTICE, 0, "hit; pid=%d", current->p_pid);
+	current->p_active = 1;
+	rc = 0;
+	if (current->p_rss_qid == UCHAR_MAX) {
+		SERVICE_UNLOCK;
+		fd = controller_lock(log);
+		rc = service_activate2(log, current);
+		controller_unlock(log, fd);
+		SERVICE_LOCK;
+	}
 	if (rc == 0) {
-		route_set_rss_qid(log);
+		LOGF(log, LOG_NOTICE, 0, "ok; rss_qid=%u", current->p_rss_qid);
+	} else {
+		LOGF(log, LOG_NOTICE, 0, "failed;");
 	}
 	return rc;
 }
 
 void
-service_deinit(struct log *log)
+service_deactivate(struct log *log)
 {
+	int fd;
+
+	if (current->p_active) {
+		LOG_TRACE(log);
+		SERVICE_UNLOCK;
+		fd = controller_lock(log);
+		service_deactivate2(log, current);
+		controller_unlock(log, fd);
+		SERVICE_LOCK;
+	}
+}
+
+static int
+service_in(struct route_if *ifp, uint8_t *data, int len)
+{
+	int rc;
+	struct sock_tuple so_tuple;
+	struct gt_inet_context ctx;
+
+	rc = gt_inet_eth_in(&ctx, ifp, data, len);
+	if (rc == GT_INET_OK &&
+	    (ctx.inp_ipproto == IPPROTO_UDP ||
+	     ctx.inp_ipproto == IPPROTO_TCP)) {
+		so_tuple.sot_laddr = ctx.inp_ip4_h->ip4h_daddr;
+		so_tuple.sot_faddr = ctx.inp_ip4_h->ip4h_saddr;
+		so_tuple.sot_lport = ctx.inp_udp_h->udph_dport;
+		so_tuple.sot_fport = ctx.inp_udp_h->udph_sport;
+		rc = gt_sock_in(ctx.inp_ipproto, &so_tuple, &ctx.inp_tcb,
+		                ctx.inp_payload);
+	} else if (rc == GT_INET_BCAST && 
+	           ctx.inp_ipproto == IPPROTO_ICMP && ctx.inp_eno &&
+	           (ctx.inp_emb_ipproto == IPPROTO_UDP ||
+	            ctx.inp_emb_ipproto == IPPROTO_TCP)) {
+		so_tuple.sot_laddr = ctx.inp_emb_ip4_h->ip4h_saddr;
+		so_tuple.sot_faddr = ctx.inp_emb_ip4_h->ip4h_daddr;
+		so_tuple.sot_lport = ctx.inp_emb_udp_h->udph_sport;
+		so_tuple.sot_fport = ctx.inp_emb_udp_h->udph_dport;
+		gt_sock_in_err(ctx.inp_emb_ipproto, &so_tuple, ctx.inp_eno);
+	}
+	return rc;
+}
+
+static void
+service_if_in(struct route_if *ifp, uint8_t *data, int len)
+{
+	int rc;
+//	struct gt_service_msg msg;
+
+	rc = service_in(ifp, data, len);
+	switch (rc) {
+	case GT_INET_OK:
+	case GT_INET_DROP:
+		break;
+	case GT_INET_BYPASS:
+	case GT_INET_BCAST:
+//		msg.svcm_cmd = rc;
+//		msg.svcm_if_idx = ifp->rif_idx;
+//		memcpy(data + len, &msg, sizeof(msg));
+//		len += sizeof(msg);
+//		dev_tx3(&gt_service_pipe, data, len);
+		break;
+	default:
+		BUG;
+		break;
+	}
+}
+
+static void
+service_rxtx(struct dev *dev, short revents)
+{
+	int i, n, len;
+	void *data;
+	struct netmap_ring *rxr;
+	struct netmap_slot *slot;
+	struct route_if *ifp;
+
+	ifp = dev->dev_ifp;
+	DEV_FOREACH_RXRING(rxr, dev) {
+		n = dev_rxr_space(dev, rxr);
+		for (i = 0; i < n; ++i) {
+			//DEV_RX_PREFETCH(rxr);
+			slot = rxr->slot + rxr->cur;
+			data = NETMAP_BUF(rxr, slot->buf_idx);
+			len = slot->len;
+			service_if_in(ifp, data, len);
+			route_if_rxr_next(ifp, rxr);
+		}
+	}
+}
+
+static void
+service_update_dev(struct log *log, struct route_if *ifp, int rss_qid)
+{
+	int ifflags;
+	char dev_name[NM_IFNAMSIZ];
+	struct dev *dev;
+
+	ifflags = READ_ONCE(ifp->rif_flags);
+	dev = &(ifp->rif_dev[service_id()][rss_qid]);
+	if ((ifflags & IFF_UP) &&
+	    rss_qid >= current->p_rss_qid_min &&
+	    rss_qid <= current->p_rss_qid_max &&
+	    !dev_is_inited(dev)) {
+		snprintf(dev_name, sizeof(dev_name), "%s-%d",
+		         ifp->rif_name, rss_qid);
+		dev_init(log, dev, dev_name, service_rxtx);
+		dev->dev_ifp = ifp;
+	} else {
+		dev_deinit(log, dev);
+	}
+}
+
+void
+service_update_devs(struct log *log)
+{
+	int i;
+	struct route_if *ifp;
+
+	LOG_TRACE(log);
+	LOGF(log, LOG_INFO, 0, "hit; rss_qid=%u-%u",
+	     current->p_rss_qid_min, current->p_rss_qid_max);
+	ROUTE_IF_FOREACH(ifp) {
+		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
+			service_update_dev(log, ifp, i);
+		}
+	}
+	current->p_dirty_devs = 0;
 }

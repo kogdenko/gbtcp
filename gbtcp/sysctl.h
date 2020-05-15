@@ -16,7 +16,6 @@
 #define SYSCTL_PROC_CONTROLLER_PID "proc.controller.pid"
 #define SYSCTL_PROC_SERVICE_ACTIVATE "proc.service.activate"
 #define SYSCTL_ROUTE "route"
-#define SYSCTL_ROUTE_RSS_KEY "route.rss.key"
 #define SYSCTL_ROUTE_MONITOR "route.monitor"
 #define SYSCTL_ROUTE_RSS_QID "route.rss.qid"
 #define SYSCTL_ROUTE_IF_LIST "route.if.list"
@@ -33,7 +32,7 @@
 struct sysctl_conn {
 	void (*sccn_close_fn)(struct log *, struct sysctl_conn *);
 	struct gt_fd_event *sccn_event;
-	int sccn_is_listen;
+	int sccn_accept_conn;
 	int sccn_peer_pid;
 };
 

@@ -7,8 +7,6 @@
 
 #define DEV_PKT_SIZE_MAX 2048
 
-struct dev;
-
 typedef void (*dev_f)(struct dev *, short);
 
 struct dev {
@@ -19,8 +17,7 @@ struct dev {
 	uint64_t dev_cur_tx_ring_epoch;
 	dev_f dev_fn;
 	struct dlist dev_list;
-	void *dev_udata;
-	char dev_name[NM_IFNAMSIZ];
+	struct route_if *dev_ifp;
 };
 
 struct dev_pkt {
@@ -72,6 +69,7 @@ int dev_proc_init(struct log *, struct proc *);
 void dev_mod_deinit(struct log *, void *);
 void dev_mod_detach(struct log *);
 
+int dev_is_inited(struct dev *);
 int dev_init(struct log *, struct dev *, const char *, dev_f);
 void dev_deinit(struct log *, struct dev *);
 void dev_rx_on(struct dev *);

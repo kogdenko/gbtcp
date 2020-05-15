@@ -26,19 +26,19 @@ struct arp_entry {
 	short ae_admin;
 	short ae_nprobes;
 	uint64_t ae_confirmed;
-	struct gt_timer ae_timer;
+	struct timer ae_timer;
 	struct ethaddr ae_addr;
 	struct dev_pkt *ae_incq;
 };
 
 static htable_t gt_arp_htable;
 static uint64_t gt_arp_reachable_time;
-static struct gt_timer gt_arp_timer_calc_reachable_time;
+static struct timer gt_arp_timer_calc_reachable_time;
 static struct arp_mod *curmod;
 
-static void gt_arp_probe_timeout(struct gt_timer *timer);
+static void gt_arp_probe_timeout(struct timer *timer);
 
-static void gt_arp_calc_reachable_time_timeout(struct gt_timer *timer);
+static void gt_arp_calc_reachable_time_timeout(struct timer *timer);
 
 static void gt_arp_entry_del(struct log *log, struct arp_entry *e);
 
@@ -100,7 +100,7 @@ arp_tx_incq(struct arp_entry *e)
 	int rc;
 	be32_t next_hop;
 	struct gt_ip4_hdr *ip4_h;
-	struct gt_route_entry route;
+	struct route_entry route;
 	struct dev_pkt pkt, *x;
 
 	x = e->ae_incq;
@@ -110,25 +110,25 @@ arp_tx_incq(struct arp_entry *e)
 	}
 	ip4_h = (struct gt_ip4_hdr *)(((struct gt_eth_hdr *)x->pkt_data) + 1);
 	route.rt_dst.ipa_4 = ip4_h->ip4h_daddr;
-	rc = gt_route_get(AF_INET, NULL, &route);
+	rc = route_get(AF_INET, NULL, &route);
 	if (rc) {
 		goto drop;
 	}
-	next_hop = gt_route_get_next_hop4(&route);
+	next_hop = route_get_next_hop4(&route);
 	if (e->ae_next_hop != next_hop) {
 drop:
 		mbuf_free(&x->pkt_mbuf);
 		gt_arps.arps_dropped++;
 		return;
 	}
-	rc = gt_route_if_not_empty_txr(route.rt_ifp, &pkt);
+	rc = route_if_not_empty_txr(route.rt_ifp, &pkt);
 	if (rc) {
 		route.rt_ifp->rif_cnt_tx_drop++;
 	} else {
 		GT_PKT_COPY(pkt.pkt_data, x->pkt_data, x->pkt_len);
 		pkt.pkt_len = x->pkt_len;
 		gt_arp_set_eth_hdr(e, route.rt_ifp, pkt.pkt_data);
-		gt_route_if_tx(route.rt_ifp, &pkt);
+		route_if_tx(route.rt_ifp, &pkt);
 	}
 	mbuf_free(&x->pkt_mbuf);
 }
@@ -158,20 +158,20 @@ gt_arp_tx_probe(struct arp_entry *e)
 {
 	int rc, len;
 	struct gt_eth_hdr *eh;
-	struct gt_route_entry route;
+	struct route_entry route;
 	struct dev_pkt pkt;
 
-	if (gt_timer_is_running(&e->ae_timer)) {
+	if (timer_is_running(&e->ae_timer)) {
 		return;
 	}
 	e->ae_nprobes++;
-	gt_timer_set(&e->ae_timer, GT_ARP_RETRANS_TIMER, gt_arp_probe_timeout);
+	timer_set(&e->ae_timer, GT_ARP_RETRANS_TIMER, gt_arp_probe_timeout);
 	route.rt_dst.ipa_4 = e->ae_next_hop;
-	rc = gt_route_get(AF_INET, NULL, &route);
+	rc = route_get(AF_INET, NULL, &route);
 	if (rc) {
 		return;
 	}
-	rc = gt_route_if_not_empty_txr(route.rt_ifp, &pkt);
+	rc = route_if_not_empty_txr(route.rt_ifp, &pkt);
 	if (rc) {
 		route.rt_ifp->rif_cnt_tx_drop++;
 		return;
@@ -185,7 +185,7 @@ gt_arp_tx_probe(struct arp_entry *e)
 		BUG;
 	}
 	pkt.pkt_len = len;
-	gt_route_if_tx(route.rt_ifp, &pkt);
+	route_if_tx(route.rt_ifp, &pkt);
 	gt_arps.arps_txrequests++;
 }
 
@@ -196,16 +196,16 @@ gt_arp_hash(void *ep)
 	struct arp_entry *e;
 
 	e = ep;
-	h = gt_custom_hash32(e->ae_next_hop, 0);
+	h = custom_hash32(e->ae_next_hop, 0);
 	return h;
 }
 
 static void
 gt_arp_timer_set_calc_reachable_time()
 {
-	gt_timer_set(&gt_arp_timer_calc_reachable_time,
-	             2 * NANOSECONDS_HOUR,
-	             gt_arp_calc_reachable_time_timeout);
+	timer_set(&gt_arp_timer_calc_reachable_time,
+	          2 * NANOSECONDS_HOUR,
+	          gt_arp_calc_reachable_time_timeout);
 }
 
 static uint64_t
@@ -215,7 +215,7 @@ gt_arp_calc_reachable_time()
 
 	min = GT_ARP_REACHABLE_TIME * GT_ARP_MIN_RANDOM_FACTOR;
 	max = GT_ARP_REACHABLE_TIME * GT_ARP_MAX_RANDOM_FACTOR;
-	x = gt_rand64();
+	x = rand64();
 	x = min + (max - min) * x / UINT64_MAX;
 	ASSERT(x >= min);
 	ASSERT(x <= max);
@@ -223,7 +223,7 @@ gt_arp_calc_reachable_time()
 }
 
 static void
-gt_arp_calc_reachable_time_timeout(struct gt_timer *timer)
+gt_arp_calc_reachable_time_timeout(struct timer *timer)
 {
 	gt_arp_reachable_time = gt_arp_calc_reachable_time();
 	gt_arp_timer_set_calc_reachable_time();
@@ -326,7 +326,7 @@ arp_mod_attach(struct log *log, void *raw_mod)
 		return rc;
 	}
 	gt_arp_reachable_time = gt_arp_calc_reachable_time();
-	gt_timer_init(&gt_arp_timer_calc_reachable_time);
+	timer_init(&gt_arp_timer_calc_reachable_time);
 	gt_arp_timer_set_calc_reachable_time();
 	return 0;
 }
@@ -358,7 +358,7 @@ arp_mod_detach(struct log *log)
 {
 //	mbuf_pool_deinit(&current->p_arp_pkt_pool);
 //	mbuf_pool_deinit(&current->p_arp_entry_pool);
-//	gt_timer_del(&gt_arp_timer_calc_reachable_time);
+//	timer_del(&gt_arp_timer_calc_reachable_time);
 	curmod = NULL;
 }
 
@@ -371,7 +371,7 @@ gt_arp_set_state(struct log *log, struct arp_entry *e, int state)
 	     log_add_ipaddr(AF_INET, &e->ae_next_hop));
 	e->ae_state = state;
 	if (state == GT_ARP_REACHABLE) {
-		gt_timer_del(&e->ae_timer);
+		timer_del(&e->ae_timer);
 		e->ae_confirmed = nanoseconds;
 		e->ae_nprobes = 0;
 	}
@@ -394,7 +394,7 @@ gt_arp_entry_alloc(struct log *log, struct arp_entry **ep,
 	e->ae_incq = NULL;
 	e->ae_state = 0;
 	e->ae_admin = 0;
-	gt_timer_init(&e->ae_timer);
+	timer_init(&e->ae_timer);
 	e->ae_next_hop = next_hop;
 	htable_add(&gt_arp_htable, (struct dlist *)e);
 	return 0;
@@ -405,7 +405,7 @@ gt_arp_entry_del(struct log *log,struct arp_entry *e)
 {
 	LOG_TRACE(log);
 	htable_del(&gt_arp_htable, (struct dlist *)e);
-	gt_timer_del(&e->ae_timer);
+	timer_del(&e->ae_timer);
 	gt_arp_set_state(log, e, GT_ARP_NONE);
 	mbuf_free(&e->ae_incq->pkt_mbuf);
 	mbuf_free(&e->ae_mbuf);
@@ -418,7 +418,7 @@ gt_arp_entry_get(be32_t next_hop)
 	struct dlist *bucket;
 	struct arp_entry *e;
 
-	hash = gt_custom_hash32(next_hop, 0);
+	hash = custom_hash32(next_hop, 0);
 	bucket = htable_bucket(&gt_arp_htable, hash);
 	DLIST_FOREACH(e, bucket, ae_list) {
 		if (e->ae_next_hop == next_hop) {
@@ -435,7 +435,7 @@ gt_arp_is_probeing(int state)
 }
 
 static void
-gt_arp_probe_timeout(struct gt_timer *timer)
+gt_arp_probe_timeout(struct timer *timer)
 {
 	struct log *log;
 	struct arp_entry *e;
@@ -476,7 +476,7 @@ gt_arp_resolve(struct route_if *ifp, be32_t next_hop,
 	struct arp_entry *e, *tmp;
 
 	log = log_trace0();
-	hash = gt_custom_hash32(next_hop, 0);
+	hash = custom_hash32(next_hop, 0);
 	bucket = htable_bucket(&gt_arp_htable, hash);
 	DLIST_FOREACH_SAFE(e, bucket, ae_list, tmp) {
 		if (gt_arp_entry_is_reachable_timeouted(e)) {
@@ -493,7 +493,7 @@ gt_arp_resolve(struct route_if *ifp, be32_t next_hop,
 			}
 			ASSERT(e->ae_incq == NULL);
 			gt_arp_set_eth_hdr(e, ifp, pkt->pkt_data);
-			gt_route_if_tx(ifp, pkt);
+			route_if_tx(ifp, pkt);
 			if (e->ae_state == GT_ARP_STALE) {
 				gt_arp_set_state(log, e, GT_ARP_PROBE);
 				gt_arp_tx_probe(e);
@@ -612,7 +612,7 @@ gt_arp_reply(struct route_if *ifp, struct gt_arp_hdr *in_arp_h)
 	struct gt_arp_hdr *arp_h;
 	struct dev_pkt pkt;
 
-	rc = gt_route_if_not_empty_txr(ifp, &pkt);
+	rc = route_if_not_empty_txr(ifp, &pkt);
 	if (rc) {
 		ifp->rif_cnt_tx_drop++;
 		gt_arps.arps_txrepliesdropped++;
@@ -634,5 +634,5 @@ gt_arp_reply(struct route_if *ifp, struct gt_arp_hdr *in_arp_h)
 	arp_h->arph_data.arpip_tha = in_arp_h->arph_data.arpip_sha;
 	arp_h->arph_data.arpip_tip = in_arp_h->arph_data.arpip_sip;
 	gt_arps.arps_txreplies++;
-	gt_route_if_tx(ifp, &pkt);
+	route_if_tx(ifp, &pkt);
 }

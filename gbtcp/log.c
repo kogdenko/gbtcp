@@ -314,7 +314,7 @@ log_fill_pfx(struct log *bottom, u_int level, struct strbuf *sb)
 	strbuf_add_ch(sb, '[');
 	for (cur = top; cur != NULL; cur = cur->lg_lower) {
 		if (cur != top) {
-			strbuf_add(sb, STRSZ("."));
+			strbuf_add(sb, STRSZ("->"));
 		}
 		strbuf_add_str(sb, cur->lg_func);
 	}
@@ -472,7 +472,7 @@ log_add_sockaddr_in(const struct sockaddr_in *a)
 
 	sb = log_buf_alloc_space();
 	strbuf_add_ipaddr(sb, AF_INET, &a->sin_addr.s_addr);
-	strbuf_addf(sb, ":%hu", GT_NTOH16(a->sin_port));
+	strbuf_addf(sb, ":%hu", ntoh16(a->sin_port));
 	ret = strbuf_cstr(sb);
 	return ret;
 }
