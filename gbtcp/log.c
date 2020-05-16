@@ -117,8 +117,8 @@ log_fopen(struct log *log, const char *pattern, int add_flags)
 }
 
 static int
-log_sysctl_out(struct log *log, int pid, void *udata, const char *new,
-	struct strbuf *out)
+log_sysctl_out(struct log *log, struct sysctl_conn *cp,
+	void *udata, const char *new, struct strbuf *out)
 {
 	struct log_mod *mod;
 

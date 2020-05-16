@@ -27,24 +27,25 @@ api_lock()
 	int rc;
 	ptrdiff_t stack_off;
 
-	if (proc_type == PROC_TYPE_CONTROLLER) {
+	stack_off = (u_char *)&rc - (u_char *)gt_signal_stack;
+	if (stack_off < gt_signal_stack_size) {
+		// Called from signal handler
 		return 0;
 	}
 	if (api_locked) {
 		return 0;
 	}
-	stack_off = (u_char *)&rc - (u_char *)gt_signal_stack;
-	if (stack_off < gt_signal_stack_size) {
-		// Called from signal handler
-		return 0;
-	} else if (current == NULL) {
+	api_locked++;
+	if (current == NULL) {
 		rc = service_init();
-		if (rc) {
+		if (rc == 0) {
+			return 1;
+		} else {
+			api_locked--;
 			return 0;
 		}
 	}
 	SERVICE_LOCK;
-	api_locked++;
 	return 1;
 }
 
@@ -103,8 +104,9 @@ gbtcp_fork()
 	log = log_trace0();
 	LOGF(log, LOG_INFO, 0, "hit");
 	rc = gt_service_fork(log);
-	if (rc >= 0)
+	if (rc >= 0) {
 		LOGF(log, LOG_INFO, 0, "ok, pid=%d", rc);
+	}
 	API_UNLOCK;
 	API_RETURN(rc);
 }

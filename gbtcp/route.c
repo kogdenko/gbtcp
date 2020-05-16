@@ -529,8 +529,8 @@ err:
 }
 
 static int
-sysctl_route_if_del(struct log *log, int pid, void *udata, const char *new,
-	struct strbuf *out)
+sysctl_route_if_del(struct log *log, struct sysctl_conn *cp,
+	void *udata, const char *new, struct strbuf *out)
 {
 	int rc;
 	struct route_if *ifp;
@@ -592,8 +592,8 @@ sysctl_route_if_list(void *udata, int id, const char *new, struct strbuf *out)
 }
 
 static int
-sysctl_route_if_add(struct log *log, int pid, void *udata, const char *new,
-	struct strbuf *out)
+sysctl_route_if_add(struct log *log, struct sysctl_conn *cp,
+	void *udata, const char *new, struct strbuf *out)
 {
 	int rc;
 	struct route_if *ifp;
@@ -702,8 +702,8 @@ out:
 }
 
 static int
-sysctl_route_monitor(struct log *log, int pid, void *udata, const char *new,
-	struct strbuf *out)
+sysctl_route_monitor(struct log *log, struct sysctl_conn *cp,
+	void *udata, const char *new, struct strbuf *out)
 {
 	int rc, flag;
 

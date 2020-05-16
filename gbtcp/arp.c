@@ -28,7 +28,7 @@ struct arp_entry {
 	uint64_t ae_confirmed;
 	struct timer ae_timer;
 	struct ethaddr ae_addr;
-	struct dev_pkt *ae_incq;
+	struct dev_pkt *ae_incomplete_q;
 };
 
 static htable_t gt_arp_htable;
@@ -74,12 +74,12 @@ gt_arp_entry_add_incomplete(struct log *log, struct arp_entry *e,
 	int rc;
 	struct dev_pkt *cp;
 
-	if (e->ae_incq != NULL) {
-		cp = e->ae_incq;
-		e->ae_incq = NULL;
+	if (e->ae_incomplete_q != NULL) {
+		cp = e->ae_incomplete_q;
+		e->ae_incomplete_q = NULL;
 		gt_arps.arps_dropped++;
 	} else {
-		rc = mbuf_alloc(log, &current->p_arp_pkt_pool,
+		rc = mbuf_alloc(log, &current->p_arp_incomplete_pool,
 		                (struct mbuf **)&cp);
 		if (rc) {
 			gt_arps.arps_dropped++;
@@ -90,12 +90,12 @@ gt_arp_entry_add_incomplete(struct log *log, struct arp_entry *e,
 		cp->pkt_len = pkt->pkt_len;
 		cp->pkt_data = (uint8_t *)cp + sizeof(*cp);
 		GT_PKT_COPY(cp->pkt_data, pkt->pkt_data, pkt->pkt_len);
-		e->ae_incq = cp;
+		e->ae_incomplete_q = cp;
 	}
 }
 
 static void
-arp_tx_incq(struct arp_entry *e)
+arp_tx_incomplete_q(struct arp_entry *e)
 {
 	int rc;
 	be32_t next_hop;
@@ -103,8 +103,8 @@ arp_tx_incq(struct arp_entry *e)
 	struct route_entry route;
 	struct dev_pkt pkt, *x;
 
-	x = e->ae_incq;
-	e->ae_incq = NULL;
+	x = e->ae_incomplete_q;
+	e->ae_incomplete_q = NULL;
 	if (x == NULL) {
 		return;
 	}
@@ -230,8 +230,8 @@ gt_arp_calc_reachable_time_timeout(struct timer *timer)
 }
 
 static int
-sysctl_arp_add(struct log *log, int pid, void *udata, const char *new,
-	struct strbuf *out)
+sysctl_arp_add(struct log *log, struct sysctl_conn *cp,
+	void *udata, const char *new, struct strbuf *out)
 {
 	int rc;
 	struct ipaddr next_hop;
@@ -307,8 +307,7 @@ arp_mod_init(struct log *log, void **pp)
 	}
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "arp");
-	sysctl_add(log, "arp.add", SYSCTL_WR,
-	           NULL, NULL, sysctl_arp_add);
+	sysctl_add(log, "arp.add", SYSCTL_WR, NULL, NULL, sysctl_arp_add);
 //	sysctl_add_list(log, "arp.list", SYSCTL_RD, NULL,
 //	                gt_arp_ctl_list_next, gt_arp_ctl_list);
 	return 0;
@@ -335,7 +334,7 @@ int
 arp_proc_init(struct log *log, struct proc *p)
 {
 	mbuf_pool_init(&p->p_arp_entry_pool, sizeof(struct arp_entry));
-	mbuf_pool_init(&p->p_arp_pkt_pool, DEV_PKT_SIZE_MAX);
+	mbuf_pool_init(&p->p_arp_incomplete_pool, DEV_PKT_SIZE_MAX);
 	return 0;
 }
 
@@ -391,7 +390,7 @@ gt_arp_entry_alloc(struct log *log, struct arp_entry **ep,
 	}
 	e = *ep;
 	e->ae_nprobes = 0;
-	e->ae_incq = NULL;
+	e->ae_incomplete_q = NULL;
 	e->ae_state = 0;
 	e->ae_admin = 0;
 	timer_init(&e->ae_timer);
@@ -407,7 +406,7 @@ gt_arp_entry_del(struct log *log,struct arp_entry *e)
 	htable_del(&gt_arp_htable, (struct dlist *)e);
 	timer_del(&e->ae_timer);
 	gt_arp_set_state(log, e, GT_ARP_NONE);
-	mbuf_free(&e->ae_incq->pkt_mbuf);
+	mbuf_free(&e->ae_incomplete_q->pkt_mbuf);
 	mbuf_free(&e->ae_mbuf);
 }
 
@@ -491,7 +490,7 @@ gt_arp_resolve(struct route_if *ifp, be32_t next_hop,
 				gt_arp_entry_add_incomplete(log, e, pkt);
 				return;
 			}
-			ASSERT(e->ae_incq == NULL);
+			ASSERT(e->ae_incomplete_q == NULL);
 			gt_arp_set_eth_hdr(e, ifp, pkt->pkt_data);
 			route_if_tx(ifp, pkt);
 			if (e->ae_state == GT_ARP_STALE) {
@@ -544,7 +543,7 @@ gt_arp_update(struct gt_arp_advert_msg *msg)
 	if (msg->arpam_advert == 0) {
 		if (e->ae_state == GT_ARP_INCOMPLETE) {
 			e->ae_addr = msg->arpam_addr;
-			arp_tx_incq(e);
+			arp_tx_incomplete_q(e);
 			same_addr = 0;
 		}
 		if (same_addr == 0) {
@@ -553,7 +552,7 @@ gt_arp_update(struct gt_arp_advert_msg *msg)
 		}
 	} else if (e->ae_state == GT_ARP_INCOMPLETE) {
 		e->ae_addr = msg->arpam_addr;
-		arp_tx_incq(e);
+		arp_tx_incomplete_q(e);
 		if (msg->arpam_solicited) {
 			gt_arp_set_state(log, e, GT_ARP_REACHABLE);
 		} else {
@@ -599,7 +598,7 @@ gt_arp_add(be32_t next_hop, struct ethaddr *addr)
 		e->ae_admin = 1;
 		e->ae_addr = *addr;
 		gt_arp_set_state(log, e, GT_ARP_REACHABLE);
-		arp_tx_incq(e);
+		arp_tx_incomplete_q(e);
 	}
 	return rc;
 }

@@ -28,16 +28,16 @@ struct proc {
 	struct spinlock p_lock;
 	int p_pid;
 	u_char p_service_id;
-	u_char p_dirty_devs;
 	u_char p_active;
+	u_char p_dirty_devs;
 	u_char p_rss_qid;
 	u_char p_rss_qid_min;
 	u_char p_rss_qid_max;
-	int p_service_fd;
+	int p_service_fd[2];
 	struct mbuf_pool p_file_pool;
 	struct mbuf_pool p_sockbuf_pool;
 	struct mbuf_pool p_arp_entry_pool;
-	struct mbuf_pool p_arp_pkt_pool;
+	struct mbuf_pool p_arp_incomplete_pool;
 	char p_name[PROC_NAME_SIZE_MAX];
 };
 

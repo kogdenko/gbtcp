@@ -13,7 +13,7 @@
 #define SYSCTL_CONTROLLER_PATH SYSCTL_PATH"/controller.sock"
 
 #define SYSCTL_FILE_FIRST_FD "file.first_fd"
-#define SYSCTL_PROC_CONTROLLER_PID "proc.controller.pid"
+#define SYSCTL_PROC_SERVICE_INIT "proc.service.init"
 #define SYSCTL_PROC_SERVICE_ACTIVATE "proc.service.activate"
 #define SYSCTL_ROUTE "route"
 #define SYSCTL_ROUTE_MONITOR "route.monitor"
@@ -36,7 +36,7 @@ struct sysctl_conn {
 	int sccn_peer_pid;
 };
 
-typedef int (*sysctl_f)(struct log *, int, void *,
+typedef int (*sysctl_f)(struct log *, struct sysctl_conn *, void *,
 	const char *, struct strbuf *);
 typedef int (*sysctl_list_next_f)(void *, int);
 typedef int (*sysctl_list_f)(void *, int, const char *, struct strbuf *);
@@ -53,9 +53,11 @@ void sysctl_make_sockaddr_un(struct sockaddr_un *, int);
 
 int sysctl_read_file(struct log *, const char *);
 
+int sysctl_conn_fd(struct sysctl_conn *);
 int sysctl_conn_open(struct log *, struct sysctl_conn **, int);
 void sysctl_conn_close(struct log *, struct sysctl_conn *);
 
+int sysctl_connect(struct log *, int);
 int sysctl_bind(struct log *, const struct sockaddr_un *, int);
 int sysctl_send_req(struct log *, int, const char *, const char *);
 int sysctl_recv_rpl(struct log *, int, char *);

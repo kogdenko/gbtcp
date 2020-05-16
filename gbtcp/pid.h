@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 License
 #ifndef GBTCP_PID_H
 #define GBTCP_PID_H
 
@@ -8,7 +8,7 @@
 
 struct log;
 
-struct pidfile {
+struct pid_file {
 	int pf_fd;
 	const char *pf_name;
 };
@@ -17,6 +17,7 @@ struct pid_wait_entry {
 	int pid;
 	int wd;
 };
+
 struct pid_wait {
 	int pw_fd;
 	int pw_nentries;
@@ -29,15 +30,14 @@ int pid_proc_init(struct log *, struct proc *);
 void pid_mod_deinit(struct log *, void *);
 void pid_mod_detach(struct log *);
 
-char *pidfile_path(char *, const char *);
-int pidfile_open(struct log *, struct pidfile *);
-int pidfile_lock(struct log *, struct pidfile *);
-int pidfile_read(struct log *, struct pidfile *);
-int pidfile_write(struct log *, struct pidfile *, int);
-void pidfile_close(struct log *, struct pidfile *);
-
-int read_pidfile(struct log *, const char *);
-int write_pidfile(struct log * , const char *, int);
+char *pid_file_path(char *, const char *);
+int pid_file_open(struct log *, struct pid_file *);
+int pid_file_lock(struct log *, struct pid_file *);
+int pid_file_read(struct log *, struct pid_file *);
+int pid_file_read_locked(struct log *, const char *);
+int pid_file_write(struct log *, struct pid_file *, int);
+int pid_file_acquire(struct log *, struct pid_file *, int);
+void pid_file_close(struct log *, struct pid_file *);
 
 int pid_wait_init(struct log *, struct pid_wait *, int);
 void pid_wait_deinit(struct log *, struct pid_wait*);
@@ -47,4 +47,4 @@ int pid_wait_del(struct log *, struct pid_wait *, int);
 int pid_wait_read(struct log *, struct pid_wait *, uint64_t *, int *, int);
 int pid_wait_kill(struct log *, struct pid_wait *, int, int *, int);
 
-#endif /* GBTCP_PID_H */
+#endif // GBTCP_PID_H

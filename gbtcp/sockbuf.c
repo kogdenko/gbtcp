@@ -362,7 +362,6 @@ sockbuf_mod_init(struct log *log, void **pp)
 int
 sockbuf_mod_attach(struct log *log, void *raw_mod)
 {
-	LOG_TRACE(log);
 	curmod = raw_mod;
 	return 0;
 }
