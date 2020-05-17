@@ -18,22 +18,16 @@ static int log_fd = -1;
 static int log_stdout_fd = -1;
 static struct log_mod *curmod;
 
-#define ldbg(...) if (debug) dbg(__VA_ARGS__)
-
 static int
 log_is_stdout(int force_stdout, int debug)
 {
 	if (log_stdout_fd < 0) {
-		ldbg("1");
 		return 0;
 	} else if (force_stdout) {
-		ldbg("2");
 		return 1;
 	} else if (curmod != NULL) {
-		ldbg("3");
 		return curmod->log_stdout;
 	} else {
-		ldbg("4");
 		return log_early_stdout;
 	}
 }
@@ -65,7 +59,7 @@ log_expand_pattern(struct strbuf *path, const char *pattern)
 				strbuf_addf(path, "%d", current->p_pid);
 				break;
 			case 'e':
-				strbuf_add_str(path, current->p_name);
+				strbuf_add_str(path, current->p_comm);
 				break;
 			case '%':
 				strbuf_add_ch(path, '%');
@@ -176,12 +170,6 @@ log_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
-int
-log_proc_init(struct log *log, struct proc *p)
-{
-	return 0;
-}
-
 void
 log_mod_deinit(struct log *log, void *raw_mod)
 {
@@ -255,21 +243,20 @@ log_is_enabled(struct log_scope *scope, int level, int debug)
 	is_stdout = log_is_stdout(0, debug);
 	if (log_fd == -1 && is_stdout == 0) {
 		// Nowhere to write logs
-		if (debug) 
-			dbg("1");
 		return 0;
 	}
 	if (curmod == NULL) {
 		// Early stage
 		thresh = log_early_level;
 	} else {
-		thresh = MAX(scope->lgs_level, curmod->log_level);
-	}
-	if (debug) {
-		dbg("2 - %d %d", level, thresh);
+		thresh = curmod->log_level;
+		if (scope != NULL && thresh < scope->lgs_level) {
+			thresh = scope->lgs_level;
+		}
 	}
 	return level <= thresh;
 }
+
 static void
 log_fill_hdr(struct strbuf *sb)
 {

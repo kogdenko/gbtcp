@@ -28,12 +28,6 @@ pid_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
-int
-pid_proc_init(struct log *log, struct proc *p)
-{
-	return 0;
-}
-
 void
 pid_mod_deinit(struct log *log, void *raw_mod)
 {
@@ -189,7 +183,7 @@ pid_wait_add(struct log *log, struct pid_wait *pw, int pid)
 			goto err;
 		}
 	}
-	if (pw->pw_nentries == GT_PROC_COUNT_MAX) {
+	if (pw->pw_nentries == GT_SERVICE_COUNT_MAX) {
 		rc = -ENOSPC;
 		goto err;
 	}

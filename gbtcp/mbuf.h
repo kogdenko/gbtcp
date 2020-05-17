@@ -36,7 +36,6 @@ struct mbuf_pool {
 
 int mbuf_mod_init(struct log *, void **);
 int mbuf_mod_attach(struct log *, void *);
-int mbuf_proc_init(struct log *, struct proc *);
 void mbuf_mod_deinit(struct log *, void *);
 void mbuf_mod_detach(struct log *);
 

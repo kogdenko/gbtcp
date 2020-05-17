@@ -12,7 +12,6 @@ typedef struct kevent epoll_event_t;
 
 int epoll_mod_init(struct log *, void **);
 int epoll_mod_attach(struct log *, void *);
-int epoll_proc_init(struct log *, struct proc *);
 void epoll_mod_deinit(struct log *, void *);
 void epoll_mod_detach(struct log *);
 

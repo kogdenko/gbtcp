@@ -259,7 +259,7 @@ parse(void *data, unsigned int len, struct pdu *pdu)
 }
 
 static struct netmap_ring *
-not_empty_txr(struct fwd_dev *dev)
+fwd_not_empty_txr(struct fwd_dev *dev)
 {
 	struct netmap_ring *txr;
 
@@ -411,7 +411,7 @@ fwd(struct fwd_dev *src, struct fwd_dev *dst)
 				}
 			}
 			if (zero_copy) {
-				txr = not_empty_txr(dst);
+				txr = fwd_not_empty_txr(dst);
 				if (txr == NULL) {
 					return 0;
 				}
@@ -455,7 +455,7 @@ fwd(struct fwd_dev *src, struct fwd_dev *dst)
 			if (Tflag) {
 				goto next;
 			}
-			txr = not_empty_txr(dst);
+			txr = fwd_not_empty_txr(dst);
 			if (txr == NULL) {
 				return 0;
 			}
@@ -491,7 +491,7 @@ next:
 		while (!dlist_is_empty(&txq)) {
 			so = DLIST_FIRST(&txq, struct gt_sock, so_txl);
 			assert(so->so_ssnt);
-			txr = not_empty_txr(dst);
+			txr = fwd_not_empty_txr(dst);
 			if (txr == NULL) {
 				break;
 			}

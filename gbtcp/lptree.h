@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 license
 #ifndef GBTCP_LPTREE_H
 #define GBTCP_LPTREE_H
 
@@ -31,7 +31,6 @@ struct lptree {
 
 int lptree_mod_init(struct log *, void **);
 int lptree_mod_attach(struct log *, void *);
-int lptree_proc_init(struct log *, struct proc *);
 void lptree_mod_deinit(struct log *, void *);
 void lptree_mod_detach(struct log *);
 
@@ -42,4 +41,4 @@ void lptree_del(struct lptree *, struct lprule *);
 struct lprule *lptree_get(struct log *, struct lptree *, uint32_t, int);
 int lptree_set(struct log *, struct lptree *, struct lprule *, uint32_t, int);
 
-#endif /* GBTCP_LPTREE_H */
+#endif // GBTCP_LPTREE_H

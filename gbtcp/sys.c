@@ -76,12 +76,6 @@ sys_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
-int
-sys_proc_init(struct log *log, struct proc *p)
-{
-	return 0;
-}
-
 void
 sys_mod_deinit(struct log *log, void *raw_mod)
 {
@@ -417,19 +411,40 @@ restart:
 }
 
 ssize_t
+sys_recv(struct log *log, int fd, void *buf, size_t len, int flags)
+{
+	ssize_t rc;
+
+restart:
+	rc = (*sys_recv_fn)(fd, buf, len, flags);
+	if (rc == -1) {
+		rc = -errno;
+		ASSERT(rc);
+		if (rc == -EINTR) {
+			goto restart;
+		} else if (rc != -EAGAIN) {
+			LOG_TRACE(log);
+			LOGF(log, -rc, LOG_ERR, "failed; fd=%d", fd);
+		}
+	}
+	return rc;
+}
+
+ssize_t
 sys_recvmsg(struct log *log, int fd, struct msghdr *msg, int flags)
 {
 	ssize_t rc;
 
+restart:
 	rc = (*sys_recvmsg_fn)(fd, msg, flags);
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
-		if (rc != -EAGAIN) {
-			if (log != NULL) {
-				LOG_TRACE(log);
-				LOGF(log, -rc, LOG_ERR, "failed; fd=%d", fd);
-			}
+		if (rc == -EINTR) {
+			goto restart;
+		} else if (rc != -EAGAIN) {
+			LOG_TRACE(log);
+			LOGF(log, -rc, LOG_ERR, "failed; fd=%d", fd);
 		}
 	}
 	return rc;

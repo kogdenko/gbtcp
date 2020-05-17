@@ -1,3 +1,4 @@
+// GPL2 license
 #ifndef GBTCP_INTERNALS_H
 #define GBTCP_INTERNALS_H
 
@@ -32,4 +33,4 @@
 #include "service.h"
 #include "proc.h"
 
-#endif /* GBTCP_INETRNALS_H */
+#endif // GBTCP_INETRNALS_H

@@ -116,7 +116,6 @@ extern sys_kevent_f sys_kevent_fn;
 
 int sys_mod_init(struct log *, void **);
 int sys_mod_attach(struct log *, void *);
-int sys_proc_init(struct log *, struct proc *);
 void sys_mod_deinit(struct log *, void *);
 void sys_mod_detach(struct log *);
 
@@ -135,6 +134,7 @@ int sys_accept4(struct log *, int, struct sockaddr *, socklen_t *, int);
 int sys_shutdown(struct log *, int, int);
 int sys_close(struct log *, int);
 ssize_t sys_read(struct log *, int, void *, size_t);
+ssize_t sys_recv(struct log *, int, void *, size_t, int);
 ssize_t sys_recvmsg(struct log *, int, struct msghdr *, int);
 ssize_t sys_write(struct log *, int, const void *, size_t);
 ssize_t sys_send(struct log *, int, const void *, size_t, int);

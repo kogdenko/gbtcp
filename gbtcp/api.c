@@ -71,12 +71,6 @@ api_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
-int
-api_proc_init(struct log *log, struct proc *p)
-{
-	return 0;
-}
-
 void
 api_mod_deinit(struct log *log, void *raw_mod)
 {
@@ -103,7 +97,7 @@ gbtcp_fork()
 	API_LOCK;
 	log = log_trace0();
 	LOGF(log, LOG_INFO, 0, "hit");
-	rc = gt_service_fork(log);
+	rc = service_fork(log);
 	if (rc >= 0) {
 		LOGF(log, LOG_INFO, 0, "ok, pid=%d", rc);
 	}
@@ -187,9 +181,6 @@ api_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	faddr_in = (const struct sockaddr_in *)addr;
 	DBG(log, 0, "hit; fd=%d, faddr=%s",
 	    fd, log_add_sockaddr_in(faddr_in));
-	if (!current->p_active) {
-		service_activate(log);
-	}
 	rc = gt_sock_connect(fp, faddr_in, &laddr_in);
 restart:
 	if (rc == -EINPROGRESS && fp->fl_blocked) {
@@ -250,9 +241,6 @@ api_bind(struct log *log, int fd, const struct sockaddr *addr,
 	addr_in = (const struct sockaddr_in *)addr;
 	LOGF(log, LOG_INFO, 0, "hit; fd=%d, laddr=%s",
 	     fd, log_add_sockaddr_in(addr_in));
-	if (!current->p_active) {
-		service_activate(log);
-	}
 	rc = gt_sock_bind(fp, addr_in);
 	if (rc < 0) {
 		LOGF(log, LOG_INFO, -rc, "failed");
@@ -932,7 +920,7 @@ gbtcp_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
 	API_LOCK;
 	log = log_trace0();
 	LOGF(log, LOG_INFO, 0, "hit; flags=%s", log_add_clone_flags(flags));
-	rc = gt_service_clone(fn, child_stack, flags, arg, ptid, tls, ctid);
+	rc = service_clone(fn, child_stack, flags, arg, ptid, tls, ctid);
 	if (rc < 0) {
 		LOGF(log, LOG_INFO, -rc, "failed");
 	} else {

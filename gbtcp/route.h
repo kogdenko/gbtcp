@@ -42,7 +42,7 @@ struct route_if_addr {
 	uint16_t ria_ephemeral_port;
 };
 
-#define PER_PROC(x) x[GT_PROC_COUNT_MAX]
+#define PER_SERVICE(x) x[GT_SERVICE_COUNT_MAX]
 
 struct route_if {
 	struct dlist rif_list;
@@ -57,14 +57,14 @@ struct route_if {
 	u_char rif_rss_key[RSS_KEY_SIZE];
 	struct dlist rif_routes;
 	struct dev rif_host_dev;
-	struct dlist PER_PROC(rif_txq);
+	struct dlist PER_SERVICE(rif_txq);
 	uint64_t rif_cnt_rx_pkts;
 	uint64_t rif_cnt_rx_bytes;
 	uint64_t rif_cnt_rx_drop;
 	uint64_t rif_cnt_tx_pkts;
 	uint64_t rif_cnt_tx_bytes;
 	uint64_t rif_cnt_tx_drop;
-	struct dev PER_PROC(rif_dev)[GT_RSS_NQ_MAX];
+	struct dev PER_SERVICE(rif_dev)[GT_RSS_NQ_MAX];
 	char rif_name[NM_IFNAMSIZ];
 };
 
@@ -125,7 +125,6 @@ typedef void (*route_msg_f)(struct route_msg *);
 
 int route_mod_init(struct log *, void **);
 int route_mod_attach(struct log *, void *);
-int route_proc_init(struct log *, struct proc *);
 void route_mod_deinit(struct log *, void *);
 void route_mod_detach(struct log *);
 
@@ -143,7 +142,7 @@ int route_get4(be32_t, struct route_entry *);
 int route_if_not_empty_txr(struct route_if *, struct dev_pkt *);
 void route_if_rxr_next(struct route_if *, struct netmap_ring *);
 void route_if_tx(struct route_if *, struct dev_pkt *);
-int route_if_tx3(struct route_if *, void *, int);
+int route_if_calc_rss_qid(struct route_if *, struct sock_tuple *);
 
 int route_open(struct route_mod *, struct log *);
 int route_read(int, route_msg_f);

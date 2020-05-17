@@ -161,7 +161,7 @@ route_if_add(struct log *log, const char *ifname_nm, struct route_if **ifpp)
 	}
 	// FIXME: 
 	ifp->rif_flags |= IFF_UP;
-	rss_table_update(log);
+	controller_update_rss_table(log);
 //	sched_link_up(log);
 	if (route_monfd != -1) {
 		// TODO: DELETE OLD ROUTES...
@@ -769,12 +769,6 @@ route_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
-int
-route_proc_init(struct log *log, struct proc *p)
-{
-	return 0;
-}
-
 void
 route_mod_deinit(struct log *log, void *raw_mod)
 {
@@ -874,29 +868,22 @@ route_get4(be32_t pref_src_ip4, struct route_entry *route)
 	return rc;
 }
 
-struct dev *
-route_if_get_dev(struct route_if *ifp)
-{
-	struct dev *dev;
-
-	if (current->p_rss_qid == UCHAR_MAX) {
-		return NULL;
-	}
-	dev = &(ifp->rif_dev[service_id()][current->p_rss_qid]);
-	return dev;
-}
-
 int
 route_if_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt)
 {
-	int rc;
+	int i, rc;
 	struct dev *dev;
 
-	dev = route_if_get_dev(ifp);
-	if (dev == NULL) {
-		return -ENOBUFS;
+	rc = -ENOBUFS;
+	for (i = 0; i < ifp->rif_rss_nq; ++i) {
+		dev = &(ifp->rif_dev[current->p_id][i]);
+		if (dev_is_inited(dev)) {
+			rc = dev_not_empty_txr(dev, pkt);
+			if (rc == 0) {
+				break;
+			}	
+		}
 	}
-	rc = dev_not_empty_txr(dev, pkt);
 	return rc;
 }
 
@@ -923,32 +910,16 @@ route_if_tx(struct route_if *ifp, struct dev_pkt *pkt)
 }
 
 int
-route_if_tx3(struct route_if *ifp, void *data, int len)
+route_if_calc_rss_qid(struct route_if *ifp, struct sock_tuple *so_tuple)
 {
-	int rc;
-	struct dev *dev;
+	uint32_t h;
+	struct sock_tuple tmp;
 
-	dev = route_if_get_dev(ifp);
-	if (dev == NULL) {
-		return -ENOBUFS;
-	}
-	rc = dev_tx3(dev, data, len);
-	if (rc) {
-		ifp->rif_cnt_tx_drop++;
-	}
-	return rc;
+	tmp.sot_laddr = so_tuple->sot_faddr;
+	tmp.sot_faddr = so_tuple->sot_laddr;
+	tmp.sot_lport = so_tuple->sot_fport;
+	tmp.sot_fport = so_tuple->sot_lport;
+	h = toeplitz_hash((u_char *)&tmp, sizeof(tmp), ifp->rif_rss_key);
+	h &= 0x0000007F;
+	return h % ifp->rif_rss_nq;
 }
-
- void tcp_flush_if(struct route_if *ifp);
-
-void
-gt_sock_tx_flush()
-{
-	struct route_if *ifp;
-
-	ROUTE_IF_FOREACH(ifp) {
-		tcp_flush_if(ifp);
-	}
-}
-
-

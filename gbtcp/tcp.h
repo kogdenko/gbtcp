@@ -111,9 +111,10 @@ extern struct dlist gt_sock_binded[65536];
 
 int tcp_mod_init(struct log *, void **);
 int tcp_mod_attach(struct log *, void *);
-int tcp_proc_init(struct log *, struct proc *);
+int tcp_mod_service_init(struct log *, struct proc *);
 void tcp_mod_deinit(struct log *, void *);
 void tcp_mod_detach(struct log *);
+void tcp_mod_service_deinit(struct log *, struct proc *);
 
 int gt_sock_get(int fd, struct file **fpp);
 
@@ -130,7 +131,7 @@ int gt_sock_in(int ipproto, struct sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 
 void gt_sock_in_err(int ipproto, struct sock_tuple *so_tuple, int eno);
 
-void gt_sock_tx_flush();
+void sock_tx_flush();
 
 int gt_sock_socket(struct log *log, int fd,
 	int domain, int type, int flags, int proto);

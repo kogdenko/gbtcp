@@ -21,9 +21,10 @@ struct gt_arp_advert_msg {
 
 int arp_mod_init(struct log *, void **);
 int arp_mod_attach(struct log *, void *);
-int arp_proc_init(struct log *, struct proc *);
+int arp_mod_service_init(struct log *, struct proc *);
 void arp_mod_deinit(struct log *, void *);
 void arp_mod_detach(struct log *);
+void arp_mod_service_deinit(struct log *, struct proc *);
 
 void gt_arp_resolve(struct route_if *, be32_t,	struct dev_pkt *);
 void gt_arp_update(struct gt_arp_advert_msg *);

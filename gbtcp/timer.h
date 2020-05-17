@@ -20,7 +20,6 @@ typedef void (*timer_f)(struct timer *);
 
 int timer_mod_init(struct log *, void **);
 int timer_mod_attach(struct log *, void *);
-int timer_proc_init(struct log *, struct proc *);
 void timer_mod_deinit(struct log *, void *);
 void timer_mod_detach(struct log *);
 

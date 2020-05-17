@@ -43,7 +43,6 @@ typedef struct htable_dynamic htable_t;
 
 int htable_mod_init(struct log *, void **);
 int htable_mod_attach(struct log *, void *);
-int htable_proc_init(struct log *, struct proc *);
 void htable_mod_deinit(struct log *, void *);
 void htable_mod_detach(struct log *);
 

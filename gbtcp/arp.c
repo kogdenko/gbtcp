@@ -331,7 +331,7 @@ arp_mod_attach(struct log *log, void *raw_mod)
 }
 
 int
-arp_proc_init(struct log *log, struct proc *p)
+arp_mod_service_init(struct log *log, struct proc *p)
 {
 	mbuf_pool_init(&p->p_arp_entry_pool, sizeof(struct arp_entry));
 	mbuf_pool_init(&p->p_arp_incomplete_pool, DEV_PKT_SIZE_MAX);
@@ -360,6 +360,13 @@ arp_mod_detach(struct log *log)
 //	timer_del(&gt_arp_timer_calc_reachable_time);
 	curmod = NULL;
 }
+
+void
+arp_mod_service_deinit(struct log *log, struct proc *s)
+{
+
+}
+
 
 static inline void
 gt_arp_set_state(struct log *log, struct arp_entry *e, int state)

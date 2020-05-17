@@ -33,8 +33,7 @@
 
 #define GT_SYSCTL_BUFSIZ 4096
 #define GT_RSS_NQ_MAX 32
-// (GT_SERVICECOUNT_MAX + 1) must be <= maximum number of vale ports
-#define GT_PROC_COUNT_MAX 128
+#define GT_SERVICE_COUNT_MAX 128
 #define GT_GROUP_NAME "gbtcp"
 
 #define GT_TCP_STAT(x) \

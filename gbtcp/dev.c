@@ -30,12 +30,6 @@ dev_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
-int
-dev_proc_init(struct log *log, struct proc *p)
-{
-	return 0;
-}
-
 void
 dev_mod_deinit(struct log *log, void *raw_mod)
 {
@@ -119,18 +113,12 @@ dev_nm_open(struct log *log, struct dev *dev, const char *dev_name)
 }
 
 int
-dev_is_inited(struct dev *dev)
-{
-	return dev->dev_fn != NULL;
-}
-
-int
 dev_init(struct log *log, struct dev *dev, const char *ifname, dev_f dev_fn)
 {
 	int rc;
 	char dev_name[NM_IFNAMSIZ];
 
-	ASSERT(dev_fn != NULL);
+	ASSERT(!dev_is_inited(dev));
 	LOG_TRACE(log);
 	memset(dev, 0, sizeof(*dev));
 	snprintf(dev_name, sizeof(dev_name), "%s%s", NETMAP_PFX, ifname);
@@ -153,7 +141,7 @@ dev_init(struct log *log, struct dev *dev, const char *ifname, dev_f dev_fn)
 void
 dev_deinit(struct log *log, struct dev *dev)
 {
-	if (dev->dev_fn != NULL) {
+	if (dev_is_inited(dev)) {
 		LOG_TRACE(log);
 		gt_fd_event_del(dev->dev_event);
 		dev->dev_event = NULL;

@@ -57,7 +57,7 @@ file_mod_attach(struct log *log, void *raw_mod)
 }
 
 int
-file_proc_init(struct log *log, struct proc *p)
+file_mod_service_init(struct log *log, struct proc *p)
 {
 	mbuf_pool_init(&p->p_file_pool, sizeof(struct gt_sock));
 	return 0;
@@ -81,6 +81,12 @@ file_mod_detach(struct log *log)
 	//ASSERT(mbuf_pool_is_empty(file_pool));
 	//mbuf_pool_deinit(&current->p_file_pool);
 	curmod = NULL;
+}
+
+void
+file_mod_service_deinit(struct log *log, struct proc *s)
+{
+
 }
 
 int

@@ -197,6 +197,7 @@ struct profiler {
 #define mb _mm_mfence
 #define rmb _mm_sfence
 #define wmb _mm_lfence
+#define cpu_pause _mm_pause
 
 #if 1
 #define GT_PKT_COPY(d, s, len) nm_pkt_copy(s, d, len)
@@ -254,16 +255,12 @@ extern __thread int api_locked;
 
 int subr_mod_init(struct log *, void **);
 int subr_mod_attach(struct log *, void *);
-int subr_proc_init(struct log *, struct proc *);
 void subr_mod_deinit(struct log *, void *);
 void subr_mod_detach(struct log *);
 
 int ethaddr_aton(struct ethaddr *, const char *);
-
 int ethaddr_is_mcast(const uint8_t *);
-
 int ethaddr_is_ucast(const uint8_t *);
-
 void ethaddr_make_ip6_mcast(struct ethaddr *, const uint8_t *);
 
 void spinlock_init(struct spinlock *);
@@ -280,14 +277,12 @@ char *strtrim2(char *, const char *);
 int strsplit(const char *, const char *, struct iovec *, int);
 char *strzcpy(char *, const char *, size_t);
 
-// hash
 uint32_t custom_hash32(uint32_t data, uint32_t initval);
-
 uint32_t custom_hash(const void *data, size_t cnt, uint32_t val);
 
 uint32_t toeplitz_hash(const u_char *, int, const u_char *);
 
-int proc_get_name(struct log *, char *, int);
+int proc_get_comm(struct log *, char *, int);
 
 
 uint32_t upper_pow2_32(uint32_t x);
@@ -301,9 +296,7 @@ int fcntl_setfl_nonblock(struct log *, int, int *);
 
 int connect_timed(struct log *, int, const struct sockaddr *,
 	socklen_t, uint64_t *);
-
 ssize_t read_timed(struct log *, int, void *, size_t, uint64_t *);
-
 ssize_t write_full_buf(struct log *, int, const void *, size_t);
 ssize_t send_full_buf(struct log *, int, const void *, size_t, int);
 
@@ -313,6 +306,8 @@ long gettid();
 
 uint64_t rdtsc();
 void rdtsc_update_time();
+
+uint64_t sleep_compute_hz();
 
 uint64_t rand64();
 uint32_t rand32();

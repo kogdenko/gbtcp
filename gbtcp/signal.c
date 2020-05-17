@@ -33,12 +33,6 @@ signal_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
-int
-signal_proc_init(struct log *log, struct proc *p)
-{
-	return 0;
-}
-
 void
 signal_mod_deinit(struct log *log, void *raw_mod)
 {

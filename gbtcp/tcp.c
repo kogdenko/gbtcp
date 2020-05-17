@@ -270,7 +270,7 @@ tcp_mod_attach(struct log *log, void *raw_mod)
 }
 
 int
-tcp_proc_init(struct log *log, struct proc *p)
+tcp_mod_service_init(struct log *log, struct proc *p)
 {
 	mbuf_pool_init(&p->p_sockbuf_pool, SOCKBUF_CHUNK_SIZE);
 	return 0;
@@ -299,6 +299,11 @@ void
 tcp_mod_detach(struct log *log)
 {
 	curmod = NULL;
+}
+
+void
+tcp_mod_service_deinit(struct log *log, struct proc *s)
+{
 }
 
 const char *
@@ -1988,8 +1993,8 @@ gt_tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h, struct gt_tcpcb *tcb,
 	return total_len;
 }
 
-void
-tcp_flush_if(struct route_if *ifp)
+static void
+sock_tx_flush_if(struct route_if *ifp)
 {
 	int rc, n;
 	struct dev_pkt pkt;
@@ -1997,9 +2002,7 @@ tcp_flush_if(struct route_if *ifp)
 	struct dlist *txq;
 
 	n = 0;
-	txq = ifp->rif_txq + service_id();
-	if (current->p_rss_qid < 0)
-		return; // TODO: ??????????????????????????????????
+	txq = ifp->rif_txq + current->p_id;
 	while (!dlist_is_empty(txq) && n < 128) {
 		so = DLIST_FIRST(txq, struct gt_sock, so_txl);
 		do {
@@ -2014,6 +2017,16 @@ tcp_flush_if(struct route_if *ifp)
 		if (gt_sock_is_closed(so)) {
 			gt_sock_del(so);
 		}
+	}
+}
+
+void
+sock_tx_flush()
+{
+	struct route_if *ifp;
+
+	ROUTE_IF_FOREACH(ifp) {
+		sock_tx_flush_if(ifp);
 	}
 }
 
@@ -2402,44 +2415,23 @@ gt_sock_get_binded(int proto, struct sock_tuple *so_tuple)
 }
 
 static int
-calc_rss_qid(struct sock_tuple *so_tuple, struct route_if *ifp)
-{
-	uint32_t h;
-	struct sock_tuple tmp;
-
-	if (ifp->rif_rss_nq == 1) {
-		return 0;
-	}
-	tmp.sot_laddr = so_tuple->sot_faddr;
-	tmp.sot_faddr = so_tuple->sot_laddr;
-	tmp.sot_lport = so_tuple->sot_fport;
-	tmp.sot_fport = so_tuple->sot_lport;
-	h = toeplitz_hash((u_char *)&tmp, sizeof(tmp), ifp->rif_rss_key);
-	h &= 0x0000007F;
-	return h % ifp->rif_rss_nq;
-}
-
-static int
 sock_bind_ephemeral_port(struct gt_sock *so, struct route_entry *r)
 {
-	int i, n, rss_qid, ephemeral_port;
+	int i, n, rc, lport;
 	struct gt_sock *found;
 
 	n = EPHEMERAL_PORT_MAX - EPHEMERAL_PORT_MIN + 1;
 	for (i = 0; i < n; ++i) {
-		ephemeral_port = r->rt_ifa->ria_ephemeral_port;
-		so->so_tuple.sot_lport = hton16(ephemeral_port);
-		if (ephemeral_port == EPHEMERAL_PORT_MAX) {
+		lport = r->rt_ifa->ria_ephemeral_port;
+		so->so_tuple.sot_lport = hton16(lport);
+		if (lport == EPHEMERAL_PORT_MAX) {
 			r->rt_ifa->ria_ephemeral_port = EPHEMERAL_PORT_MIN;
 		} else {
 			r->rt_ifa->ria_ephemeral_port++;
 		}
-		if (current->p_rss_qid >= r->rt_ifp->rif_rss_nq) {
-			rss_qid = current->p_rss_qid;
-		} else {
-			rss_qid = calc_rss_qid(&so->so_tuple, r->rt_ifp);
-		}
-		if (rss_qid == current->p_rss_qid) {
+		rc = service_is_appropriate_rss(r->rt_ifp, &so->so_tuple);
+		if (rc) {
+			// FIXME: lock!!!!
 			found = gt_sock_find(so->so_proto, &so->so_tuple);
 			if (found == NULL) {
 				return 0;
@@ -2475,7 +2467,7 @@ sock_add_txq(struct route_if *ifp, struct gt_sock *so)
 {
 	struct dlist *txq;
 
-	txq = ifp->rif_txq + service_id();
+	txq = ifp->rif_txq + current->p_id;
 	DLIST_INSERT_TAIL(txq, so, so_txl);
 }
 

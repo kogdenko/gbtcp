@@ -118,12 +118,6 @@ timer_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
-int
-timer_proc_init(struct log *log, struct proc *p)
-{
-	return 0;
-}
-
 void
 timer_mod_deinit(struct log *log, void *raw_mod)
 {

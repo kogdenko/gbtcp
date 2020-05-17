@@ -63,13 +63,13 @@ struct dev_pkt {
 #define DEV_RXR_NEXT(rxr) \
 	(rxr)->head = (rxr)->cur = nm_ring_next(rxr, (rxr)->cur)
 
+#define dev_is_inited(dev) ((dev)->dev_fn != NULL)
+
 int dev_mod_init(struct log *, void **);
 int dev_mod_attach(struct log *, void *);
-int dev_proc_init(struct log *, struct proc *);
 void dev_mod_deinit(struct log *, void *);
 void dev_mod_detach(struct log *);
 
-int dev_is_inited(struct dev *);
 int dev_init(struct log *, struct dev *, const char *, dev_f);
 void dev_deinit(struct log *, struct dev *);
 void dev_rx_on(struct dev *);

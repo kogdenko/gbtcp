@@ -51,12 +51,6 @@ fd_event_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
-int
-fd_event_proc_init(struct log *log, struct proc *p)
-{
-	return 0;
-}
-
 void
 fd_event_mod_deinit(struct log *log, void *raw_mod)
 {
@@ -303,7 +297,7 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 	set->fdes_again = 0;
 	set->fdes_time = nanoseconds;
 	set->fdes_nr_used = 0;
-	gt_sock_tx_flush();
+	sock_tx_flush();
 	for (i = 0; i < fdevent_nused; ++i) {
 		e = gt_fd_event_used[i];
 		if (e->fde_fd == -1 || e->fde_events == 0) {

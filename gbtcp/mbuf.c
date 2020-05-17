@@ -45,12 +45,6 @@ mbuf_mod_attach(struct log *log, void *raw_mod)
 	return 0;
 }
 
-int
-mbuf_proc_init(struct log *log, struct proc *p)
-{
-	return 0;
-}
-
 void
 mbuf_mod_deinit(struct log *log, void *raw_mod)
 {

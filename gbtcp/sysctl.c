@@ -123,12 +123,6 @@ sysctl_mod_attach(struct log *log, void *raw_mod)
 }
 
 int
-sysctl_proc_init(struct log *log, struct proc *p)
-{
-	return 0;
-}
-
-int
 sysctl_root_init(struct log *log)
 {
 	int rc;
@@ -1010,6 +1004,31 @@ sysctl_connect(struct log *log, int fd)
 	to = 2 * NANOSECONDS_SECOND;
 	rc = connect_timed(log, fd, (struct sockaddr *)&a, sizeof(a), &to);
 	return rc;
+}
+
+int
+sysctl_can_connect(struct log *log, int pid)
+{
+	int rc, fd;
+	uint64_t to;
+	struct sockaddr_un a;
+
+	LOG_TRACE(log);
+	rc = sys_socket(log, AF_UNIX, SOCK_STREAM|SOCK_NONBLOCK, 0);
+	if (rc < 0) {
+		return rc;
+	}
+	fd = rc;
+	sysctl_make_sockaddr_un(&a, pid);
+	to = 0;
+	rc = connect_timed(log, fd, (struct sockaddr *)&a, sizeof(a), &to);
+	sys_close(log, fd);
+	if (rc == 0 || rc == -ETIMEDOUT) {
+		return 1;
+	} else {
+		sys_unlink(log, a.sun_path);
+		return 0;
+	}
 }
 
 int

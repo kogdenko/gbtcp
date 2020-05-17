@@ -5,8 +5,7 @@
 #include "subr.h"
 #include "strbuf.h"
 
-#define LOG_STACKSIZ 16
-#define LOG_BUFSIZ 16384
+#define LOG_BUFSIZ 1024
 
 struct log_scope {
 	char lgs_name[16];
@@ -83,7 +82,6 @@ void log_init_early();
 
 int log_mod_init(struct log *, void **);
 int log_mod_attach(struct log *, void *);
-int log_proc_init(struct log *, struct proc *);
 void log_mod_deinit(struct log *, void *);
 void log_mod_detach(struct log *);
 

@@ -13,7 +13,7 @@ union tsc {
 };
 
 uint64_t nanoseconds;
-uint64_t HZ = 3000000000;
+//uint64_t HZ = 3000000000;
 uint64_t mHZ = 3000000;
 __thread int gbtcp_errno;
 
@@ -67,7 +67,7 @@ murmur(const void * key, unsigned int len, uint32_t init_val)
 
 #ifdef __linux__
 int
-proc_get_name(struct log *log, char *name, int pid)
+proc_get_comm(struct log *log, char *name, int pid)
 {
 	int rc;
 	FILE *file;
@@ -87,7 +87,7 @@ proc_get_name(struct log *log, char *name, int pid)
 	if (s == NULL) {
 		goto err;
 	}
-	snprintf(fmt, sizeof(fmt), "Name: %%%dc", PROC_NAME_SIZE_MAX - 1);
+	snprintf(fmt, sizeof(fmt), "Name: %%%dc", PROC_COMM_MAX - 1);
 	rc = sscanf(buf, fmt, name);
 	if (rc == 1) {
 		strtrim2(name, name);
@@ -99,7 +99,7 @@ err:
 }
 #else /* __linux__ */
 static int
-proc_get_name(struct log *log, char *name, int pid)
+proc_get_comm(struct log *log, char *name, int pid)
 {
 	int rc;
 	struct kinfo_proc *info;
@@ -110,7 +110,7 @@ proc_get_name(struct log *log, char *name, int pid)
 		ASSERT(rc);
 		return rc;
 	}
-	strzcpy(name, info->ki_comm, PROC_NAME_SIZE_MAX);
+	strzcpy(name, info->ki_comm, PROC_COMM_MAX);
 	free(info);
 	return 0;
 }
@@ -134,12 +134,6 @@ int
 subr_mod_attach(struct log *log, void *raw_mod)
 {
 	curmod = raw_mod;
-	return 0;
-}
-
-int
-subr_proc_init(struct log *log, struct proc *p)
-{
 	return 0;
 }
 
@@ -754,6 +748,33 @@ rdtsc_update_time()
 		nanoseconds = ns;
 	}
 }
+
+uint64_t
+sleep_compute_hz()
+{
+	int rc;
+	uint64_t t0, t1, hz;
+	struct timespec ts, rem;
+
+	ts.tv_sec = 0;
+	ts.tv_nsec = 10 * 1000 * 1000;
+	t0 = rdtsc();
+restart:
+	rc = nanosleep(&ts, &rem);
+	if (rc == -1) {
+		if (errno == EINTR) {
+			memcpy(&ts, &rem, sizeof(ts));
+			goto restart;
+		} else {
+			return -errno;
+		}
+	}
+	t1 = rdtsc();
+	hz = (t1 - t0) * 100;
+	return hz;
+}
+
+
 
 uint64_t
 rand64()

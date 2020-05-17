@@ -16,7 +16,6 @@ do { \
 
 int api_mod_init(struct log *, void **);
 int api_mod_attach(struct log *, void *);
-int api_proc_init(struct log *, struct proc *);
 void api_mod_deinit(struct log *, void *);
 void api_mod_detach(struct log *);
 
