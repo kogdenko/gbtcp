@@ -20,7 +20,7 @@
 	spinlock_lock(&current->p_lock); \
 	rdtsc_update_time(); \
 	if (current->p_dirty_rss_table) { \
-		service_update_rss_table(NULL); \
+		service_update_rss_table(NULL, current); \
 	} \
 } while (0)
 
@@ -51,8 +51,6 @@ struct init_hdr {
 	int ih_rss_table[GT_RSS_NQ_MAX];
 };
 
-extern struct init_hdr *ih;
-
 void proc_init();
 
 int controller_init(int, const char *);
@@ -60,7 +58,8 @@ void controller_loop();
 void controller_update_rss_table();
 
 int service_init();
-void service_update_rss_table(struct log *);
+void service_update_rss_table(struct log *, struct proc *);
+void service_clean_rss_table(struct proc *s);
 int service_is_appropriate_rss(struct route_if *, struct sock_tuple *); 
 void service_rxtx(struct dev *, short);
 

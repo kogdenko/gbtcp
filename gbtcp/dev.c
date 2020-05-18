@@ -151,6 +151,12 @@ dev_deinit(struct log *log, struct dev *dev)
 }
 
 void
+dev_clean(struct dev *dev)
+{
+	dev->dev_fn = NULL;
+}
+
+void
 dev_rx_on(struct dev *dev)
 {
 	if (dev->dev_event != NULL) {

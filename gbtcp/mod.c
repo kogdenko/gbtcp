@@ -95,7 +95,7 @@ struct mod mods[MOD_COUNT_MAX] = {
 	     ++i, ++mod)
 
 int
-mod_foreach_mod_init(struct log *log)
+mod_foreach_mod_init(struct log *log, struct init_hdr *ih)
 {
 	int i, rc;
 	struct mod *mod;
@@ -111,7 +111,7 @@ mod_foreach_mod_init(struct log *log)
 }
 
 int
-mod_foreach_mod_attach(struct log *log)
+mod_foreach_mod_attach(struct log *log, struct init_hdr *ih)
 {
 	int i, rc;
 	struct mod *mod;
@@ -146,7 +146,7 @@ mod_foreach_mod_service_init(struct log *log, struct proc *s)
 }
 
 void
-mod_foreach_mod_deinit(struct log *log)
+mod_foreach_mod_deinit(struct log *log, struct init_hdr *ih)
 {
 	int i;
 	struct mod *mod;

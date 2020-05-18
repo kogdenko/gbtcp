@@ -22,7 +22,7 @@ struct mbuf {
 struct mbuf_pool {
 	int mbp_mbuf_size;
 	int mbp_mbufs_per_chunk;
-	uint8_t mbp_id;
+	u_char mbp_id;
 	struct dlist mbp_avail_chunkq;
 	struct dlist mbp_empty_chunkq;
 	struct mchunk *mbp_chunks[MBUF_CHUNKS_MAX];

@@ -89,17 +89,17 @@ static void gt_tcp_wshut(struct gt_sock *so);
 
 static void gt_tcp_delack(struct gt_sock *so);
 
-static void gt_tcp_timer_set_rexmit(struct gt_sock *so);
+static void tcp_tx_timer_set(struct gt_sock *so);
 
-static int gt_tcp_timer_set_wprobe(struct gt_sock *so);
+static int tcp_wprobe_timer_set(struct gt_sock *so);
 
 static void gt_tcp_timer_set_tcp_fin_timeout(struct gt_sock *so);
 
 static void gt_tcp_timeout_delack(struct timer *timer);
 
-static void gt_tcp_timeout_rexmit(struct timer *timer);
+static void tcp_tx_timo(struct timer *timer);
 
-static void gt_tcp_timeout_wprobe(struct timer *timer);
+static void tcp_wprobe_timo(struct timer *timer);
 
 static void gt_tcp_timeout_tcp_fin_timeout(struct timer *timer);
 
@@ -142,13 +142,10 @@ static int gt_tcp_send(struct gt_sock *so, const struct iovec *iov,
 
 static int gt_tcp_sender(struct gt_sock *so, int cnt);
 
-static int gt_tcp_xmit_established(struct route_if *ifp,
-	struct dev_pkt *pkt, struct gt_sock *so);
-
-static int gt_tcp_xmit(struct route_if *ifp, struct dev_pkt *pkt,
+static int tcp_tx(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so);
 
-static int gt_tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h,
+static int tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h,
 	struct gt_tcpcb *tcb, uint8_t tcp_flags, u_int len);
 
 // udp
@@ -208,10 +205,10 @@ static int gt_sock_rcvbuf_add(struct gt_sock *so, const void *src, int cnt,
 static int gt_sock_on_rcv(struct gt_sock *so, void *buf, int len,
 	struct sock_tuple *so_tuple);
 
-static int gt_sock_xmit(struct route_if *ifp, struct dev_pkt *pkt,
+static int sock_tx(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so);
 
-static void gt_sock_xmit_data(struct route_if *ifp, struct dev_pkt *pkt,
+static void tcp_tx_data(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so, uint8_t tcp_flags, u_int len);
 
 static int gt_sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt);
@@ -463,12 +460,12 @@ gt_sock_in(int ipproto, struct sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 		so = gt_sock_get_binded(proto, so_tuple);
 	}
 	if (so == NULL) {
-		DBG(log, 0, "bypass; flags=%s, tuple=%s:%hu>%s:%hu",
-		    log_add_tcp_flags(proto, tcb->tcb_flags),	    
-		    log_add_ipaddr(AF_INET, &so_tuple->sot_laddr),
-		    ntoh16(so_tuple->sot_lport),
-		    log_add_ipaddr(AF_INET, &so_tuple->sot_faddr),
-		    ntoh16(so_tuple->sot_fport));
+//		DBG(log, 0, "bypass; flags=%s, tuple=%s:%hu>%s:%hu",
+//		    log_add_tcp_flags(proto, tcb->tcb_flags),	    
+//		    log_add_ipaddr(AF_INET, &so_tuple->sot_laddr),
+//		    ntoh16(so_tuple->sot_lport),
+//		    log_add_ipaddr(AF_INET, &so_tuple->sot_faddr),
+//		    ntoh16(so_tuple->sot_fport));
 		return GT_INET_BYPASS;
 	}
 	DBG(log, 0, "hit; flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
@@ -1228,45 +1225,45 @@ gt_tcp_timeout_TIME_WAIT(struct timer *timer)
 #endif
 
 static void
-gt_tcp_timer_set_rexmit(struct gt_sock *so)
+tcp_tx_timer_set(struct gt_sock *so)
 {
 	uint64_t expires;
 
 	ASSERT(so->so_sfin_acked == 0);
-	if (so->so_rexmit == 0) {
-		so->so_rexmit = 1;
+	if (so->so_retx == 0) {
+		so->so_retx = 1;
 		so->so_wprobe = 0;
-		so->so_nr_rexmit_tries = 0;
+		so->so_ntx_tries = 0;
 	}
 	if (so->so_state < GT_TCP_S_ESTABLISHED) {
 		expires = NANOSECONDS_SECOND;
 	} else {
 		expires = 500 * NANOSECONDS_MILLISECOND;
 	}
-	expires <<= so->so_nr_rexmit_tries;
-	timer_set(&so->so_timer, expires, gt_tcp_timeout_rexmit);
+	expires <<= so->so_ntx_tries;
+	timer_set(&so->so_timer, expires, tcp_tx_timo);
 }
 
 static int
-gt_tcp_timer_set_wprobe(struct gt_sock *so)
+tcp_wprobe_timer_set(struct gt_sock *so)
 {
 	uint64_t expires;
 
-	if (so->so_rexmit) {
+	if (so->so_retx) {
 		return 0;
 	}
 	if (timer_is_running(&so->so_timer)) {
 		return 0;
 	}
 	expires = 10 * NANOSECONDS_SECOND;
-	timer_set(&so->so_timer, expires, gt_tcp_timeout_wprobe);
+	timer_set(&so->so_timer, expires, tcp_wprobe_timo);
 	return 1;
 }
 
 static void
 gt_tcp_timer_set_tcp_fin_timeout(struct gt_sock *so)
 {
-	ASSERT(so->so_rexmit == 0);
+	ASSERT(so->so_retx == 0);
 	ASSERT(so->so_wprobe == 0);
 	ASSERT(!timer_is_running(&so->so_timer));
 	timer_set(&so->so_timer, curmod->tcp_fin_timeout,
@@ -1283,7 +1280,7 @@ gt_tcp_timeout_delack(struct timer *timer)
 }
 
 static void
-gt_tcp_timeout_rexmit(struct timer *timer)
+tcp_tx_timo(struct timer *timer)
 {
 	struct log *log;
 	struct gt_sock *so;
@@ -1291,14 +1288,14 @@ gt_tcp_timeout_rexmit(struct timer *timer)
 	so = container_of(timer, struct gt_sock, so_timer);
 	ASSERT(GT_SOCK_ALIVE(so));
 	ASSERT(so->so_sfin_acked == 0);
-	ASSERT(so->so_rexmit);
+	ASSERT(so->so_retx);
 	so->so_ssnt = 0;
 	so->so_sfin_sent = 0;
 	gt_tcps.tcps_rexmttimeo++;
 	log = log_trace0();
 	DBG(log, 0, "hit; fd=%d, state=%s",
 	    gt_sock_fd(so), tcp_state_str(so->so_state));
-	if (so->so_nr_rexmit_tries++ > 6) {
+	if (so->so_ntx_tries++ > 6) {
 		gt_tcps.tcps_timeoutdrop++;
 		gt_sock_set_err(so, GT_SOCK_ETIMEDOUT);
 		return;
@@ -1309,23 +1306,23 @@ gt_tcp_timeout_rexmit(struct timer *timer)
 //		gt_sock_set_err(so, GT_SOCK_ETIMEDOUT);
 //		return;
 //	}
-	so->so_rexmited = 1;
+	so->so_retxed = 1;
 	tcp_into_sndq(so);
 }
 
 static void
-gt_tcp_timeout_wprobe(struct timer *timer)
+tcp_wprobe_timo(struct timer *timer)
 {
 	struct gt_sock *so;
 
 	so = container_of(timer, struct gt_sock, so_timer);
 	ASSERT(GT_SOCK_ALIVE(so));
 	ASSERT(so->so_sfin_acked == 0);
-	ASSERT(so->so_rexmit == 0);
+	ASSERT(so->so_retx == 0);
 	ASSERT(so->so_wprobe);
 	gt_tcps.tcps_sndprobe++;
 	gt_tcp_into_ackq(so);
-	ASSERT(gt_tcp_timer_set_wprobe(so));
+	tcp_wprobe_timer_set(so);
 }
 
 static void
@@ -1682,8 +1679,8 @@ gt_tcp_process_ack_complete(struct gt_sock *so)
 {
 	int rc;
 
-	so->so_rexmit = 0;
-	so->so_nr_rexmit_tries = 0;
+	so->so_retx = 0;
+	so->so_ntx_tries = 0;
 	timer_del(&so->so_timer);
 	so->so_nagle_acked = 1;
 	if (so->so_sfin && so->so_sfin_acked == 0 &&
@@ -1817,8 +1814,7 @@ gt_tcp_sender(struct gt_sock *so, int cnt)
 }
 
 static int
-gt_tcp_xmit_established(struct route_if *ifp, struct dev_pkt *pkt,
-	struct gt_sock *so)
+tcp_tx_established(struct route_if *ifp, struct dev_pkt *pkt, struct gt_sock *so)
 {
 	int cnt, snt;
 	uint8_t tcp_flags;
@@ -1838,7 +1834,7 @@ gt_tcp_xmit_established(struct route_if *ifp, struct dev_pkt *pkt,
 		if (snt) {
 			tcp_flags = GT_TCP_FLAG_ACK;
 		} else {
-			if (gt_tcp_timer_set_wprobe(so)) {
+			if (tcp_wprobe_timer_set(so)) {
 				so->so_wprobe = 1;
 			}
 			return 0;
@@ -1857,7 +1853,7 @@ gt_tcp_xmit_established(struct route_if *ifp, struct dev_pkt *pkt,
 		tcp_flags |= GT_TCP_FLAG_FIN;
 	}
 	if (tcp_flags) {
-		gt_sock_xmit_data(ifp, pkt, so, tcp_flags, snt);
+		tcp_tx_data(ifp, pkt, so, tcp_flags, snt);
 		return 1;
 	} else {
 		return 0;
@@ -1867,7 +1863,7 @@ gt_tcp_xmit_established(struct route_if *ifp, struct dev_pkt *pkt,
 //  0 - can send more
 //  1 - sent all
 static int
-gt_tcp_xmit(struct route_if *ifp, struct dev_pkt *pkt, struct gt_sock *so)
+tcp_tx(struct route_if *ifp, struct dev_pkt *pkt, struct gt_sock *so)
 {
 	int rc;
 
@@ -1876,19 +1872,17 @@ gt_tcp_xmit(struct route_if *ifp, struct dev_pkt *pkt, struct gt_sock *so)
 	case GT_TCP_S_LISTEN:
 		return 1;
 	case GT_TCP_S_SYN_SENT:
-		gt_sock_xmit_data(ifp, pkt, so, GT_TCP_FLAG_SYN, 0);
+		tcp_tx_data(ifp, pkt, so, GT_TCP_FLAG_SYN, 0);
 		return 1;
 	case GT_TCP_S_SYN_RCVD:
-		gt_sock_xmit_data(ifp, pkt, so,
-		                  GT_TCP_FLAG_SYN|GT_TCP_FLAG_ACK, 0);
+		tcp_tx_data(ifp, pkt, so, GT_TCP_FLAG_SYN|GT_TCP_FLAG_ACK, 0);
 		return 1;
 	default:
-		rc = gt_tcp_xmit_established(ifp, pkt, so);
+		rc = tcp_tx_established(ifp, pkt, so);
 		if (rc == 0) {
 			if (so->so_ack) {
 				so->so_ack = 0;
-				gt_sock_xmit_data(ifp, pkt, so,
-				                  GT_TCP_FLAG_ACK, 0);
+				tcp_tx_data(ifp, pkt, so, GT_TCP_FLAG_ACK, 0);
 			}
 			return 1;
 		} else {
@@ -1899,7 +1893,7 @@ gt_tcp_xmit(struct route_if *ifp, struct dev_pkt *pkt, struct gt_sock *so)
 }
 
 static int
-gt_tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h, struct gt_tcpcb *tcb,
+tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h, struct gt_tcpcb *tcb,
 	uint8_t tcp_flags, u_int len)
 {
 	int cnt, emss, tcp_opts_len, tcp_h_len, total_len;
@@ -1982,12 +1976,12 @@ gt_tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h, struct gt_tcpcb *tcb,
 		ASSERT(so->so_ssyn_acked == 0);
 	}
 	if (tcb->tcb_len || (tcp_flags & (GT_TCP_FLAG_SYN|GT_TCP_FLAG_FIN))) {
-		if (so->so_rexmited) {
-			so->so_rexmited = 0;
+		if (so->so_retxed) {
+			so->so_retxed = 0;
 			gt_tcps.tcps_sndrexmitpack++;
 			gt_tcps.tcps_sndrexmitbyte += tcb->tcb_len;
 		}
-		gt_tcp_timer_set_rexmit(so);
+		tcp_tx_timer_set(so);
 	}
 	timer_del(&so->so_timer_delack);
 	return total_len;
@@ -2010,7 +2004,7 @@ sock_tx_flush_if(struct route_if *ifp)
 			if (rc) {
 				return;
 			}
-			rc = gt_sock_xmit(ifp, &pkt, so);
+			rc = sock_tx(ifp, &pkt, so);
 			n++;
 		} while (rc == 0);
 		gt_sock_del_txq(so);
@@ -2235,8 +2229,8 @@ gt_sock_str(struct strbuf *sb, struct gt_sock *so)
 				", accepted=%u"
 				", ack=%u"
 				", wprobe=%u"
-				", rexmit=%u"
-				", nr_rexmit_tries=%u"
+				", retx=%u"
+				", ntx_tries=%u"
 				", dont_frag=%u"
 				", rshut=%u"
 				", rsyn=%u"
@@ -2263,8 +2257,8 @@ gt_sock_str(struct strbuf *sb, struct gt_sock *so)
 				so->so_accepted,
 				so->so_ack,
 				so->so_wprobe,
-				so->so_rexmit,
-				so->so_nr_rexmit_tries,
+				so->so_retx,
+				so->so_ntx_tries,
 				so->so_dont_frag,
 				so->so_rshut,
 				so->so_rsyn,
@@ -2627,7 +2621,7 @@ gt_sock_on_rcv(struct gt_sock *so, void *buf, int len,
 }
 
 static int
-gt_sock_xmit(struct route_if *ifp, struct dev_pkt *pkt,
+sock_tx(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so)
 {
 	int rc;
@@ -2642,17 +2636,17 @@ gt_sock_xmit(struct route_if *ifp, struct dev_pkt *pkt,
 			tcp_flags |= GT_TCP_FLAG_RST;
 		}
 		if (tcp_flags) { // TODO: ????
-			gt_sock_xmit_data(ifp, pkt, so, tcp_flags, 0);
+			tcp_tx_data(ifp, pkt, so, tcp_flags, 0);
 		}
 		return 1;
 	} else {
-		rc = gt_tcp_xmit(ifp, pkt, so);
+		rc = tcp_tx(ifp, pkt, so);
 		return rc;
 	}
 }
 
 static void
-gt_sock_xmit_data(struct route_if *ifp, struct dev_pkt *pkt,
+tcp_tx_data(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so, uint8_t tcp_flags, u_int len)
 {
 	int delack, sndwinup, total_len;
@@ -2667,7 +2661,7 @@ gt_sock_xmit_data(struct route_if *ifp, struct dev_pkt *pkt,
 	sndwinup = so->so_swndup;
 	eth_h = (struct gt_eth_hdr *)pkt->pkt_data;
 	eth_h->ethh_type = GT_ETH_TYPE_IP4_BE;
-	total_len = gt_tcp_fill(so, eth_h, &tcb, tcp_flags, len);
+	total_len = tcp_fill(so, eth_h, &tcb, tcp_flags, len);
 	pkt->pkt_len = sizeof(*eth_h) + total_len;
 	if (tcb.tcb_len) {
 		gt_tcps.tcps_sndpack++;
@@ -2681,8 +2675,8 @@ gt_sock_xmit_data(struct route_if *ifp, struct dev_pkt *pkt,
 		}
 	}
 	log = log_trace0();
-	DBG(log, 0, "hit; flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
-	    log_add_tcp_flags(so->so_proto, tcb.tcb_flags),
+	DBG(log, 0, "hit; if='%s', flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
+	    ifp->rif_name, log_add_tcp_flags(so->so_proto, tcb.tcb_flags),
 	    tcb.tcb_len, tcb.tcb_seq, tcb.tcb_ack, gt_sock_fd(so));
 	gt_arp_resolve(ifp, so->so_next_hop, pkt);
 }

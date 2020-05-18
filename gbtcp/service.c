@@ -1,21 +1,22 @@
 // GPL2 license
 #include "internals.h"
 
-static struct spinlock service_init_lock;
-
-struct init_hdr *ih;
-struct proc *current;
 
 struct service_mod {
 	struct log_scope log_scope;
 };
 
 static struct service_mod *curmod;
+static struct spinlock service_init_lock;
 
 #ifdef __linux__
 static int (*service_clone_fn)(void *);
 #else /* __linux__ */
 #endif /* __linux__ */
+
+extern struct init_hdr *ih;
+
+struct proc *current;
 
 int
 service_mod_init(struct log *log, void **pp)
@@ -214,7 +215,7 @@ service_init_locked(struct log *log)
 			goto err;
 		}
 	}
-	mod_foreach_mod_attach(log);
+	mod_foreach_mod_attach(log, ih);
 	strzcpy(current->p_comm, p_comm, sizeof(current->p_comm));
 	current->p_fd[P_SERVICE] = fd;
 	spinlock_unlock(&current->p_lock);
@@ -330,7 +331,8 @@ service_rxtx(struct dev *dev, short revents)
 }
 
 static void
-service_update_dev(struct log *log, struct route_if *ifp, int rss_qid)
+service_update_dev(struct log *log, struct proc *s,
+	struct route_if *ifp, int rss_qid)
 {
 	int id, ifflags;
 	char dev_name[NM_IFNAMSIZ];
@@ -338,9 +340,9 @@ service_update_dev(struct log *log, struct route_if *ifp, int rss_qid)
 
 	ifflags = READ_ONCE(ifp->rif_flags);
 	id = READ_ONCE(ih->ih_rss_table[rss_qid]);
-	dev = &(ifp->rif_dev[current->p_id][rss_qid]);
+	dev = &(ifp->rif_dev[s->p_id][rss_qid]);
 	if ((ifflags & IFF_UP) &&
-	    id == current->p_id &&
+	    id == s->p_id &&
 	    !dev_is_inited(dev)) {
 		snprintf(dev_name, sizeof(dev_name), "%s-%d",
 		         ifp->rif_name, rss_qid);
@@ -352,19 +354,33 @@ service_update_dev(struct log *log, struct route_if *ifp, int rss_qid)
 }
 
 void
-service_update_rss_table(struct log *log)
+service_update_rss_table(struct log *log, struct proc *s)
 {
 	int i;
 	struct route_if *ifp;
 
-	dbg("Update!");
 	LOG_TRACE(log);
 	ROUTE_IF_FOREACH(ifp) {
 		for (i = 0; i < ifp->rif_rss_nq; ++i) {
-			service_update_dev(log, ifp, i);
+			service_update_dev(log, s, ifp, i);
 		}
 	}
-	current->p_dirty_rss_table = 0;
+	s->p_dirty_rss_table = 0;
+}
+
+void
+service_clean_rss_table(struct proc *s)
+{
+	int i;
+	struct dev *dev;
+	struct route_if *ifp;
+
+	ROUTE_IF_FOREACH(ifp) {
+		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
+			dev = &(ifp->rif_dev[s->p_id][i]);
+			dev_clean(dev);
+		}
+	}
 }
 
 static void
@@ -375,13 +391,14 @@ service_in_parent()
 static void
 service_in_child(struct log *log)
 {
-	assert(0);
+	current = NULL;
 }
 
 int
 service_fork(struct log *log)
 {
 	int rc, pid;
+
 	LOG_TRACE(log);
 	rc = sys_fork(log);
 	if (rc >= 0) {

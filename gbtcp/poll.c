@@ -1,6 +1,6 @@
 #include "internals.h"
 
-struct gt_poll;
+struct poll;
 
 struct poll_mod {
 	struct log_scope log_scope;
@@ -8,13 +8,13 @@ struct poll_mod {
 
 struct poll_entry {
 	struct file_aio pe_aio;
-	struct gt_poll *pe_poll;
+	struct poll *pe_poll;
 	int pe_idx;
 	short pe_revents;
 	short pe_added;
 };
 
-struct gt_poll {
+struct poll {
 	struct pollfd p_pfds[2 * FD_SETSIZE];
 	struct poll_entry p_entries[FD_SETSIZE];
 	int p_npfds;
@@ -74,7 +74,7 @@ poll_aio(struct file_aio *aio, int fd, short events)
 }
 
 static int
-poll_load(struct gt_poll *poll, struct pollfd *pfds, int npfds, uint64_t to)
+poll_load(struct poll *poll, struct pollfd *pfds, int npfds, uint64_t to)
 {
 	int i, n, rc, fd;
 	struct pollfd *pfd;
@@ -105,7 +105,7 @@ poll_load(struct gt_poll *poll, struct pollfd *pfds, int npfds, uint64_t to)
 	return n;
 }
 static int
-poll_fill(struct gt_poll *poll, struct pollfd *pfds, int npfds)
+poll_fill(struct poll *poll, struct pollfd *pfds, int npfds)
 {
 	int i, n;
 	short revents;
@@ -131,7 +131,7 @@ int
 gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 {
 	int n, m, a, b, sys, rc;
-	struct gt_poll poll;
+	struct poll poll;
 	struct gt_fd_event_set set;
 
 	UNUSED(b);

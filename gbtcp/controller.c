@@ -10,7 +10,7 @@ static int nservices;
 static struct sysctl_conn *controller_listen;
 static struct pid_file controller_pid_file;
 
-extern struct init_hdr *ih;
+struct init_hdr *ih;
 
 #define controller (ih->ih_services)
 
@@ -150,11 +150,10 @@ static void
 controller_service_update_rss_table(struct log *log, struct proc *s)
 {
 	if (s == controller) {
-		service_update_rss_table(log);
+		service_update_rss_table(log, s);
 	} else {
 		controller_service_lock(log, s);
 		s->p_dirty_rss_table = 1;
-		dbg("DIRTY!! %d", s->p_id);
 		controller_service_unlock(s);
 	}
 }
@@ -213,14 +212,12 @@ controller_service_del(struct log *log, struct proc *s)
 	}
 	if (s->p_rss_nq) {
 		controller_balance_get_candidates(&x, NULL);
-		dbg("c %d", x->p_id);
 		for (i = 0; i < ih->ih_rss_nq; ++i) {
 			if (ih->ih_rss_table[i] == s->p_id) {
 				WRITE_ONCE(ih->ih_rss_table[i], x->p_id);
 				ASSERT(s->p_rss_nq > 0);
 				s->p_rss_nq--;
 				x->p_rss_nq++;
-				dbg("d rss=%d", i);
 			}
 		}
 		ASSERT(s->p_rss_nq == 0);
@@ -237,9 +234,7 @@ controller_service_add(struct log *log, struct proc *s, int pid)
 	s->p_pid = pid;
 	s->p_dirty_rss_table = 0;
 	s->p_rss_nq = 0;
-	dbg("a");
 	if (controller->p_rss_nq) {
-		dbg("b");
 		ASSERT(nservices == 1);
 		LOG_TRACE(log);
 		controller_service_del(log, controller);
@@ -298,7 +293,6 @@ controller_update_rss_table(struct log *log)
 			}
 		}
 	}
-	dbg("-- %d", rss_nq);
 	if (ih->ih_rss_nq > rss_nq) {
 		controller_rss_table_reduce(log, rss_nq);
 	} else if (ih->ih_rss_nq < rss_nq)  {
@@ -360,6 +354,7 @@ controller_service_conn_close(struct log *log, struct sysctl_conn *cp)
 	if (s != NULL) {
 		controller_service_check_deadlock(log, s);
 		controller_service_del(log, s);
+		service_clean_rss_table(s);
 		s->p_pid = 0;
 	}
 }
@@ -425,12 +420,11 @@ controller_init(int daemonize, const char *p_comm)
 		goto err;
 	}
 	rc = shm_init(log, (void **)&ih, sizeof(*ih));
-	dbg("inited %p", ih);
 	if (rc) {
 		goto err;
 	}
 	memset(ih, 0, sizeof(*ih));
-	rc = mod_foreach_mod_init(log);
+	rc = mod_foreach_mod_init(log, ih);
 	if (rc) {
 		goto err;
 	}
@@ -447,7 +441,7 @@ controller_init(int daemonize, const char *p_comm)
 	}
 	current = controller;
 	current->p_pid = pid;
-	rc = mod_foreach_mod_attach(log);
+	rc = mod_foreach_mod_attach(log, ih);
 	if (rc) {
 		goto err;
 	}
@@ -470,7 +464,7 @@ err:
 		mod_foreach_mod_service_deinit(log, s);
 	}
 	mod_foreach_mod_detach(log);
-	mod_foreach_mod_deinit(log);
+	mod_foreach_mod_deinit(log, ih);
 	shm_deinit(log);
 	sysctl_root_deinit(log);
 	pid_file_close(log, &controller_pid_file);

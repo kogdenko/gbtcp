@@ -72,6 +72,7 @@ void dev_mod_detach(struct log *);
 
 int dev_init(struct log *, struct dev *, const char *, dev_f);
 void dev_deinit(struct log *, struct dev *);
+void dev_clean(struct dev *);
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);
 int dev_not_empty_txr(struct dev *, struct dev_pkt *);

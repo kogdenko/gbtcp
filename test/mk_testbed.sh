@@ -22,6 +22,7 @@ while getopts "hbx" o; do
 done
 ip netns d t
 rmmod veth
+rmmod ixgbe
 rmmod netmap
 insmod $BASEDIR/netmap-`uname -r`.ko
 if [ $BENCH = 1 ]

@@ -166,9 +166,9 @@ sys_fork(struct log *log)
 			LOG_TRACE(log);
 			LOGF(log, LOG_ERR, -rc, "failed;");
 		}
-	} else if (rc && log != NULL) {
+	} else if (rc) {
 		LOG_TRACE(log);
-		LOGF(log, LOG_INFO, 0, "ok; pid=%d", rc);
+		LOGF(log, LOG_NOTICE, 0, "ok; pid=%d", rc);
 	}
 	return rc;
 }
@@ -185,7 +185,7 @@ restart:
 		ASSERT(rc);
 		if (rc == -EINTR) {
 			goto restart;
-		} else if (log != NULL) {
+		} else {
 			LOG_TRACE(log);
 			LOGF(log, LOG_ERR, -rc, "failed; path='%s'", path);
 		}

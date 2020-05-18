@@ -1,4 +1,4 @@
-/* GPL2 license */
+// GPL2 license
 #include "internals.h"
 
 struct api_mod {
@@ -27,6 +27,7 @@ api_lock()
 	int rc;
 	ptrdiff_t stack_off;
 
+	dbg("pid=%d", getpid());
 	stack_off = (u_char *)&rc - (u_char *)gt_signal_stack;
 	if (stack_off < gt_signal_stack_size) {
 		// Called from signal handler
@@ -937,6 +938,7 @@ gbtcp_epoll_create1(int flags)
 	struct log *log;
 
 	API_LOCK;
+	dbg("!!!!");
 	log = log_trace0();
 	LOGF(log, LOG_INFO, 0, "hit");
 	rc = sys_epoll_create1(log, EPOLL_CLOEXEC);
@@ -948,7 +950,7 @@ gbtcp_epoll_create1(int flags)
 		}
 	}
 	if (rc < 0) {
-		LOGF(log, LOG_INFO, -rc, "failed");
+		LOGF(log, LOG_INFO, -rc, "failed;");
 	} else {
 		LOGF(log, LOG_INFO, 0, "ok; fd=%d", rc);
 	}

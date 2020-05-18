@@ -569,6 +569,7 @@ loop(int idx, int affinity)
 		set_affinity(affinity + idx);
 	}
 	proc_idx = idx;
+	printf("loop %d\n", idx);
 	rc = event_queue_create();
 	if (rc < 0) {
 		return;
@@ -683,7 +684,9 @@ main(int argc, char **argv)
 	       ntohs(conf_addr.sin_port));
 	for (i = 1; i < nr_procs; ++i) {
 		rc = fork();
-		if (rc > 0) {
+		if (rc == 0) {
+			printf("child\n");
+			sleep(1000);
 			loop(i, affinity);
 		}
 	}

@@ -293,17 +293,20 @@ log_fill_pfx(struct log *bottom, u_int level, struct strbuf *sb)
 	static const char *L = "EACEWNID";
 
 	assert(level < 8);
-	strbuf_addf(sb, "[%c] ", L[level]);
-	bottom->lg_lower = NULL;
-	for (top = bottom; top->lg_upper != NULL; top = top->lg_upper) {
-		top->lg_upper->lg_lower = top;
-	}
-	strbuf_add_ch(sb, '[');
-	for (cur = top; cur != NULL; cur = cur->lg_lower) {
-		if (cur != top) {
-			strbuf_add(sb, STRSZ("->"));
+	strbuf_addf(sb, "[%c] [", L[level]);
+	if (1) {
+		strbuf_add_str(sb, bottom->lg_func);
+	} else {
+		bottom->lg_lower = NULL;
+		for (top = bottom; top->lg_upper != NULL; top = top->lg_upper) {
+			top->lg_upper->lg_lower = top;
 		}
-		strbuf_add_str(sb, cur->lg_func);
+		for (cur = top; cur != NULL; cur = cur->lg_lower) {
+			if (cur != top) {
+				strbuf_add(sb, STRSZ("->"));
+			}
+			strbuf_add_str(sb, cur->lg_func);
+		}
 	}
 	strbuf_add(sb, STRSZ("] "));
 }

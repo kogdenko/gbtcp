@@ -46,10 +46,10 @@ struct gt_sock {
 			u_int so_reuseport : 1;
 			u_int so_state : 4;
 			u_int so_wprobe : 1;
-			u_int so_rexmit : 1;
-			u_int so_rexmited : 1;
+			u_int so_retx : 1;
+			u_int so_retxed : 1;
 			u_int so_swndup : 1;
-			u_int so_nr_rexmit_tries : 3;
+			u_int so_ntx_tries : 3;
 			u_int so_dont_frag : 1;
 			u_int so_wshut : 1;
 			u_int so_rshut : 1;

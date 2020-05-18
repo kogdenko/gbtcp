@@ -113,6 +113,7 @@ struct strbuf;
 struct proc;
 struct dev;
 struct route_if;
+struct init_hdr;
 
 struct ethaddr {
 	uint8_t etha_bytes[ETHADDR_LEN];
