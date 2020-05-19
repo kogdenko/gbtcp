@@ -211,7 +211,7 @@ static int sock_tx(struct route_if *ifp, struct dev_pkt *pkt,
 static void tcp_tx_data(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_sock *so, uint8_t tcp_flags, u_int len);
 
-static int gt_sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt);
+static int sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt);
 
 static void gt_sock_sndbuf_pop(struct gt_sock *so, int cnt);
 
@@ -444,7 +444,7 @@ gt_sock_in(int ipproto, struct sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 		proto = GT_SO_IPPROTO_UDP;
 		break;
 	case IPPROTO_TCP:
-		gt_tcps.tcps_rcvtotal++;
+		tcps.tcps_rcvtotal++;
 		proto = GT_SO_IPPROTO_TCP;
 		break;
 	default:
@@ -707,7 +707,7 @@ gt_sock_accept(struct file *fp, struct sockaddr *addr, socklen_t *addrlen,
 	}
 	so->so_file.fl_opened = 1;
 	fd = gt_sock_fd(so);
-	gt_tcps.tcps_accepts++;
+	tcps.tcps_accepts++;
 	return fd;
 }
 
@@ -1072,10 +1072,10 @@ gt_tcp_set_state(struct gt_sock *so, int state)
 	    gt_sock_fd(so));
 	if (state != GT_TCP_S_CLOSED) {
 		ASSERT(state > so->so_state);
-		gt_tcps.tcps_states[state]++;
+		tcps.tcps_states[state]++;
 	}
 	if (so->so_state != GT_TCP_S_CLOSED) {
-		gt_tcps.tcps_states[so->so_state]--;
+		tcps.tcps_states[so->so_state]--;
 	}
 	so->so_state = state;
 	switch (so->so_state) {
@@ -1291,12 +1291,12 @@ tcp_tx_timo(struct timer *timer)
 	ASSERT(so->so_retx);
 	so->so_ssnt = 0;
 	so->so_sfin_sent = 0;
-	gt_tcps.tcps_rexmttimeo++;
+	tcps.tcps_rexmttimeo++;
 	log = log_trace0();
 	DBG(log, 0, "hit; fd=%d, state=%s",
 	    gt_sock_fd(so), tcp_state_str(so->so_state));
 	if (so->so_ntx_tries++ > 6) {
-		gt_tcps.tcps_timeoutdrop++;
+		tcps.tcps_timeoutdrop++;
 		gt_sock_set_err(so, GT_SOCK_ETIMEDOUT);
 		return;
 	}
@@ -1320,7 +1320,7 @@ tcp_wprobe_timo(struct timer *timer)
 	ASSERT(so->so_sfin_acked == 0);
 	ASSERT(so->so_retx == 0);
 	ASSERT(so->so_wprobe);
-	gt_tcps.tcps_sndprobe++;
+	tcps.tcps_sndprobe++;
 	gt_tcp_into_ackq(so);
 	tcp_wprobe_timer_set(so);
 }
@@ -1362,13 +1362,13 @@ gt_tcp_rcv_syn(struct gt_sock *lso, struct sock_tuple *so_tuple,
 
 	//ASSERT(lso->so_acceptq_len <= lso->so_backlog);
 	if (0 && lso->so_acceptq_len == lso->so_backlog) {
-		gt_tcps.tcps_listendrop++;
+		tcps.tcps_listendrop++;
 		return;
 	}
 	log = log_trace0();
 	so = gt_sock_new(log, 0, GT_SO_IPPROTO_TCP);
 	if (so == NULL) {
-		gt_tcps.tcps_rcvmemdrop++;
+		tcps.tcps_rcvmemdrop++;
 		return;
 	}
 	so->so_tuple = *so_tuple;
@@ -1380,7 +1380,7 @@ gt_tcp_rcv_syn(struct gt_sock *lso, struct sock_tuple *so_tuple,
 	            log_add_ipaddr(AF_INET, &so->so_tuple.sot_faddr),
 		    ntoh16(so->so_tuple.sot_fport),
 		    gt_sock_fd(lso), gt_sock_fd(so));
-		gt_tcps.tcps_badsyn++;
+		tcps.tcps_badsyn++;
 		gt_tcp_reset(so, tcb);
 		return;
 	} else {
@@ -1416,29 +1416,29 @@ gt_tcp_rcv_data(struct gt_sock *so, struct gt_tcpcb *tcb, uint8_t *payload)
 
 	off = gt_tcp_diff_seq(tcb->tcb_seq, so->so_rseq);
 	if (off == 0) {
-		gt_tcps.tcps_rcvpack++;
-		gt_tcps.tcps_rcvbyte += tcb->tcb_len;
+		tcps.tcps_rcvpack++;
+		tcps.tcps_rcvbyte += tcb->tcb_len;
 		n = tcb->tcb_len;
 	} else if (off == tcb->tcb_len) {
-		gt_tcps.tcps_rcvduppack++;
-		gt_tcps.tcps_rcvdupbyte += tcb->tcb_len;
+		tcps.tcps_rcvduppack++;
+		tcps.tcps_rcvdupbyte += tcb->tcb_len;
 		return;
 	} else if (off > tcb->tcb_len) {
-		gt_tcps.tcps_pawsdrop++;
+		tcps.tcps_pawsdrop++;
 		return;
 	} else {	
 		n = tcb->tcb_len - off;
-		gt_tcps.tcps_rcvpartduppack++;
-		gt_tcps.tcps_rcvpartdupbyte += n;
+		tcps.tcps_rcvpartduppack++;
+		tcps.tcps_rcvpartdupbyte += n;
 	}
 	n = tcb->tcb_len - off;
 	rc = gt_sock_on_rcv(so, payload, n, &so->so_tuple);
 	if (rc < 0) {
-		gt_tcps.tcps_rcvmemdrop++;
+		tcps.tcps_rcvmemdrop++;
 		return;
 	} else if (rc < n) {
-		gt_tcps.tcps_rcvpackafterwin++;
-		gt_tcps.tcps_rcvbyteafterwin += n - rc;
+		tcps.tcps_rcvpackafterwin++;
+		tcps.tcps_rcvbyteafterwin += n - rc;
 	}
 	if (rc > 0) {
 		so->so_rseq += rc;
@@ -1494,9 +1494,9 @@ gt_tcp_rcv_open(struct gt_sock *so, struct gt_tcpcb *tcb, void *payload)
 
 	if (tcb->tcb_flags & GT_TCP_FLAG_RST) {
 		// TODO: check seq
-		gt_tcps.tcps_drops++;
+		tcps.tcps_drops++;
 		if (so->so_state < GT_TCP_S_ESTABLISHED) {
-			gt_tcps.tcps_conndrops++;
+			tcps.tcps_conndrops++;
 			gt_sock_set_err(so, GT_SOCK_ECONNREFUSED);
 		} else {
 			gt_sock_set_err(so, GT_SOCK_ECONNRESET);
@@ -1523,7 +1523,7 @@ gt_tcp_rcv_open(struct gt_sock *so, struct gt_tcpcb *tcb, void *payload)
 		gt_tcp_rcv_syn_sent(so, tcb);
 		return;
 	case GT_TCP_S_CLOSED:
-		gt_tcps.tcps_rcvafterclose++;
+		tcps.tcps_rcvafterclose++;
 		return;
 	case GT_TCP_S_SYN_RCVD:
 		break;
@@ -1553,8 +1553,8 @@ gt_tcp_is_in_order(struct gt_sock *so, struct gt_tcpcb *tcb)
 		DBG(log, 0, "out of order; flags=%s, seq=%u, len=%u, %s",
 		    log_add_tcp_flags(so->so_proto, tcb->tcb_flags),
 		    tcb->tcb_seq, len, gt_log_add_sock(so));
-		gt_tcps.tcps_rcvoopack++;
-		gt_tcps.tcps_rcvoobyte += tcb->tcb_len;
+		tcps.tcps_rcvoopack++;
+		tcps.tcps_rcvoobyte += tcb->tcb_len;
 		return 0;
 	} else {
 		return 1;
@@ -1571,9 +1571,9 @@ gt_tcp_process_badack(struct gt_sock *so, uint32_t acked)
 		//gt_tcp_out_rst(so, in);
 	}
 	if (acked > UINT32_MAX / 2) {
-		gt_tcps.tcps_rcvdupack++;
+		tcps.tcps_rcvdupack++;
 	} else {
-		gt_tcps.tcps_rcvacktoomuch++;
+		tcps.tcps_rcvacktoomuch++;
 	}
 	return -1;
 }
@@ -1583,7 +1583,7 @@ gt_tcp_establish(struct gt_sock *so)
 {
 	struct gt_sock *lso;
 
-	gt_tcps.tcps_connects++;
+	tcps.tcps_connects++;
 	if (so->so_err == GT_SOCK_EINPROGRESS) {
 		so->so_err = 0;
 	}
@@ -1659,8 +1659,8 @@ gt_tcp_process_ack(struct gt_sock *so, struct gt_tcpcb *tcb)
 		so->so_sack += acked;
 		so->so_ssnt -= acked;
 		gt_sock_sndbuf_pop(so, acked);
-		gt_tcps.tcps_rcvackpack++;
-		gt_tcps.tcps_rcvackbyte += acked;
+		tcps.tcps_rcvackpack++;
+		tcps.tcps_rcvackbyte += acked;
 	}
 	if (so->so_ssnt == 0) {
 		rc = gt_tcp_process_ack_complete(so);
@@ -1766,7 +1766,7 @@ gt_tcp_send(struct gt_sock *so, const struct iovec *iov, int iovcnt, int flags)
 		if (cnt <= 0) {
 			continue;
 		}
-		rc = gt_sock_sndbuf_add(so, iov[i].iov_base, cnt);
+		rc = sock_sndbuf_add(so, iov[i].iov_base, cnt);
 		if (rc < 0) {
 			if (n == 0) {
 				return rc;
@@ -1978,8 +1978,8 @@ tcp_fill(struct gt_sock *so, struct gt_eth_hdr *eth_h, struct gt_tcpcb *tcb,
 	if (tcb->tcb_len || (tcp_flags & (GT_TCP_FLAG_SYN|GT_TCP_FLAG_FIN))) {
 		if (so->so_retxed) {
 			so->so_retxed = 0;
-			gt_tcps.tcps_sndrexmitpack++;
-			gt_tcps.tcps_sndrexmitbyte += tcb->tcb_len;
+			tcps.tcps_sndrexmitpack++;
+			tcps.tcps_sndrexmitbyte += tcb->tcb_len;
 		}
 		tcp_tx_timer_set(so);
 	}
@@ -2443,7 +2443,7 @@ sock_route(struct gt_sock *so, struct route_entry *r)
 	r->rt_dst.ipa_4 = so->so_tuple.sot_faddr;
 	rc = route_get4(so->so_tuple.sot_laddr, r);
 	if (rc) {
-		gt_ips.ips_noroute++;
+		ips.ips_noroute++;
 	} else {
 		so->so_next_hop = route_get_next_hop4(r);
 	}
@@ -2561,7 +2561,7 @@ gt_sock_del(struct gt_sock *so)
 	log = log_trace0();
 	DBG(log, 0, "hit; fd=%d", gt_sock_fd(so));
 	if (so->so_proto == GT_SO_IPPROTO_TCP) {
-		gt_tcps.tcps_closed++;
+		tcps.tcps_closed++;
 	}
 	file_free(&so->so_file);
 	gt_sock_dec_nr_opened();
@@ -2655,8 +2655,8 @@ tcp_tx_data(struct route_if *ifp, struct dev_pkt *pkt,
 	struct gt_eth_hdr *eth_h;
 
 	ASSERT(tcp_flags);
-	gt_ips.ips_localout++;
-	gt_tcps.tcps_sndtotal++;
+	ips.ips_localout++;
+	tcps.tcps_sndtotal++;
 	delack = timer_is_running(&so->so_timer_delack);
 	sndwinup = so->so_swndup;
 	eth_h = (struct gt_eth_hdr *)pkt->pkt_data;
@@ -2664,14 +2664,14 @@ tcp_tx_data(struct route_if *ifp, struct dev_pkt *pkt,
 	total_len = tcp_fill(so, eth_h, &tcb, tcp_flags, len);
 	pkt->pkt_len = sizeof(*eth_h) + total_len;
 	if (tcb.tcb_len) {
-		gt_tcps.tcps_sndpack++;
-		gt_tcps.tcps_sndbyte += tcb.tcb_len;
+		tcps.tcps_sndpack++;
+		tcps.tcps_sndbyte += tcb.tcb_len;
 	} else if (tcb.tcb_flags == GT_TCP_FLAG_ACK) {
-		gt_tcps.tcps_sndacks++;
+		tcps.tcps_sndacks++;
 		if (delack) {
-			gt_tcps.tcps_delack++;
+			tcps.tcps_delack++;
 		} else if (sndwinup) {
-			gt_tcps.tcps_sndwinup++;
+			tcps.tcps_sndwinup++;
 		}
 	}
 	log = log_trace0();
@@ -2682,7 +2682,7 @@ tcp_tx_data(struct route_if *ifp, struct dev_pkt *pkt,
 }
 
 static int
-gt_sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt)
+sock_sndbuf_add(struct gt_sock *so, const void *src, int cnt)
 {
 	int rc;
 	struct log *log;

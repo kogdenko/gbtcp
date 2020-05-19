@@ -683,10 +683,10 @@ main(int argc, char **argv)
 	       inet_ntoa(conf_addr.sin_addr),
 	       ntohs(conf_addr.sin_port));
 	for (i = 1; i < nr_procs; ++i) {
+		printf("fork\n");
 		rc = fork();
+		printf("fork ret %d\n", rc);
 		if (rc == 0) {
-			printf("child\n");
-			sleep(1000);
 			loop(i, affinity);
 		}
 	}

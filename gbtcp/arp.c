@@ -77,12 +77,12 @@ gt_arp_entry_add_incomplete(struct log *log, struct arp_entry *e,
 	if (e->ae_incomplete_q != NULL) {
 		cp = e->ae_incomplete_q;
 		e->ae_incomplete_q = NULL;
-		gt_arps.arps_dropped++;
+		arps.arps_dropped++;
 	} else {
 		rc = mbuf_alloc(log, &current->p_arp_incomplete_pool,
 		                (struct mbuf **)&cp);
 		if (rc) {
-			gt_arps.arps_dropped++;
+			arps.arps_dropped++;
 			return;
 		}
 	}
@@ -118,7 +118,7 @@ arp_tx_incomplete_q(struct arp_entry *e)
 	if (e->ae_next_hop != next_hop) {
 drop:
 		mbuf_free(&x->pkt_mbuf);
-		gt_arps.arps_dropped++;
+		arps.arps_dropped++;
 		return;
 	}
 	rc = route_if_not_empty_txr(route.rt_ifp, &pkt);
@@ -186,7 +186,7 @@ gt_arp_tx_probe(struct arp_entry *e)
 	}
 	pkt.pkt_len = len;
 	route_if_tx(route.rt_ifp, &pkt);
-	gt_arps.arps_txrequests++;
+	arps.arps_txrequests++;
 }
 
 static uint32_t
@@ -446,7 +446,7 @@ gt_arp_probe_timeout(struct timer *timer)
 	struct log *log;
 	struct arp_entry *e;
 
-	gt_arps.arps_timeouts++;
+	arps.arps_timeouts++;
 	e = container_of(timer, struct arp_entry, ae_timer);
 	if (!gt_arp_is_probeing(e->ae_state)) {
 		return;
@@ -621,7 +621,7 @@ gt_arp_reply(struct route_if *ifp, struct gt_arp_hdr *in_arp_h)
 	rc = route_if_not_empty_txr(ifp, &pkt);
 	if (rc) {
 		ifp->rif_cnt_tx_drop++;
-		gt_arps.arps_txrepliesdropped++;
+		arps.arps_txrepliesdropped++;
 		return;
 	}
 	pkt.pkt_len = sizeof(*eh) + sizeof(*arp_h);
@@ -639,6 +639,6 @@ gt_arp_reply(struct route_if *ifp, struct gt_arp_hdr *in_arp_h)
 	arp_h->arph_data.arpip_sip = in_arp_h->arph_data.arpip_tip;
 	arp_h->arph_data.arpip_tha = in_arp_h->arph_data.arpip_sha;
 	arp_h->arph_data.arpip_tip = in_arp_h->arph_data.arpip_sip;
-	gt_arps.arps_txreplies++;
+	arps.arps_txreplies++;
 	route_if_tx(ifp, &pkt);
 }

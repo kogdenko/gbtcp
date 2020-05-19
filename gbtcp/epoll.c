@@ -12,7 +12,7 @@ struct epoll_mod {
 struct epoll {
 	struct file ep_file;
 	int ep_fd;
-	struct mbuf_pool ep_pool;
+	struct mbuf_pool *ep_pool;
 	struct dlist ep_head;
 };
 
@@ -31,7 +31,7 @@ struct epoll_entry {
 
 static struct epoll_mod *curmod;
 
-static void uepoll_entry_set(struct epoll_entry *, struct file *, short);
+static void epoll_entry_set(struct epoll_entry *, struct file *, short);
 
 int
 epoll_mod_init(struct log *log, void **pp)
@@ -74,13 +74,13 @@ epoll_mod_detach(struct log *log)
 }
 
 static struct epoll_entry *
-uepoll_entry_get(struct epoll *ep, struct file *fp)
+epoll_entry_get(struct epoll *ep, struct file *fp)
 {
 	struct mbuf *m;
 	struct epoll_entry *e;
 
 	DLIST_FOREACH(m, &fp->fl_aioq, mb_list) {
-		if (mbuf_get_pool(m) == &ep->ep_pool) {
+		if (mbuf_get_pool(m) == ep->ep_pool) {
 			e = (struct epoll_entry *)m;
 			return e;
 		}
@@ -88,11 +88,11 @@ uepoll_entry_get(struct epoll *ep, struct file *fp)
 	return NULL;
 }
 static struct epoll_entry *
-uepoll_entry_alloc(struct epoll *ep, struct file *fp, short filter)
+epoll_entry_alloc(struct epoll *ep, struct file *fp, short filter)
 {
 	int rc;
         struct epoll_entry *e;
-	rc = mbuf_alloc(NULL, &ep->ep_pool, (struct mbuf **)&e);
+	rc = mbuf_alloc(NULL, ep->ep_pool, (struct mbuf **)&e);
 	if (rc) {
 		return NULL;
 	}
@@ -101,32 +101,32 @@ uepoll_entry_alloc(struct epoll *ep, struct file *fp, short filter)
 	e->epe_ep = ep;
 	e->epe_fd = file_get_fd(fp);
 	file_aio_init(&e->epe_aio);
-	uepoll_entry_set(e, fp, filter);
+	epoll_entry_set(e, fp, filter);
 	return e;
 }
 static void
-uepoll_entry_remove(struct epoll_entry *e)
+epoll_entry_remove(struct epoll_entry *e)
 {
 	ASSERT(e->epe_revents);
 	DLIST_REMOVE(e, epe_list);
 	e->epe_revents = 0;
 }
 static void
-uepoll_entry_free(struct epoll_entry *e)
+epoll_entry_free(struct epoll_entry *e)
 {
 	if (e->epe_revents) {
-		uepoll_entry_remove(e);
+		epoll_entry_remove(e);
 	}
 	file_aio_cancel(&e->epe_aio);
 	mbuf_free(&e->epe_aio.faio_mbuf);
 }
 static void
-uepoll_entry_cb(struct file_aio *aio, int fd, short revents)
+epoll_entry_cb(struct file_aio *aio, int fd, short revents)
 {
 	struct epoll_entry *e;
 	e = (struct epoll_entry *)aio;
 	if (revents & POLLNVAL) {
-		uepoll_entry_free(e);
+		epoll_entry_free(e);
 	} else {
 		ASSERT(revents);
 		if (e->epe_revents == 0) {
@@ -137,19 +137,19 @@ uepoll_entry_cb(struct file_aio *aio, int fd, short revents)
 	}
 }
 static void
-uepoll_entry_set(struct epoll_entry *e, struct file *fp, short filter)
+epoll_entry_set(struct epoll_entry *e, struct file *fp, short filter)
 {
 	if (e->epe_aio.faio_filter != filter) {
 		if (e->epe_revents) {
 			DLIST_REMOVE(e, epe_list);
 			e->epe_revents = 0;
 		}	
-		file_aio_set(fp, &e->epe_aio, filter, uepoll_entry_cb);
+		file_aio_set(fp, &e->epe_aio, filter, epoll_entry_cb);
 	}
 }
 #ifdef __linux__
 static void
-uepoll_entry_get_event(struct epoll_entry *e, epoll_event_t *event,
+epoll_entry_get_event(struct epoll_entry *e, epoll_event_t *event,
 	struct file *fp)
 {
 	short x, y;
@@ -172,7 +172,7 @@ uepoll_entry_get_event(struct epoll_entry *e, epoll_event_t *event,
 }
 #else /* __linux__ */
 static void
-uepoll_entry_get_event(struct epoll_entry *e,
+epoll_entry_get_event(struct epoll_entry *e,
 	epoll_event_t *event, struct file *fp)
 {
 	short x, filter;
@@ -205,7 +205,7 @@ uepoll_entry_get_event(struct epoll_entry *e,
 }
 #endif /* __linux__ */
 static int
-uepoll_get(int fd, struct epoll **ep)
+epoll_get(int fd, struct epoll **ep)
 {
 	int rc;
 	struct file *fp;
@@ -220,7 +220,7 @@ uepoll_get(int fd, struct epoll **ep)
 	return 0;
 }
 static int
-uepoll_get_events(struct epoll *ep, epoll_event_t *buf, int cnt)
+epoll_get_events(struct epoll *ep, epoll_event_t *buf, int cnt)
 {
 	int n, rc;
 	short revents;
@@ -243,21 +243,21 @@ uepoll_get_events(struct epoll *ep, epoll_event_t *buf, int cnt)
 		if ((e->epe_flags & UEPOLL_FLAG_ADDED) == 0) {
 			revents = file_get_events(fp, &e->epe_aio);
 			if (revents == 0) {
-				uepoll_entry_remove(e);
+				epoll_entry_remove(e);
 				continue;
 			}
 			e->epe_revents = revents;
 		}
 		e->epe_flags &= ~UEPOLL_FLAG_ADDED;
-		uepoll_entry_get_event(e, buf + n, fp);
+		epoll_entry_get_event(e, buf + n, fp);
 		log = log_trace0();
 		DBG(log, 0, "hit; fd=%d, events=%s",
 		    e->epe_fd, log_add_poll_events(e->epe_revents));
 		if (e->epe_flags & UEPOLL_FLAG_ET) {
-			uepoll_entry_remove(e);
+			epoll_entry_remove(e);
 		}
 		if (e->epe_flags & UEPOLL_FLAG_ONESHOT) {
-			uepoll_entry_free(e);
+			epoll_entry_free(e);
 		}
 		n++;
 		if (n == cnt) {
@@ -286,7 +286,7 @@ epoll_wait_fd(int fd, epoll_event_t *buf, int cnt)
 	return rc;
 }
 static int
-uepoll_kevent_mod(struct epoll *ep, struct file *fp, struct kevent *event)
+kevent_mod(struct epoll *ep, struct file *fp, struct kevent *event)
 {
 	short filter;
 	struct epoll_entry *e;
@@ -306,19 +306,19 @@ uepoll_kevent_mod(struct epoll *ep, struct file *fp, struct kevent *event)
 	default:
 		return -EINVAL;
 	}
-	e = uepoll_entry_get(ep, fp);
+	e = epoll_entry_get(ep, fp);
 	if (event->flags & EV_DELETE) {
 		if (e == NULL) {
 			return -ENOENT;
 		}
-		uepoll_entry_free(e);
+		epoll_entry_free(e);
 		return 0;
 	}
 	if (e == NULL) {
 		if ((event->flags & EV_ADD) == 0) {
 			return -ENOENT;
 		}
-		e = uepoll_entry_alloc(ep, fp, filter);
+		e = epoll_entry_alloc(ep, fp, filter);
 		if (e == NULL) {
 			return -ENOMEM;
 		}
@@ -344,7 +344,7 @@ uepoll_kevent_mod(struct epoll *ep, struct file *fp, struct kevent *event)
 }
 #endif /* __linux__ */
 int
-uepoll_create(int ep_fd)
+u_epoll_create(int ep_fd)
 {
 	int rc, fd;
 	struct log *log;
@@ -359,13 +359,19 @@ uepoll_create(int ep_fd)
 	fp->fl_opened = 1;
 	ep = (struct epoll *)fp;
 	ep->ep_fd = ep_fd;
-	mbuf_pool_init(&ep->ep_pool, sizeof(struct epoll_entry));
+	rc = shm_alloc(NULL, (void **)&ep->ep_pool, sizeof(*ep->ep_pool));
+	if (rc) {
+		file_free(fp);
+		return rc;
+	}
+	mbuf_pool_init(ep->ep_pool, sizeof(struct epoll_entry));
 	dlist_init(&ep->ep_head);
 	fd = file_get_fd(fp);
 	return fd;
 }
+
 int
-uepoll_close(struct file *fp)
+u_epoll_close(struct file *fp)
 {
 	int rc, tmp;
 	struct mbuf *m;
@@ -377,33 +383,34 @@ uepoll_close(struct file *fp)
 	if (rc == -1) {
 		rc = errno;
 	}
-	MBUF_FOREACH_SAFE(m, &ep->ep_pool, tmp) {
+	MBUF_FOREACH_SAFE(m, ep->ep_pool, tmp) {
 		e = (struct epoll_entry *)m;
-		uepoll_entry_free(e);
+		epoll_entry_free(e);
 	}
-	ASSERT(mbuf_pool_is_empty(&ep->ep_pool));
-	mbuf_pool_deinit(&ep->ep_pool);
+	ASSERT(mbuf_pool_is_empty(ep->ep_pool));
+	mbuf_pool_deinit(ep->ep_pool);
+	shm_free(ep->ep_pool);
 	file_free(fp);
 	return rc;
 }
 
 int
-uepoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
+u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 	uint64_t to, const sigset_t *sigmask)
 {
 	int rc, n;
-	struct pollfd pfds[1 + GT_FD_EVENTS_MAX];
+	struct pollfd pfds[1 + FD_EVENTS_MAX];
 	struct epoll *ep;
 	struct gt_fd_event_set set;
 
 	if (cnt <= 0) {
 		return -EINVAL;
 	}
-	rc = uepoll_get(ep_fd, &ep);
+	rc = epoll_get(ep_fd, &ep);
 	if (rc) {
 		return rc;
 	}
-	n = uepoll_get_events(ep, buf, cnt);
+	n = epoll_get_events(ep, buf, cnt);
 	if (n) {
 		return n;
 	}
@@ -423,7 +430,7 @@ uepoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 		if (rc < 0) {
 			return rc;
 		}
-		rc = uepoll_get(ep_fd, &ep);
+		rc = epoll_get(ep_fd, &ep);
 		if (rc) {
 			return rc;
 		}
@@ -437,14 +444,14 @@ uepoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 				n += rc;
 			}
 		}
-		n += uepoll_get_events(ep, buf + n, cnt - n);
+		n += epoll_get_events(ep, buf + n, cnt - n);
 	} while (n == 0 && set.fdes_to > 0);
 	return n;
 }
 
 #ifdef __linux__
 int
-uepoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
+u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 {
 	int rc, filter;
 	struct file *fp;
@@ -454,7 +461,7 @@ uepoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 	if (ep_fd == fd) {
 		return -EINVAL;
 	}
-	rc = uepoll_get(ep_fd, &ep);
+	rc = epoll_get(ep_fd, &ep);
 	if (rc) {
 		return rc;
 	}
@@ -477,11 +484,11 @@ uepoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 	if (event->events & EPOLLRDHUP) {
 		filter |= POLLRDHUP;
 	}
-	e = uepoll_entry_get(ep, fp);
+	e = epoll_entry_get(ep, fp);
 	if (e == NULL) {
 		switch (op) {
 		case EPOLL_CTL_ADD:
-			e = uepoll_entry_alloc(ep, fp, filter);
+			e = epoll_entry_alloc(ep, fp, filter);
 			if (e == NULL) {
 				return -ENOMEM;
 			}
@@ -497,10 +504,10 @@ uepoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 		case EPOLL_CTL_ADD:
 			return -EEXIST;
 		case EPOLL_CTL_MOD:
-			uepoll_entry_set(e, fp, filter);
+			epoll_entry_set(e, fp, filter);
 			break;
 		case EPOLL_CTL_DEL:
-			uepoll_entry_free(e);
+			epoll_entry_free(e);
 			return 0;
 		default:
 			return -EINVAL;
@@ -521,7 +528,7 @@ uepoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 }
 #else /* __linux__ */
 int
-upoll_kevent(int kq, const struct kevent *changelist, int nchanges,
+u_kevent(int kq, const struct kevent *changelist, int nchanges,
 	struct kevent *eventlist, int nevents, const struct timespec *timeout)
 {
 	int i, rc;
@@ -530,7 +537,7 @@ upoll_kevent(int kq, const struct kevent *changelist, int nchanges,
 	struct file *fp;
 	struct epoll *ep;
 
-	rc = uepoll_get(kq, &ep);
+	rc = epoll_get(kq, &ep);
 	if (rc) {
 		return rc;
 	}
@@ -545,7 +552,7 @@ upoll_kevent(int kq, const struct kevent *changelist, int nchanges,
 				GT_ASSERT(rc);
 			}
 		} else {
-			rc = uepoll_kevent_mod(ep, fp, event);
+			rc = kevent_mod(ep, fp, event);
 		}
 		if (rc < 0) {
 			if (nevents) {
@@ -566,7 +573,7 @@ upoll_kevent(int kq, const struct kevent *changelist, int nchanges,
 		} else {
 			to = GT_SEC * timeout->tv_sec + timeout->tv_nsec;
 		}
-		rc = uepoll_pwait(kq, eventlist, nevents, to, NULL);
+		rc = u_epoll_pwait(kq, eventlist, nevents, to, NULL);
 	} else {
 		rc = 0;
 	}

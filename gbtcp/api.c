@@ -14,12 +14,7 @@ static struct api_mod *curmod;
 		API_RETURN(-ENOTSUP); \
 	}
 
-#define API_UNLOCK \
-	do { \
-		gt_fd_event_mod_try_check(); \
-		api_locked--; \
-		SERVICE_UNLOCK; \
-	} while (0)
+#define API_UNLOCK api_unlock()
 
 static inline int
 api_lock()
@@ -27,7 +22,7 @@ api_lock()
 	int rc;
 	ptrdiff_t stack_off;
 
-	dbg("pid=%d", getpid());
+//	dbg("pid=%d", getpid());
 	stack_off = (u_char *)&rc - (u_char *)gt_signal_stack;
 	if (stack_off < gt_signal_stack_size) {
 		// Called from signal handler
@@ -48,6 +43,17 @@ api_lock()
 	}
 	SERVICE_LOCK;
 	return 1;
+}
+
+static inline void
+api_unlock()
+{
+	api_locked--;
+	if (current != NULL) {
+		gt_fd_event_mod_try_check(); \
+		SERVICE_UNLOCK; \
+	}
+	
 }
 
 int
@@ -938,13 +944,12 @@ gbtcp_epoll_create1(int flags)
 	struct log *log;
 
 	API_LOCK;
-	dbg("!!!!");
 	log = log_trace0();
 	LOGF(log, LOG_INFO, 0, "hit");
 	rc = sys_epoll_create1(log, EPOLL_CLOEXEC);
 	if (rc >= 0) {
 		fd = rc;
-		rc = uepoll_create(fd);
+		rc = u_epoll_create(fd);
 		if (rc < 0) {
 			sys_close(log, fd);
 		}
@@ -957,6 +962,7 @@ gbtcp_epoll_create1(int flags)
 	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
@@ -968,7 +974,7 @@ gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	DBG(log, 0, "hit; epfd=%d, op=%s, fd=%d, events={%s}",
 	    epfd, log_add_epoll_op(op), fd,
 	    log_add_epoll_event_events(event->events));
-	rc = uepoll_ctl(epfd, op, fd, event);
+	rc = u_epoll_ctl(epfd, op, fd, event);
 	if (rc) {
 		DBG(log, -rc, "failed");
 	} else {
@@ -977,6 +983,7 @@ gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 gbtcp_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 	int timeout_ms, const sigset_t *sigmask)
@@ -993,7 +1000,7 @@ gbtcp_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 	API_LOCK;
 	log = log_trace0();
 	DBG(log, 0, "hit; epfd=%d", epfd);
-	rc = uepoll_pwait(epfd, events, maxevents, to, sigmask);
+	rc = u_epoll_pwait(epfd, events, maxevents, to, sigmask);
 	if (rc < 0) {
 		DBG(log, -rc, "failed");
 	} else {

@@ -206,43 +206,37 @@ struct gt_inet_context {
 	void *inp_payload;
 };
 
-#define GT_INET_TCP_STAT_VAR(n) uint64_t tcps_##n;
-struct gt_tcp_stat {
-	GT_TCP_STAT(GT_INET_TCP_STAT_VAR)
+#define TCP_STAT_DECLARE(n) uint64_t tcps_##n;
+struct tcp_stat {
+	GT_TCP_STAT(TCP_STAT_DECLARE)
 	uint64_t tcps_states[GT_TCP_NSTATES];
 };
-#undef GT_INET_TCP_STAT_VAR
+#undef TCP_STAT_DECLARE
 
-#define GT_INET_UDP_STAT_VAR(n) uint64_t udps_##n;
-struct gt_udp_stat {
-	GT_UDP_STAT(GT_INET_UDP_STAT_VAR)
+#define UDP_STAT_DECLARE(n) uint64_t udps_##n;
+struct udp_stat {
+	GT_UDP_STAT(UDP_STAT_DECLARE)
 };
-#undef GT_INET_UDP_STAT_VAR
+#undef UDP_STAT_DECLARE
 
-#define GT_INET_IP_STAT_VAR(n) uint64_t ips_##n;
-struct gt_ip_stat {
-	GT_IP_STAT(GT_INET_IP_STAT_VAR)
+#define IP_STAT_DECLARE(n) uint64_t ips_##n;
+struct ip_stat {
+	GT_IP_STAT(IP_STAT_DECLARE)
 };
-#undef GT_INET_IP_STAT_VAR
+#undef IP_STAT_DECLARE
 
-#define GT_INET_ICMP_STAT_VAR(n) uint64_t icmps_##n;
-struct gt_icmp_stat {
-	GT_ICMP_STAT(GT_INET_ICMP_STAT_VAR)
+#define ICMP_STAT_DECLARE(n) uint64_t icmps_##n;
+struct icmp_stat {
+	GT_ICMP_STAT(ICMP_STAT_DECLARE)
 	uint64_t icmps_inhist[ICMP_MAXTYPE + 1];
 };
-#undef GT_INET_ICMP_STAT_VAR
+#undef ICMP_STAT_DECLARE
 
-#define GT_INET_ARP_STAT_VAR(n) uint64_t arps_##n;
-struct gt_arp_stat {
-	GT_ARP_STAT(GT_INET_ARP_STAT_VAR)
+#define ARP_STAT_DECLARE(n) uint64_t arps_##n;
+struct arp_stat {
+	GT_ARP_STAT(ARP_STAT_DECLARE)
 };
-#undef GT_INET_ARP_STAT_VAR
-
-extern struct gt_tcp_stat gt_tcps;
-extern struct gt_udp_stat gt_udps;
-extern struct gt_ip_stat gt_ips;
-extern struct gt_icmp_stat gt_icmps;
-extern struct gt_arp_stat gt_arps;
+#undef ARP_STAT_DECLARE
 
 #define GT_IP4_HDR_LEN(ver_ihl)	(((ver_ihl) & 0x0f) << 2)
 

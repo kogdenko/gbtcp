@@ -390,6 +390,7 @@ int
 controller_init(int daemonize, const char *p_comm)
 {
 	int i, rc, pid;
+	uint64_t hz;
 	struct log *log;
 	struct proc *s;
 
@@ -428,8 +429,10 @@ controller_init(int daemonize, const char *p_comm)
 	if (rc) {
 		goto err;
 	}
+	hz = sleep_compute_hz();
+	set_hz(hz);
 	ih->ih_version = IH_VERSION;
-	ih->ih_hz = sleep_compute_hz();
+	ih->ih_hz = hz;
 	ih->ih_rss_nq = 0;
 	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
 		s = ih->ih_services + i;

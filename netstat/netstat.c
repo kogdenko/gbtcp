@@ -84,13 +84,7 @@ LIST_HEAD(netif_head, netif);
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif
 
-#ifndef dbg
-#define dbg(fmt, ...) do { \
-	printf("%-20s %-5d %-20s: ", __FILE__, __LINE__, __func__); \
-	printf(fmt, ##__VA_ARGS__); \
-	printf("\n"); \
-} while (0)
-#endif /* dbg */
+#define dbg gt_dbg
 
 static char *
 strzcpy(char *dest, const char *src, size_t n)
@@ -113,17 +107,14 @@ xsysctl(const char *path, char *old, const char *new)
 	int rc;
 
 	rc = gt_sysctl(path, old, new);
-	if (rc >= 0) {
-		return 0;
-	} else {
+	if (rc < 0) {
 		rc = -gbtcp_errno;
-		assert(rc < 0);
-		if (rc != -ENOENT) {
-			warnx("gt_sysctl('%s') failed (%s)",
-			      path, strerror(-rc));
-		}
+		warnx("gt_sysctl('%s') failed (%s)", path, strerror(-rc));
 		return rc;
+	} else if (rc > 0) {
+		warnx("gt_sysctl('%s') error (%s)", path, strerror(rc));		
 	}
+	return rc;
 }
 
 static void *

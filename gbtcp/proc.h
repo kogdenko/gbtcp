@@ -16,9 +16,15 @@
 #define P_SERVICE 0
 #define P_CONTROLLER 1
 
+#define tcps (current->p_tcps)
+#define udps (current->p_udps)
+#define ips (current->p_ips)
+#define icmps (current->p_icmps)
+#define arps (current->p_arps)
+
 #define SERVICE_LOCK do { \
 	spinlock_lock(&current->p_lock); \
-	rdtsc_update_time(); \
+	rd_nanoseconds(); \
 	if (current->p_dirty_rss_table) { \
 		service_update_rss_table(NULL, current); \
 	} \
@@ -26,6 +32,10 @@
 
 #define SERVICE_UNLOCK \
 	spinlock_unlock(&current->p_lock)
+
+#define SERVICE_FOREACH(s) \
+	for ((s) = ih->ih_services; \
+	     (s) != ih->ih_services + ARRAY_SIZE(ih->ih_services); ++(s))
 
 struct proc {
 	struct spinlock p_lock;
@@ -35,6 +45,11 @@ struct proc {
 	u_char p_rss_nq;
 	int p_fd[2];
 	uint32_t p_pps;
+	struct tcp_stat p_tcps;
+	struct udp_stat p_udps;
+	struct ip_stat p_ips;
+	struct icmp_stat p_icmps;
+	struct arp_stat p_arps;
 	struct mbuf_pool p_file_pool;
 	struct mbuf_pool p_sockbuf_pool;
 	struct mbuf_pool p_arp_entry_pool;
@@ -63,8 +78,9 @@ void service_clean_rss_table(struct proc *s);
 int service_is_appropriate_rss(struct route_if *, struct sock_tuple *); 
 void service_rxtx(struct dev *, short);
 
+extern struct init_hdr *ih;
 extern struct proc *current;
-extern int proc_type;
+//extern int proc_type;
 uint64_t nanoseconds;
 
 #endif // GBTCP_PROC_H

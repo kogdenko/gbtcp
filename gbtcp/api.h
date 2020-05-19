@@ -5,14 +5,12 @@
 #include "log.h"
 
 #define API_RETURN(rc) \
-do { \
 	if (rc < 0) { \
 		gbtcp_errno = -rc; \
 		return -1; \
 	} else { \
 		return rc; \
 	} \
-} while (0)
 
 int api_mod_init(struct log *, void **);
 int api_mod_attach(struct log *, void *);

@@ -11,7 +11,7 @@ typedef void (*dev_f)(struct dev *, short);
 
 struct dev {
 	struct nm_desc *dev_nmd;
-	struct gt_fd_event *dev_event;
+	struct fd_event *dev_event;
 	int dev_cur_tx_ring;
 	int dev_tx_full;
 	uint64_t dev_cur_tx_ring_epoch;

@@ -2,7 +2,7 @@
 
 static struct route_mod *curmod;
 
-static struct gt_fd_event *route_monitor_event;
+static struct fd_event *route_monitor_event;
 static int route_monfd = -1;
 
 static int route_ifaddr_del(struct log *log, struct route_if *ifp,

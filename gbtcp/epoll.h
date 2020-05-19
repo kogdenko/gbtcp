@@ -15,14 +15,14 @@ int epoll_mod_attach(struct log *, void *);
 void epoll_mod_deinit(struct log *, void *);
 void epoll_mod_detach(struct log *);
 
-int uepoll_create(int);
-int uepoll_close(struct file *);
-int uepoll_pwait(int, epoll_event_t *, int, uint64_t, const sigset_t *);
+int u_epoll_create(int);
+int u_epoll_close(struct file *);
+int u_epoll_pwait(int, epoll_event_t *, int, uint64_t, const sigset_t *);
 
 #ifdef __linux__
-int uepoll_ctl(int, int, int, struct epoll_event *);
+int u_epoll_ctl(int, int, int, struct epoll_event *);
 #else /* __linux__ */
-int uepoll_kevent(int, const struct kevent *, int,
+int u_kevent(int, const struct kevent *, int,
 	struct kevent *, int, const struct timespec *);
 #endif /* __linux__ */
 

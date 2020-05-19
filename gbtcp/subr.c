@@ -13,10 +13,9 @@ union tsc {
 };
 
 uint64_t nanoseconds;
-//uint64_t HZ = 3000000000;
-uint64_t mHZ = 3000000;
+uint64_t ticks;
+uint64_t mHZ = 3000; // default cpu 3 ghz
 __thread int gbtcp_errno;
-
 
 static struct subr_mod *curmod;
 
@@ -533,7 +532,7 @@ restart:
 	t = nanoseconds;
 	nanoseconds_to_timespec(&ts, *to);
 	rc = sys_ppoll(log, &pfd, 1, &ts, NULL);
-	rdtsc_update_time();
+	rd_nanoseconds();
 	elapsed = MIN(*to, nanoseconds - t);
 	*to -= elapsed;
 	switch (rc) {
@@ -592,7 +591,7 @@ restart:
 	t = nanoseconds;
 	nanoseconds_to_timespec(&ts, *to);
 	rc = sys_ppoll(log, &pfd, 1, &ts, NULL);
-	rdtsc_update_time();
+	rd_nanoseconds();
 	elapsed = MIN(*to, t - nanoseconds);
 	*to -= elapsed;
 	switch (rc) {
@@ -736,19 +735,6 @@ rdtsc()
 	return tsc.tsc_64;;
 }
 
-void
-rdtsc_update_time()
-{
-	uint64_t t, ns;
-
-	t = rdtsc();
-	ns = 1000 * t / mHZ;
-	// tsc can fall after suspend
-	if (ns > nanoseconds) {
-		nanoseconds = ns;
-	}
-}
-
 uint64_t
 sleep_compute_hz()
 {
@@ -773,8 +759,6 @@ restart:
 	hz = (t1 - t0) * 100;
 	return hz;
 }
-
-
 
 uint64_t
 rand64()
@@ -990,3 +974,29 @@ print_backtrace(int depth_off)
 	s = strbuf_cstr(&sb);
 	printf("%s", s);
 }
+
+void
+set_hz(uint64_t hz)
+{
+	mHZ = hz/1000000ull;
+}
+
+void
+rd_nanoseconds()
+{
+	uint64_t ticks2, dt;
+
+	ticks2 = rdtsc();
+	if (ticks2 > ticks) {
+		// tsc can fall after suspend
+		dt = ticks2 - ticks;
+		if (0) {
+			nanoseconds += dt;
+		} else {
+			nanoseconds += 1000 * dt / mHZ;
+		}
+	}
+	ticks = ticks2;
+}
+
+

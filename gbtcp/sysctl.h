@@ -30,7 +30,7 @@
 
 struct sysctl_conn {
 	void (*sccn_close_fn)(struct log *, struct sysctl_conn *);
-	struct gt_fd_event *sccn_event;
+	struct fd_event *sccn_event;
 	int sccn_accept_conn;
 	int sccn_peer_pid;
 };

@@ -306,7 +306,6 @@ int read_rss_key(struct log *, const char *, u_char *);
 long gettid();
 
 uint64_t rdtsc();
-void rdtsc_update_time();
 
 uint64_t sleep_compute_hz();
 
@@ -332,5 +331,8 @@ const char *epoll_op_str(int op);
 
 int iovec_len(const struct iovec *, int);
 void print_backtrace(int);
+
+void set_hz(uint64_t);
+void rd_nanoseconds();
 
 #endif /* GBTCP_SUBR_H */

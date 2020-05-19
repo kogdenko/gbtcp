@@ -60,7 +60,7 @@ void
 proc_init()
 {
 	dlsym_all();
-	rdtsc_update_time();
+	rd_nanoseconds();
 	srand48(time(NULL));
 	log_init_early();
 }
@@ -168,6 +168,7 @@ service_attach(struct log *log, int fd)
 		shm_detach(log);
 		return -EINVAL;
 	}
+	set_hz(ih->ih_hz);
 	pid = getpid();
 	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
 		s = ih->ih_services + i;
@@ -196,12 +197,12 @@ service_init_locked(struct log *log)
 	pid = getpid();
 	rc = proc_get_comm(log, p_comm, pid);
 	if (rc) {
-		goto err;
+		return rc;
 	}
 	sysctl_make_sockaddr_un(&a, pid);
 	rc = sysctl_bind(log, &a, 0);
 	if (rc < 0) {
-		goto err;
+		return rc;
 	}
 	fd = rc;
 	rc = service_attach(log, fd);
@@ -392,22 +393,22 @@ static void
 service_in_child(struct log *log)
 {
 	current = NULL;
+	dbg("a");
+	LOGF(log, LOG_ERR, 0, "IN CHILD");
 }
 
 int
 service_fork(struct log *log)
 {
-	int rc, pid;
+	int rc;
 
 	LOG_TRACE(log);
 	rc = sys_fork(log);
-	if (rc >= 0) {
-		pid = rc;
-		if (pid == 0) {
-			service_in_child(log);
-		} else {
-			service_in_parent();
-		}
+	if (rc == 0) {
+		dbg("inchild");
+		service_in_child(log);
+	} else if (rc > 0) {
+		service_in_parent();
 	}
 	return rc;
 }

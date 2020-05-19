@@ -201,7 +201,7 @@ file_close(struct file *fp, int how)
 		gt_sock_close(fp, GT_SOCK_GRACEFULL);
 		break;
 	case FILE_EPOLL:
-		uepoll_close(fp);
+		u_epoll_close(fp);
 		break;
 	default:
 		BUG;
