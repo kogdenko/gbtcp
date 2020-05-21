@@ -169,7 +169,7 @@ gbtcp_socket(int domain, int type, int proto)
 int
 api_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
-	int rc, error, blocked;
+	int rc, error;
 	socklen_t optlen;
 	const struct sockaddr_in *faddr_in;
 	struct sockaddr_in laddr_in;
@@ -187,17 +187,13 @@ api_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	}
 	faddr_in = (const struct sockaddr_in *)addr;
 	DBG(0, "hit; fd=%d, faddr=%s", fd, log_add_sockaddr_in(faddr_in));
-	so_lock(so);
 	rc = so_connect(so, faddr_in, &laddr_in);
 restart:
-	blocked = so->so_blocked;
-	so_unlock(so);
-	if (rc == -EINPROGRESS && blocked) {
+	if (rc == -EINPROGRESS && so->so_blocked) {
 		file_wait(&so->so_file, POLLOUT);
 		rc = so_get(fd, &so);
 		if (rc == 0) {
 			optlen = sizeof(error);
-			so_lock(so);
 			rc = so_getsockopt(so, SOL_SOCKET, SO_ERROR,
 			                   &error, &optlen);
 			ASSERT(rc == 0);
@@ -244,9 +240,7 @@ api_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	}
 	addr_in = (const struct sockaddr_in *)addr;
 	INFO(0, "hit; fd=%d, laddr=%s", fd, log_add_sockaddr_in(addr_in));
-	so_lock(so);
 	rc = so_bind(so, addr_in);
-	so_unlock(so);
 	if (rc < 0) {
 		INFO(-rc, "failed");
 	} else {
@@ -277,9 +271,7 @@ api_listen(int fd, int backlog)
 		return rc;
 	}
 	INFO(0, "hit; lfd=%d", fd);
-	so_lock(so);
 	rc = so_listen(so, backlog);
-	so_unlock(so);
 	if (rc < 0) {
 		INFO(rc, "failed;");
 	} else {
@@ -302,7 +294,7 @@ gbtcp_listen(int fd, int backlog)
 int
 api_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
-	int rc, blocked;
+	int rc;
 	struct gt_sock *so;
 
 	rc = so_get(lfd, &so);
@@ -311,11 +303,8 @@ api_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 	}
 	DBG(0, "hit; lfd=%d, flags=%s)", lfd, log_add_socket_flags(flags));
 restart:
-	so_lock(so);
 	rc = so_accept(so, addr, addrlen, flags);
-	blocked = so->so_blocked;
-	so_unlock(so);
-	if (rc == -EAGAIN && blocked) {
+	if (rc == -EAGAIN && so->so_blocked) {
 		file_wait(&so->so_file, POLLIN);
 		rc = so_get(lfd, &so);
 		if (rc == 0) {
@@ -400,7 +389,6 @@ ssize_t
 api_recvfrom(int fd, const struct iovec *iov, int iovcnt, int flags,
 	struct sockaddr *addr, socklen_t *addrlen)
 {
-	int blocked;
 	ssize_t rc;
 	struct gt_sock *so;
 
@@ -410,11 +398,8 @@ api_recvfrom(int fd, const struct iovec *iov, int iovcnt, int flags,
 	}
 	DBG(0, "hit; fd=%d", fd);
 restart:
-	so_lock(so);
 	rc = so_recvfrom(so, iov, iovcnt, flags, addr, addrlen);
-	blocked = so->so_blocked;
-	so_unlock(so);
-	if (rc == -EAGAIN && blocked) {
+	if (rc == -EAGAIN && so->so_blocked) {
 		file_wait(&so->so_file, POLLIN);
 		rc = so_get(fd, &so);
 		if (rc == 0) {
@@ -484,7 +469,7 @@ int
 api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
 	be32_t faddr, be16_t fport)
 {
-	int rc, blocked;
+	int rc;
 	struct gt_sock *so;
 
 	rc = so_get(fd, &so);
@@ -493,11 +478,8 @@ api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
 	}
 	DBG(0, "hit; fd=%d, count=%d", fd, iovec_len(iov, iovcnt));
 restart:
-	so_lock(so);
 	rc = so_sendto(so, iov, iovcnt, flags, faddr, fport);
-	blocked = so->so_blocked;
-	so_unlock(so);
-	if (rc == -EAGAIN && blocked) {
+	if (rc == -EAGAIN && so->so_blocked) {
 		file_wait(&so->so_file, POLLOUT);
 		rc = so_get(fd, &so);
 		if (rc == 0) {
@@ -673,9 +655,7 @@ api_getsockopt(int fd, int level, int optname, void *optval,
 	DBG(0, "hit; fd=%d, level=%s, optname=%s",
 	    fd, log_add_sockopt_level(level),
 	    log_add_sockopt_optname(level, optname));
-	so_lock(so);
 	rc = so_getsockopt(so, level, optname, optval, optlen);
-	so_unlock(so);
 	if (rc < 0) {
 		DBG(-rc, "failed;");
 	} else if (level == SOL_SOCKET &&
@@ -713,9 +693,7 @@ api_setsockopt(int fd, int level, int optname, const void *optval,
 	DBG(0, "hit; fd=%d, level=%s, optname=%s",
 	    fd, log_add_sockopt_level(level),
 	    log_add_sockopt_optname(level, optname));
-	so_lock(so);
 	rc = so_setsockopt(so, level, optname, optval, optlen);
-	so_unlock(so);
 	if (rc < 0) {
 		DBG(-rc, "failed");
 	} else {
@@ -747,9 +725,7 @@ api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 		return rc;
 	}
 	DBG(0, "hit; fd=%d", fd);
-	so_lock(so);
 	rc = so_getpeername(so, addr, addrlen);
-	so_unlock(so);
 	if (rc < 0) {
 		DBG(-rc, "failed");
 	} else {

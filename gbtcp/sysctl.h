@@ -22,6 +22,7 @@
 #define SYSCTL_ROUTE_IF_DEL "route.if.del"
 #define SYSCTL_ROUTE_ADDR_LIST "route.addr.list"
 #define SYSCTL_ROUTE_ROUTE_LIST "route.route.list"
+#define SYSCTL_TCP_FIN_TIMEOUT "tcp.fin_timeout"
 
 #define GT_CTL_INET_RX_CKSUM_OFFLOAD "inet.rx_cksum_offload"
 #define GT_CTL_INET_TX_CKSUM_OFFLOAD "inet.tx_cksum_offload"

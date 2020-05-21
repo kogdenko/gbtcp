@@ -48,31 +48,36 @@ htable_mod_detach(struct log *log)
 	curmod = NULL;
 }
 
+void
+htable_bucket_init(struct htable_bucket *b)
+{
+	dlist_init(&b->htb_head);
+	spinlock_init(&b->htb_lock);
+}
+
 static int
 htable_static_init(struct htable_static *t, int size, htable_f fn, int flags)
 {
 	int i, rc;
 	malloc_f malloc_fn;
-	struct htable_bucket *b;
 
 	t->hts_size = size;
 	t->hts_mask = size - 1;
 	t->hts_fn = fn;
-	if (flags & HTABLE_FLAG_SHARED) {
+	if (flags & HTABLE_SHARED) {
 		malloc_fn = shm_malloc;
 	} else {
 		malloc_fn = sys_malloc;
 	}
-	rc = (*malloc_fn)(NULL, (void **)&t->hts_array, size * sizeof(*b));
+	rc = (*malloc_fn)(NULL, (void **)&t->hts_array,
+	                  size * sizeof(struct htable_bucket));
 	if (rc) {
 		return rc;
 	}
 	t->hts_size = size;
 	t->hts_mask = size - 1;
 	for (i = 0; i < size; ++i) {
-		b = t->hts_array + i;
-		dlist_init(&b->htb_head);
-		spinlock_init(&b->htb_lock);
+		htable_bucket_init(t->hts_array + i);
 	}
 	return 0;
 }
@@ -82,7 +87,7 @@ htable_static_deinit(struct htable_static *t, int flags)
 {
 	free_f free_fn;
 
-	if (flags & HTABLE_FLAG_SHARED) {
+	if (flags & HTABLE_SHARED) {
 		free_fn = shm_free;
 	} else {
 		free_fn = sys_free;

@@ -102,10 +102,8 @@ poll_init(struct poll *poll, struct pollfd *pfds, int npfds, uint64_t to)
 		rc = so_get(fd, &so);
 		if (rc == 0) {
 			e->e_id = -fd;
-			so_lock(so);
 			file_aio_set(&so->so_file, &e->e_aio,
 			             pfd->events, poll_trigger);
-			so_unlock(so);
 		} else {
 			e->e_id = n;
 			poll->p_pfds[n++] = *pfd;
@@ -129,9 +127,7 @@ poll_read_events(struct poll *poll, struct pollfd *pfds, int npfds)
 			pfds[i].revents = e->e_revents;
 			rc = so_get(-e->e_id, &so);
 			if (rc == 0) {
-				so_lock(so);
 				file_aio_cancel(&e->e_aio);
-				so_unlock(so);
 			}
 		} else {
 			revents = poll->p_pfds[e->e_id].revents;

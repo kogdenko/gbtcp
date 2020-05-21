@@ -4,9 +4,8 @@
 
 #include "subr.h"
 
-#define HTABLE_FLAG_SHARED (1 << 0)
-#define HTABLE_FLAG_MULTITHREAD (1 << 1)
-#define HTABLE_FLAG_RESIZABLE (1 << 2)
+#define HTABLE_SHARED (1 << 0)
+#define HTABLE_RESIZABLE (1 << 2)
 
 typedef struct dlist htable_entry_t;
 
@@ -41,6 +40,7 @@ int htable_mod_attach(struct log *, void *);
 void htable_mod_deinit(struct log *, void *);
 void htable_mod_detach(struct log *);
 
+void htable_bucket_init(struct htable_bucket *);
 int htable_init(struct log *, struct htable *, int, htable_f, int, int);
 void htable_deinit(struct htable *);
 struct htable_bucket *htable_bucket_get(struct htable *, uint32_t);

@@ -260,17 +260,17 @@ service_in(struct route_if *ifp, uint8_t *data, int len)
 	struct sock_tuple so_tuple;
 	struct gt_inet_context ctx;
 
-	rc = gt_inet_eth_in(&ctx, ifp, data, len);
-	if (rc == GT_INET_OK &&
+	rc = eth_in(&ctx, ifp, data, len);
+	if (rc == IP_OK &&
 	    (ctx.inp_ipproto == IPPROTO_UDP ||
 	     ctx.inp_ipproto == IPPROTO_TCP)) {
 		so_tuple.sot_laddr = ctx.inp_ip4_h->ip4h_daddr;
 		so_tuple.sot_faddr = ctx.inp_ip4_h->ip4h_saddr;
 		so_tuple.sot_lport = ctx.inp_udp_h->udph_dport;
 		so_tuple.sot_fport = ctx.inp_udp_h->udph_sport;
-		rc = gt_sock_in(ctx.inp_ipproto, &so_tuple, &ctx.inp_tcb,
-		                ctx.inp_payload);
-	} else if (rc == GT_INET_BCAST && 
+		rc = so_in(ctx.inp_ipproto, &so_tuple, &ctx.inp_tcb,
+		           ctx.inp_payload);
+	} else if (rc == IP_OK && 
 	           ctx.inp_ipproto == IPPROTO_ICMP && ctx.inp_eno &&
 	           (ctx.inp_emb_ipproto == IPPROTO_UDP ||
 	            ctx.inp_emb_ipproto == IPPROTO_TCP)) {
@@ -278,40 +278,15 @@ service_in(struct route_if *ifp, uint8_t *data, int len)
 		so_tuple.sot_faddr = ctx.inp_emb_ip4_h->ip4h_daddr;
 		so_tuple.sot_lport = ctx.inp_emb_udp_h->udph_sport;
 		so_tuple.sot_fport = ctx.inp_emb_udp_h->udph_dport;
-		gt_sock_in_err(ctx.inp_emb_ipproto, &so_tuple, ctx.inp_eno);
+		so_in_err(ctx.inp_emb_ipproto, &so_tuple, ctx.inp_eno);
 	}
 	return rc;
-}
-
-static void
-service_if_in(struct route_if *ifp, uint8_t *data, int len)
-{
-	int rc;
-//	struct gt_service_msg msg;
-
-	rc = service_in(ifp, data, len);
-	switch (rc) {
-	case GT_INET_OK:
-	case GT_INET_DROP:
-		break;
-	case GT_INET_BYPASS:
-	case GT_INET_BCAST:
-//		msg.svcm_cmd = rc;
-//		msg.svcm_if_idx = ifp->rif_idx;
-//		memcpy(data + len, &msg, sizeof(msg));
-//		len += sizeof(msg);
-//		dev_tx3(&gt_service_pipe, data, len);
-		break;
-	default:
-		BUG;
-		break;
-	}
 }
 
 void
 service_rxtx(struct dev *dev, short revents)
 {
-	int i, n, len;
+	int i, n, rc, len;
 	void *data;
 	struct netmap_ring *rxr;
 	struct netmap_slot *slot;
@@ -325,7 +300,9 @@ service_rxtx(struct dev *dev, short revents)
 			slot = rxr->slot + rxr->cur;
 			data = NETMAP_BUF(rxr, slot->buf_idx);
 			len = slot->len;
-			service_if_in(ifp, data, len);
+			rc = service_in(ifp, data, len);
+			if (rc == IP_BYPASS) {
+			}
 			route_if_rxr_next(ifp, rxr);
 		}
 	}

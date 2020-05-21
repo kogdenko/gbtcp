@@ -44,16 +44,16 @@ static uint16_t gt_inet_ip4_udp_calc_cksum(struct gt_ip4_hdr *ip4_h);
 
 static int gt_tcp_opt_len(int kind);
 
-static int gt_inet_arp_in(struct gt_inet_context *ctx);
+static int arp_in(struct gt_inet_context *ctx);
 
-static int gt_inet_ip_in(struct gt_inet_context *ctx);
+static int ip_in(struct gt_inet_context *ctx);
 
-static int gt_inet_tcp_in(struct gt_inet_context *ctx);
+static int tcp_in(struct gt_inet_context *ctx);
 
 static int gt_inet_tcp_opts_in(struct gt_tcp_opts *opts, uint8_t *opts_buf,
 	int opts_len);
 
-static int gt_inet_icmp4_in(struct gt_inet_context *ctx);
+static int icmp4_in(struct gt_inet_context *ctx);
 
 static int gt_tcp_opt_fill(uint8_t *buf, struct gt_tcp_opts *opts, int kind);
 
@@ -203,8 +203,7 @@ inet_mod_detach(struct log *log)
 }
 
 int
-gt_inet_eth_in(struct gt_inet_context *ctx, struct route_if *ifp, void *buf,
-	int cnt)
+eth_in(struct gt_inet_context *ctx, struct route_if *ifp, void *buf, int cnt)
 {
 	int rc;
 
@@ -219,13 +218,13 @@ gt_inet_eth_in(struct gt_inet_context *ctx, struct route_if *ifp, void *buf,
 	switch (ctx->inp_eth_h->ethh_type) {
 	case GT_ETH_TYPE_IP4_BE:
 		ctx->inp_ipproto = IPPROTO_IP;
-		rc = gt_inet_ip_in(ctx);
+		rc = ip_in(ctx);
 		break;
 	case GT_ETH_TYPE_ARP_BE:
-		rc = gt_inet_arp_in(ctx);
+		rc = arp_in(ctx);
 		break;
 	default:
-		rc = GT_INET_BYPASS;
+		rc = IP_BYPASS;
 	}
 	return rc;
 }
@@ -427,9 +426,9 @@ gt_tcp_opt_len(int kind)
 }
 
 static int
-gt_inet_arp_in(struct gt_inet_context *ctx)
+arp_in(struct gt_inet_context *ctx)
 {
-	int i, rc, is_req;
+	int i, is_req;
 	be32_t sip, tip;
 	struct route_if_addr *ifa;
 	struct gt_arp_advert_msg advert_msg;
@@ -437,24 +436,24 @@ gt_inet_arp_in(struct gt_inet_context *ctx)
 	arps.arps_received++;
 	if (ctx->inp_rem < sizeof(struct gt_arp_hdr)) {
 		arps.arps_toosmall++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	ctx->inp_arp_h = (struct gt_arp_hdr *)ctx->inp_cur;
 	GT_INET_SHIFT(ctx, sizeof(struct gt_arp_hdr));
 	if (ctx->inp_arp_h->arph_hrd != GT_ARP_HRD_ETH_BE) {
 		arps.arps_badhrd++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	if (ctx->inp_arp_h->arph_pro != GT_ETH_TYPE_IP4_BE) {
 		arps.arps_badpro++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	tip = ctx->inp_arp_h->arph_data.arpip_tip;
 	sip = ctx->inp_arp_h->arph_data.arpip_sip;
 	ifa = route_ifaddr_get4(tip);
 	if (ifa == NULL) {
 		arps.arps_bypassed++;
-		return GT_INET_BYPASS;
+		return IP_BYPASS;
 	}
 	for (i = 0; i < ctx->inp_ifp->rif_naddrs; ++i) {
 		if (ifa == ctx->inp_ifp->rif_addrs[i]) {
@@ -463,38 +462,37 @@ gt_inet_arp_in(struct gt_inet_context *ctx)
 	}
 	if (i == ctx->inp_ifp->rif_naddrs) {
 		arps.arps_filtered++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	if (ctx->inp_arp_h->arph_hlen != sizeof(struct ethaddr)) {
 		arps.arps_badhlen++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	if (ctx->inp_arp_h->arph_plen != sizeof(be32_t)) {
 		arps.arps_badplen++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	if (ipaddr4_is_loopback(tip)) {
 		arps.arps_badaddr++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	if (ipaddr4_is_bcast(tip)) {
 		arps.arps_badaddr++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	if (ipaddr4_is_loopback(sip)) {
 		arps.arps_badaddr++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	if (ipaddr4_is_bcast(sip)) {
 		arps.arps_badaddr++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	// IP4 duplicate address detection
 	if (sip == 0) {
 		// TODO: reply
-		return GT_INET_OK;
+		return IP_OK;
 	}
-	rc = GT_INET_OK;
 	switch (ctx->inp_arp_h->arph_op) {
 	case GT_ARP_OP_REQUEST_BE:
 		arps.arps_rxrequests++;
@@ -503,12 +501,11 @@ gt_inet_arp_in(struct gt_inet_context *ctx)
 		break;
 	case GT_ARP_OP_REPLY_BE:
 		arps.arps_rxreplies++;
-		rc = GT_INET_BCAST;
 		is_req = 0;
 		break;
 	default:
 		arps.arps_badop++;
-		return GT_INET_OK;
+		return IP_DROP;
 	}
 	advert_msg.arpam_af = AF_INET;
 	advert_msg.arpam_advert = !is_req;
@@ -517,11 +514,11 @@ gt_inet_arp_in(struct gt_inet_context *ctx)
 	advert_msg.arpam_next_hop = ctx->inp_arp_h->arph_data.arpip_sip;
 	advert_msg.arpam_addr = ctx->inp_arp_h->arph_data.arpip_sha;
 	gt_arp_update(&advert_msg);
-	return rc;
+	return IP_OK;
 }
 
 static int
-gt_inet_ip_in(struct gt_inet_context *ctx)
+ip_in(struct gt_inet_context *ctx)
 {
 	int rc, total_len, cksum;
 
@@ -529,43 +526,43 @@ gt_inet_ip_in(struct gt_inet_context *ctx)
 	ips.ips_delivered++;
 	if (ctx->inp_rem < sizeof(struct gt_ip4_hdr)) {
 		ips.ips_toosmall++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	ctx->inp_ip4_h = (struct gt_ip4_hdr *)(ctx->inp_eth_h + 1);
 	if (ctx->inp_ip4_h->ip4h_ttl < 1) {
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	if (ipaddr4_is_mcast(ctx->inp_ip4_h->ip4h_saddr)) {
-		return GT_INET_BYPASS;
+		return IP_BYPASS;
 	}
 	if (ctx->inp_ip4_h->ip4h_frag_off & GT_IP4H_FRAG_MASK) {
 		ips.ips_fragments++;
 		ips.ips_fragdropped++;
-		return GT_INET_BYPASS;
+		return IP_BYPASS;
 	}
 	ctx->inp_ip_h_len = GT_IP4_HDR_LEN(ctx->inp_ip4_h->ip4h_ver_ihl);
 	if (ctx->inp_ip_h_len < sizeof(*ctx->inp_ip4_h)) {
 		ips.ips_badhlen++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	if (ctx->inp_rem < ctx->inp_ip_h_len) {
 		ips.ips_badhlen++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	GT_INET_SHIFT(ctx, ctx->inp_ip_h_len);
 	total_len = ntoh16(ctx->inp_ip4_h->ip4h_total_len);
 	if (total_len > 65535) {
 		ips.ips_toolong++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	if (total_len < ctx->inp_ip_h_len) {
 		ips.ips_badlen++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	ctx->inp_ip_payload_len = total_len - ctx->inp_ip_h_len;
 	if (ctx->inp_ip_payload_len > ctx->inp_rem) {
 		ips.ips_tooshort++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	ctx->inp_ipproto = ctx->inp_ip4_h->ip4h_proto;
 	cksum = ctx->inp_ip4_h->ip4h_cksum;
@@ -573,7 +570,7 @@ gt_inet_ip_in(struct gt_inet_context *ctx)
 	if (gt_inet_rx_cksum_offload == 0) {
 		if (cksum != gt_inet_ip4_calc_cksum(ctx->inp_ip4_h)) {
 			ips.ips_badsum++;
-			return GT_INET_DROP;
+			return IP_DROP;
 		}
 	}
 	ctx->inp_ip4_h->ip4h_cksum = cksum;
@@ -581,39 +578,39 @@ gt_inet_ip_in(struct gt_inet_context *ctx)
 	case IPPROTO_UDP:
 		if (ctx->inp_rem < sizeof(struct gt_udp_hdr)) {
 			udps.udps_badlen++;
-			return GT_INET_DROP;
+			return IP_DROP;
 		}
 		ctx->inp_udp_h = (struct gt_udp_hdr *)ctx->inp_cur;
 		GT_INET_SHIFT(ctx, sizeof(struct gt_udp_hdr));
-		return GT_INET_OK;
+		return IP_OK;
 	case IPPROTO_TCP:
-		rc = gt_inet_tcp_in(ctx);
+		rc = tcp_in(ctx);
 		break;
 	case IPPROTO_ICMP:
-		rc = gt_inet_icmp4_in(ctx);
+		rc = icmp4_in(ctx);
 		return rc;
 	default:
 		ips.ips_noproto++;
-		rc = GT_INET_BYPASS;
+		rc = IP_BYPASS;
 		break;
 	}
 	return rc;
 }
 
 static int
-gt_inet_tcp_in(struct gt_inet_context *ctx)
+tcp_in(struct gt_inet_context *ctx)
 {
 	int rc, len, win, cksum;
 
 	if (ctx->inp_rem < sizeof(struct gt_tcp_hdr)) {
 		tcps.tcps_rcvshort++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	ctx->inp_tcp_h = (struct gt_tcp_hdr *)ctx->inp_cur;
 	ctx->inp_tcp_h_len = GT_TCP_HDR_LEN(ctx->inp_tcp_h->tcph_data_off);
 	if (ctx->inp_rem < ctx->inp_tcp_h_len) {
 		tcps.tcps_rcvshort++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	GT_INET_SHIFT(ctx, ctx->inp_tcp_h_len);
 	win = ntoh16(ctx->inp_tcp_h->tcph_win_size);
@@ -630,7 +627,7 @@ gt_inet_tcp_in(struct gt_inet_context *ctx)
 	if (gt_inet_rx_cksum_offload == 0) {
 		if (cksum != gt_inet_ip4_udp_calc_cksum(ctx->inp_ip4_h)) {
 			tcps.tcps_rcvbadsum++;
-			return GT_INET_DROP;
+			return IP_DROP;
 		}
 	}
 	ctx->inp_tcp_h->tcph_cksum = cksum;
@@ -639,9 +636,9 @@ gt_inet_tcp_in(struct gt_inet_context *ctx)
 	                         ctx->inp_tcp_h_len - sizeof(*ctx->inp_tcp_h));
 	if (rc) {
 		tcps.tcps_rcvbadoff++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
-	return GT_INET_OK;
+	return IP_OK;
 }
 
 static int
@@ -708,20 +705,20 @@ gt_inet_tcp_opts_in(struct gt_tcp_opts *opts, uint8_t *opts_buf, int opts_len)
 }
 
 static int
-gt_inet_icmp4_in(struct gt_inet_context *ctx)
+icmp4_in(struct gt_inet_context *ctx)
 {
 	int ip4_h_len, type, code;
 
 	if (ctx->inp_rem < sizeof(struct gt_icmp4_hdr)) {
 		icmps.icmps_tooshort++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	ctx->inp_icmp4_h = (struct gt_icmp4_hdr *)ctx->inp_cur;
 	GT_INET_SHIFT(ctx, sizeof(struct gt_icmp4_hdr));
 	type = ctx->inp_icmp4_h->icmp4h_type;
 	code = ctx->inp_icmp4_h->icmp4h_code;	
 	if (type > ICMP_MAXTYPE) {
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	icmps.icmps_inhist[type]++;
 	switch (type) {
@@ -746,51 +743,51 @@ gt_inet_icmp4_in(struct gt_inet_context *ctx)
 			break;
 		default:
 			icmps.icmps_badcode++;
-			return GT_INET_DROP;
+			return IP_DROP;
 		}
 		break;
 	case ICMP_TIMXCEED:
 		if (code > 1) {
 			icmps.icmps_badcode++;
-			return GT_INET_DROP;
+			return IP_DROP;
 		}
 		// TODO:
 		break;
 	case ICMP_PARAMPROB:
 		if (code > 1) {
 			icmps.icmps_badcode++;
-			return GT_INET_DROP;
+			return IP_DROP;
 		}
 		ctx->inp_eno = ENOPROTOOPT;
 		break;
 	case ICMP_SOURCEQUENCH:
 		if (code) {
 			icmps.icmps_badcode++;
-			return GT_INET_DROP;
+			return IP_DROP;
 		}
 		// TODO:
 		break;
 	case ICMP_REDIRECT:
 		if (code > 3) {
 			icmps.icmps_badcode++;
-			return GT_INET_DROP;
+			return IP_DROP;
 		}
 		// TODO:
-		return GT_INET_BCAST;
+		return IP_BYPASS;
 	default:
-		return GT_INET_BYPASS;
+		return IP_BYPASS;
 	}
 	ctx->inp_emb_ip4_h = NULL;
 	ctx->inp_emb_tcp_h = NULL;
 	if (ctx->inp_rem < sizeof(*ctx->inp_emb_ip4_h)) {
 		icmps.icmps_badlen++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	ctx->inp_emb_ip4_h = (struct gt_ip4_hdr *)ctx->inp_cur;
 	ip4_h_len = GT_IP4_HDR_LEN(ctx->inp_emb_ip4_h->ip4h_ver_ihl);
 	if (ip4_h_len < sizeof(*ctx->inp_emb_ip4_h)) {
 		icmps.icmps_badlen++;
-		return GT_INET_DROP;
+		return IP_DROP;
 	}
 	GT_INET_SHIFT(ctx, ip4_h_len);
 	ctx->inp_emb_ipproto = ctx->inp_emb_ip4_h->ip4h_proto;
@@ -798,26 +795,26 @@ gt_inet_icmp4_in(struct gt_inet_context *ctx)
 	case IPPROTO_UDP:
 		if (ctx->inp_rem < sizeof(*ctx->inp_emb_udp_h)) {
 			icmps.icmps_badlen++;
-			return GT_INET_DROP;
+			return IP_DROP;
 		}
 		ctx->inp_emb_udp_h = (struct gt_udp_hdr *)ctx->inp_cur;
-		return GT_INET_BCAST;
+		return IP_OK;
 	case IPPROTO_TCP:
 		if (ctx->inp_rem < sizeof(*ctx->inp_emb_tcp_h)) {
 			icmps.icmps_badlen++;
-			return GT_INET_BYPASS;
+			return IP_BYPASS;
 		}
 		ctx->inp_emb_tcp_h = (struct gt_tcp_hdr *)ctx->inp_cur;
-		return GT_INET_BCAST;
+		return IP_OK;
 	case IPPROTO_ICMP:
 		if (ctx->inp_rem < sizeof(*ctx->inp_emb_icmp4_h)) {
 			icmps.icmps_badlen++;
-			return GT_INET_DROP;
+			return IP_DROP;
 		}
 		ctx->inp_emb_icmp4_h = (struct gt_icmp4_hdr *)ctx->inp_cur;
-		return GT_INET_BYPASS;
+		return IP_BYPASS;
 	default:
-		return GT_INET_BYPASS;
+		return IP_BYPASS;
 	}
 }
 

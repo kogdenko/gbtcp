@@ -45,10 +45,9 @@
 #define GT_TCP_OPT_TIMESTAMPS 8
 #define GT_TCP_OPT_MAX 9
 
-#define GT_INET_OK 0
-#define GT_INET_DROP 1
-#define GT_INET_BYPASS 2
-#define GT_INET_BCAST 3
+#define IP_OK 0
+#define IP_DROP 1
+#define IP_BYPASS 2
 
 struct gt_eth_hdr {
 	struct ethaddr ethh_daddr;
@@ -247,8 +246,7 @@ int inet_mod_attach(struct log *, void *);
 void inet_mod_deinit(struct log *, void *);
 void inet_mod_detach(struct log *);
 
-int gt_inet_eth_in(struct gt_inet_context *ctx, struct route_if *ifp,
-	void *buf, int cnt);
+int eth_in(struct gt_inet_context *, struct route_if *, void *, int);
 
 void gt_inet_ip4_set_cksum(struct gt_ip4_hdr *ip4_h, void *l4_h);
 

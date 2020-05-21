@@ -7,8 +7,6 @@
 #include "htable.h"
 
 struct gt_tcpcb;
-struct file;
-struct route_if;
 
 struct gt_sockcb {
 	int socb_fd;
@@ -33,8 +31,7 @@ struct gt_sock {
 		uint64_t so_flags;
 		struct {
 			u_int so_err : 4;
-			u_int so_binded : 1;
-			u_int so_proto : 2;
+			u_int so_ipproto : 2;
 			// TCP
 			u_int so_is_listen : 1;
 			u_int so_passive_open : 1;
@@ -63,7 +60,7 @@ struct gt_sock {
 			u_int so_nagle_acked : 1;
 		};
 	};
-	struct dlist so_bindl;
+	struct dlist so_bind_list;
 	struct sock_tuple so_tuple;
 	be32_t so_next_hop;
 	uint16_t so_lmss;
@@ -102,8 +99,6 @@ extern void (*gt_sock_no_opened_fn)();
 extern int gt_sock_nr_opened;
 extern struct dlist gt_sock_binded[65536];
 
-#define SO_LOCK(b) spinlock_lock(&(b)->htb_lock)
-#define SO_UNLOCK(b) spinlock_unlock(&(b)->htb_lock)
 
 int tcp_mod_init(struct log *, void **);
 int tcp_mod_attach(struct log *, void *);
@@ -123,10 +118,10 @@ void gt_sock_get_sockcb(struct gt_sock *so, struct gt_sockcb *socb);
 
 int gt_sock_nread(struct file *fp);
 
-int gt_sock_in(int ipproto, struct sock_tuple *so_tuple, struct gt_tcpcb *tcb,
+int so_in(int ipproto, struct sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 	void *payload);
 
-void gt_sock_in_err(int ipproto, struct sock_tuple *so_tuple, int eno);
+int so_in_err(int ipproto, struct sock_tuple *so_tuple, int eno);
 
 void sock_tx_flush();
 
@@ -154,21 +149,5 @@ int so_getsockopt(struct gt_sock *, int, int, void *, socklen_t *);
 int so_setsockopt(struct gt_sock *, int, int, const void *, socklen_t);
 
 int so_getpeername(struct gt_sock *, struct sockaddr *, socklen_t *);
-
-static inline void
-so_lock(struct gt_sock *so)
-{
-	if (so->so_bucket != NULL) {
-		SO_LOCK(so->so_bucket);
-	}
-}
-
-static inline void
-so_unlock(struct gt_sock *so)
-{
-	if (so->so_bucket != NULL) {
-		SO_UNLOCK(so->so_bucket);
-	}
-}
 
 #endif // GBTCP_TCP_H

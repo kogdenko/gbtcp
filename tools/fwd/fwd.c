@@ -283,11 +283,11 @@ static void
 so_del(struct gt_sock *so)
 {
 	DLIST_REMOVE(so, so_list);
-	DLIST_REMOVE(so, so_bindl);
+	DLIST_REMOVE(so, so_bind_list);
 	if (Mflag) {
 		mbuf_free(&so->so_file.fl_mbuf);
 	} else {
-		DLIST_INSERT_HEAD(&free_socks, so, so_bindl);
+		DLIST_INSERT_HEAD(&free_socks, so, so_bind_list);
 	}
 	nr_socks--;
 }
@@ -298,17 +298,17 @@ so_alloc(struct dlist *bucket)
 	struct gt_sock *so;
 
 	if (nr_socks == nr_socks_max) {
-		so = DLIST_LAST(&used_socks, struct gt_sock, so_bindl);
+		so = DLIST_LAST(&used_socks, struct gt_sock, so_bind_list);
 		so_del(so);
 	}
 	if (Mflag) {
 		mbuf_alloc(NULL, &sock_pool, (struct mbuf **)&so);
 	} else {
 		assert(dlist_is_empty(&free_socks));
-		so = DLIST_LAST(&free_socks, struct gt_sock, so_bindl);
-		DLIST_REMOVE(so, so_bindl);
+		so = DLIST_LAST(&free_socks, struct gt_sock, so_bind_list);
+		DLIST_REMOVE(so, so_bind_list);
 	}
-	DLIST_INSERT_HEAD(&used_socks, so, so_bindl);
+	DLIST_INSERT_HEAD(&used_socks, so, so_bind_list);
 	DLIST_INSERT_HEAD(bucket, so, so_list);
 	so->so_flags = 0;
 	so->so_ssnt = 0;
@@ -623,7 +623,7 @@ main(int argc, char **argv)
 			dlist_init(&free_socks);
 			so_buf = malloc(nr_socks_max * sizeof(struct gt_sock));
 			for (i = 0; i < nr_socks_max; ++i) {
-				DLIST_INSERT_HEAD(&free_socks, so_buf + i, so_bindl);
+				DLIST_INSERT_HEAD(&free_socks, so_buf + i, so_bind_list);
 			}
 		}
 		dlist_init(&used_socks);

@@ -256,12 +256,10 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 		rc = so_get(e->e_fd, &so);
 		UNUSED(rc);
 		ASSERT(rc == 0); // aio removed on file close, see POLLNVAL
-		so_lock(so);
 		if (e->e_revents == 0) {
 			revents = file_get_events(&so->so_file, &e->e_aio);
 			if (revents == 0) {
 				epoll_entry_untrigger(e);
-				so_unlock(so);
 				continue;
 			}
 			e->e_revents = revents;
@@ -276,7 +274,6 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 		if (e->e_flags & EPOLL_FLAG_ONESHOT) {
 			epoll_entry_free(e);
 		}
-		so_unlock(so);
 		n++;
 		if (n == cnt) {
 			break;
@@ -471,11 +468,25 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 
 #ifdef __linux__
 int
-epoll_mod(struct epoll *ep, int op, struct gt_sock *so, struct epoll_event *event)
+u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 {
-	int filter;
+	int rc, filter;
+	struct gt_sock *so;
+	struct epoll *ep;
 	struct epoll_entry *e;
 
+	if (ep_fd == fd) {
+		return -EINVAL;
+	}
+	rc = epoll_get(ep_fd, &ep);
+	if (rc) {
+		return rc;
+	}
+	rc = so_get(fd, &so);
+	if (rc) {
+		rc = sys_epoll_ctl(ep->ep_fd, op, fd, event);
+		return rc;
+	}
 	filter = 0;
 	if (event->events & EPOLLIN) {
 		filter |= POLLIN;
@@ -527,31 +538,6 @@ epoll_mod(struct epoll *ep, int op, struct gt_sock *so, struct epoll_event *even
 		e->e_flags &= ~EPOLL_FLAG_ONESHOT;
 	}
 	return 0;
-}
-
-int
-u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
-{
-	int rc;
-	struct gt_sock *so;
-	struct epoll *ep;
-
-	if (ep_fd == fd) {
-		return -EINVAL;
-	}
-	rc = epoll_get(ep_fd, &ep);
-	if (rc) {
-		return rc;
-	}
-	rc = so_get(fd, &so);
-	if (rc) {
-		rc = sys_epoll_ctl(ep->ep_fd, op, fd, event);
-		return rc;
-	}
-	so_lock(so);
-	rc = epoll_mod(ep, op, so, event);
-	so_unlock(so);
-	return rc;
 }
 #else /* __linux__ */
 int
