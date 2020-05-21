@@ -30,7 +30,7 @@ mbuf_mod_init(struct log *log, void **pp)
 	struct mbuf_mod *mod;
 
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(log, pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "mbuf");

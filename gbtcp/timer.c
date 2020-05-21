@@ -74,7 +74,7 @@ timer_mod_init(struct log *log, void **pp)
 	struct timer_mod *mod;
 
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(log, pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "timer");
@@ -286,8 +286,7 @@ timer_set(struct timer *timer, uint64_t expire, timer_f fn)
 	ring->r_ntimers++;
 	timer->tm_data = uint_fn|ring_id;
 	DLIST_INSERT_HEAD(head, timer, tm_list);
-	DBG(log, 0,
-	    "ok; timer=%p, fn=%p, ring=%d, cur=%"PRIu64", head=%p, dist=%d",
+	DBG(0, "ok; timer=%p, fn=%p, ring=%d, cur=%"PRIu64", head=%p, dist=%d",
 	    timer, fn, ring_id, ring->r_cur, head, (int)dist);
 }
 
@@ -295,15 +294,13 @@ void
 timer_del(struct timer *timer)
 {
 	int ring_id;
-	struct log *log;
 	struct timer_ring *ring;
 
 	if (timer_is_running(timer)) {
 		ring_id = timer_ring_get_id(timer);
 		ring = timer_rings[ring_id];
 		ring->r_ntimers--;
-		log = log_trace0();
-		DBG(log, 0, "ok; timer=%p, ring=%d", timer, ring_id);
+		DBG(0, "ok; timer=%p, ring=%d", timer, ring_id);
 		ASSERT(ring->r_ntimers >= 0);
 		DLIST_REMOVE(timer, tm_list);
 		timer->tm_data = 0;

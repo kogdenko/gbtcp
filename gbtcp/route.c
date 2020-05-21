@@ -112,7 +112,7 @@ route_if_add(struct log *log, const char *ifname_nm, struct route_if **ifpp)
 		*ifpp = ifp;
 		return -EEXIST;
 	}
-	rc = shm_alloc(log, (void **)&ifp, sizeof(*ifp));
+	rc = shm_malloc(log, (void **)&ifp, sizeof(*ifp));
 	if (rc < 0) {
 		return rc;
 	}
@@ -218,7 +218,7 @@ route_ifaddr_add(struct log *log, struct route_if_addr **ifap,
 	LOG_TRACE(log);
 	ifa = route_ifaddr_get(AF_INET, addr);
 	if (ifa == NULL) {
-		rc = shm_alloc(log, (void **)&ifa, sizeof(*ifa));
+		rc = shm_malloc(log, (void **)&ifa, sizeof(*ifa));
 		if (rc < 0) {
 			return rc;
 		}
@@ -725,8 +725,9 @@ route_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct route_mod *mod;
+
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}

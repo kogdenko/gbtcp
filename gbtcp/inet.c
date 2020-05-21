@@ -157,8 +157,9 @@ inet_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct inet_mod *mod;
+
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}

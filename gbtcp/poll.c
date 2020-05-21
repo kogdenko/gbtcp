@@ -7,18 +7,19 @@ struct poll_mod {
 };
 
 struct poll_entry {
-	struct file_aio pe_aio;
-	struct poll *pe_poll;
-	int pe_idx;
-	short pe_revents;
-	short pe_added;
+	struct file_aio e_aio;
+#define e_mbuf e_aio.faio_mbuf
+	struct poll *e_poll;
+	int e_id;
+	short e_revents;
+	short e_triggered;
 };
 
 struct poll {
 	struct pollfd p_pfds[2 * FD_SETSIZE];
 	struct poll_entry p_entries[FD_SETSIZE];
 	int p_npfds;
-	int p_n;
+	int p_ntriggered;
 };
 
 static struct poll_mod *curmod;
@@ -28,14 +29,14 @@ poll_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct poll_mod *mod;
+
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
-	if (rc) {
-		return rc;
+	rc = shm_malloc(log, pp, sizeof(*mod));
+	if (rc == 0) {
+		mod = *pp;
+		log_scope_init(&mod->log_scope, "poll");
 	}
-	mod = *pp;
-	log_scope_init(&mod->log_scope, "poll");
-	return 0;
+	return rc;
 }
 
 int
@@ -49,6 +50,7 @@ void
 poll_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct poll_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
@@ -62,69 +64,84 @@ poll_mod_detach(struct log *log)
 }
 
 static void
-poll_aio(struct file_aio *aio, int fd, short events)
+poll_trigger(struct file_aio *aio, int fd, short revents)
 {
 	struct poll_entry *e;
+
 	e = (struct poll_entry *)aio;
-	e->pe_revents |= events;
-	if (e->pe_added == 0) {
-		e->pe_added = 1;
-		e->pe_poll->p_n++;
+	e->e_revents |= revents;
+	if (e->e_triggered == 0) {
+		e->e_triggered = 1;
+		e->e_poll->p_ntriggered++;
+		if (revents & POLLNVAL) {
+			file_aio_cancel(&e->e_aio);
+		}
 	}
 }
 
 static int
-poll_load(struct poll *poll, struct pollfd *pfds, int npfds, uint64_t to)
+poll_init(struct poll *poll, struct pollfd *pfds, int npfds, uint64_t to)
 {
 	int i, n, rc, fd;
 	struct pollfd *pfd;
-	struct file *fp;
+	struct gt_sock *so;
 	struct poll_entry *e;
-	poll->p_n = 0;
+
+	poll->p_ntriggered = 0;
 	n = 0;
 	for (i = 0; i < npfds; ++i) {
 		e = poll->p_entries + i;
 		pfd = pfds + i;
 		fd = pfd->fd;
-		e->pe_poll = poll;
-		e->pe_revents = 0;
-		e->pe_added = 0;
+		e->e_poll = poll;
+		e->e_revents = 0;
+		e->e_triggered = 0;
 		pfd->revents = 0;
-		mbuf_init(&e->pe_aio.faio_mbuf);
-		file_aio_init(&e->pe_aio);
-		rc = gt_sock_get(fd, &fp);
+		mbuf_init(&e->e_mbuf);
+		file_aio_init(&e->e_aio);
+		rc = so_get(fd, &so);
 		if (rc == 0) {
-			e->pe_idx = -1;
-			file_aio_set(fp, &e->pe_aio, pfd->events, poll_aio);
+			e->e_id = -fd;
+			so_lock(so);
+			file_aio_set(&so->so_file, &e->e_aio,
+			             pfd->events, poll_trigger);
+			so_unlock(so);
 		} else {
-			e->pe_idx = n;
-			poll->p_pfds[n] = *pfd;
-			n++;
+			e->e_id = n;
+			poll->p_pfds[n++] = *pfd;
 		}
 	}
 	return n;
 }
+
 static int
-poll_fill(struct poll *poll, struct pollfd *pfds, int npfds)
+poll_read_events(struct poll *poll, struct pollfd *pfds, int npfds)
 {
-	int i, n;
+	int i, rc, ntriggered;
 	short revents;
+	struct gt_sock *so;
 	struct poll_entry *e;
-	n = 0;
+
+	ntriggered = 0;
 	for (i = 0; i < npfds; ++i) {
 		e = poll->p_entries + i;
-		if (e->pe_idx == -1) {
-			pfds[i].revents = e->pe_revents;
-			file_aio_cancel(&e->pe_aio);
+		if (e->e_id < 0) {
+			pfds[i].revents = e->e_revents;
+			rc = so_get(-e->e_id, &so);
+			if (rc == 0) {
+				so_lock(so);
+				file_aio_cancel(&e->e_aio);
+				so_unlock(so);
+			}
 		} else {
-			revents = poll->p_pfds[e->pe_idx].revents;
+			revents = poll->p_pfds[e->e_id].revents;
 			pfds[i].revents = revents;
 			if (revents) {
-				n++;
+				ntriggered++;
 			}
 		}
 	}
-	return n;
+	return ntriggered;
 }
 
 int
@@ -139,13 +156,12 @@ gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 	if (npfds > FD_SETSIZE) {
 		return -EINVAL;
 	}
-	sys = poll_load(&poll, pfds, npfds, to);
+	sys = poll_init(&poll, pfds, npfds, to);
 	set.fdes_to = to;
 	do {
 		gt_fd_event_set_init(&set, poll.p_pfds + sys);
 		SERVICE_UNLOCK;
-		if (poll.p_n) {
-			// If some events already occured - do not wait in poll
+		if (poll.p_ntriggered) {
 			set.fdes_ts.tv_nsec = 0;
 		}
 		rc = sys_ppoll(NULL, poll.p_pfds,
@@ -158,9 +174,9 @@ gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 		}
 		n = rc - m;
 		a = n;
-		n += poll.p_n;
+		n += poll.p_ntriggered;
 	} while (n == 0 && set.fdes_to > 0);
-	b = poll_fill(&poll, pfds, npfds);
+	b = poll_read_events(&poll, pfds, npfds);
 	ASSERT3(0, a == b, "%d, %d", a, b);
 	return n;
 }

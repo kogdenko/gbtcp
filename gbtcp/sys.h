@@ -175,6 +175,7 @@ int sys_inotify_rm_watch(struct log *, int, int);
 int sys_epoll_create1(struct log *, int);
 int sys_epoll_pwait(struct log *, int, struct epoll_event *, int, int,
 	const sigset_t *);
+int sys_epoll_ctl(int, int, int, struct epoll_event *);
 int sys_clone(struct log *, int (*)(void *), void *, int , void *,
 	void *, void *, void *);
 #else /* __linux__ */

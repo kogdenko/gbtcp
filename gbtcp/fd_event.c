@@ -6,7 +6,7 @@ struct fd_event_mod {
 
 uint64_t gt_fd_event_epoch;
 
-static uint64_t gt_fd_event_time;
+static uint64_t last_check_time;
 static int fd_event_nused;
 static int gt_fd_event_in_cb;
 static struct fd_event *gt_fd_event_used[FD_EVENTS_MAX];
@@ -25,7 +25,7 @@ fd_event_mod_init(struct log *log, void **pp)
 	int rc;
 	struct fd_event_mod *mod;
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(log, pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "fd_event");
@@ -67,7 +67,7 @@ fd_event_mod_detach(struct log *log)
 }
 
 void
-gt_fd_event_mod_check()
+check_fd_events()
 {
 	struct log *log;
 	struct gt_fd_event_set set;
@@ -83,20 +83,8 @@ gt_fd_event_mod_check()
 }
 
 void
-gt_fd_event_mod_try_check()
+wait_for_fd_events()
 {
-	uint64_t dt;
-
-	dt = nanoseconds - gt_fd_event_time;
-	if (dt >= FD_EVENT_TIMEOUT) {
-		gt_fd_event_mod_check();
-	}
-}
-
-int
-gt_fd_event_mod_wait()
-{
-	int rc;
 	struct log *log;
 	struct gt_fd_event_set set;
 	struct pollfd pfds[FD_EVENTS_MAX];
@@ -105,10 +93,9 @@ gt_fd_event_mod_wait()
 	set.fdes_to = TIMER_TIMO;
 	gt_fd_event_set_init(&set, pfds);
 	SERVICE_UNLOCK;
-	rc = sys_ppoll(log, pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
+	sys_ppoll(log, pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
 	SERVICE_LOCK;
 	gt_fd_event_set_call(&set, pfds);
-	return rc < 0 ? rc : 0;
 }
 
 int
@@ -156,18 +143,16 @@ gt_fd_event_new(struct log *log, struct fd_event **pe,
 	gt_fd_event_used[e->fde_id] = e;
 	fd_event_nused++;
 	*pe = e;
-	DBG(log, 0, "ok; event='%s'", e->fde_name);
+	DBG(0, "ok; event='%s'", e->fde_name);
 	return 0;
 }
 
 static void
 gt_fd_event_free(struct fd_event *e)
 {
-	struct log *log;
 	struct fd_event *last;
 
-	log = log_trace0();
-	DBG(log, 0, "hit; event='%s'", e->fde_name);
+	DBG(0, "hit; event='%s'", e->fde_name);
 	ASSERT(e->fde_id < fd_event_nused);
 	if (e->fde_id != fd_event_nused - 1) {
 		last = gt_fd_event_used[fd_event_nused - 1];
@@ -194,11 +179,8 @@ gt_fd_event_unref(struct fd_event *e)
 void
 gt_fd_event_del(struct fd_event *e)
 {
-	struct log *log;
-
 	if (e != NULL) {
-		log = log_trace0();
-		DBG(log, 0, "hit; event='%s'", e->fde_name);
+		DBG(0, "hit; event='%s'", e->fde_name);
 		ASSERT(fd_event_nused);
 		ASSERT(e->fde_fd != -1);
 		ASSERT(e->fde_id < fd_event_nused);
@@ -315,7 +297,7 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 	}
 	gt_fd_event_in_cb = 0;
 	if (set->fdes_again == 0) {
-		gt_fd_event_time = nanoseconds;
+		last_check_time = nanoseconds;
 	}
 	return n;
 }

@@ -168,7 +168,7 @@ shm_alloc_page_locked(struct log *log, void **pp, int alignment, int size)
 }
 
 int
-shm_alloc_locked(struct log *log, void **pp, int size)
+shm_malloc_locked(struct log *log, void **pp, size_t size)
 {
 	int rc, rem, size2, size3;
 	struct shm_region *r, *r2;
@@ -208,11 +208,11 @@ out:
  
 
 int
-shm_alloc(struct log *log, void **pp, int size)
+shm_malloc(struct log *log, void **pp, size_t size)
 {
 	int rc;
 	SHM_LOCK;
-	rc = shm_alloc_locked(log, pp, size);
+	rc = shm_malloc_locked(log, pp, size);
 	SHM_UNLOCK;
 	if (rc) {
 	} else {
@@ -238,7 +238,7 @@ shm_realloc(struct log *log, void **pp, int size)
 		r--;
 		old_size = r->shmr_size;
 	}
-	rc = shm_alloc(log, &new, size);
+	rc = shm_malloc(log, &new, size);
 	if (rc) {
 		return rc;
 	}

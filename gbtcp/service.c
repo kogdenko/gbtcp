@@ -24,7 +24,7 @@ service_mod_init(struct log *log, void **pp)
 	int rc;
 	struct service_mod *mod;
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(log, pp, sizeof(*mod));
 	if (rc == 0) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "service");

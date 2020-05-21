@@ -478,6 +478,6 @@ void
 controller_loop()
 {
 	while (1) {
-		gt_fd_event_mod_wait();
+		wait_for_fd_events();
 	}
 }

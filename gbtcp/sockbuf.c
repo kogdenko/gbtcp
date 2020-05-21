@@ -349,13 +349,13 @@ sockbuf_mod_init(struct log *log, void **pp)
 {
 	int rc;
 	struct sockbuf_mod *mod;
+
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
-	if (rc) {
-		return rc;
+	rc = shm_malloc(log, pp, sizeof(*mod));
+	if (rc == 0) {
+		mod = *pp;
+		log_scope_init(&mod->log_scope, "sockbuf");
 	}
-	mod = *pp;
-	log_scope_init(&mod->log_scope, "sockbuf");
 	return rc;
 }
 

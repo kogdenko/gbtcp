@@ -51,7 +51,8 @@ do { \
 #define log_trace0() log_trace(NULL)
 
 #ifdef NDEBUG
-#define DBG(trace, ...) UNUSED(trace)
+#define DBG(...)
+#define INFO(...)
 #define ASSERT3(err, expr, fmt, ...) \
 	do { \
 	} while (0)
@@ -59,8 +60,8 @@ do { \
 	do { \
 	} while (0)
 #else /*NDEBUG */
-#define DBG(trace, err, ...) \
-	LOGF(trace, LOG_DEBUG, err, __VA_ARGS__)
+#define DBG(err, ...) LOGF(log_trace0(), LOG_DEBUG, err, __VA_ARGS__)
+#define INFO(err, ...) LOGF(log_trace0(), LOG_INFO, err, __VA_ARGS__)
 #define ASSERT3(err, expr, fmt, ...) \
 	((expr) ? \
 	(void)(0) : \

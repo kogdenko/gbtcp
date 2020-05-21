@@ -14,7 +14,7 @@ signal_mod_init(struct log *log, void **pp)
 	int rc;
 	struct signal_mod *mod;
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}

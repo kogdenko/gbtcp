@@ -20,13 +20,11 @@ static void
 file_aio_call(struct file_aio *aio, short revents)
 {
 	int fd;
-	struct log *log;
 
 	file_aio_f fn;
 	fn = aio->faio_fn;
 	fd = aio->faio_fd;
-	log = log_trace0();
-	DBG(log, 0, "hit; aio=%p, fd=%d, events=%s",
+	DBG(0, "hit; aio=%p, fd=%d, events=%s",
 	    aio, fd, log_add_poll_events(revents));
 	(*fn)(aio, fd, revents);
 }
@@ -38,7 +36,7 @@ file_mod_init(struct log *log, void **pp)
 	struct file_mod *mod;
 
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(log, pp, sizeof(*mod));
 	if (rc == 0) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "file");
@@ -121,18 +119,18 @@ file_alloc(struct log *log, struct file **fpp, int type)
 	int rc;
 	struct file *fp;
 
-	LOG_TRACE(log);
 	rc = mbuf_alloc(log, &current->p_file_pool, (struct mbuf **)fpp);
 	if (rc == 0) {
 		fp = *fpp;
 		file_init(fp, type);
-		DBG(log, 0, "ok; fp=%p, fd=%d", fp, file_get_fd(fp));
+		DBG(0, "ok; fp=%p, fd=%d", fp, file_get_fd(fp));
 	} else {
-		DBG(log, -rc, "failed");
+		DBG(-rc, "failed;");
 	}
 	return rc;
 }
 
+/*
 int
 file_alloc4(struct log *log, struct file **fpp, int type, int fd)
 {
@@ -157,6 +155,7 @@ file_alloc4(struct log *log, struct file **fpp, int type, int fd)
 	}
 	return rc;
 }
+*/
 
 int
 file_get(int fd, struct file **fpp)
@@ -185,20 +184,19 @@ file_get(int fd, struct file **fpp)
 void
 file_free(struct file *fp)
 {
-	struct log *log;
-	log = log_trace0();
-	DBG(log, 0, "hit; fp=%p, fd=%d", fp, file_get_fd(fp));
+	DBG(0, "hit; fp=%p, fd=%d", fp, file_get_fd(fp));
 	mbuf_free(&fp->fl_mbuf);
 }
 
 void
-file_close(struct file *fp, int how)
+file_close(struct file *fp)
 {
 	fp->fl_opened = 0;
 	file_wakeup(fp, POLLNVAL);
+	ASSERT(dlist_is_empty(&fp->fl_aioq));
 	switch (fp->fl_type) {
 	case FILE_SOCK:
-		gt_sock_close(fp, GT_SOCK_GRACEFULL);
+		so_close((struct gt_sock *)fp);
 		break;
 	case FILE_EPOLL:
 		u_epoll_close(fp);
@@ -209,7 +207,7 @@ file_close(struct file *fp, int how)
 }
 
 int
-file_cntl(struct file *fp, int cmd, uintptr_t arg)
+file_fcntl(struct file *fp, int cmd, uintptr_t arg)
 {
 	int flags, rc;
 
@@ -276,12 +274,10 @@ void
 file_wakeup(struct file *fp, short events)
 {
 	short revents;
-	struct log *log;
 	struct file_aio *aio, *tmp;
 
 	ASSERT(events);
-	log = log_trace0();
-	DBG(log, 0, "hit; fd=%d, events=%s",
+	DBG(0, "hit; fd=%d, events=%s",
 	    file_get_fd(fp), log_add_poll_events(events));
 	DLIST_FOREACH_SAFE(aio, &fp->fl_aioq, faio_list, tmp) {
 		ASSERT(aio->faio_filter);
@@ -306,10 +302,9 @@ file_wait_cb(struct file_aio *aio, int fd, short revents)
 	data->w_revents = revents;
 }
 
-int
+void
 file_wait(struct file *fp, short events)
 {
-	int rc;
 	struct file_wait_data data;
 
 	mbuf_init(&data.w_aio.faio_mbuf);
@@ -317,26 +312,23 @@ file_wait(struct file *fp, short events)
 	data.w_revents = 0;
 	file_aio_set(fp, &data.w_aio, events, file_wait_cb);
 	do {
-		rc = gt_fd_event_mod_wait();
-	} while (rc == 0 && data.w_revents == 0);
+		wait_for_fd_events();
+	} while (data.w_revents == 0);
 	file_aio_cancel(&data.w_aio);
-	return rc;
 }
 
 short
 file_get_events(struct file *fp, struct file_aio *aio)
 {
 	short revents;
-	struct log *log;
 
 	if (fp->fl_type == FILE_SOCK) {
-		revents = gt_sock_get_events(fp);
+		revents = so_get_events(fp);
 	} else {
 		revents = 0;
 	}
 	revents &= aio->faio_filter;
-	log = log_trace0();
-	DBG(log, 0, "hit; aio=%p, fd=%d, events=%s",
+	DBG(0, "hit; aio=%p, fd=%d, events=%s",
 	    aio, file_get_fd(fp), log_add_poll_events(revents));
 	return revents;
 }
@@ -359,7 +351,6 @@ file_aio_set(struct file *fp, struct file_aio *aio, short events,
 	int fd;
 	const char *action;
 	short filter, revents;
-	struct log *log;
 
 	ASSERT(fp->fl_type == FILE_SOCK);
 	filter = events|POLLERR|POLLNVAL;
@@ -379,8 +370,7 @@ file_aio_set(struct file *fp, struct file_aio *aio, short events,
 		action = "mod";
 	}
 	UNUSED(action);
-	log = log_trace0();
-	DBG(log, 0, "%s; aio=%p, fd=%d, filter=%s",
+	DBG(0, "%s; aio=%p, fd=%d, filter=%s",
 	    action, aio, fd, log_add_poll_events(filter));
 	aio->faio_filter |= filter;
 	revents = file_get_events(fp, aio);
@@ -392,11 +382,8 @@ file_aio_set(struct file *fp, struct file_aio *aio, short events,
 void
 file_aio_cancel(struct file_aio *aio)
 {
-	struct log *log;
-
 	if (aio->faio_filter) {
-		log = log_trace0();
-		DBG(log, 0, "hit; aio=%p, fd=%d, filter=%s",
+		DBG(0, "hit; aio=%p, fd=%d, filter=%s",
 		    aio, aio->faio_fd,
 		    log_add_poll_events(aio->faio_filter));
 		aio->faio_filter = 0;

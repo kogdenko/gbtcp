@@ -139,7 +139,7 @@ log_mod_init(struct log *log, void **pp)
 	struct log_mod *mod;
 
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}

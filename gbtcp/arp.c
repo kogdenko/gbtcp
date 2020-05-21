@@ -11,16 +11,17 @@ struct arp_mod {
 };
 
 enum gt_arp_state {
-	GT_ARP_NONE = 0,
-	GT_ARP_INCOMPLETE,
-	GT_ARP_REACHABLE,
-	GT_ARP_STALE,
-	GT_ARP_PROBE
+	ARP_NONE = 0,
+	ARP_INCOMPLETE,
+	ARP_REACHABLE,
+	ARP_STALE,
+	ARP_PROBE
 };
 
 struct arp_entry {
 	struct mbuf ae_mbuf;
 #define ae_list ae_mbuf.mb_list
+	struct htable_bucket *ae_bucket;
 	be32_t ae_next_hop;
 	short ae_state;
 	short ae_admin;
@@ -31,7 +32,7 @@ struct arp_entry {
 	struct dev_pkt *ae_incomplete_q;
 };
 
-static htable_t gt_arp_htable;
+static struct htable gt_arp_htable;
 static uint64_t gt_arp_reachable_time;
 static struct timer gt_arp_timer_calc_reachable_time;
 static struct arp_mod *curmod;
@@ -43,14 +44,14 @@ static void gt_arp_calc_reachable_time_timeout(struct timer *timer);
 static void gt_arp_entry_del(struct log *log, struct arp_entry *e);
 
 static const char *
-gt_arp_state_str(int state)
+arp_state_str(int state)
 {
 	switch (state) {
-	case GT_ARP_NONE: return "NONE";
-	case GT_ARP_INCOMPLETE: return "INCOMPLETE";
-	case GT_ARP_REACHABLE: return "REACHABLE";
-	case GT_ARP_STALE: return "STALE";
-	case GT_ARP_PROBE: return "PROBE";
+	case ARP_NONE: return "NONE";
+	case ARP_INCOMPLETE: return "INCOMPLETE";
+	case ARP_REACHABLE: return "REACHABLE";
+	case ARP_STALE: return "STALE";
+	case ARP_PROBE: return "PROBE";
 	default: return "???";
 	}
 }
@@ -190,7 +191,7 @@ gt_arp_tx_probe(struct arp_entry *e)
 }
 
 static uint32_t
-gt_arp_hash(void *ep)
+arp_entry_hash(void *ep)
 {
 	uint32_t h;
 	struct arp_entry *e;
@@ -288,7 +289,7 @@ gt_arp_ctl_list(void *udata, int id, const char *new, struct strbuf *out)
 	strbuf_add_ch(out, ',');
 	strbuf_add_ethaddr(out, &e->ae_addr);
 	strbuf_add_ch(out, ',');
-	str = gt_arp_state_str(e->ae_state);
+	str = arp_state_str(e->ae_state);
 	strbuf_add_str(out, str);
 	return 0;
 }
@@ -301,7 +302,7 @@ arp_mod_init(struct log *log, void **pp)
 	struct arp_mod *mod;
 
 	LOG_TRACE(log);
-	rc = shm_alloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(log, pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
@@ -320,7 +321,8 @@ arp_mod_attach(struct log *log, void *raw_mod)
 
 	LOG_TRACE(log);
 	curmod = raw_mod;
-	rc = htable_create(log, &gt_arp_htable, 32, gt_arp_hash);
+	rc = htable_init(log, &gt_arp_htable, 32, arp_entry_hash,
+	                 0, field_off(struct arp_entry, ae_bucket));
 	if (rc) {
 		return rc;
 	}
@@ -347,7 +349,7 @@ arp_mod_deinit(struct log *log, void *raw_mod)
 	mod = raw_mod;
 	sysctl_del(log, "arp.add");
 	sysctl_del(log, "arp.list");
-	htable_free(&gt_arp_htable);
+	htable_deinit(&gt_arp_htable);
 	log_scope_deinit(log, &mod->log_scope);
 	shm_free(mod);
 }
@@ -369,14 +371,14 @@ arp_mod_service_deinit(struct log *log, struct proc *s)
 
 
 static inline void
-gt_arp_set_state(struct log *log, struct arp_entry *e, int state)
+arp_set_state(struct log *log, struct arp_entry *e, int state)
 {
 	LOG_TRACE(log);
 	LOGF(log, LOG_INFO, 0, "hit; state=%s->%s, next_hop=%s",
-	     gt_arp_state_str(e->ae_state), gt_arp_state_str(state),
+	     arp_state_str(e->ae_state), arp_state_str(state),
 	     log_add_ipaddr(AF_INET, &e->ae_next_hop));
 	e->ae_state = state;
-	if (state == GT_ARP_REACHABLE) {
+	if (state == ARP_REACHABLE) {
 		timer_del(&e->ae_timer);
 		e->ae_confirmed = nanoseconds;
 		e->ae_nprobes = 0;
@@ -388,7 +390,9 @@ gt_arp_entry_alloc(struct log *log, struct arp_entry **ep,
 	be32_t next_hop)
 {
 	int rc;
+	uint32_t h;
 	struct arp_entry *e;
+	struct htable_bucket *b;
 
 	LOG_TRACE(log);
 	rc = mbuf_alloc(log, &current->p_arp_entry_pool, (struct mbuf **)ep);
@@ -402,7 +406,9 @@ gt_arp_entry_alloc(struct log *log, struct arp_entry **ep,
 	e->ae_admin = 0;
 	timer_init(&e->ae_timer);
 	e->ae_next_hop = next_hop;
-	htable_add(&gt_arp_htable, (struct dlist *)e);
+	h = arp_entry_hash(e);
+	b = htable_bucket_get(&gt_arp_htable, h);
+	htable_add(&gt_arp_htable, b, (htable_entry_t *)e);
 	return 0;
 }
 
@@ -410,9 +416,9 @@ static void
 gt_arp_entry_del(struct log *log,struct arp_entry *e)
 {
 	LOG_TRACE(log);
-	htable_del(&gt_arp_htable, (struct dlist *)e);
+	htable_del(&gt_arp_htable, (htable_entry_t *)e);
 	timer_del(&e->ae_timer);
-	gt_arp_set_state(log, e, GT_ARP_NONE);
+	arp_set_state(log, e, ARP_NONE);
 	mbuf_free(&e->ae_incomplete_q->pkt_mbuf);
 	mbuf_free(&e->ae_mbuf);
 }
@@ -420,13 +426,13 @@ gt_arp_entry_del(struct log *log,struct arp_entry *e)
 static struct arp_entry *
 gt_arp_entry_get(be32_t next_hop)
 {
-	uint32_t hash;
-	struct dlist *bucket;
+	uint32_t h;
+	struct htable_bucket *b;
 	struct arp_entry *e;
 
-	hash = custom_hash32(next_hop, 0);
-	bucket = htable_bucket(&gt_arp_htable, hash);
-	DLIST_FOREACH(e, bucket, ae_list) {
+	h = custom_hash32(next_hop, 0);
+	b = htable_bucket_get(&gt_arp_htable, h);
+	DLIST_FOREACH(e, &b->htb_head, ae_list) {
 		if (e->ae_next_hop == next_hop) {
 			return e;
 		}
@@ -437,7 +443,7 @@ gt_arp_entry_get(be32_t next_hop)
 static int
 gt_arp_is_probeing(int state)
 {
-	return state == GT_ARP_INCOMPLETE || state == GT_ARP_PROBE;
+	return state == ARP_INCOMPLETE || state == ARP_PROBE;
 }
 
 static void
@@ -460,9 +466,9 @@ gt_arp_probe_timeout(struct timer *timer)
 }
 
 static int
-gt_arp_entry_is_reachable_timeouted(struct arp_entry *e)
+arp_entry_is_reachable_timeouted(struct arp_entry *e)
 {
-	if (e->ae_state != GT_ARP_REACHABLE) {
+	if (e->ae_state != ARP_REACHABLE) {
 		return 0;
 	}
 	if (e->ae_admin) {
@@ -476,32 +482,32 @@ gt_arp_resolve(struct route_if *ifp, be32_t next_hop,
 	struct dev_pkt *pkt)
 {
 	int rc;
-	uint32_t hash;
-	struct dlist *bucket;
+	uint32_t h;
+	struct htable_bucket *b;
 	struct log *log;
 	struct arp_entry *e, *tmp;
 
 	log = log_trace0();
-	hash = custom_hash32(next_hop, 0);
-	bucket = htable_bucket(&gt_arp_htable, hash);
-	DLIST_FOREACH_SAFE(e, bucket, ae_list, tmp) {
-		if (gt_arp_entry_is_reachable_timeouted(e)) {
-			gt_arp_set_state(log, e, GT_ARP_STALE);
+	h = custom_hash32(next_hop, 0);
+	b = htable_bucket_get(&gt_arp_htable, h);
+	DLIST_FOREACH_SAFE(e, &b->htb_head, ae_list, tmp) {
+		if (arp_entry_is_reachable_timeouted(e)) {
+			arp_set_state(log, e, ARP_STALE);
 		}
 		if (e->ae_next_hop != next_hop) {
-			if (e->ae_state == GT_ARP_STALE) {
+			if (e->ae_state == ARP_STALE) {
 				gt_arp_entry_del(log, e);
 			}
 		} else {
-			if (e->ae_state == GT_ARP_INCOMPLETE) {
+			if (e->ae_state == ARP_INCOMPLETE) {
 				gt_arp_entry_add_incomplete(log, e, pkt);
 				return;
 			}
 			ASSERT(e->ae_incomplete_q == NULL);
 			gt_arp_set_eth_hdr(e, ifp, pkt->pkt_data);
 			route_if_tx(ifp, pkt);
-			if (e->ae_state == GT_ARP_STALE) {
-				gt_arp_set_state(log, e, GT_ARP_PROBE);
+			if (e->ae_state == ARP_STALE) {
+				arp_set_state(log, e, ARP_PROBE);
 				gt_arp_tx_probe(e);
 			}
 			return;
@@ -509,7 +515,7 @@ gt_arp_resolve(struct route_if *ifp, be32_t next_hop,
 	}
 	rc = gt_arp_entry_alloc(log, &e, next_hop);
 	if (rc == 0) {
-		gt_arp_set_state(log, e, GT_ARP_INCOMPLETE);
+		arp_set_state(log, e, ARP_INCOMPLETE);
 		gt_arp_entry_add_incomplete(log, e, pkt);
 		gt_arp_tx_probe(e);
 	}
@@ -537,52 +543,52 @@ gt_arp_update(struct gt_arp_advert_msg *msg)
 			rc = gt_arp_entry_alloc(log, &e, msg->arpam_next_hop);
 			if (rc == 0) {
 				e->ae_addr = msg->arpam_addr;
-				gt_arp_set_state(log, e, GT_ARP_STALE);
+				arp_set_state(log, e, ARP_STALE);
 			}
 		}
 		return;
 	}
 	same_addr = !memcmp(&e->ae_addr, &msg->arpam_addr,
 	                    sizeof(msg->arpam_addr));
-	if (gt_arp_entry_is_reachable_timeouted(e)) {
-		gt_arp_set_state(log, e, GT_ARP_STALE);
+	if (arp_entry_is_reachable_timeouted(e)) {
+		arp_set_state(log, e, ARP_STALE);
 	}
 	if (msg->arpam_advert == 0) {
-		if (e->ae_state == GT_ARP_INCOMPLETE) {
+		if (e->ae_state == ARP_INCOMPLETE) {
 			e->ae_addr = msg->arpam_addr;
 			arp_tx_incomplete_q(e);
 			same_addr = 0;
 		}
 		if (same_addr == 0) {
 			e->ae_addr = msg->arpam_addr;
-			gt_arp_set_state(log, e, GT_ARP_STALE);
+			arp_set_state(log, e, ARP_STALE);
 		}
-	} else if (e->ae_state == GT_ARP_INCOMPLETE) {
+	} else if (e->ae_state == ARP_INCOMPLETE) {
 		e->ae_addr = msg->arpam_addr;
 		arp_tx_incomplete_q(e);
 		if (msg->arpam_solicited) {
-			gt_arp_set_state(log, e, GT_ARP_REACHABLE);
+			arp_set_state(log, e, ARP_REACHABLE);
 		} else {
-			gt_arp_set_state(log, e, GT_ARP_STALE);
+			arp_set_state(log, e, ARP_STALE);
 		}
 	} else if (msg->arpam_override == 0) {
 		if (same_addr) {
 			if (msg->arpam_solicited) {
-				gt_arp_set_state(log, e, GT_ARP_REACHABLE);
+				arp_set_state(log, e, ARP_REACHABLE);
 			}
 		} else {
-			if (e->ae_state == GT_ARP_REACHABLE) {
-				gt_arp_set_state(log, e, GT_ARP_STALE);
+			if (e->ae_state == ARP_REACHABLE) {
+				arp_set_state(log, e, ARP_STALE);
 			}
 		}
 	} else {
 		e->ae_addr = msg->arpam_addr;
 		if (msg->arpam_solicited) {
-			gt_arp_set_state(log, e, GT_ARP_REACHABLE);
+			arp_set_state(log, e, ARP_REACHABLE);
 		} else {
 			// override == 1 && solicited == 0
 			if (same_addr == 0) {
-				gt_arp_set_state(log, e, GT_ARP_STALE);
+				arp_set_state(log, e, ARP_STALE);
 			}
 		}
 	}
@@ -604,7 +610,7 @@ gt_arp_add(be32_t next_hop, struct ethaddr *addr)
 	if (rc == 0) {
 		e->ae_admin = 1;
 		e->ae_addr = *addr;
-		gt_arp_set_state(log, e, GT_ARP_REACHABLE);
+		arp_set_state(log, e, ARP_REACHABLE);
 		arp_tx_incomplete_q(e);
 	}
 	return rc;

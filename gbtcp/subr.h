@@ -115,6 +115,9 @@ struct dev;
 struct route_if;
 struct init_hdr;
 
+typedef int (*malloc_f)(struct log *, void **, size_t);
+typedef void (*free_f)(void *);
+
 struct ethaddr {
 	uint8_t etha_bytes[ETHADDR_LEN];
 } __attribute__((packed));

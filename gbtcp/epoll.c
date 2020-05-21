@@ -1,9 +1,8 @@
 #include "internals.h"
 
-#define UEPOLL_FLAG_ENABLED (1 << 0)
-#define UEPOLL_FLAG_ONESHOT (1 << 1)
-#define UEPOLL_FLAG_ET (1 << 2)
-#define UEPOLL_FLAG_ADDED (1 << 3)
+#define EPOLL_FLAG_ENABLED (1 << 0)
+#define EPOLL_FLAG_ONESHOT (1 << 1)
+#define EPOLL_FLAG_ET (1 << 2)
 
 struct epoll_mod {
 	struct log_scope log_scope;
@@ -13,25 +12,27 @@ struct epoll {
 	struct file ep_file;
 	int ep_fd;
 	struct mbuf_pool *ep_pool;
-	struct dlist ep_head;
+	struct dlist ep_triggered;
 };
 
 struct epoll_entry {
-	struct file_aio epe_aio;
-	struct dlist epe_list;
-	struct epoll *epe_ep;
-	int epe_fd;
-	short epe_revents;
-	short epe_flags;
+	struct file_aio e_aio;
+#define e_mbuf e_aio.faio_mbuf
+#define e_filter e_aio.faio_filter
+	struct dlist e_list;
+	struct epoll *e_ep;
+	int e_fd;
+	short e_revents;
+	short e_flags;
 	union {
-		uint64_t epe_udata_u64;
-		void *epe_udata_ptr;
+		uint64_t e_udata_u64;
+		void *e_udata_ptr;
 	};
 };
 
 static struct epoll_mod *curmod;
 
-static void epoll_entry_set(struct epoll_entry *, struct file *, short);
+static void epoll_entry_set(struct epoll_entry *, struct gt_sock *, short);
 
 int
 epoll_mod_init(struct log *log, void **pp)
@@ -41,7 +42,7 @@ epoll_mod_init(struct log *log, void **pp)
 
 	LOG_TRACE(log);
 	ASSERT(sizeof(struct epoll) <= sizeof(struct gt_sock));
-	rc = shm_alloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(log, pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "epoll");
@@ -87,73 +88,90 @@ epoll_entry_get(struct epoll *ep, struct file *fp)
 	}
 	return NULL;
 }
+
+static int
+epoll_entry_is_triggered(struct epoll_entry *e)
+{
+	return e->e_list.dls_next != NULL;
+}
+
 static struct epoll_entry *
-epoll_entry_alloc(struct epoll *ep, struct file *fp, short filter)
+epoll_entry_alloc(struct epoll *ep, struct gt_sock *so, short filter)
 {
 	int rc;
         struct epoll_entry *e;
+
 	rc = mbuf_alloc(NULL, ep->ep_pool, (struct mbuf **)&e);
 	if (rc) {
 		return NULL;
 	}
-	e->epe_revents = 0;
-	e->epe_flags = UEPOLL_FLAG_ENABLED;
-	e->epe_ep = ep;
-	e->epe_fd = file_get_fd(fp);
-	file_aio_init(&e->epe_aio);
-	epoll_entry_set(e, fp, filter);
+	e->e_revents = 0;
+	e->e_flags = EPOLL_FLAG_ENABLED;
+	e->e_ep = ep;
+	e->e_list.dls_next = NULL;
+	e->e_fd = so_get_fd(so);
+	file_aio_init(&e->e_aio);
+	epoll_entry_set(e, so, filter);
 	return e;
 }
+
 static void
-epoll_entry_remove(struct epoll_entry *e)
+epoll_entry_untrigger(struct epoll_entry *e)
 {
-	ASSERT(e->epe_revents);
-	DLIST_REMOVE(e, epe_list);
-	e->epe_revents = 0;
+	ASSERT(epoll_entry_is_triggered(e));
+	DLIST_REMOVE(e, e_list);
+	e->e_list.dls_next = NULL;
 }
+
 static void
 epoll_entry_free(struct epoll_entry *e)
 {
-	if (e->epe_revents) {
-		epoll_entry_remove(e);
+	if (epoll_entry_is_triggered(e)) {
+		epoll_entry_untrigger(e);
 	}
-	file_aio_cancel(&e->epe_aio);
-	mbuf_free(&e->epe_aio.faio_mbuf);
+	file_aio_cancel(&e->e_aio);
+	mbuf_free(&e->e_mbuf);
 }
+
 static void
-epoll_entry_cb(struct file_aio *aio, int fd, short revents)
+epoll_trigger(struct file_aio *aio, int fd, short revents)
 {
 	struct epoll_entry *e;
+	struct epoll *ep;
+
 	e = (struct epoll_entry *)aio;
 	if (revents & POLLNVAL) {
 		epoll_entry_free(e);
 	} else {
 		ASSERT(revents);
-		if (e->epe_revents == 0) {
-			e->epe_flags |= UEPOLL_FLAG_ADDED;
-			DLIST_INSERT_HEAD(&e->epe_ep->ep_head, e, epe_list);
+		if (!epoll_entry_is_triggered(e)) {
+			ep = e->e_ep;
+			DLIST_INSERT_HEAD(&ep->ep_triggered, e, e_list);
 		}
-		e->epe_revents |= revents;
+		e->e_revents |= revents;
 	}
 }
+
 static void
-epoll_entry_set(struct epoll_entry *e, struct file *fp, short filter)
+epoll_entry_set(struct epoll_entry *e, struct gt_sock *so, short filter)
 {
-	if (e->epe_aio.faio_filter != filter) {
-		if (e->epe_revents) {
-			DLIST_REMOVE(e, epe_list);
-			e->epe_revents = 0;
-		}	
-		file_aio_set(fp, &e->epe_aio, filter, epoll_entry_cb);
+	if (e->e_filter != filter) {
+		if (epoll_entry_is_triggered(e)) {
+			epoll_entry_untrigger(e);
+		}
+		e->e_revents = 0;
+		file_aio_set(&so->so_file, &e->e_aio, filter, epoll_trigger);
 	}
 }
+
 #ifdef __linux__
 static void
-epoll_entry_get_event(struct epoll_entry *e, epoll_event_t *event,
-	struct file *fp)
+epoll_entry_get_event(struct epoll_entry *e, struct gt_sock *so,
+	epoll_event_t *event)
 {
 	short x, y;
-	x = e->epe_revents;
+
+	x = e->e_revents;
 	y = 0;
 	if (x & POLLERR) {
 		y |= EPOLLERR;
@@ -168,23 +186,22 @@ epoll_entry_get_event(struct epoll_entry *e, epoll_event_t *event,
 		y |= EPOLLOUT;
 	}
 	event->events = y;
-	event->data.u64 = e->epe_udata_u64;
+	event->data.u64 = e->e_udata_u64;
 }
 #else /* __linux__ */
 static void
-epoll_entry_get_event(struct epoll_entry *e,
-	epoll_event_t *event, struct file *fp)
+epoll_entry_get_event(struct epoll_entry *e, struct gt_sock *so,
+	epoll_event_t *event)
 {
 	short x, filter;
 	u_short flags;
 	int data;
 
-	x = e->epe_revents;
+	x = e->e_revents;
 	filter = 0;
 	flags = 0;
 	data = 0;
 	if (x & POLLIN) {
-		GT_ASSERT((x & POLLOUT) == 0);
 		filter = EVFILT_READ;
 		file_ioctl(fp, FIONREAD, (uintptr_t)(&data));
 	} else if (x & POLLOUT) {
@@ -198,10 +215,10 @@ epoll_entry_get_event(struct epoll_entry *e,
 	GT_ASSERT(filter || flags);
 	event->filter = filter;
 	event->flags = flags;
-	event->ident = e->epe_fd;
+	event->ident = e->e_fd;
 	event->fflags = 0;
 	event->data = data;
-	event->udata = e->epe_udata_ptr;
+	event->udata = e->e_udata_ptr;
 }
 #endif /* __linux__ */
 static int
@@ -219,46 +236,47 @@ epoll_get(int fd, struct epoll **ep)
 	*ep = (struct epoll *)fp;
 	return 0;
 }
+
 static int
-epoll_get_events(struct epoll *ep, epoll_event_t *buf, int cnt)
+epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 {
 	int n, rc;
 	short revents;
-	struct log *log;
-	struct file *fp;
+	struct gt_sock *so;
 	struct epoll_entry *e, *tmp;
+
 	if (cnt <= 0) {
 		return 0;
 	}
 	n = 0;
-	DLIST_FOREACH_SAFE(e, &ep->ep_head, epe_list, tmp) {
-		ASSERT(e->epe_revents);
-		if ((e->epe_flags & UEPOLL_FLAG_ENABLED) == 0) {
+	DLIST_FOREACH_SAFE(e, &ep->ep_triggered, e_list, tmp) {
+		if ((e->e_flags & EPOLL_FLAG_ENABLED) == 0) {
 			continue;
 		}
-		rc = gt_sock_get(e->epe_fd, &fp);
+		rc = so_get(e->e_fd, &so);
 		UNUSED(rc);
-		ASSERT(rc == 0);
-		ASSERT(fp->fl_type == FILE_SOCK);
-		if ((e->epe_flags & UEPOLL_FLAG_ADDED) == 0) {
-			revents = file_get_events(fp, &e->epe_aio);
+		ASSERT(rc == 0); // aio removed on file close, see POLLNVAL
+		so_lock(so);
+		if (e->e_revents == 0) {
+			revents = file_get_events(&so->so_file, &e->e_aio);
 			if (revents == 0) {
-				epoll_entry_remove(e);
+				epoll_entry_untrigger(e);
+				so_unlock(so);
 				continue;
 			}
-			e->epe_revents = revents;
+			e->e_revents = revents;
 		}
-		e->epe_flags &= ~UEPOLL_FLAG_ADDED;
-		epoll_entry_get_event(e, buf + n, fp);
-		log = log_trace0();
-		DBG(log, 0, "hit; fd=%d, events=%s",
-		    e->epe_fd, log_add_poll_events(e->epe_revents));
-		if (e->epe_flags & UEPOLL_FLAG_ET) {
-			epoll_entry_remove(e);
+		epoll_entry_get_event(e, so, buf + n);
+		DBG(0, "hit; fd=%d, events=%s",
+		    e->e_fd, log_add_poll_events(e->e_revents));
+		e->e_revents = 0;
+		if (e->e_flags & EPOLL_FLAG_ET) {
+			epoll_entry_untrigger(e);
 		}
-		if (e->epe_flags & UEPOLL_FLAG_ONESHOT) {
+		if (e->e_flags & EPOLL_FLAG_ONESHOT) {
 			epoll_entry_free(e);
 		}
+		so_unlock(so);
 		n++;
 		if (n == cnt) {
 			break;
@@ -268,28 +286,32 @@ epoll_get_events(struct epoll *ep, epoll_event_t *buf, int cnt)
 }
 #ifdef __linux__
 static int
-epoll_wait_fd(int fd, epoll_event_t *buf, int cnt)
+check_epoll_fd(int fd, epoll_event_t *buf, int cnt)
 {
 	int rc;
+
 	rc = sys_epoll_pwait(NULL, fd, buf, cnt, 0, NULL);
 	return rc;
 }
 #else /* __linux__ */
 static int
-epoll_wait_fd(int fd, epoll_event_t *buf, int cnt)
+check_epoll_fd(int fd, epoll_event_t *buf, int cnt)
 {
 	int rc;
 	struct timespec to;
+
 	to.tv_sec = 0;
 	to.tv_nsec = 0;
 	rc = sys_kevent(NULL, fd, NULL, 0, buf, cnt, &to);
 	return rc;
 }
+
 static int
 kevent_mod(struct epoll *ep, struct file *fp, struct kevent *event)
 {
 	short filter;
 	struct epoll_entry *e;
+
 	if (event->flags & EV_RECEIPT) {
 		return -ENOTSUP;
 	}
@@ -323,26 +345,27 @@ kevent_mod(struct epoll *ep, struct file *fp, struct kevent *event)
 			return -ENOMEM;
 		}
 	}
-	e->epe_udata_ptr = event->udata;
+	e->e_udata_ptr = event->udata;
 	if (event->flags & EV_ENABLE) {
-		e->epe_flags |= UEPOLL_FLAG_ENABLED;
+		e->e_flags |= EPOLL_FLAG_ENABLED;
 	}
 	if (event->flags & EV_DISABLE) {
-		e->epe_flags &= ~UEPOLL_FLAG_ENABLED;
+		e->e_flags &= ~EPOLL_FLAG_ENABLED;
 	}
 	if (event->flags & EV_ONESHOT) {
-		e->epe_flags |=  UEPOLL_FLAG_ONESHOT;
+		e->e_flags |=  EPOLL_FLAG_ONESHOT;
 	} else {
-		e->epe_flags &= ~UEPOLL_FLAG_ONESHOT;
+		e->e_flags &= ~EPOLL_FLAG_ONESHOT;
 	}
 	if (event->flags & EV_CLEAR) {
-		e->epe_flags &= ~UEPOLL_FLAG_ET;
+		e->e_flags &= ~EPOLL_FLAG_ET;
 	} else {
-		e->epe_flags |=  UEPOLL_FLAG_ET;
+		e->e_flags |=  EPOLL_FLAG_ET;
 	}
 	return 0;
 }
 #endif /* __linux__ */
+
 int
 u_epoll_create(int ep_fd)
 {
@@ -359,13 +382,13 @@ u_epoll_create(int ep_fd)
 	fp->fl_opened = 1;
 	ep = (struct epoll *)fp;
 	ep->ep_fd = ep_fd;
-	rc = shm_alloc(NULL, (void **)&ep->ep_pool, sizeof(*ep->ep_pool));
+	rc = shm_malloc(NULL, (void **)&ep->ep_pool, sizeof(*ep->ep_pool));
 	if (rc) {
 		file_free(fp);
 		return rc;
 	}
 	mbuf_pool_init(ep->ep_pool, sizeof(struct epoll_entry));
-	dlist_init(&ep->ep_head);
+	dlist_init(&ep->ep_triggered);
 	fd = file_get_fd(fp);
 	return fd;
 }
@@ -379,10 +402,7 @@ u_epoll_close(struct file *fp)
 	struct epoll_entry *e;
 
 	ep = (struct epoll *)fp;
-	rc = (*sys_close_fn)(ep->ep_fd);
-	if (rc == -1) {
-		rc = errno;
-	}
+	rc = sys_close(NULL, ep->ep_fd);
 	MBUF_FOREACH_SAFE(m, ep->ep_pool, tmp) {
 		e = (struct epoll_entry *)m;
 		epoll_entry_free(e);
@@ -410,7 +430,7 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 	if (rc) {
 		return rc;
 	}
-	n = epoll_get_events(ep, buf, cnt);
+	n = epoll_read_triggered(ep, buf, cnt);
 	if (n) {
 		return n;
 	}
@@ -435,7 +455,7 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 			return rc;
 		}
 		if (pfds[0].revents) {
-			rc = epoll_wait_fd(ep->ep_fd, buf + n, cnt - n);
+			rc = check_epoll_fd(ep->ep_fd, buf + n, cnt - n);
 			if (rc < 0) {
 				if (n == 0) {
 					return rc;
@@ -444,36 +464,18 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 				n += rc;
 			}
 		}
-		n += epoll_get_events(ep, buf + n, cnt - n);
+		n += epoll_read_triggered(ep, buf + n, cnt - n);
 	} while (n == 0 && set.fdes_to > 0);
 	return n;
 }
 
 #ifdef __linux__
 int
-u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
+epoll_mod(struct epoll *ep, int op, struct gt_sock *so, struct epoll_event *event)
 {
-	int rc, filter;
-	struct file *fp;
-	struct epoll *ep;
+	int filter;
 	struct epoll_entry *e;
 
-	if (ep_fd == fd) {
-		return -EINVAL;
-	}
-	rc = epoll_get(ep_fd, &ep);
-	if (rc) {
-		return rc;
-	}
-	rc = gt_sock_get(fd, &fp);
-	if (rc) {
-		rc = (*sys_epoll_ctl_fn)(ep->ep_fd, op, fd, event);
-		if (rc) {
-			rc = -errno;
-			ASSERT(rc);
-		}
-		return rc;
-	}
 	filter = 0;
 	if (event->events & EPOLLIN) {
 		filter |= POLLIN;
@@ -484,11 +486,11 @@ u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 	if (event->events & EPOLLRDHUP) {
 		filter |= POLLRDHUP;
 	}
-	e = epoll_entry_get(ep, fp);
+	e = epoll_entry_get(ep, &so->so_file);
 	if (e == NULL) {
 		switch (op) {
 		case EPOLL_CTL_ADD:
-			e = epoll_entry_alloc(ep, fp, filter);
+			e = epoll_entry_alloc(ep, so, filter);
 			if (e == NULL) {
 				return -ENOMEM;
 			}
@@ -504,7 +506,7 @@ u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 		case EPOLL_CTL_ADD:
 			return -EEXIST;
 		case EPOLL_CTL_MOD:
-			epoll_entry_set(e, fp, filter);
+			epoll_entry_set(e, so, filter);
 			break;
 		case EPOLL_CTL_DEL:
 			epoll_entry_free(e);
@@ -513,18 +515,43 @@ u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 			return -EINVAL;
 		}
 	}
-	e->epe_udata_u64 = event->data.u64;
+	e->e_udata_u64 = event->data.u64;
 	if (event->events & EPOLLET) {
-		e->epe_flags |= UEPOLL_FLAG_ET;
+		e->e_flags |= EPOLL_FLAG_ET;
 	} else {
-		e->epe_flags &= ~UEPOLL_FLAG_ET;
+		e->e_flags &= ~EPOLL_FLAG_ET;
 	}
 	if (event->events & EPOLLONESHOT) {
-		e->epe_flags |= UEPOLL_FLAG_ONESHOT;
+		e->e_flags |= EPOLL_FLAG_ONESHOT;
 	} else {
-		e->epe_flags &= ~UEPOLL_FLAG_ONESHOT;
+		e->e_flags &= ~EPOLL_FLAG_ONESHOT;
 	}
 	return 0;
+}
+
+int
+u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
+{
+	int rc;
+	struct gt_sock *so;
+	struct epoll *ep;
+
+	if (ep_fd == fd) {
+		return -EINVAL;
+	}
+	rc = epoll_get(ep_fd, &ep);
+	if (rc) {
+		return rc;
+	}
+	rc = so_get(fd, &so);
+	if (rc) {
+		rc = sys_epoll_ctl(ep->ep_fd, op, fd, event);
+		return rc;
+	}
+	so_lock(so);
+	rc = epoll_mod(ep, op, so, event);
+	so_unlock(so);
+	return rc;
 }
 #else /* __linux__ */
 int

@@ -17,22 +17,19 @@ int api_mod_attach(struct log *, void *);
 void api_mod_deinit(struct log *, void *);
 void api_mod_detach(struct log *);
 
-int api_socket(struct log *, int, int, int, int);
-int api_bind(struct log *, int, const struct sockaddr *, socklen_t);
-int api_listen(struct log *, int, int);
+int api_socket(int, int, int);
+int api_bind(int, const struct sockaddr *, socklen_t);
+int api_listen(int, int);
 int api_accept4(int, struct sockaddr *, socklen_t *, int);
 int api_shutdown(int, int);
 int api_close(int);
 ssize_t api_recvfrom(int, const struct iovec *, int, int,
 	struct sockaddr *, socklen_t *);
-int api_send(int, const struct iovec *, int iovcnt, int flags,
-	be32_t faddr, be16_t fport);
-int api_fcntl(int fd, int cmd, uintptr_t arg);
-int api_fcntl(int fd, int cmd, uintptr_t arg);
-int api_getsockopt(int fd, int level, int optname, void *optval,
-	socklen_t *optlen);
-int api_setsockopt(int fd, int level, int optname, const void *optval,
-	socklen_t optlen);
-int api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen);
+int api_send(int, const struct iovec *, int, int, be32_t, be16_t);
+int api_fcntl(int, int, uintptr_t);
+int api_fcntl(int, int, uintptr_t);
+int api_getsockopt(int, int, int, void *, socklen_t *);
+int api_setsockopt(int, int, int, const void *,	socklen_t);
+int api_getpeername(int, struct sockaddr *, socklen_t *);
 
 #endif // GBTCP_API_H

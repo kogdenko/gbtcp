@@ -1,14 +1,15 @@
-/* GPL2 license */
+// GPL2 license
 #ifndef GBTCP_LIST_H
 #define GBTCP_LIST_H
 
-/* Double linked list */
+// Double linked list
 struct dlist {
 	struct dlist *dls_next;
 	struct dlist *dls_prev;
 };
 
 void dlist_init(struct  dlist *);
+void dlist_init_rcu(struct dlist *);
 int dlist_size(struct dlist *);
 int dlist_is_empty(struct dlist *);
 struct dlist *dlist_first(struct dlist *);
@@ -67,4 +68,4 @@ void dlist_replace_init(struct dlist *, struct dlist *);
 		((tvar = DLIST_NEXT(var, field)), 1); \
 		var = tvar)
 
-#endif /* GBTCP_LIST_H */
+#endif // GBTCP_LIST_H
