@@ -9,13 +9,12 @@ struct dev_mod {
 static struct dev_mod *curmod;
 
 int
-dev_mod_init(struct log *log, void **pp)
+dev_mod_init(void **pp)
 {
 	int rc;
 	struct dev_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "dev");
@@ -24,25 +23,24 @@ dev_mod_init(struct log *log, void **pp)
 }
 
 int
-dev_mod_attach(struct log *log, void *raw_mod)
+dev_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-dev_mod_deinit(struct log *log, void *raw_mod)
+dev_mod_deinit(void *raw_mod)
 {
 	struct dev_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-dev_mod_detach(struct log *log)
+dev_mod_detach()
 {
 	curmod = NULL;
 }
@@ -72,12 +70,12 @@ dev_rxtx(void *udata, short revents)
 }
 
 static void
-dev_nm_close(struct log *log, struct dev *dev)
+dev_nm_close(struct dev *dev)
 {
-	LOG_TRACE(log);
-	LOGF(log, LOG_INFO, 0, "ok; nmd=%p", dev->dev_nmd);
-	if (dev->dev_nmd->fd != -1) {
-		sys_close(log, dev->dev_nmd->fd);
+	INFO(0, "ok; nmd=%p", dev->dev_nmd);
+	if (dev->dev_nmd->fd != -1) { 
+		// ?????????????????
+		sys_close(dev->dev_nmd->fd);
 		dev->dev_nmd->fd = -1;
 	}
 	nm_close(dev->dev_nmd);
@@ -85,21 +83,19 @@ dev_nm_close(struct log *log, struct dev *dev)
 }
 
 static int
-dev_nm_open(struct log *log, struct dev *dev, const char *dev_name)
+dev_nm_open(struct dev *dev, const char *dev_name)
 {
 	int rc, flags;
 	struct nmreq nmr;
 
-	LOG_TRACE(log);
 	memset(&nmr, 0, sizeof(nmr));
 	flags = 0;
 	dev->dev_nmd = nm_open(dev_name, &nmr, flags, NULL);
 	if (dev->dev_nmd != NULL) {
 		ASSERT(dev->dev_nmd->nifp != NULL);
-		sys_fcntl(log, dev->dev_nmd->fd, F_SETFD, FD_CLOEXEC);
+		sys_fcntl(dev->dev_nmd->fd, F_SETFD, FD_CLOEXEC);
 		nmr = dev->dev_nmd->req;
-		LOGF(log, LOG_INFO, 0,
-		     "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
+		INFO(0, "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
 		     dev_name, dev->dev_nmd,
 	             nmr.nr_rx_rings, nmr.nr_rx_slots,
 		     nmr.nr_tx_rings, nmr.nr_tx_slots);
@@ -107,30 +103,29 @@ dev_nm_open(struct log *log, struct dev *dev, const char *dev_name)
 	} else {
 		rc = -errno;
 		ASSERT(rc);
-		LOGF(log, LOG_ERR, -rc, "failed; dev='%s'", dev_name);
+		ERR(-rc, "failed; dev='%s'", dev_name);
 		return rc;
 	}
 }
 
 int
-dev_init(struct log *log, struct dev *dev, const char *ifname, dev_f dev_fn)
+dev_init(struct dev *dev, const char *ifname, dev_f dev_fn)
 {
 	int rc;
 	char dev_name[NM_IFNAMSIZ];
 
 	ASSERT(!dev_is_inited(dev));
-	LOG_TRACE(log);
 	memset(dev, 0, sizeof(*dev));
 	snprintf(dev_name, sizeof(dev_name), "%s%s", NETMAP_PFX, ifname);
-	rc = dev_nm_open(log, dev, dev_name);
+	rc = dev_nm_open(dev, dev_name);
 	if (rc) {
 		return rc;
 	}
 	dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
-	rc = gt_fd_event_new(log, &dev->dev_event, dev->dev_nmd->fd,
+	rc = gt_fd_event_new(&dev->dev_event, dev->dev_nmd->fd,
 	                     dev_name + NETMAP_PFX_LEN, dev_rxtx, dev);
 	if (rc) {
-		dev_nm_close(log, dev);
+		dev_nm_close(dev);
 		return rc;
 	}
 	dev->dev_fn = dev_fn;
@@ -139,13 +134,12 @@ dev_init(struct log *log, struct dev *dev, const char *ifname, dev_f dev_fn)
 }
 
 void
-dev_deinit(struct log *log, struct dev *dev)
+dev_deinit(struct dev *dev)
 {
 	if (dev_is_inited(dev)) {
-		LOG_TRACE(log);
 		gt_fd_event_del(dev->dev_event);
 		dev->dev_event = NULL;
-		dev_nm_close(log, dev);
+		dev_nm_close(dev);
 		dev->dev_fn = NULL;
 	}
 }

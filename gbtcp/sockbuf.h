@@ -12,11 +12,10 @@ struct sockbuf {
 	struct dlist sob_head;
 };
 
-int sockbuf_mod_init(struct log *, void **);
-int sockbuf_mod_attach(struct log *, void *);
-int sockbuf_proc_init(struct log *, struct service *);
-void sockbuf_mod_deinit(struct log *, void *);
-void sockbuf_mod_detach(struct log *);
+int sockbuf_mod_init(void **);
+int sockbuf_mod_attach(void *);
+void sockbuf_mod_deinit(void *);
+void sockbuf_mod_detach();
 
 void sockbuf_init(struct sockbuf *, int);
 void sockbuf_free(struct sockbuf *);

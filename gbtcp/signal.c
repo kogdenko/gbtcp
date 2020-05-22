@@ -9,38 +9,37 @@ size_t gt_signal_stack_size;
 static struct signal_mod *curmod;
 
 int
-signal_mod_init(struct log *log, void **pp)
+signal_mod_init(void **pp)
 {
 	int rc;
 	struct signal_mod *mod;
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "signal");
-	rc = sys_malloc(log, &gt_signal_stack, SIGSTKSZ);
+	rc = sys_malloc(&gt_signal_stack, SIGSTKSZ);
 	if (rc == 0)
 		gt_signal_stack_size = SIGSTKSZ;
 	return rc;
 }
 
 int
-signal_mod_attach(struct log *log, void *raw_mod)
+signal_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-signal_mod_deinit(struct log *log, void *raw_mod)
+signal_mod_deinit(void *raw_mod)
 {
 	struct signal_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	free(gt_signal_stack);
 	gt_signal_stack = NULL;
 	gt_signal_stack_size = 0;
@@ -48,7 +47,7 @@ signal_mod_deinit(struct log *log, void *raw_mod)
 }
 
 void
-signal_mod_detach(struct log *log)
+signal_mod_detach()
 {
 	curmod = NULL;
 }
@@ -59,15 +58,13 @@ gt_signal_sigaction(int signum, const struct sigaction *act,
 {
 	int rc;
 	struct sigaction newact;
-	struct log *log;
 
-	log = log_trace0();
 	if (act == NULL) {
-		rc = sys_sigaction(log, signum, NULL, oldact);
+		rc = sys_sigaction(signum, NULL, oldact);
 	} else {
 		memcpy(&newact, act, sizeof(newact));
 		newact.sa_flags |= SA_ONSTACK;
-		rc = sys_sigaction(log, signum, &newact, oldact);
+		rc = sys_sigaction(signum, &newact, oldact);
 	}
 	return rc;
 }

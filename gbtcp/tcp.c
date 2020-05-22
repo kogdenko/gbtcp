@@ -233,24 +233,23 @@ so_hash(void *e)
 }
 
 int
-tcp_mod_init(struct log *log, void **pp)
+tcp_mod_init( void **pp)
 {
 	int i, rc;
 	struct htable_bucket *b;
 	struct tcp_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "tcp");
-	rc = htable_init(log, &mod->htable, 2048, so_hash,
+	rc = htable_init(&mod->htable, 2048, so_hash,
 	                 HTABLE_SHARED,
 	                 field_off(struct gt_sock, so_bucket));
 	if (rc) {
-		log_scope_deinit(log, &mod->log_scope);
+		log_scope_deinit(&mod->log_scope);
 		shm_free(mod);
 		return rc;
 	}
@@ -259,48 +258,47 @@ tcp_mod_init(struct log *log, void **pp)
 		htable_bucket_init(b);
 	}
 	mod->tcp_fin_timeout = NANOSECONDS_SECOND;
-	sysctl_add_intfn(log, SYSCTL_TCP_FIN_TIMEOUT, SYSCTL_WR,
+	sysctl_add_intfn(SYSCTL_TCP_FIN_TIMEOUT, SYSCTL_WR,
 	                 &sysctl_tcp_fin_timeout, 1, 24 * 60 * 60);
 	return 0;
 }
 
 int
-tcp_mod_attach(struct log *log, void *raw_mod)
+tcp_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 int
-tcp_mod_service_init(struct log *log, struct service *s)
+tcp_mod_service_init(struct service *s)
 {
 	mbuf_pool_init(&s->p_sockbuf_pool, s->p_id, SOCKBUF_CHUNK_SIZE);
 	return 0;
 }
 
 void
-tcp_mod_deinit(struct log *log, void *raw_mod)
+tcp_mod_deinit(void *raw_mod)
 {
 	struct tcp_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	sysctl_del(log, SYSCTL_TCP_FIN_TIMEOUT);
+	sysctl_del(SYSCTL_TCP_FIN_TIMEOUT);
 	mbuf_pool_deinit(&current->p_sockbuf_pool);
 	htable_deinit(&mod->htable);
-//	sysctl_del(log, GT_CTL_SOCK_LIST);
-	log_scope_deinit(log, &mod->log_scope);
+//	sysctl_del(GT_CTL_SOCK_LIST);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-tcp_mod_detach(struct log *log)
+tcp_mod_detach()
 {
 	curmod = NULL;
 }
 
 void
-tcp_mod_service_deinit(struct log *log, struct service *s)
+tcp_mod_service_deinit(struct service *s)
 {
 }
 
@@ -541,26 +539,20 @@ so_in(int ipproto, struct sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 	}
 	h = so_tuple_hash(so_tuple);
 	b = htable_bucket_get(&curmod->htable, h);
-	BUCKET_LOCK(b);
 	so = so_find(b, so_ipproto, so_tuple);
-	if (so != NULL) {
-		ASSERT(so->so_service_id == current->p_id);
-		so_in_locked(so, so_tuple, tcb, payload);
+	if (so == NULL) {
+		lport = hton16(so_tuple->sot_lport);
+		if (lport >= ARRAY_SIZE(curmod->binded)) {
+			return IP_BYPASS;
+		}
+		b = curmod->binded + lport; // rcv_LISTEN
+		so = so_find_binded(b, so_ipproto, so_tuple);
 	}
-	BUCKET_UNLOCK(b);
-	if (so != NULL) {
-		return IP_OK;
-	}
-	lport = hton16(so_tuple->sot_lport);
-	if (lport >= ARRAY_SIZE(curmod->binded)) {
-		return IP_BYPASS;
-	}
-	b = curmod->binded + lport; // rcv_LISTEN
-	so = so_find_binded(b, so_ipproto, so_tuple);
-	//ASSERT(0);
 	if (so == NULL) {
 		return IP_BYPASS;
 	} else {
+		ASSERT(so->so_service_id == current->p_id);
+		so_in_locked(so, so_tuple, tcb, payload);
 		return IP_OK;
 	}
 }
@@ -2473,7 +2465,7 @@ so_new(int so_ipproto)
 	struct file *fp;
 	struct gt_sock *so;
 
-	rc = file_alloc(NULL, &fp, FILE_SOCK);
+	rc = file_alloc(&fp, FILE_SOCK);
 	if (rc) {
 		return NULL;
 	}
@@ -2732,9 +2724,9 @@ gt_sock_ctl_sock_list(void *udata, int fd, const char *new,
 }
 
 static void
-gt_sock_ctl_init_sock_list(struct log *log)
+gt_sock_ctl_init_sock_list()
 {
-	sysctl_add_list(log, GT_CTL_SOCK_LIST, SYSCTL_RD, NULL,
+	sysctl_add_list(GT_CTL_SOCK_LIST, SYSCTL_RD, NULL,
 	                gt_sock_ctl_sock_list_next,
 	                gt_sock_ctl_sock_list);
 }

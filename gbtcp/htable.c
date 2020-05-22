@@ -10,13 +10,12 @@ struct htable_mod {
 static struct htable_mod *curmod;
 
 int
-htable_mod_init(struct log *log, void **pp)
+htable_mod_init(void **pp)
 {
 	int rc;
 	struct htable_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "htable");
@@ -25,25 +24,24 @@ htable_mod_init(struct log *log, void **pp)
 }
 
 int
-htable_mod_attach(struct log *log, void *raw_mod)
+htable_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-htable_mod_deinit(struct log *log, void *raw_mod)
+htable_mod_deinit(void *raw_mod)
 {
 	struct htable_mod *mod;
 
 	mod = raw_mod;
-	LOG_TRACE(log);
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-htable_mod_detach(struct log *log)
+htable_mod_detach()
 {
 	curmod = NULL;
 }
@@ -69,7 +67,7 @@ htable_static_init(struct htable_static *t, int size, htable_f fn, int flags)
 	} else {
 		malloc_fn = sys_malloc;
 	}
-	rc = (*malloc_fn)(NULL, (void **)&t->hts_array,
+	rc = (*malloc_fn)((void **)&t->hts_array,
 	                  size * sizeof(struct htable_bucket));
 	if (rc) {
 		return rc;
@@ -109,8 +107,7 @@ htable_static_del(struct htable_static *t, htable_entry_t *e)
 }
 
 int
-htable_init(struct log *log, struct htable *t, int size,
-	htable_f fn, int flags, int bucket_off)
+htable_init(struct htable *t, int size,	htable_f fn, int flags, int bucket_off)
 {
 	int rc;
 
@@ -198,7 +195,6 @@ htable_resize(struct htable *t)
 	int rc, size, new_size;
 	htable_1_bucket_t *b;
 	htable_entry_t *e;
-	struct log *log;
 	struct htable_1s *tmp;
 
 	if (t->htd_old == NULL) {

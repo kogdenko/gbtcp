@@ -31,7 +31,7 @@ roundup_page(int size)
 }
 
 int
-shm_init(struct log *log, void **pp, int size)
+shm_init(void **pp, int size)
 {
 	int i, n, rc, npages;
 	void *ptr, *suggest;
@@ -67,17 +67,16 @@ shm_init(struct log *log, void **pp, int size)
 	memset(*pp, 0, size);
 	return 0;
 err:
-	shm_deinit(log);
+	shm_deinit();
 	return rc;
 }
 
 int
-shm_attach(struct log *log, void **pp)
+shm_attach(void **pp)
 {
 	int rc, size;
 	void *ptr, *addr;
 
-	LOG_TRACE(log);
 	rc = shm_open(NAME, O_RDWR, 0666);
 	if (rc == -1) {
 		return -errno;
@@ -103,12 +102,12 @@ shm_attach(struct log *log, void **pp)
 	*pp = ((u_char *)shm) + sizeof(*shm) + shm->shm_npages;
 	return 0;
 err:
-	shm_detach(log);
+	shm_detach();
 	return rc;
 }
 
 void
-shm_detach(struct log *log)
+shm_detach()
 {
 	int size;
 
@@ -117,21 +116,19 @@ shm_detach(struct log *log)
 		munmap(shm, size);
 		shm = NULL;
 	}
-	if (shm_fd >= 0) {
-		sys_close(log, shm_fd);
-		shm_fd = -1;
-	}
+	sys_close(shm_fd);
+	shm_fd = -1;
 }
 
 void
-shm_deinit(struct log *log)
+shm_deinit()
 {
-	shm_detach(log);
+	shm_detach();
 	shm_unlink(NAME);
 }
 
 int
-shm_alloc_page_locked(struct log *log, void **pp, int alignment, int size)
+shm_alloc_page_locked(void **pp, int alignment, int size)
 {
 	int i, j, alignment_n, size_n;
 	uintptr_t addr;
@@ -167,7 +164,7 @@ shm_alloc_page_locked(struct log *log, void **pp, int alignment, int size)
 }
 
 int
-shm_malloc_locked(struct log *log, void **pp, size_t size)
+shm_malloc_locked(void **pp, size_t size)
 {
 	int rc, rem, size2, size3;
 	struct shm_region *r, *r2;
@@ -186,7 +183,7 @@ shm_malloc_locked(struct log *log, void **pp, size_t size)
 		goto out;
 	}
 	size3 = roundup_page(size2);
-	rc = shm_alloc_page_locked(log, (void **)&r, PAGE_SIZE, size3);
+	rc = shm_alloc_page_locked((void **)&r, PAGE_SIZE, size3);
 	if (rc) {
 		return rc;
 	}
@@ -207,29 +204,26 @@ out:
  
 
 int
-shm_malloc(struct log *log, void **pp, size_t size)
+shm_malloc(void **pp, size_t size)
 {
 	int rc;
 	SHM_LOCK;
-	rc = shm_malloc_locked(log, pp, size);
+	rc = shm_malloc_locked(pp, size);
 	SHM_UNLOCK;
 	if (rc) {
 	} else {
 		memset(*pp, 0, size);
 	}
-
-//	if (log != NULL rc < 0) {
-//		LOG_TRACE(log);
-//		LOGF(
-//	}
 	return rc;
 }
+
 int
-shm_realloc(struct log *log, void **pp, int size)
+shm_realloc(void **pp, int size)
 {
 	int rc, old_size;
 	struct shm_region *r;
 	void *new;
+
 	if (*pp == NULL) {
 		old_size = 0;
 	} else {
@@ -237,7 +231,7 @@ shm_realloc(struct log *log, void **pp, int size)
 		r--;
 		old_size = r->shmr_size;
 	}
-	rc = shm_malloc(log, &new, size);
+	rc = shm_malloc(&new, size);
 	if (rc) {
 		return rc;
 	}
@@ -251,12 +245,12 @@ shm_free(void *p)
 }
 
 int
-shm_alloc_page(struct log *log, void **pp, int alignment, int size)
+shm_alloc_page(void **pp, int alignment, int size)
 {
 	int rc;
 	//return -posix_memalign(pp, alignment, size);
 	SHM_LOCK;
-	rc = shm_alloc_page_locked(log, pp, alignment, size);
+	rc = shm_alloc_page_locked(pp, alignment, size);
 	SHM_UNLOCK;
 	if (rc) {
 	} else {

@@ -63,13 +63,12 @@ api_unlock()
 }
 
 int
-api_mod_init(struct log *log, void **pp)
+api_mod_init(void **pp)
 {
 	int rc;
 	struct api_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (rc == 0) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "api");
@@ -78,25 +77,24 @@ api_mod_init(struct log *log, void **pp)
 }
 
 int
-api_mod_attach(struct log *log, void *raw_mod)
+api_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-api_mod_deinit(struct log *log, void *raw_mod)
+api_mod_deinit(void *raw_mod)
 {
 	struct api_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-api_mod_detach(struct log *log)
+api_mod_detach()
 {
 	curmod = NULL;
 }
@@ -105,14 +103,12 @@ pid_t
 gbtcp_fork()
 {
 	int rc;
-	struct log *log;
 
 	API_LOCK;
-	log = log_trace0();
-	LOGF(log, LOG_INFO, 0, "hit");
-	rc = service_fork(log);
+	INFO(0, "hit;");
+	rc = service_fork();
 	if (rc >= 0) {
-		LOGF(log, LOG_INFO, 0, "ok, pid=%d", rc);
+		INFO(0, "ok; pid=%d", rc);
 	}
 	API_UNLOCK;
 	API_RETURN(rc);
@@ -351,7 +347,6 @@ int
 api_close(int fd)
 {
 /*	int rc;
-	struct log *log;
 	struct gt_sock *so;
 
 	rc = sock_get(fd, &so);
@@ -868,16 +863,14 @@ gbtcp_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
 	void *ptid, void *tls, void *ctid)
 {
 	int rc;
-	struct log *log;
 
 	API_LOCK;
-	log = log_trace0();
-	LOGF(log, LOG_INFO, 0, "hit; flags=%s", log_add_clone_flags(flags));
+	INFO(0, "hit; flags=%s", log_add_clone_flags(flags));
 	rc = service_clone(fn, child_stack, flags, arg, ptid, tls, ctid);
 	if (rc < 0) {
-		LOGF(log, LOG_INFO, -rc, "failed");
+		INFO(-rc, "failed;");
 	} else {
-		LOGF(log, LOG_INFO, 0, "ok; pid=%d", rc);
+		INFO(0, "ok; pid=%d", rc);
 	}
 	API_UNLOCK;
 	API_RETURN(rc);
@@ -887,23 +880,21 @@ int
 gbtcp_epoll_create1(int flags)
 {
 	int rc, fd;
-	struct log *log;
 
 	API_LOCK;
-	log = log_trace0();
-	LOGF(log, LOG_INFO, 0, "hit");
-	rc = sys_epoll_create1(log, EPOLL_CLOEXEC);
+	INFO(0, "hit;");
+	rc = sys_epoll_create1(EPOLL_CLOEXEC);
 	if (rc >= 0) {
 		fd = rc;
 		rc = u_epoll_create(fd);
 		if (rc < 0) {
-			sys_close(log, fd);
+			sys_close(fd);
 		}
 	}
 	if (rc < 0) {
-		LOGF(log, LOG_INFO, -rc, "failed;");
+		INFO(-rc, "failed;");
 	} else {
-		LOGF(log, LOG_INFO, 0, "ok; fd=%d", rc);
+		INFO(0, "ok; fd=%d", rc);
 	}
 	API_UNLOCK;
 	API_RETURN(rc);
@@ -956,11 +947,9 @@ int
 gbtcp_kqueue()
 {
 	int rc, fd;
-	struct log *log;
 
 	API_LOCK;
-	log = log_trace0();
-	LOGF(log, LOG_INFO, 0, "hit");
+	INFO(0, "hit;");
 	rc = (*sys_kqueue_fn)();
 	if (rc == -1) {
 		rc = -errno;
@@ -985,7 +974,6 @@ gbtcp_kevent(int kq, const struct kevent *changelist, int nchanges,
 	struct kevent *eventlist, int nevents, const struct timespec *timeout)
 {
 	int rc;
-	struct log *log;
 
 	API_LOCK;
 	log = log_trace0();

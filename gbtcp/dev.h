@@ -65,13 +65,13 @@ struct dev_pkt {
 
 #define dev_is_inited(dev) ((dev)->dev_fn != NULL)
 
-int dev_mod_init(struct log *, void **);
-int dev_mod_attach(struct log *, void *);
-void dev_mod_deinit(struct log *, void *);
-void dev_mod_detach(struct log *);
+int dev_mod_init(void **);
+int dev_mod_attach(void *);
+void dev_mod_deinit(void *);
+void dev_mod_detach();
 
-int dev_init(struct log *, struct dev *, const char *, dev_f);
-void dev_deinit(struct log *, struct dev *);
+int dev_init(struct dev *, const char *, dev_f);
+void dev_deinit(struct dev *);
 void dev_clean(struct dev *);
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);

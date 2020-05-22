@@ -101,12 +101,12 @@ extern int gt_sock_nr_opened;
 extern struct dlist gt_sock_binded[65536];
 
 
-int tcp_mod_init(struct log *, void **);
-int tcp_mod_attach(struct log *, void *);
-int tcp_mod_service_init(struct log *, struct service *);
-void tcp_mod_deinit(struct log *, void *);
-void tcp_mod_detach(struct log *);
-void tcp_mod_service_deinit(struct log *, struct service *);
+int tcp_mod_init(void **);
+int tcp_mod_attach(void *);
+int tcp_mod_service_init(struct service *);
+void tcp_mod_deinit(void *);
+void tcp_mod_detach();
+void tcp_mod_service_deinit(struct service *);
 
 int so_get(int, struct gt_sock **);
 int so_get_fd(struct gt_sock *);

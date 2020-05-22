@@ -19,12 +19,12 @@ static int (*service_clone_fn)(void *);
 struct service *current;
 
 int
-service_mod_init(struct log *log, void **pp)
+service_mod_init(void **pp)
 {
 	int rc;
 	struct service_mod *mod;
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (rc == 0) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "service");
@@ -33,25 +33,24 @@ service_mod_init(struct log *log, void **pp)
 }
 
 int
-service_mod_attach(struct log *log, void *raw_mod)
+service_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-service_mod_deinit(struct log *log, void *raw_mod)
+service_mod_deinit(void *raw_mod)
 {
 	struct service_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-service_mod_detach(struct log *log)
+service_mod_detach()
 {
 	curmod = NULL;
 }
@@ -89,26 +88,26 @@ service_is_appropriate_rss(struct route_if *ifp, struct sock_tuple *so_tuple)
 
 
 static int
-wait_controller_init(struct log *log, int pipe_fd[2])
+wait_controller_init(int pipe_fd[2])
 {
 	int rc, msg;
 	uint64_t to;
 
 	to = 4 * NANOSECONDS_SECOND;
-	rc = read_timed(log, pipe_fd[0], &msg, sizeof(msg), &to);
+	rc = read_timed(pipe_fd[0], &msg, sizeof(msg), &to);
 	if (rc == 0) {
-		LOGF(log, LOG_ERR, 0, "peer closed;");
+		ERR(0, "peer closed;");
 		return -EPIPE;
 	} else if (rc == sizeof(msg)) {
 		if (msg >= 0) {
 			return msg;
 		} else {
 			rc = msg;
-			LOGF(log, LOG_ERR, -rc, "failed;");
+			ERR(-rc, "failed;");
 			return rc;
 		}
 	} else if (rc > 0) {
-		LOGF(log, LOG_ERR, 0, "truncated reply; len=%d", rc);
+		ERR(0, "truncated reply; len=%d", rc);
 		return -EINVAL;
 	} else {
 		return rc;
@@ -116,57 +115,55 @@ wait_controller_init(struct log *log, int pipe_fd[2])
 }
 
 static int
-service_start_controller(struct log *log, const char *p_name)
+service_start_controller(const char *p_comm)
 {
 	int rc, pipe_fd[2];
 
-	LOG_TRACE(log);
-	rc = sys_pipe(log, pipe_fd);
+	rc = sys_pipe(pipe_fd);
 	if (rc) {
 		return rc;
 	}
-	rc = sys_fork(log);
+	rc = sys_fork();
 	if (rc < 0) {
 		return rc;
 	} else if (rc == 0) {
-		log = log_trace0();
-		sys_close(log, pipe_fd[0]);
-		rc = controller_init(1, p_name);
-		send_full_buf(log, pipe_fd[1], &rc, sizeof(rc), MSG_NOSIGNAL);
-		sys_close(log, pipe_fd[1]);
+		sys_close(pipe_fd[0]);
+		rc = controller_init(1, p_comm);
+		send_full_buf(pipe_fd[1], &rc, sizeof(rc), MSG_NOSIGNAL);
+		sys_close(pipe_fd[1]);
 		if (rc == 0) {
 			controller_loop();
 		}
 		return rc;
 	}
-	rc = wait_controller_init(log, pipe_fd);
-	sys_close(log, pipe_fd[0]);
-	sys_close(log, pipe_fd[1]);
+	rc = wait_controller_init(pipe_fd);
+	sys_close(pipe_fd[0]);
+	sys_close(pipe_fd[1]);
 	return rc;
 }
 
 int
-service_attach(struct log *log)
+service_attach()
 {
 	int i, rc, pid;
 	struct service *s;
 	char buf[GT_SYSCTL_BUFSIZ];
 
-	rc = sysctl_connect(log, service_sysctl_fd);
+	rc = sysctl_connect(service_sysctl_fd);
 	if (rc) {
 		return rc;
 	}
-	rc = sysctl_req(log, service_sysctl_fd,
+	rc = sysctl_req(service_sysctl_fd,
 	                SYSCTL_CONTROLLER_SERVICE_INIT, buf, "~");
 	if (rc) {
 		return rc;
 	}
-	rc = shm_attach(log, (void **)&ih);
+	rc = shm_attach((void **)&ih);
 	if (rc) {
 		return rc;
 	}
 	if (ih->ih_version != IH_VERSION) {
-		shm_detach(log);
+		shm_detach();
 		return -EINVAL;
 	}
 	set_hz(ih->ih_hz);
@@ -176,16 +173,15 @@ service_attach(struct log *log)
 		if (s->p_pid == pid) {
 			spinlock_lock(&s->p_lock);
 			current = s;
-			dbg("current %d %d", s->p_id, s->p_dirty_rss_table);
 			return 0;
 		}
 	}
-	shm_detach(log);
+	shm_detach();
 	return -ENOENT;
 }
 
 int
-service_init_locked(struct log *log)
+service_init_locked()
 {
 	int rc, pid;
 	char pid_filename[32];
@@ -197,49 +193,54 @@ service_init_locked(struct log *log)
 		return 0;
 	}
 	pid = getpid();
-	rc = proc_get_comm(log, p_comm, pid);
+	rc = proc_get_comm(p_comm, pid);
 	if (rc) {
 		return rc;
 	}
 	sysctl_make_sockaddr_un(&a, pid);
-	rc = sysctl_bind(log, &a, 0);
+	rc = sysctl_bind(&a, 0);
 	if (rc < 0) {
 		return rc;
 	}
 	service_sysctl_fd = rc;
-	rc = service_attach(log);
+	rc = service_attach();
 	if (rc) {
-		rc = service_start_controller(log, p_comm);
+		rc = service_start_controller(p_comm);
 		if (rc < 0) {
 			goto err;
 		}
-		rc = service_attach(log);
+		rc = service_attach();
 		if (rc) {
 			goto err;
 		}
 	}
-	mod_foreach_mod_attach(log, ih);
+	mod_foreach_mod_attach(ih);
 	strzcpy(current->p_comm, p_comm, sizeof(current->p_comm));
 	spinlock_unlock(&current->p_lock);
-	snprintf(pid_filename, sizeof(pid_filename), "%d.pid", pid);
-	rc = pid_file_open(log, pid_filename);
+	snprintf(pid_filename, sizeof(pid_filename), "%d.pid", current->p_id);
+	rc = pid_file_open(pid_filename);
 	if (rc < 0) {
 		goto err;
 	}
 	service_pid_fd = rc;
-	rc = pid_file_acquire(log, service_pid_fd, pid);
+	rc = pid_file_acquire(service_pid_fd, pid);
 	if (rc != pid) {
 		goto err;
 	}
 	return 0;
 err:
-	mod_foreach_mod_detach(log);
+	if (current != NULL) {
+		spinlock_unlock(&current->p_lock);
+		current = NULL;	
+	}
+	shm_detach();
+	mod_foreach_mod_detach();
 	if (service_sysctl_fd >= 0) {
-		sys_close(log, service_sysctl_fd);
+		sys_close(service_sysctl_fd);
 		service_sysctl_fd = -1;
 	}
 	if (service_pid_fd >= 0) {
-		sys_close(log, service_pid_fd);
+		sys_close(service_pid_fd);
 		service_pid_fd = -1;
 	}
 	return rc;
@@ -249,7 +250,6 @@ int
 service_init()
 {
 	int rc;
-	struct log *log;
 
 	spinlock_lock(&service_init_lock);
 	if (current != NULL) {
@@ -257,13 +257,12 @@ service_init()
 		return 0;
 	}
 	proc_init();
-	log = log_trace0();
-	LOGF(log, LOG_INFO, 0, "hit;");
-	rc = service_init_locked(log);
+	INFO(0, "hit;");
+	rc = service_init_locked();
 	if (rc) {
-		LOGF(log, LOG_ERR, -rc, "failed;");
+		ERR(-rc, "failed;");
 	} else {
-		LOGF(log, LOG_INFO, 0, "ok; current=%p", current);
+		INFO(0, "ok; current=%p", current);
 	}
 	spinlock_unlock(&service_init_lock);
 	return rc;
@@ -325,8 +324,7 @@ service_rxtx(struct dev *dev, short revents)
 }
 
 static void
-service_update_dev(struct log *log, struct service *s,
-	struct route_if *ifp, int rss_qid)
+service_update_dev(struct service *s,struct route_if *ifp, int rss_qid)
 {
 	int id, ifflags;
 	char dev_name[NM_IFNAMSIZ];
@@ -340,23 +338,22 @@ service_update_dev(struct log *log, struct service *s,
 	    !dev_is_inited(dev)) {
 		snprintf(dev_name, sizeof(dev_name), "%s-%d",
 		         ifp->rif_name, rss_qid);
-		dev_init(log, dev, dev_name, service_rxtx);
+		dev_init(dev, dev_name, service_rxtx);
 		dev->dev_ifp = ifp;
 	} else {
-		dev_deinit(log, dev);
+		dev_deinit(dev);
 	}
 }
 
 void
-service_update_rss_table(struct log *log, struct service *s)
+service_update_rss_table(struct service *s)
 {
 	int i;
 	struct route_if *ifp;
 
-	LOG_TRACE(log);
 	ROUTE_IF_FOREACH(ifp) {
 		for (i = 0; i < ifp->rif_rss_nq; ++i) {
-			service_update_dev(log, s, ifp, i);
+			service_update_dev(s, ifp, i);
 		}
 	}
 	s->p_dirty_rss_table = 0;
@@ -368,23 +365,20 @@ service_in_parent()
 }
 
 static void
-service_in_child(struct log *log)
+service_in_child()
 {
 	current = NULL;
-	dbg("a");
-	LOGF(log, LOG_ERR, 0, "IN CHILD");
+	dbg("IN_CHILD");
 }
 
 int
-service_fork(struct log *log)
+service_fork()
 {
 	int rc;
 
-	LOG_TRACE(log);
-	rc = sys_fork(log);
+	rc = sys_fork();
 	if (rc == 0) {
-		dbg("inchild");
-		service_in_child(log);
+		service_in_child();
 	} else if (rc > 0) {
 		service_in_parent();
 	}
@@ -396,10 +390,8 @@ static int
 service_clone_fn_locked(void *arg)
 {
 	int (*fn)(void *);
-	struct log *log;
 
-	log = log_trace0();
-	service_in_child(log);
+	service_in_child();
 	fn = service_clone_fn;
 	assert(0);
 //	GT_GLOBAL_UNLOCK; ???

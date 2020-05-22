@@ -2,7 +2,7 @@
 #ifndef GBTCP_API_H
 #define GBTCP_API_H
 
-#include "log.h"
+#include "subr.h"
 
 #define API_RETURN(rc) \
 	if (rc < 0) { \
@@ -12,10 +12,10 @@
 		return rc; \
 	} \
 
-int api_mod_init(struct log *, void **);
-int api_mod_attach(struct log *, void *);
-void api_mod_deinit(struct log *, void *);
-void api_mod_detach(struct log *);
+int api_mod_init(void **);
+int api_mod_attach(void *);
+void api_mod_deinit(void *);
+void api_mod_detach();
 
 int api_socket(int, int, int);
 int api_bind(int, const struct sockaddr *, socklen_t);

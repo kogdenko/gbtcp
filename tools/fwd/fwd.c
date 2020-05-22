@@ -302,7 +302,7 @@ so_alloc(struct dlist *bucket)
 		so_del(so);
 	}
 	if (Mflag) {
-		mbuf_alloc(NULL, &sock_pool, (struct mbuf **)&so);
+		mbuf_alloc(&sock_pool, (struct mbuf **)&so);
 	} else {
 		assert(dlist_is_empty(&free_socks));
 		so = DLIST_LAST(&free_socks, struct gt_sock, so_bind_list);
@@ -525,7 +525,7 @@ set_affinity(int i)
 static void
 invalid_arg(int opt, const char *val)
 {
-	die(NULL, 0, "invalid argument '-%c': %s", opt, val);
+	die(0, "invalid argument '-%c': %s", opt, val);
 }
 
 int
@@ -561,7 +561,7 @@ main(int argc, char **argv)
 			snprintf(ifname, sizeof(ifname), "netmap:%s", optarg);
 			devs[nr_devs].nmd = nm_open(ifname, NULL, 0, NULL);
 			if (devs[nr_devs].nmd == NULL) {
-				die(NULL, errno, "nm_open('%s') failed", ifname);
+				die(errno, "nm_open('%s') failed", ifname);
 			}
 			devs[nr_devs].cur_tx_ring = devs[nr_devs].nmd->first_tx_ring;
 			pfds[nr_devs].fd = devs[nr_devs].nmd->fd;
@@ -601,7 +601,7 @@ main(int argc, char **argv)
 			cpu = strtoul(optarg, NULL, 10);
 			rc = set_affinity(cpu);
 			if (rc) {
-				die(NULL, -rc, "set_affinity(%d) failed", cpu);
+				die(-rc, "set_affinity(%d) failed", cpu);
 			}
 			break;
 		case 'b':
@@ -635,7 +635,7 @@ main(int argc, char **argv)
 		}
 	}
 	if (burst_size < 1 || burst_size > 4096) {
-		die(NULL, 0, "invalid burst size: %d\n", burst_size);
+		die(0, "invalid burst size: %d\n", burst_size);
 	}
 	while (1) {
 		for (i = 0; i < nr_devs; ++i) {

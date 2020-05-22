@@ -46,16 +46,15 @@ struct file_aio {
 	     ((tmp_fd = file_get_fd(fp) + 1), 1); \
 	     GT_UNIQV(fd) = tmp_fd)
 
-int file_mod_init(struct log *, void **);
-int file_mod_attach(struct log *, void *);
-int file_mod_service_init(struct log *, struct service *);
-void file_mod_deinit(struct log *, void *);
-void file_mod_detach(struct log *);
-void file_mod_service_deinit(struct log *, struct service *);
+int file_mod_init(void **);
+int file_mod_attach(void *);
+int file_mod_service_init(struct service *);
+void file_mod_deinit(void *);
+void file_mod_detach();
+void file_mod_service_deinit(struct service *);
 
 struct file *file_next(int);
-int file_alloc(struct log *, struct file **, int);
-int file_alloc4(struct log *, struct file **, int, int);
+int file_alloc(struct file **, int);
 void file_free(struct file *);
 void file_close(struct file *);
 int file_fcntl(struct file *, int, uintptr_t);

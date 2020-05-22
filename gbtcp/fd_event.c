@@ -20,12 +20,12 @@ static int gt_fd_event_unref(struct fd_event *e);
 static int gt_fd_event_call(struct fd_event *e, short revents);
 
 int
-fd_event_mod_init(struct log *log, void **pp)
+fd_event_mod_init(void **pp)
 {
 	int rc;
 	struct fd_event_mod *mod;
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "fd_event");
@@ -34,7 +34,7 @@ fd_event_mod_init(struct log *log, void **pp)
 }
 
 int
-fd_event_mod_attach(struct log *log, void *raw_mod)
+fd_event_mod_attach(void *raw_mod)
 {
 	int i;
 	struct fd_event *e;
@@ -50,17 +50,17 @@ fd_event_mod_attach(struct log *log, void *raw_mod)
 }
 
 void
-fd_event_mod_deinit(struct log *log, void *raw_mod)
+fd_event_mod_deinit(void *raw_mod)
 {
 	struct fd_event_mod *mod;
-	LOG_TRACE(log);
+
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-fd_event_mod_detach(struct log *log)
+fd_event_mod_detach()
 {
 	fd_event_nused = 0;
 	curmod = NULL;
@@ -69,15 +69,13 @@ fd_event_mod_detach(struct log *log)
 void
 check_fd_events()
 {
-	struct log *log;
 	struct gt_fd_event_set set;
 	struct pollfd pfds[FD_EVENTS_MAX];
 
-	log = log_trace0();
 	do {
 		set.fdes_to = 0;
 		gt_fd_event_set_init(&set, pfds);
-		sys_ppoll(log, pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
+		sys_ppoll(pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
 		gt_fd_event_set_call(&set, pfds);
 	} while (set.fdes_again);
 }
@@ -85,21 +83,19 @@ check_fd_events()
 void
 wait_for_fd_events()
 {
-	struct log *log;
 	struct gt_fd_event_set set;
 	struct pollfd pfds[FD_EVENTS_MAX];
 
-	log = log_trace0();
 	set.fdes_to = TIMER_TIMO;
 	gt_fd_event_set_init(&set, pfds);
 	SERVICE_UNLOCK;
-	sys_ppoll(log, pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
+	sys_ppoll(pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
 	SERVICE_LOCK;
 	gt_fd_event_set_call(&set, pfds);
 }
 
 int
-gt_fd_event_new(struct log *log, struct fd_event **pe,
+gt_fd_event_new(struct fd_event **pe,
 	int fd, const char *name, fd_event_f fn, void *udata)
 {
 	int i, id;
@@ -107,10 +103,9 @@ gt_fd_event_new(struct log *log, struct fd_event **pe,
 
 	ASSERT(fd != -1);
 	ASSERT(fn != NULL);
-	LOG_TRACE(log);
 	if (fd_event_nused == ARRAY_SIZE(gt_fd_event_used)) {
-		LOGF(log, LOG_ERR, ENOMEM, "failed; event='%s', limit=%zu",
-		     name, ARRAY_SIZE(gt_fd_event_used));
+		ERR(ENOMEM, "failed; event='%s', limit=%zu",
+		    name, ARRAY_SIZE(gt_fd_event_used));
 		return -ENOMEM;
 	}
 	id = -1;
@@ -118,8 +113,7 @@ gt_fd_event_new(struct log *log, struct fd_event **pe,
 		e = gt_fd_event_buf + i;
 		if (e->fde_fd != -1) {
 			if (!strcmp(e->fde_name, name)) {
-				LOGF(log, LOG_ERR, EEXIST,
-				     "failed; event='%s'", name);
+				ERR(EEXIST, "failed; event='%s'", name);
 				return -EEXIST;
 			}
 		} else {

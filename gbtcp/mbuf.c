@@ -23,13 +23,12 @@ static struct mbuf_mod *curmod;
 	(struct mbuf *)(((u_char *)(chunk + 1)) + i * p->mbp_mbuf_size);
 
 int
-mbuf_mod_init(struct log *log, void **pp)
+mbuf_mod_init(void **pp)
 {
 	int rc;
 	struct mbuf_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "mbuf");
@@ -38,25 +37,24 @@ mbuf_mod_init(struct log *log, void **pp)
 }
 
 int
-mbuf_mod_attach(struct log *log, void *raw_mod)
+mbuf_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-mbuf_mod_deinit(struct log *log, void *raw_mod)
+mbuf_mod_deinit(void *raw_mod)
 {
 	struct mbuf_mod *mod;
 
 	mod = raw_mod;
-	LOG_TRACE(log);
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-mbuf_mod_detach(struct log *log)
+mbuf_mod_detach()
 {
 	curmod = NULL;
 }
@@ -71,19 +69,17 @@ mbuf_get_chunk(struct mbuf *m)
 }
 
 static int
-mbuf_chunk_alloc(struct log *log, struct mbuf_pool *p,
-	struct mbuf_chunk **pchunk)
+mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 {
 	int i, rc;
 	struct mbuf_chunk *chunk;
 	struct mbuf *m;
 
-	LOG_TRACE(log);
 	if (p->mbp_nr_chunks == 0) {
-		LOGF(log, LOG_ERR, 0, "no chunk slots;");
+		ERR(0, "no chunk slots;");
 		return -ENOMEM;
 	}
-	rc = shm_alloc_page(log, (void **)pchunk,
+	rc = shm_alloc_page((void **)pchunk,
 	                    MBUF_CHUNK_SIZE, MBUF_CHUNK_SIZE);
 	if (rc) {
 		return rc;
@@ -164,7 +160,7 @@ mbuf_pool_is_empty(struct mbuf_pool *p)
 }
 
 int
-mbuf_alloc(struct log *log, struct mbuf_pool *p, struct mbuf **mp)
+mbuf_alloc(struct mbuf_pool *p, struct mbuf **mp)
 {
 	int i, rc;
 	struct mbuf *m;
@@ -173,8 +169,7 @@ mbuf_alloc(struct log *log, struct mbuf_pool *p, struct mbuf **mp)
 	ASSERT(current->p_id == p->mbp_service_id);
 	*mp = NULL;
 	if (dlist_is_empty(&p->mbp_avail_chunkq)) {
-		LOG_TRACE(log);
-		rc = mbuf_chunk_alloc(log, p, &chunk);
+		rc = mbuf_chunk_alloc(p, &chunk);
 		if (rc) {
 			return rc;
 		}

@@ -65,7 +65,7 @@ static int gt_tcp_opt_fill(uint8_t *buf, struct gt_tcp_opts *opts, int kind);
 
 
 static int
-sysctl_inet_stat(struct log *log, struct sysctl_conn *cp, void *udata,
+sysctl_inet_stat(struct sysctl_conn *cp, void *udata,
 	const char *new, struct strbuf *old)
 {
 	int zero;
@@ -101,11 +101,11 @@ sysctl_add_inet_stat(const char *proto, const char *name, uintptr_t off)
 	char path[PATH_MAX];
 
 	snprintf(path, sizeof(path), "inet.stat.%s.%s", proto, name);
-	sysctl_add(NULL, path, SYSCTL_RD, (void *)off, NULL, sysctl_inet_stat);
+	sysctl_add(path, SYSCTL_RD, (void *)off, NULL, sysctl_inet_stat);
 }
 
 static void
-sysctl_add_inet_stat_tcp(struct log *log)
+sysctl_add_inet_stat_tcp()
 {
 	int i, off;
 	char name[64];
@@ -123,7 +123,7 @@ sysctl_add_inet_stat_tcp(struct log *log)
 }
 
 static void
-sysctl_add_inet_stat_udp(struct log *log)
+sysctl_add_inet_stat_udp()
 {
 #define SYSCTL_ADD_UDP_STAT(x) \
 	sysctl_add_inet_stat("udp", #x, \
@@ -133,7 +133,7 @@ sysctl_add_inet_stat_udp(struct log *log)
 }
 
 static void
-sysctl_add_inet_stat_ip(struct log *log)
+sysctl_add_inet_stat_ip()
 {
 #define SYSCTL_ADD_IP_STAT(x) \
 	sysctl_add_inet_stat("ip", #x, \
@@ -143,7 +143,7 @@ sysctl_add_inet_stat_ip(struct log *log)
 }
 
 static void
-sysctl_add_inet_stat_arp(struct log *log)
+sysctl_add_inet_stat_arp()
 {
 #define SYSCTL_ADD_ARP_STAT(x) \
 	sysctl_add_inet_stat("arp", #x, \
@@ -153,51 +153,50 @@ sysctl_add_inet_stat_arp(struct log *log)
 }
 
 int
-inet_mod_init(struct log *log, void **pp)
+inet_mod_init(void **pp)
 {
 	int rc;
 	struct inet_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "inet");
-	sysctl_add_inet_stat_tcp(log);
-	sysctl_add_inet_stat_udp(log);
-	sysctl_add_inet_stat_ip(log);
-	sysctl_add_inet_stat_arp(log);
-	sysctl_add_int(log, GT_CTL_INET_RX_CKSUM_OFFLOAD, SYSCTL_WR,
+	sysctl_add_inet_stat_tcp();
+	sysctl_add_inet_stat_udp();
+	sysctl_add_inet_stat_ip();
+	sysctl_add_inet_stat_arp();
+	sysctl_add_int(GT_CTL_INET_RX_CKSUM_OFFLOAD, SYSCTL_WR,
 	               &gt_inet_rx_cksum_offload, 0, 1);
-	sysctl_add_int(log, GT_CTL_INET_TX_CKSUM_OFFLOAD, SYSCTL_WR,
+	sysctl_add_int(GT_CTL_INET_TX_CKSUM_OFFLOAD, SYSCTL_WR,
 	               &gt_inet_tx_cksum_offload, 0, 1);
 	return 0;
 }
 
 int
-inet_mod_attach(struct log *log, void *raw_mod)
+inet_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-inet_mod_deinit(struct log *log, void *raw_mod)
+inet_mod_deinit(void *raw_mod)
 {
 	struct inet_mod *mod;
-	LOG_TRACE(log);
+
 	mod = raw_mod;
-	sysctl_del(log, "inet.stat");
-	sysctl_del(log, GT_CTL_INET_RX_CKSUM_OFFLOAD);
-	sysctl_del(log, GT_CTL_INET_TX_CKSUM_OFFLOAD);
-	log_scope_deinit(log, &mod->log_scope);
+	sysctl_del("inet.stat");
+	sysctl_del(GT_CTL_INET_RX_CKSUM_OFFLOAD);
+	sysctl_del(GT_CTL_INET_TX_CKSUM_OFFLOAD);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-inet_mod_detach(struct log *log)
+inet_mod_detach()
 {
 	curmod = NULL;
 }

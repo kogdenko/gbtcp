@@ -30,61 +30,57 @@ file_aio_call(struct file_aio *aio, short revents)
 }
 
 int
-file_mod_init(struct log *log, void **pp)
+file_mod_init(void **pp)
 {
 	int rc;
 	struct file_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (rc == 0) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "file");
 		mod->file_first_fd = FD_SETSIZE / 2;
-		sysctl_add_int(log, SYSCTL_FILE_FIRST_FD, SYSCTL_LD,
+		sysctl_add_int(SYSCTL_FILE_FIRST_FD, SYSCTL_LD,
 			       &mod->file_first_fd, 3, 1024 * 1024);
 	}
 	return rc;
 }
 
 int
-file_mod_attach(struct log *log, void *raw_mod)
+file_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 int
-file_mod_service_init(struct log *log, struct service *s)
+file_mod_service_init(struct service *s)
 {
 	mbuf_pool_init(&s->p_file_pool, s->p_id, sizeof(struct gt_sock));
 	return 0;
 }
 
 void
-file_mod_deinit(struct log *log, void *raw_mod)
+file_mod_deinit(void *raw_mod)
 {
 	struct file_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	sysctl_del(log, SYSCTL_FILE_FIRST_FD);
-	log_scope_deinit(log, &mod->log_scope);
+	sysctl_del(SYSCTL_FILE_FIRST_FD);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-file_mod_detach(struct log *log)
+file_mod_detach()
 {
-	//ASSERT(mbuf_pool_is_empty(file_pool));
-	//mbuf_pool_deinit(&current->p_file_pool);
 	curmod = NULL;
 }
 
 void
-file_mod_service_deinit(struct log *log, struct service *s)
+file_mod_service_deinit(struct service *s)
 {
-
+	mbuf_pool_deinit(&s->p_file_pool);
 }
 
 int
@@ -114,12 +110,12 @@ file_next(int fd)
 }
 
 int
-file_alloc(struct log *log, struct file **fpp, int type)
+file_alloc(struct file **fpp, int type)
 {
 	int rc;
 	struct file *fp;
 
-	rc = mbuf_alloc(log, &current->p_file_pool, (struct mbuf **)fpp);
+	rc = mbuf_alloc(&current->p_file_pool, (struct mbuf **)fpp);
 	if (rc == 0) {
 		fp = *fpp;
 		file_init(fp, type);
@@ -129,33 +125,6 @@ file_alloc(struct log *log, struct file **fpp, int type)
 	}
 	return rc;
 }
-
-/*
-int
-file_alloc4(struct log *log, struct file **fpp, int type, int fd)
-{
-	int rc;
-	uint32_t m_id;
-	struct file *fp;
-
-	LOG_TRACE(log);
-	if (fd < curmod->file_first_fd) {
-		rc = -EBADF;
-	} else {
-		m_id = fd - curmod->file_first_fd;
-		rc = mbuf_alloc4(log, &current->p_file_pool, m_id,
-		                 (struct mbuf **)fpp);
-	}
-	if (rc == 0) {
-		fp = *fpp;
-		file_init(fp, type);
-		DBG(log, 0, "ok; fp=%p, fd=%d", fp, file_get_fd(fp));
-	} else {
-		DBG(log, -rc, "failed");
-	}
-	return rc;
-}
-*/
 
 int
 file_get(int fd, struct file **fpp)

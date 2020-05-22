@@ -241,10 +241,10 @@ struct arp_stat {
 
 #define GT_TCP_HDR_LEN(data_off) ((data_off & 0xf0) >> 2)
 
-int inet_mod_init(struct log *log, void **);
-int inet_mod_attach(struct log *, void *);
-void inet_mod_deinit(struct log *, void *);
-void inet_mod_detach(struct log *);
+int inet_mod_init(void **);
+int inet_mod_attach(void *);
+void inet_mod_deinit(void *);
+void inet_mod_detach();
 
 int eth_in(struct gt_inet_context *, struct route_if *, void *, int);
 

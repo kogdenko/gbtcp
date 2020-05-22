@@ -33,17 +33,17 @@ struct gt_fd_event_set {
 
 extern uint64_t gt_fd_event_epoch;
 
-int fd_event_mod_init(struct log *, void **);
-int fd_event_mod_attach(struct log *, void *);
-void fd_event_mod_deinit(struct log *, void *);
-void fd_event_mod_detach(struct log *);
+int fd_event_mod_init(void **);
+int fd_event_mod_attach(void *);
+void fd_event_mod_deinit(void *);
+void fd_event_mod_detach();
 
 void check_fd_events();
 void wait_for_fd_events();
 
-void gt_fd_event_ctl_init(struct log *log, struct fd_event *e);
+void gt_fd_event_ctl_init(struct fd_event *e);
 
-int gt_fd_event_new(struct log *log, struct fd_event **pe, int fd,
+int gt_fd_event_new(struct fd_event **pe, int fd,
 	const char *name, fd_event_f fn, void *udata);
 
 void gt_fd_event_del(struct fd_event *e);

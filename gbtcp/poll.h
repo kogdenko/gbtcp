@@ -4,10 +4,10 @@
 
 #include "subr.h"
 
-int poll_mod_init(struct log *, void **);
-int poll_mod_attach(struct log *, void *);
-void poll_mod_deinit(struct log *, void *);
-void poll_mod_detach(struct log *);
+int poll_mod_init(void **);
+int poll_mod_attach(void *);
+void poll_mod_deinit(void *);
+void poll_mod_detach();
 
 int gt_poll(struct pollfd *, int, uint64_t, const sigset_t *);
 

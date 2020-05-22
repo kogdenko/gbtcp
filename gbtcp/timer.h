@@ -18,10 +18,10 @@ struct timer {
 
 typedef void (*timer_f)(struct timer *);
 
-int timer_mod_init(struct log *, void **);
-int timer_mod_attach(struct log *, void *);
-void timer_mod_deinit(struct log *, void *);
-void timer_mod_detach(struct log *);
+int timer_mod_init(void **);
+int timer_mod_attach(void *);
+void timer_mod_deinit(void *);
+void timer_mod_detach();
 
 void timer_mod_check();
 

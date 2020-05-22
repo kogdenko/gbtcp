@@ -66,7 +66,7 @@ murmur(const void * key, unsigned int len, uint32_t init_val)
 
 #ifdef __linux__
 int
-proc_get_comm(struct log *log, char *name, int pid)
+proc_get_comm(char *name, int pid)
 {
 	int rc;
 	FILE *file;
@@ -75,9 +75,8 @@ proc_get_comm(struct log *log, char *name, int pid)
 	char path[32];
 	char buf[256];
 
-	LOG_TRACE(log);
 	snprintf(path, sizeof(path), "/proc/%d/status", pid);
-	rc = sys_fopen(log, &file, path, "r");
+	rc = sys_fopen(&file, path, "r");
 	if (rc) {
 		return rc;
 	}
@@ -93,12 +92,12 @@ proc_get_comm(struct log *log, char *name, int pid)
 		return 0;
 	}
 err:
-	LOGF(log, LOG_ERR, 0, "inavlid format; path=%s", path);
+	ERR(0, "bad format; path=%s", path);
 	return -EPROTO;
 }
 #else /* __linux__ */
 static int
-proc_get_comm(struct log *log, char *name, int pid)
+proc_get_comm(char *name, int pid)
 {
 	int rc;
 	struct kinfo_proc *info;
@@ -116,12 +115,11 @@ proc_get_comm(struct log *log, char *name, int pid)
 #endif /* __linux__ */
 
 int
-subr_mod_init(struct log *log, void **pp)
+subr_mod_init(void **pp)
 {
 	int rc;
 	struct subr_mod *mod;
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "subr");
@@ -130,24 +128,24 @@ subr_mod_init(struct log *log, void **pp)
 }
 
 int
-subr_mod_attach(struct log *log, void *raw_mod)
+subr_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-subr_mod_deinit(struct log *log, void *raw_mod)
+subr_mod_deinit(void *raw_mod)
 {
 	struct subr_mod *mod;
-	LOG_TRACE(log);
+
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-subr_mod_detach(struct log *log)
+subr_mod_detach()
 {
 	curmod = NULL;
 }
@@ -449,11 +447,11 @@ lower_pow2_64(uint64_t x)
 }
 
 int
-fcntl_setfl_nonblock(struct log *log, int fd, int *old_flags)
+fcntl_setfl_nonblock(int fd, int *old_flags)
 {
 	int rc, flags;
 
-	rc = sys_fcntl(log, fd, F_GETFL, 0);
+	rc = sys_fcntl(fd, F_GETFL, 0);
 	if (rc < 0) {
 		return rc;
 	}
@@ -465,18 +463,18 @@ fcntl_setfl_nonblock(struct log *log, int fd, int *old_flags)
 		return 0;
 	}
 	flags |= O_NONBLOCK;
-	rc = sys_fcntl(log, fd, F_SETFL, flags);
+	rc = sys_fcntl(fd, F_SETFL, flags);
 	return rc;
 }
 
 static int
-fcntl_setfl_nonblock_rollback(struct log *log, int fd, int old_flags)
+fcntl_setfl_nonblock_rollback(int fd, int old_flags)
 {
 	int rc;
 
 	rc = 0;
 	if (!(old_flags & O_NONBLOCK)) {
-		rc = sys_fcntl(log, fd, F_SETFL, old_flags & ~O_NONBLOCK);
+		rc = sys_fcntl(fd, F_SETFL, old_flags & ~O_NONBLOCK);
 	}
 	return rc;
 }
@@ -495,7 +493,7 @@ nanoseconds_to_timespec(struct timespec *ts, uint64_t t)
 }
 
 int
-connect_timed(struct log *log, int fd, const struct sockaddr *addr,
+connect_timed(int fd, const struct sockaddr *addr,
 	socklen_t addrlen, uint64_t *to)
 {
 	int rc, errnum, flags;
@@ -505,19 +503,18 @@ connect_timed(struct log *log, int fd, const struct sockaddr *addr,
 	struct pollfd pfd;
 
 	if (to == NULL) {
-		rc = sys_connect(log, fd, addr, addrlen);
+		rc = sys_connect(fd, addr, addrlen);
 		return rc;
 	}
-	LOG_TRACE(log);
-	rc = fcntl_setfl_nonblock(log, fd, &flags);
+	rc = fcntl_setfl_nonblock(fd, &flags);
 	if (rc) {
 		return rc;
 	}
 	do {
-		rc = sys_connect(NULL, fd, addr, addrlen);
+		rc = sys_connect(fd, addr, addrlen);
 		errnum = -rc;
 	} while (addr->sa_family == AF_UNIX && errnum == EAGAIN);
-	fcntl_setfl_nonblock_rollback(log, fd, flags);
+	fcntl_setfl_nonblock_rollback(fd, flags);
 	if (errnum == 0) {
 		return 0;
 	} else if (errnum != EINPROGRESS) {
@@ -531,7 +528,7 @@ connect_timed(struct log *log, int fd, const struct sockaddr *addr,
 restart:
 	t = nanoseconds;
 	nanoseconds_to_timespec(&ts, *to);
-	rc = sys_ppoll(log, &pfd, 1, &ts, NULL);
+	rc = sys_ppoll(&pfd, 1, &ts, NULL);
 	rd_nanoseconds();
 	elapsed = MIN(*to, nanoseconds - t);
 	*to -= elapsed;
@@ -542,7 +539,7 @@ restart:
 		break;
 	case 1:
 		opt_len = sizeof(errnum);
-		rc = sys_getsockopt(log, fd, SOL_SOCKET, SO_ERROR,
+		rc = sys_getsockopt(fd, SOL_SOCKET, SO_ERROR,
 		                    &errnum, &opt_len);
 		if (rc) {
 			return rc;
@@ -561,14 +558,14 @@ restart:
 	}
 out:
 	if (errnum) {
-		LOGF(log, LOG_ERR, errnum, "failed; fd=%d, addr=%s",
-		     fd, log_add_sockaddr(addr, addrlen));
+		ERR(errnum, "failed; fd=%d, addr=%s",
+		    fd, log_add_sockaddr(addr, addrlen));
 	}
 	return -errnum;
 }
 
 ssize_t
-read_timed(struct log *log, int fd, void *buf, size_t count, uint64_t *to)
+read_timed(int fd, void *buf, size_t count, uint64_t *to)
 {
 	int flags;
 	ssize_t rc;
@@ -577,11 +574,10 @@ read_timed(struct log *log, int fd, void *buf, size_t count, uint64_t *to)
 	struct pollfd pfd;
 
 	if (to == NULL) {
-		rc = sys_read(log, fd, buf, count);
+		rc = sys_read(fd, buf, count);
 		return rc;
 	}
-	LOG_TRACE(log);
-	rc = fcntl_setfl_nonblock(log, fd, &flags);
+	rc = fcntl_setfl_nonblock(fd, &flags);
 	if (rc) {
 		return rc;
 	}
@@ -590,7 +586,7 @@ read_timed(struct log *log, int fd, void *buf, size_t count, uint64_t *to)
 restart:
 	t = nanoseconds;
 	nanoseconds_to_timespec(&ts, *to);
-	rc = sys_ppoll(log, &pfd, 1, &ts, NULL);
+	rc = sys_ppoll(&pfd, 1, &ts, NULL);
 	rd_nanoseconds();
 	elapsed = MIN(*to, t - nanoseconds);
 	*to -= elapsed;
@@ -600,7 +596,7 @@ restart:
 		rc = -ETIMEDOUT;
 		break;
 	case 1:
-		rc = sys_read(log, fd, buf, count);
+		rc = sys_read(fd, buf, count);
 		if (rc == -EAGAIN) {
 			goto restart;
 		}
@@ -610,16 +606,16 @@ restart:
 	default:
 		break;
 	}
-	fcntl_setfl_nonblock_rollback(log, fd, flags);
+	fcntl_setfl_nonblock_rollback(fd, flags);
 	return rc;
 }
 
-#define SYS_CALL_FULL_BUF(name, log, fd, buf, cnt, ...) ({ \
+#define SYS_CALL_FULL_BUF(name, fd, buf, cnt, ...) ({ \
 	ssize_t rc, ret, off; \
  \
 	ret = 0; \
 	for (off = 0; off < cnt; off += rc) { \
-		rc = sys_##name(log, fd, (const u_char *)buf + off, \
+		rc = sys_##name(fd, (const u_char *)buf + off, \
 		                cnt - off, ##__VA_ARGS__); \
 		if (rc < 0) { \
 			ret = rc; \
@@ -630,33 +626,32 @@ restart:
 })
 
 ssize_t
-write_full_buf(struct log *log, int fd, const void *buf, size_t cnt)
+write_full_buf(int fd, const void *buf, size_t cnt)
 {
 	int rc;
 
-	rc = SYS_CALL_FULL_BUF(write, log, fd, buf, cnt);
+	rc = SYS_CALL_FULL_BUF(write, fd, buf, cnt);
 	return rc;
 }
 
 ssize_t
-send_full_buf(struct log *log, int fd, const void *buf, size_t cnt, int flags)
+send_full_buf(int fd, const void *buf, size_t cnt, int flags)
 {
 	int rc;
 
-	rc = SYS_CALL_FULL_BUF(send, log, fd, buf, cnt, flags);
+	rc = SYS_CALL_FULL_BUF(send, fd, buf, cnt, flags);
 	return rc;
 }
 
 #ifdef __linux__
 int
-read_rss_key(struct log *log, const char *ifname, u_char *rss_key)
+read_rss_key(const char *ifname, u_char *rss_key)
 {
 	int fd, rc, size, off;
 	struct ifreq ifr;
 	struct ethtool_rxfh rss, *rss2;
 
-	LOG_TRACE(log);
-	rc = sys_socket(log, AF_INET, SOCK_DGRAM, 0);
+	rc = sys_socket(AF_INET, SOCK_DGRAM, 0);
 	if (rc < 0) {
 		return rc;
 	}
@@ -664,18 +659,17 @@ read_rss_key(struct log *log, const char *ifname, u_char *rss_key)
 	strzcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 	rss.cmd = ETHTOOL_GRSSH;
 	ifr.ifr_data = (void *)&rss;
-	rc = sys_ioctl(log, fd, SIOCETHTOOL, (uintptr_t)&ifr);
+	rc = sys_ioctl(fd, SIOCETHTOOL, (uintptr_t)&ifr);
 	if (rc < 0) {
 		goto out;
 	}
 	if (rss.key_size != RSS_KEY_SIZE) {
-		LOGF(log, LOG_ERR, 0,
-		     "invalid rss key_size; key_size=%d", rss.key_size);
+		ERR(0, "invalid rss key_size; key_size=%d", rss.key_size);
 		goto out;
 	}
 	size = (sizeof(rss) + rss.key_size +
 	       rss.indir_size * sizeof(rss.rss_config[0]));
-	rc = sys_malloc(log, (void **)&rss2, size);
+	rc = sys_malloc((void **)&rss2, size);
 	if (rc) {
 		goto out;
 	}
@@ -684,7 +678,7 @@ read_rss_key(struct log *log, const char *ifname, u_char *rss_key)
 	rss2->indir_size = rss.indir_size;
 	rss2->key_size = rss.key_size;
 	ifr.ifr_data = (void *)rss2;
-	rc = sys_ioctl(log, fd, SIOCETHTOOL, (uintptr_t)&ifr);
+	rc = sys_ioctl(fd, SIOCETHTOOL, (uintptr_t)&ifr);
 	if (rc) {
 		goto out2;
 	}
@@ -693,12 +687,12 @@ read_rss_key(struct log *log, const char *ifname, u_char *rss_key)
 out2:
 	free(rss2);
 out:
-	sys_close(log, fd);
+	sys_close(fd);
 	return rc;
 }
 #else /* __linux__ */
 int
-read_rsskey(struct log *log, const char *ifname, u_char *rsskey)
+read_rsskey(const char *ifname, u_char *rsskey)
 {
 	return 0;
 }

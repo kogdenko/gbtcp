@@ -30,42 +30,41 @@ route_get_attr_u32(struct rtattr *attr)
 }
 
 int
-route_rtnl_open(struct log *log, unsigned int nl_groups)
+route_rtnl_open(unsigned int nl_groups)
 {
 	int rc, fd, opt;
 	struct sockaddr_nl addr;
 
-	LOG_TRACE(log);
-	rc = sys_socket(log, AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+	rc = sys_socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 	if (rc < 0) {
 		return rc;
 	}
 	fd = rc;
-	rc = fcntl_setfl_nonblock2(log, fd);
+	rc = fcntl_setfl_nonblock2(fd);
 	if (rc) {
-		sys_close(log, fd);
+		sys_close(fd);
 		return rc;
 	}
 	opt = 32768;
-	rc = sys_setsockopt(log, fd, SOL_SOCKET, SO_SNDBUF,
+	rc = sys_setsockopt(fd, SOL_SOCKET, SO_SNDBUF,
 	                    &opt, sizeof(opt));
 	if (rc < 0) {
 		sys_close_fn(fd);
 		return rc;
 	}
 	opt = 1024 * 1024;
-	rc = sys_setsockopt(log, fd, SOL_SOCKET, SO_RCVBUF,
+	rc = sys_setsockopt(fd, SOL_SOCKET, SO_RCVBUF,
 	                    &opt, sizeof(opt));
 	if (rc < 0) {
-		sys_close(log, fd);
+		sys_close(fd);
 		return rc;
 	}
 	memset(&addr, 0, sizeof(addr));
 	addr.nl_family = AF_NETLINK;
 	addr.nl_groups = nl_groups;
-	rc = sys_bind(log, fd, (struct sockaddr *)&addr, sizeof(addr));
+	rc = sys_bind(fd, (struct sockaddr *)&addr, sizeof(addr));
 	if (rc) {
-		sys_close(log, fd);
+		sys_close(fd);
 		return rc;
 	}
 	return fd;
@@ -90,14 +89,12 @@ route_handle_link(struct nlmsghdr *h, struct route_msg *msg)
 	int len, tmp;
 	struct ifinfomsg *ifi;
 	struct rtattr *attrs[IFLA_MAX + 1], *attr;
-	struct log *log;
 
-	log = log_trace0();
 	tmp = NLMSG_LENGTH(sizeof(*ifi));
 	len = h->nlmsg_len - tmp;
 	if (len < 0) {
-		LOGF(log, LOG_ERR, 0, "bad nlmsg_len; len=%d, need>=%d",
-		     h->nlmsg_len, tmp);
+		ERR(0, "bad nlmsg_len; len=%d, need>=%d",
+		    h->nlmsg_len, tmp);
 		return -EPROTO;
 	}
 	ifi = NLMSG_DATA(h);
@@ -109,9 +106,8 @@ route_handle_link(struct nlmsghdr *h, struct route_msg *msg)
 	if (attr != NULL) {
 		tmp = RTA_PAYLOAD(attr);
 		if (tmp != 6) {
-			LOGF(log, LOG_ERR, 0,
-			     "attr bad len; attr=IFLA_ADDRESS, len=%d, need=6",
-			     tmp);
+			ERR(0, "attr bad len; attr=IFLA_ADDRESS, len=%d, need=6",
+			    tmp);
 			return -EPROTO;
 		}
 		memcpy(msg->rtm_link.rtml_hwaddr.etha_bytes,
@@ -126,14 +122,12 @@ route_handle_addr(struct nlmsghdr *h, struct route_msg *msg)
 	int len, tmp, addr_len;
 	struct ifaddrmsg *ifa;
 	struct rtattr *attrs[IFA_MAX + 1], *attr;
-	struct log *log;
 
-	log = log_trace0();
 	tmp = NLMSG_LENGTH(sizeof(*ifa));
 	len = h->nlmsg_len - tmp;
 	if (len < 0) {
-		LOGF(log, LOG_ERR, 0, "bad nlmsg_len; len=%d, need>=%d",
-		     h->nlmsg_len, tmp);
+		ERR(0, "bad nlmsg_len; len=%d, need>=%d",
+		    h->nlmsg_len, tmp);
 		return -EPROTO;
 	}
 	ifa = NLMSG_DATA(h);
@@ -143,7 +137,7 @@ route_handle_addr(struct nlmsghdr *h, struct route_msg *msg)
 	} else if (ifa->ifa_family == AF_INET6) {
 		addr_len = 16;
 	} else {
-		LOGF(log, LOG_INFO, 0, "skip addr family; af=%d",
+		INFO(0, "skip addr family; af=%d",
 		     ifa->ifa_family);
 		return 0;
 	}
@@ -154,14 +148,13 @@ route_handle_addr(struct nlmsghdr *h, struct route_msg *msg)
 		attr = attrs[IFA_ADDRESS];
 	}
 	if (attr == NULL) {
-		LOGF(log, LOG_ERR, 0, "attr doesnt exists; attr=IFA_ADDRESS");
+		ERR(0, "attr doesnt exists; attr=IFA_ADDRESS");
 		return -EPROTO;
 	}
 	tmp = RTA_PAYLOAD(attr);
 	if (tmp != addr_len) {
-		LOGF(log, LOG_ERR, 0,
-		     "attr bad len; attr=IFA_ADDRESS, len=%d, need=%d",
-		     tmp, addr_len);
+		ERR(0, "attr bad len; attr=IFA_ADDRESS, len=%d, need=%d",
+		    tmp, addr_len);
 		return -EPROTO;
 	}
 	memcpy(msg->rtm_addr.ipa_data, RTA_DATA(attr), addr_len);
@@ -175,24 +168,20 @@ route_handle_route(struct nlmsghdr *h, struct route_msg *msg)
 	int len, tmp, table, addr_len;
 	struct rtmsg *rtm;
 	struct rtattr *attrs[RTA_MAX + 1], *attr;
-	struct log *log;
 
-	log = log_trace0();
 	tmp = NLMSG_LENGTH(sizeof(*rtm));
 	len = h->nlmsg_len - tmp;
 	if (len < 0) {
-		LOGF(log, LOG_ERR, 0, "bad nlmsg_len; len=%d, need>=%d",
-		     h->nlmsg_len, tmp);
+		ERR(0, "bad nlmsg_len; len=%d, need>=%d", h->nlmsg_len, tmp);
 		return -EPROTO;
 	}
 	rtm = NLMSG_DATA(h);
 	if (rtm->rtm_flags & RTM_F_CLONED) {
-		LOGF(log, LOG_INFO, 0, "RTM_F_CLONED");
+		INFO(0, "RTM_F_CLONED;");
 		return 0;
 	}
 	if (rtm->rtm_type != RTN_UNICAST) {
-		LOGF(log, LOG_DEBUG, 0, "not unicast; rtm_type=%d",
-		     rtm->rtm_type);
+		DBG(0, "not unicast; rtm_type=%d", rtm->rtm_type);
 		return 0;
 	}
 	if (rtm->rtm_family == AF_INET) {
@@ -200,8 +189,7 @@ route_handle_route(struct nlmsghdr *h, struct route_msg *msg)
 	} else if (rtm->rtm_family == AF_INET6) {
 		addr_len = 16;
 	} else {
-		LOGF(log, LOG_INFO, 0, "skip addr family; af=%d",
-		     rtm->rtm_family);
+		INFO(0, "skip addr family; af=%d", rtm->rtm_family);
 		return 0;
 	}
 	msg->rtm_af = rtm->rtm_family;
@@ -211,9 +199,8 @@ route_handle_route(struct nlmsghdr *h, struct route_msg *msg)
 	if (attr != NULL) {
 		tmp = RTA_PAYLOAD(attr);
 		if (tmp != sizeof(uint32_t)) {
-			LOGF(log, LOG_ERR, 0,
-			     "attr bad len; attr=RTA_TABLE, len=%d, need=%zu",
-			     tmp, sizeof(uint32_t));
+			ERR(0, "attr bad len; attr=RTA_TABLE, len=%d, need=%zu",
+			    tmp, sizeof(uint32_t));
 			return -EPROTO;
 		}
 		table = route_get_attr_u32(attr);
@@ -236,32 +223,28 @@ route_handle_route(struct nlmsghdr *h, struct route_msg *msg)
 	} else {
 		tmp = RTA_PAYLOAD(attr);
 		if (tmp != addr_len) {
-			LOGF(log, LOG_ERR, 0,
-			     "attr bad len; attr=RTA_DST, len=%d, need=%d",
-			     tmp, addr_len);
+			ERR(0, "attr bad len; attr=RTA_DST, len=%d, need=%d",
+			    tmp, addr_len);
 			return -EPROTO;
 		}
 		memcpy(msg->rtm_route.rtmr_dst.ipa_data,
 		       RTA_DATA(attr), addr_len);
 	}
 	if (rtm->rtm_dst_len > addr_len * 8) {
-		LOGF(log, LOG_ERR, 0,
-		     "attr bad len; rtm_dst_len=%d, need>%d",
-		     rtm->rtm_dst_len, addr_len * 8);
+		ERR(0, "attr bad len; rtm_dst_len=%d, need>%d",
+		    rtm->rtm_dst_len, addr_len * 8);
 		return -EPROTO;
 	}	
 	msg->rtm_route.rtmr_pfx = rtm->rtm_dst_len;
 	attr = attrs[RTA_OIF];
 	if (attr == NULL) {
-		LOGF(log, LOG_ERR, 0,
-		     "attr doesnt exists; attr=RTA_OIF");
+		ERR(0, "attr doesnt exists; attr=RTA_OIF");
 		return -EPROTO;
 	}
 	tmp = RTA_PAYLOAD(attr);
 	if (tmp != sizeof(uint32_t)) {
-		LOGF(log, LOG_ERR, 0,
-		     "attr bad len; attr=RTA_OIF, len=%d, need=%zu",
-		     tmp, sizeof(uint32_t));
+		ERR(0, "attr bad len; attr=RTA_OIF, len=%d, need=%zu",
+		    tmp, sizeof(uint32_t));
 		return -EPROTO;
 	}
 	msg->rtm_if_idx = route_get_attr_u32(attr);
@@ -269,9 +252,8 @@ route_handle_route(struct nlmsghdr *h, struct route_msg *msg)
 	if (attr != NULL) {
 		tmp = RTA_PAYLOAD(attr);
 		if (tmp != addr_len) {
-			LOGF(log, LOG_ERR, 0,
-			     "attr bad len; attr=RTA_GATEWAY, len=%d, need=%d",
-			     tmp, addr_len);
+			ERR(0, "attr bad len; attr=RTA_GATEWAY, len=%d, need=%d",
+			    tmp, addr_len);
 			return -EPROTO;
 		}
 		memcpy(msg->rtm_route.rtmr_via.ipa_data,
@@ -285,9 +267,7 @@ route_rtnl_handler(struct nlmsghdr *h, route_msg_f fn)
 {
 	int rc;
 	struct route_msg msg;
-	struct log *log;
 
-	log = log_trace0();
 	memset(&msg, 0, sizeof(msg));
 	msg.rtm_cmd = ROUTE_MSG_DEL;
 	switch (h->nlmsg_type) {
@@ -310,16 +290,15 @@ route_rtnl_handler(struct nlmsghdr *h, route_msg_f fn)
 		rc = route_handle_route(h, &msg);
 		break;
 	default:
-		LOGF(log, LOG_INFO, 0, "unknown; nlmsg_type=%d",
-		     h->nlmsg_type);
+		INFO(0, "unknown; nlmsg_type=%d", h->nlmsg_type);
 		return 0;
 	}
 	if (rc < 0) {
-		LOGF(log, LOG_ERR, -rc, "failed; nlmsg_type=%s",
-		     route_nlmsg_type_str(h->nlmsg_type));
+		ERR(-rc, "failed; nlmsg_type=%s",
+		    route_nlmsg_type_str(h->nlmsg_type));
 	} else {
-		LOGF(log, LOG_DEBUG, 0, "ok; nlmsg_type=%s",
-		     route_nlmsg_type_str(h->nlmsg_type));
+		DBG(0, "ok; nlmsg_type=%s",
+		    route_nlmsg_type_str(h->nlmsg_type));
 	}
 	if (rc == 1 && fn != NULL) {
 		(*fn)(&msg);
@@ -336,9 +315,7 @@ route_read(int fd, route_msg_f fn)
 	struct nlmsghdr *h;
 	struct sockaddr_nl addr;
 	struct iovec iov;
-	struct log *log;
 
-	log = log_trace0();
 	iov.iov_base = buf;
 	iov.iov_len = sizeof(buf);
 	memset(&addr, 0, sizeof(addr));
@@ -348,7 +325,7 @@ route_read(int fd, route_msg_f fn)
 	msg.msg_namelen = sizeof(addr);
 	msg.msg_iov = &iov;
 	msg.msg_iovlen = 1; 
-	rc = sys_recvmsg(log, fd, &msg, 0);
+	rc = sys_recvmsg(fd, &msg, 0);
 	if (rc < 0) {
 		return rc;
 	}
@@ -369,14 +346,14 @@ route_read(int fd, route_msg_f fn)
 		}
 	}
 	if (msg.msg_flags & MSG_TRUNC) {
-		LOGF(log, LOG_ERR, 0, "truncated");
+		ERR(0, "truncated;");
 		return 0;
 	}
 	return 0;
 }
 
 int
-route_open(struct route_mod *mod, struct log *log)
+route_open(struct route_mod *mod)
 {
 	int rc, g;
 
@@ -387,7 +364,7 @@ route_open(struct route_mod *mod, struct log *log)
 	g |= RTMGRP_IPV4_ROUTE;
 	g |= RTMGRP_IPV6_IFADDR;
 	g |= RTMGRP_IPV6_ROUTE;
-	rc = route_rtnl_open(log, g);
+	rc = route_rtnl_open(g);
 	return rc;
 }
 
@@ -409,11 +386,9 @@ route_dump(route_msg_f fn)
 {
 	static int types[3] = { RTM_GETLINK, RTM_GETADDR, RTM_GETROUTE };
 	int i, rc, fd;
-	struct log *log;
 	struct route_dump_req req;
 
-	log = log_trace0();
-	rc = route_rtnl_open(log, 0);
+	rc = route_rtnl_open(0);
 	if (rc < 0) {
 		return rc;
 	}
@@ -429,13 +404,13 @@ route_dump(route_msg_f fn)
 		req.rdmp_ext_req.rta_type = IFLA_EXT_MASK;
 		req.rdmp_ext_req.rta_len = RTA_LENGTH(sizeof(uint32_t));
 		req.rdmp_ext_filter_mask = RTEXT_FILTER_VF;
-		rc = sys_send(log, fd, &req, sizeof(req), 0);
+		rc = sys_send(fd, &req, sizeof(req), 0);
 		if (rc < 0) {
-			sys_close(log, fd);
+			sys_close(fd);
 			return rc;
 		}
 		route_read_all(fd, fn);
 	}
-	sys_close(log, fd);
+	sys_close(fd);
 	return 0;
 }

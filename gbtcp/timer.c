@@ -36,12 +36,12 @@ timer_free_rings()
 }
 
 static int
-timer_alloc_rings(struct log *log)
+timer_alloc_rings()
 {
 	int i, rc;
 
 	for (i = 0; i < timer_nrings; ++i) {
-		rc = sys_malloc(log, (void **)&(timer_rings[i]),
+		rc = sys_malloc((void **)&(timer_rings[i]),
 		                sizeof(struct timer_ring));
 		if (rc) {
 			timer_free_rings();
@@ -68,13 +68,12 @@ timer_ring_init(struct timer_ring *ring, uint64_t seg_size)
 }
 
 int
-timer_mod_init(struct log *log, void **pp)
+timer_mod_init(void **pp)
 {
 	int rc;
 	struct timer_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "timer");
@@ -83,14 +82,13 @@ timer_mod_init(struct log *log, void **pp)
 }
 
 int
-timer_mod_attach(struct log *log, void *raw_mod)
+timer_mod_attach(void *raw_mod)
 {
 	int i, rc;
 	uint64_t seg_size;
 	uint64_t ring_seg_size[TIMER_NRINGS_MAX];
 	struct timer_ring *ring;
 
-	LOG_TRACE(log);
 	curmod = raw_mod;
 	seg_size = lower_pow2_64(TIMER_TIMO);
 	timer_nrings = 0;
@@ -105,32 +103,31 @@ timer_mod_attach(struct log *log, void *raw_mod)
 		}
 	}
 	ASSERT(timer_nrings);
-	rc = timer_alloc_rings(log);
+	rc = timer_alloc_rings();
 	if (rc) {
 		return rc;
 	}
 	for (i = 0; i < timer_nrings; ++i) {
 		ring = timer_rings[i];
 		timer_ring_init(ring, ring_seg_size[i]);
-		LOGF(log, LOG_INFO, 0, "hit; ring=%d, seg=%llu",
+		INFO(0, "hit; ring=%d, seg=%llu",
 		     i, 1llu << ring->r_seg_shift);
 	}
 	return 0;
 }
 
 void
-timer_mod_deinit(struct log *log, void *raw_mod)
+timer_mod_deinit(void *raw_mod)
 {
 	struct timer_mod *mod;
 
 	mod = raw_mod;
-	LOG_TRACE(log);
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-timer_mod_detach(struct log *log)
+timer_mod_detach()
 {
 	timer_free_rings();
 	curmod = NULL;
@@ -253,7 +250,6 @@ timer_set(struct timer *timer, uint64_t expire, timer_f fn)
 	int ring_id;
 	uintptr_t uint_fn;
 	uint64_t dist, pos;
-	struct log *log;
 	struct dlist *head;
 	struct timer_ring *ring;
 
@@ -272,9 +268,8 @@ timer_set(struct timer *timer, uint64_t expire, timer_f fn)
 			break;
 		}
 	}
-	log = log_trace0();
 	if (ring_id == timer_nrings) {
-		LOGF(log, LOG_ERR, 0, "too big expire=%"PRIu64, expire);
+		ERR(0, "too big expire=%"PRIu64, expire);
 		ring_id = timer_nrings - 1;
 		ring = timer_rings[ring_id];
 		dist = TIMER_RING_SIZE - 1;

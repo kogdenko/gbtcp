@@ -35,14 +35,13 @@ static struct epoll_mod *curmod;
 static void epoll_entry_set(struct epoll_entry *, struct gt_sock *, short);
 
 int
-epoll_mod_init(struct log *log, void **pp)
+epoll_mod_init(void **pp)
 {
 	int rc;
 	struct epoll_mod *mod;
 
-	LOG_TRACE(log);
 	ASSERT(sizeof(struct epoll) <= sizeof(struct gt_sock));
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "epoll");
@@ -51,25 +50,24 @@ epoll_mod_init(struct log *log, void **pp)
 }
 
 int
-epoll_mod_attach(struct log *log, void *raw_mod)
+epoll_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-epoll_mod_deinit(struct log *log, void *raw_mod)
+epoll_mod_deinit(void *raw_mod)
 {
 	struct epoll_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-epoll_mod_detach(struct log *log)
+epoll_mod_detach()
 {
 	curmod = NULL;
 }
@@ -101,7 +99,7 @@ epoll_entry_alloc(struct epoll *ep, struct gt_sock *so, short filter)
 	int rc;
         struct epoll_entry *e;
 
-	rc = mbuf_alloc(NULL, ep->ep_pool, (struct mbuf **)&e);
+	rc = mbuf_alloc(ep->ep_pool, (struct mbuf **)&e);
 	if (rc) {
 		return NULL;
 	}
@@ -287,7 +285,7 @@ check_epoll_fd(int fd, epoll_event_t *buf, int cnt)
 {
 	int rc;
 
-	rc = sys_epoll_pwait(NULL, fd, buf, cnt, 0, NULL);
+	rc = sys_epoll_pwait(fd, buf, cnt, 0, NULL);
 	return rc;
 }
 #else /* __linux__ */
@@ -299,7 +297,7 @@ check_epoll_fd(int fd, epoll_event_t *buf, int cnt)
 
 	to.tv_sec = 0;
 	to.tv_nsec = 0;
-	rc = sys_kevent(NULL, fd, NULL, 0, buf, cnt, &to);
+	rc = sys_kevent(fd, NULL, 0, buf, cnt, &to);
 	return rc;
 }
 
@@ -367,19 +365,17 @@ int
 u_epoll_create(int ep_fd)
 {
 	int rc, fd;
-	struct log *log;
 	struct file *fp;
 	struct epoll *ep;
 
-	log = log_trace0();
-	rc = file_alloc(log, &fp, FILE_EPOLL);
+	rc = file_alloc(&fp, FILE_EPOLL);
 	if (rc) {
 		return rc;
 	}
 	fp->fl_opened = 1;
 	ep = (struct epoll *)fp;
 	ep->ep_fd = ep_fd;
-	rc = shm_malloc(NULL, (void **)&ep->ep_pool, sizeof(*ep->ep_pool));
+	rc = shm_malloc((void **)&ep->ep_pool, sizeof(*ep->ep_pool));
 	if (rc) {
 		file_free(fp);
 		return rc;
@@ -399,7 +395,7 @@ u_epoll_close(struct file *fp)
 	struct epoll_entry *e;
 
 	ep = (struct epoll *)fp;
-	rc = sys_close(NULL, ep->ep_fd);
+	rc = sys_close(ep->ep_fd);
 	MBUF_FOREACH_SAFE(m, ep->ep_pool, tmp) {
 		e = (struct epoll_entry *)m;
 		epoll_entry_free(e);
@@ -440,7 +436,7 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 		if (n) {
 			set.fdes_ts.tv_nsec = 0;
 		}
-		rc = sys_ppoll(NULL, pfds, set.fdes_nr_used + 1,
+		rc = sys_ppoll(pfds, set.fdes_nr_used + 1,
 		               &set.fdes_ts, sigmask);
 		SERVICE_LOCK;
 		gt_fd_event_set_call(&set, pfds + 1);

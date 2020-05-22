@@ -13,37 +13,17 @@ struct log_scope {
 	int lgs_level;
 };
 
-struct log {
-	const char *lg_func;
-	struct log *lg_upper;
-	struct log *lg_lower;
-};
-
-#define log_trace(upper) \
-({ \
-	struct log *GT_UNIQV(log); \
-	GT_UNIQV(log) = alloca(sizeof(struct log)); \
-	GT_UNIQV(log)->lg_func = __func__; \
-	GT_UNIQV(log)->lg_upper = upper; \
-	GT_UNIQV(log); \
-})
-
-#define LOG_TRACE(log) (log) = log_trace(log)
-
-//#define LOG_DISABLED
-
 #ifdef LOG_DISABLED
-#define LOGF(log, level, err, fmt, ...) \
+#define LOGF(level, err, fmt, ...) \
 	do { \
-		UNUSED(log); \
 		UNUSED(err); \
 	} while (0)
 #else /* LOG_DISABLED */
-#define LOGF(log, level, err, fmt, ...) \
+#define LOGF(level, err, fmt, ...) \
 do { \
 	if (log_is_enabled(&curmod->log_scope, level, 0)) { \
 		log_buf_init(); \
-		log_printf(log, level, err, fmt, ##__VA_ARGS__); \
+		log_printf(level, __func__, err, fmt, ##__VA_ARGS__); \
 	} \
 } while (0)
 #endif /* LOG_DISABLED */
@@ -60,16 +40,14 @@ do { \
 	do { \
 	} while (0)
 #else /*NDEBUG */
-#define DBG(err, ...) LOGF(log_trace0(), LOG_DEBUG, err, __VA_ARGS__)
-#define INFO(err, ...) LOGF(log_trace0(), LOG_INFO, err, __VA_ARGS__)
-#define NOTICE(err, ...) LOGF(log_trace0(), LOG_NOTICE, err, __VA_ARGS__)
-#define WARN(err, ...) LOGF(log_trace0(), LOG_WARNING, err, __VA_ARGS__)
+#define DBG(err, ...) LOGF(LOG_DEBUG, err, __VA_ARGS__)
+#define INFO(err, ...) LOGF(LOG_INFO, err, __VA_ARGS__)
 #define ASSERT3(err, expr, fmt, ...) \
 	((expr) ? \
 	(void)(0) : \
-	log_abort(NULL, __FILE__, __LINE__, err, #expr, fmt, ##__VA_ARGS__))
+	log_abort(__FILE__, __LINE__, err, #expr, fmt, ##__VA_ARGS__))
 #define BUG2(err, fmt, ...) \
-	log_abort(NULL, __FILE__, __LINE__, err, NULL, fmt, ##__VA_ARGS__)
+	log_abort(__FILE__, __LINE__, err, NULL, fmt, ##__VA_ARGS__)
 #endif /* NDEBUG */
 
 #define ASSERT2(err, expr) ASSERT3(err, expr, NULL)
@@ -78,32 +56,36 @@ do { \
 #define BUG1(fmt, ...) BUG2(0, fmt, ##__VA_ARGS__)
 #define BUG BUG1(NULL)
 
-#define die(log, errnum, fmt, ...) \
-	log_abort(log, __FILE__, __LINE__, errnum, NULL, fmt, ##__VA_ARGS__)
+#define die(errnum, fmt, ...) \
+	log_abort(__FILE__, __LINE__, errnum, NULL, fmt, ##__VA_ARGS__)
+
+#define NOTICE(err, ...) LOGF(LOG_NOTICE, err, __VA_ARGS__)
+#define WARN(err, ...) LOGF(LOG_WARNING, err, __VA_ARGS__)
+#define ERR(err, ...) LOGF(LOG_ERR, err, __VA_ARGS__)
 
 void log_init_early();
 
-int log_mod_init(struct log *, void **);
-int log_mod_attach(struct log *, void *);
-void log_mod_deinit(struct log *, void *);
-void log_mod_detach(struct log *);
+int log_mod_init(void **);
+int log_mod_attach(void *);
+void log_mod_deinit(void *);
+void log_mod_detach();
 
 void log_scope_init_early(struct log_scope *, const char *);
 void log_scope_init(struct log_scope *, const char *);
-void log_scope_deinit(struct log *, struct log_scope *);
+void log_scope_deinit(struct log_scope *);
 
 void log_set_level(int);
 
 int log_is_enabled(struct log_scope *, int, int);
-void log_vprintf(struct log *, int, int, const char *, va_list);
-void log_printf(struct log *, int, int, const char *, ...)
+void log_vprintf(int, const char *, int, const char *, va_list);
+void log_printf(int, const char *, int, const char *, ...)
 	__attribute__((format(printf, 4, 5)));
 
 void log_backtrace(int depth_off);
 void log_hexdump_ascii(uint8_t *data, int cnt);
 
-void log_abort(struct log *, const char *, int, int, const char *,
-	const char *, ...) __attribute__((format(printf, 6, 7)));
+void log_abort(const char *, int, int, const char *,
+	const char *, ...) __attribute__((format(printf, 5, 6)));
 
 void log_buf_init();
 struct strbuf *log_buf_alloc_space();

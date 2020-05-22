@@ -33,12 +33,10 @@ log_is_stdout(int force_stdout, int debug)
 }
 
 static void
-log_fclose(struct log *log)
+log_fclose()
 {
-	if (log_fd != -1) {
-		sys_close(log, log_fd);
-		log_fd = -1;
-	}
+	sys_close(log_fd);
+	log_fd = -1;
 }
 
 // Log filename pattern:
@@ -77,13 +75,12 @@ log_expand_pattern(struct strbuf *path, const char *pattern)
 }
 
 static int
-log_fopen(struct log *log, const char *pattern, int add_flags)
+log_fopen(const char *pattern, int add_flags)
 {
 	int rc;
 	char path_buf[PATH_MAX];
 	struct strbuf path;
 
-	LOG_TRACE(log);
 	if (!strcmp(pattern, "/dev/null")) {
 		return 0;
 	}
@@ -99,7 +96,7 @@ log_fopen(struct log *log, const char *pattern, int add_flags)
 	if (strbuf_space(&path) == 0) {
 		return -ENAMETOOLONG;
 	}
-	rc = sys_open(log, strbuf_cstr(&path),
+	rc = sys_open(strbuf_cstr(&path),
 	              O_RDWR|O_CLOEXEC|O_CREAT|add_flags,
 	              S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH);
 	if (rc < 0) {
@@ -111,8 +108,8 @@ log_fopen(struct log *log, const char *pattern, int add_flags)
 }
 
 static int
-log_sysctl_out(struct log *log, struct sysctl_conn *cp,
-	void *udata, const char *new, struct strbuf *out)
+log_sysctl_out(struct sysctl_conn *cp, void *udata,
+	const char *new, struct strbuf *out)
 {
 	struct log_mod *mod;
 
@@ -128,18 +125,17 @@ void
 log_init_early()
 {
 	if (log_stdout_fd < 0) {
-		log_stdout_fd = sys_open(NULL, "/dev/stdout", O_WRONLY, 0);
+		log_stdout_fd = sys_open("/dev/stdout", O_WRONLY, 0);
 	}
 }
 
 int
-log_mod_init(struct log *log, void **pp)
+log_mod_init(void **pp)
 {
 	int rc;
 	struct log_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
@@ -149,49 +145,43 @@ log_mod_init(struct log *log, void **pp)
 		mod->log_level = log_early_level;
 	}
 	strzcpy(mod->log_pattern, "/dev/null", sizeof(mod->log_pattern));
-	sysctl_add_int(log, "log.stdout", SYSCTL_WR,
-	               &mod->log_stdout, 0, 1);
-	sysctl_add_int(log, "log.level", SYSCTL_WR,
+	sysctl_add_int("log.stdout", SYSCTL_WR, &mod->log_stdout, 0, 1);
+	sysctl_add_int("log.level", SYSCTL_WR,
 	               &mod->log_level, LOG_EMERG, LOG_DEBUG);
-	sysctl_add(log, "log.out", SYSCTL_LD, mod, NULL, log_sysctl_out);
+	sysctl_add("log.out", SYSCTL_LD, mod, NULL, log_sysctl_out);
 	return 0;
 }
 
 int
-log_mod_attach(struct log *log, void *raw_mod)
+log_mod_attach(void *raw_mod)
 {
 	struct log_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
 	log_fd = -1;
-	log_fopen(log, mod->log_pattern, O_TRUNC);
+	log_fopen(mod->log_pattern, O_TRUNC);
 	curmod = mod;
 	return 0;
 }
 
 void
-log_mod_deinit(struct log *log, void *raw_mod)
+log_mod_deinit(void *raw_mod)
 {
 	struct log_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	sysctl_del(log, "log.out");
-	sysctl_del(log, "log.level");
-	sysctl_del(log, "log.stdout");
+	sysctl_del("log.out");
+	sysctl_del("log.level");
+	sysctl_del("log.stdout");
 	shm_free(mod);
 }
 
 void
-log_mod_detach(struct log *log)
+log_mod_detach()
 {
-	LOG_TRACE(log);
-	if (log_stdout_fd >= 0) {
-		sys_close(log, log_stdout_fd);
-		log_stdout_fd = -1;
-	}
-	log_fclose(log);
+	sys_close(log_stdout_fd);
+	log_stdout_fd = -1;
+	log_fclose();
 	curmod = NULL;
 }
 void
@@ -207,21 +197,18 @@ void
 log_scope_init(struct log_scope *scope, const char *name)
 {
 	char path[PATH_MAX];
-	struct log *log;
 
 	log_scope_init_early(scope, name);
-	log = log_trace0();
 	snprintf(path, sizeof(path), "log.scope.%s.level", name);
-	sysctl_add_int(log, path, SYSCTL_WR,
-	               &scope->lgs_level, LOG_EMERG, LOG_DEBUG);
+	sysctl_add_int(path, SYSCTL_WR, &scope->lgs_level,
+	               LOG_EMERG, LOG_DEBUG);
 }
 void
-log_scope_deinit(struct log *log, struct log_scope *scope)
+log_scope_deinit(struct log_scope *scope)
 {
 	char path[PATH_MAX];
-	LOG_TRACE(log);
 	snprintf(path, sizeof(path), "log.scope.%s", scope->lgs_name);
-	sysctl_del(log, path);
+	sysctl_del(path);
 }
 
 void
@@ -287,28 +274,12 @@ log_fill_hdr(struct strbuf *sb)
 }
 
 static void
-log_fill_pfx(struct log *bottom, u_int level, struct strbuf *sb)
+log_fill_pfx(u_int level, const char *func, struct strbuf *sb)
 {
-	struct log *cur, *top;
 	static const char *L = "EACEWNID";
 
 	assert(level < 8);
-	strbuf_addf(sb, "[%c] [", L[level]);
-	if (1) {
-		strbuf_add_str(sb, bottom->lg_func);
-	} else {
-		bottom->lg_lower = NULL;
-		for (top = bottom; top->lg_upper != NULL; top = top->lg_upper) {
-			top->lg_upper->lg_lower = top;
-		}
-		for (cur = top; cur != NULL; cur = cur->lg_lower) {
-			if (cur != top) {
-				strbuf_add(sb, STRSZ("->"));
-			}
-			strbuf_add_str(sb, cur->lg_func);
-		}
-	}
-	strbuf_add(sb, STRSZ("] "));
+	strbuf_addf(sb, "[%c] [%s] ", L[level], func);
 }
 
 static void
@@ -327,33 +298,33 @@ log_write(struct strbuf *sb, int force_stdout)
 
 	len = MIN(sb->sb_len, sb->sb_cap);
 	if (log_fd != -1) {
-		write_full_buf(NULL, log_fd, sb->sb_buf, len);
+		write_full_buf(log_fd, sb->sb_buf, len);
 	}
 	if (log_is_stdout(force_stdout, 0)) {
-		write_full_buf(NULL, log_stdout_fd, sb->sb_buf, len);
+		write_full_buf(log_stdout_fd, sb->sb_buf, len);
 	}
 }
 
 void
-log_vprintf(struct log *log, int level, int err, const char *fmt, va_list ap)
+log_vprintf(int level, const char *func, int err, const char *fmt, va_list ap)
 {
 	char buf[LOG_BUFSIZ];
 	struct strbuf sb;
 
 	strbuf_init(&sb, buf, sizeof(buf));
 	log_fill_hdr(&sb);
-	log_fill_pfx(log, level, &sb);
+	log_fill_pfx(level, func, &sb);
 	strbuf_vaddf(&sb, fmt, ap);
 	log_fill_sfx(&sb, err);
 	log_write(&sb, 0);
 }
 
 void
-log_printf(struct log *log, int level, int err, const char *fmt, ...)
+log_printf(int level, const char *func, int err, const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
-	log_vprintf(log, level, err, fmt, ap);
+	log_vprintf(level, func, err, fmt, ap);
 	va_end(ap);
 }
 void
@@ -361,6 +332,7 @@ log_backtrace(int depth_off)
 {
 	char buf[LOG_BUFSIZ];
 	struct strbuf sb;
+
 	strbuf_init(&sb, buf, sizeof(buf));
 	strbuf_add_backtrace(&sb, depth_off);
 	log_write(&sb, 0);
@@ -395,7 +367,7 @@ log_hexdump_ascii(uint8_t *data, int count)
 }
 
 void
-log_abort(struct log *log, const char *filename, int line, int errnum,
+log_abort(const char *filename, int line, int errnum,
 	const char *expr, const char *fmt, ...)
 {
 	char buf[LOG_BUFSIZ];

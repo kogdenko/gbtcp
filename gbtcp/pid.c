@@ -7,13 +7,12 @@ struct pid_mod {
 static struct pid_mod *curmod;
 
 int
-pid_mod_init(struct log *log, void **pp)
+pid_mod_init(void **pp)
 {
 	int rc;
 	struct pid_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "pid");
@@ -22,25 +21,24 @@ pid_mod_init(struct log *log, void **pp)
 }
 
 int
-pid_mod_attach(struct log *log, void *raw_mod)
+pid_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-pid_mod_deinit(struct log *log, void *raw_mod)
+pid_mod_deinit(void *raw_mod)
 {
 	struct pid_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-pid_mod_detach(struct log *log)
+pid_mod_detach()
 {
 	curmod = NULL;
 }
@@ -53,14 +51,13 @@ pid_file_path(char *path, const char *filename)
 }
 
 int
-pid_file_open(struct log *log, const char *filename)
+pid_file_open(const char *filename)
 {
 	int rc;
 	char path[PATH_MAX];
 
-	LOG_TRACE(log);
 	pid_file_path(path, filename);
-	rc = sys_open(log, path, O_CREAT|O_RDWR, 0666);
+	rc = sys_open(path, O_CREAT|O_RDWR, 0666);
 	if (rc >= 0) {
 		NOTICE(0, "ok; fd=%d, filename='%s'", rc, filename);
 	}
@@ -68,30 +65,28 @@ pid_file_open(struct log *log, const char *filename)
 }
 
 int
-pid_file_lock(struct log *log, int fd)
+pid_file_lock(int fd)
 {
 	int rc;
 
-	LOG_TRACE(log);	
-	rc = sys_flock(log, fd, LOCK_EX|LOCK_NB);
+	rc = sys_flock(fd, LOCK_EX|LOCK_NB);
 	return rc;
 }
 
 int
-pid_file_read(struct log *log, int fd)
+pid_file_read(int fd)
 {
 	int rc, pid;
 	char buf[32];
 
-	LOG_TRACE(log);
-	rc = sys_read(log, fd, buf, sizeof(buf) - 1);
+	rc = sys_read(fd, buf, sizeof(buf) - 1);
 	if (rc < 0) {
 		return rc;
 	}
 	buf[rc] = '\0';
 	rc = sscanf(buf, "%d", &pid);
 	if (rc != 1 || pid <= 0) {
-		LOGF(log, LOG_ERR, 0, "bad format; fd=%d", fd);
+		ERR(0, "bad format; fd=%d", fd);
 		return -EINVAL;
 	} else {
 		return pid;
@@ -99,26 +94,25 @@ pid_file_read(struct log *log, int fd)
 }
 
 int
-pid_file_write(struct log *log, int fd, int pid)
+pid_file_write(int fd, int pid)
 {
 	int rc, len;
 	char buf[32];
 
-	LOG_TRACE(log);
 	ASSERT(pid >= 0);
 	len = snprintf(buf, sizeof(buf), "%d", pid);
-	rc = write_full_buf(log, fd, buf, len);
+	rc = write_full_buf(fd, buf, len);
 	return rc;
 }
 
 int
-pid_file_acquire(struct log * log, int fd, int pid)
+pid_file_acquire(int fd, int pid)
 {
 	int rc;
 
-	rc = pid_file_lock(log, fd);
+	rc = pid_file_lock(fd);
 	if (rc == -EWOULDBLOCK) {
-		rc = pid_file_read(log, fd);
+		rc = pid_file_read(fd);
 		if (rc >= 0) {
 			WARN(0, "busy; fd=%d, pid=%d", fd, rc);
 		}
@@ -126,7 +120,7 @@ pid_file_acquire(struct log * log, int fd, int pid)
 	} else if (rc < 0) {
 		return rc;
 	}
-	rc = pid_file_write(log, fd, pid);
+	rc = pid_file_write(fd, pid);
 	if (rc) {
 		return rc;
 	}
@@ -134,20 +128,18 @@ pid_file_acquire(struct log * log, int fd, int pid)
 }
 
 int
-pid_wait_init(struct log *log, struct pid_wait * pw, int flags)
+pid_wait_init(struct pid_wait * pw, int flags)
 {
-	LOG_TRACE(log);
 	pw->pw_nentries = 0;
-	pw->pw_fd = sys_inotify_init1(log, flags);
+	pw->pw_fd = sys_inotify_init1(flags);
 	return pw->pw_fd;
 }
 
 void
-pid_wait_deinit(struct log *log, struct pid_wait* pw)
+pid_wait_deinit(struct pid_wait* pw)
 {
 	if (pw->pw_fd >= 0) {
-		LOG_TRACE(log);
-		sys_close(log, pw->pw_fd);
+		sys_close(pw->pw_fd);
 		pw->pw_fd = -1;
 		pw->pw_nentries = 0;
 	}
@@ -160,12 +152,11 @@ pid_wait_is_empty(struct pid_wait *pw)
 }
 
 int
-pid_wait_add(struct log *log, struct pid_wait *pw, int pid)
+pid_wait_add(struct pid_wait *pw, int pid)
 {
 	int i, rc;
 	char path[32];
 
-	LOG_TRACE(log);
 	ASSERT(pw->pw_fd >= 0);
 	for (i = 0; i < pw->pw_nentries; ++i) {
 		if (pw->pw_entries[i].pid == pid) {
@@ -178,7 +169,7 @@ pid_wait_add(struct log *log, struct pid_wait *pw, int pid)
 		goto err;
 	}
 	snprintf(path, sizeof(path), "/proc/%d/exe", pid);
-	rc = sys_inotify_add_watch(log, pw->pw_fd, path,
+	rc = sys_inotify_add_watch(pw->pw_fd, path,
 	                           IN_CLOSE_NOWRITE|IN_ONESHOT);
 	if (rc >= 0) {
 		pw->pw_entries[pw->pw_nentries].pid = pid;
@@ -187,51 +178,48 @@ pid_wait_add(struct log *log, struct pid_wait *pw, int pid)
 	}
 	return rc;
 err:
-	LOGF(log, LOG_ERR, -rc, "failed; pw_fd=%d, pid=%d", pw->pw_fd, pid);
+	ERR(-rc, "failed; pw_fd=%d, pid=%d", pw->pw_fd, pid);
 	return rc;
 }
 
 static int 
-pid_wait_del_entry(struct log *log, struct pid_wait *pw, int i)
+pid_wait_del_entry(struct pid_wait *pw, int i)
 {
 	int rc;
 	struct pid_wait_entry *e;
 
 	e = pw->pw_entries + i;
-	rc = sys_inotify_rm_watch(log, pw->pw_fd, e->wd);
+	rc = sys_inotify_rm_watch(pw->pw_fd, e->wd);
 	*e = pw->pw_entries[--pw->pw_nentries];
 	return rc;
 }
 
 int
-pid_wait_del(struct log *log, struct pid_wait *pw, int pid)
+pid_wait_del(struct pid_wait *pw, int pid)
 {
 	int i, rc;
 
-	LOG_TRACE(log);
 	for (i = 0; i < pw->pw_nentries; ++i) {
 		if (pw->pw_entries[i].pid == pid) {
-			rc = pid_wait_del_entry(log, pw, i);
+			rc = pid_wait_del_entry(pw, i);
 			return rc;
 		}
 	}
 	rc = -ENOENT;
-	LOGF(log, LOG_ERR, -rc, "failed; wp_fd=%d", pw->pw_fd);
+	ERR(-rc, "failed; wp_fd=%d", pw->pw_fd);
 	return rc;
 }
 
 int
-pid_wait_read(struct log *log, struct pid_wait *pw, uint64_t *to,
-	int *pids, int npids)
+pid_wait_read(struct pid_wait *pw, uint64_t *to, int *pids, int npids)
 {
 	int i, n, rc;
 	struct inotify_event ev;
 
 	ASSERT(npids);
-	LOG_TRACE(log);
 	n = 0;
 	while (!pid_wait_is_empty(pw)) {
-		rc = read_timed(log, pw->pw_fd, &ev, sizeof(ev), to);
+		rc = read_timed(pw->pw_fd, &ev, sizeof(ev), to);
 		if (rc < 0) {
 			return n ? n : rc;
 		}
@@ -242,7 +230,7 @@ pid_wait_read(struct log *log, struct pid_wait *pw, uint64_t *to,
 					pids[n] = pw->pw_entries[i].pid;
 				}
 				n++;
-				pid_wait_del_entry(log, pw, i);
+				pid_wait_del_entry(pw, i);
 				break;
 			}
 		}
@@ -251,22 +239,20 @@ pid_wait_read(struct log *log, struct pid_wait *pw, uint64_t *to,
 }
 
 int
-pid_wait_kill(struct log *log, struct pid_wait *pw, int signum,
-	int *pids, int npids)
+pid_wait_kill(struct pid_wait *pw, int signum, int *pids, int npids)
 {
 	int i, n, rc, pid;
 
-	LOG_TRACE(log);
 	n = 0;
 	for (i = 0; i < pw->pw_nentries;) {
 		pid = pw->pw_entries[i].pid;
-		rc = sys_kill(log, pid, signum);
+		rc = sys_kill(pid, signum);
 		if (rc == -ESRCH) {
 			if (n < npids) {
 				pids[n] = pid;
 			}
 			n++;
-			pid_wait_del_entry(log, pw, i);	
+			pid_wait_del_entry(pw, i);	
 		} else if (rc < 0) {
 			return rc;
 		} else {

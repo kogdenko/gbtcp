@@ -1,7 +1,4 @@
-#include "log.h"
-#include "mm.h"
-#include "mbuf.h"
-#include "sockbuf.h"
+#include "internals.h"
 
 #define SOCKBUF_CHUNK_DATA_SIZE \
 	(SOCKBUF_CHUNK_SIZE - sizeof(struct sbchunk))
@@ -67,11 +64,9 @@ static struct sbchunk *
 sockbuf_chunk_alloc(struct mbuf_pool *p, struct sockbuf *b)
 {
 	int rc;
-	struct log *log;
 	struct sbchunk *chunk;
 
-	log = log_trace0();
-	rc = mbuf_alloc(log, p, (struct mbuf **)&chunk);
+	rc = mbuf_alloc(p, (struct mbuf **)&chunk);
 	if (rc == 0) {
 		chunk->ch_len = 0;
 		chunk->ch_off = 0;
@@ -345,13 +340,12 @@ sockbuf_rewrite(struct sockbuf *b, const void *dst, int cnt)
 }
 
 int
-sockbuf_mod_init(struct log *log, void **pp)
+sockbuf_mod_init(void **pp)
 {
 	int rc;
 	struct sockbuf_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (rc == 0) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "sockbuf");
@@ -360,25 +354,24 @@ sockbuf_mod_init(struct log *log, void **pp)
 }
 
 int
-sockbuf_mod_attach(struct log *log, void *raw_mod)
+sockbuf_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-sockbuf_mod_deinit(struct log *log, void *raw_mod)
+sockbuf_mod_deinit(void *raw_mod)
 {
 	struct sockbuf_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-sockbuf_mod_detach(struct log *log)
+sockbuf_mod_detach()
 {
 	curmod = NULL;
 }

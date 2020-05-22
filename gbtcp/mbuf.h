@@ -31,16 +31,16 @@ struct mbuf_pool {
 	     m != NULL && ((tmp_id = mbuf_get_id(m) + 1), 1); \
 	     m = mbuf_next(p, tmp_id))
 
-int mbuf_mod_init(struct log *, void **);
-int mbuf_mod_attach(struct log *, void *);
-void mbuf_mod_deinit(struct log *, void *);
-void mbuf_mod_detach(struct log *);
+int mbuf_mod_init(void **);
+int mbuf_mod_attach(void *);
+void mbuf_mod_deinit(void *);
+void mbuf_mod_detach();
 
 void mbuf_pool_init(struct mbuf_pool *, u_char, int);
 void mbuf_pool_deinit(struct mbuf_pool *);
 int mbuf_pool_is_empty(struct mbuf_pool *);
 
-int mbuf_alloc(struct log *, struct mbuf_pool *, struct mbuf **);
+int mbuf_alloc(struct mbuf_pool *, struct mbuf **);
 void mbuf_init(struct mbuf *);
 void mbuf_free(struct mbuf *);
 struct mbuf *mbuf_get(struct mbuf_pool *, uint32_t);

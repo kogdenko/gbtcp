@@ -108,14 +108,13 @@ typedef uint16_t be16_t;
 typedef uint32_t be32_t;
 typedef uint64_t be64_t;
 
-struct log;
 struct strbuf;
 struct service;
 struct dev;
 struct route_if;
 struct init_hdr;
 
-typedef int (*malloc_f)(struct log *, void **, size_t);
+typedef int (*malloc_f)(void **, size_t);
 typedef void (*free_f)(void *);
 
 struct ethaddr {
@@ -257,10 +256,10 @@ extern uint64_t HZ;
 extern uint64_t mHZ;
 extern __thread int api_locked;
 
-int subr_mod_init(struct log *, void **);
-int subr_mod_attach(struct log *, void *);
-void subr_mod_deinit(struct log *, void *);
-void subr_mod_detach(struct log *);
+int subr_mod_init(void **);
+int subr_mod_attach(void *);
+void subr_mod_deinit(void *);
+void subr_mod_detach();
 
 int ethaddr_aton(struct ethaddr *, const char *);
 int ethaddr_is_mcast(const uint8_t *);
@@ -286,7 +285,7 @@ uint32_t custom_hash(const void *data, size_t cnt, uint32_t val);
 
 uint32_t toeplitz_hash(const u_char *, int, const u_char *);
 
-int proc_get_comm(struct log *, char *, int);
+int proc_get_comm(char *, int);
 
 
 uint32_t upper_pow2_32(uint32_t x);
@@ -294,17 +293,16 @@ uint64_t upper_pow2_64(uint64_t x);
 uint32_t lower_pow2_32(uint32_t x);
 uint64_t lower_pow2_64(uint64_t x);
 
-int fcntl_setfl_nonblock(struct log *, int, int *);
-#define fcntl_setfl_nonblock2(log, fd) \
-	fcntl_setfl_nonblock(log, fd, NULL)
+int fcntl_setfl_nonblock(int, int *);
+#define fcntl_setfl_nonblock2(fd) \
+	fcntl_setfl_nonblock(fd, NULL)
 
-int connect_timed(struct log *, int, const struct sockaddr *,
-	socklen_t, uint64_t *);
-ssize_t read_timed(struct log *, int, void *, size_t, uint64_t *);
-ssize_t write_full_buf(struct log *, int, const void *, size_t);
-ssize_t send_full_buf(struct log *, int, const void *, size_t, int);
+int connect_timed(int, const struct sockaddr *, socklen_t, uint64_t *);
+ssize_t read_timed(int, void *, size_t, uint64_t *);
+ssize_t write_full_buf(int, const void *, size_t);
+ssize_t send_full_buf(int, const void *, size_t, int);
 
-int read_rss_key(struct log *, const char *, u_char *);
+int read_rss_key(const char *, u_char *);
 
 long gettid();
 
@@ -338,4 +336,4 @@ void print_backtrace(int);
 void set_hz(uint64_t);
 void rd_nanoseconds();
 
-#endif /* GBTCP_SUBR_H */
+#endif // GBTCP_SUBR_H

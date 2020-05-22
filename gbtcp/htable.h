@@ -35,13 +35,13 @@ struct htable {
 	struct htable_static htd_tables[2];
 };
 
-int htable_mod_init(struct log *, void **);
-int htable_mod_attach(struct log *, void *);
-void htable_mod_deinit(struct log *, void *);
-void htable_mod_detach(struct log *);
+int htable_mod_init(void **);
+int htable_mod_attach(void *);
+void htable_mod_deinit(void *);
+void htable_mod_detach();
 
 void htable_bucket_init(struct htable_bucket *);
-int htable_init(struct log *, struct htable *, int, htable_f, int, int);
+int htable_init(struct htable *, int, htable_f, int, int);
 void htable_deinit(struct htable *);
 struct htable_bucket *htable_bucket_get(struct htable *, uint32_t);
 void htable_add(struct htable *, struct htable_bucket *, htable_entry_t *);

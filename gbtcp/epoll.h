@@ -10,10 +10,10 @@ typedef struct epoll_event epoll_event_t;
 typedef struct kevent epoll_event_t;
 #endif /* __linux__ */
 
-int epoll_mod_init(struct log *, void **);
-int epoll_mod_attach(struct log *, void *);
-void epoll_mod_deinit(struct log *, void *);
-void epoll_mod_detach(struct log *);
+int epoll_mod_init(void **);
+int epoll_mod_attach(void *);
+void epoll_mod_deinit(void *);
+void epoll_mod_detach();
 
 int u_epoll_create(int);
 int u_epoll_close(struct file *);

@@ -18,12 +18,12 @@ struct gt_arp_advert_msg {
 	int arpam_override;
 };
 
-int arp_mod_init(struct log *, void **);
-int arp_mod_attach(struct log *, void *);
-int arp_mod_service_init(struct log *, struct service *);
-void arp_mod_deinit(struct log *, void *);
-void arp_mod_detach(struct log *);
-void arp_mod_service_deinit(struct log *, struct service *);
+int arp_mod_init(void **);
+int arp_mod_attach(void *);
+int arp_mod_service_init(struct service *);
+void arp_mod_deinit(void *);
+void arp_mod_detach();
+void arp_mod_service_deinit(struct service *);
 
 void gt_arp_resolve(struct route_if *, be32_t,	struct dev_pkt *);
 void gt_arp_update(struct gt_arp_advert_msg *);

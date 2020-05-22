@@ -15,12 +15,12 @@ struct init_hdr *ih;
 #define controller (ih->ih_services)
 
 int
-controller_mod_init(struct log *log, void **pp)
+controller_mod_init(void **pp)
 {
 	int rc;
 	struct controller_mod *mod;
 
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (rc == 0) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "controller");
@@ -30,31 +30,30 @@ controller_mod_init(struct log *log, void **pp)
 }
 
 int
-controller_mod_attach(struct log *log, void *raw_mod)
+controller_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-controller_mod_deinit(struct log *log, void *raw_mod)
+controller_mod_deinit(void *raw_mod)
 {
 	struct controller_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-controller_mod_detach(struct log *log)
+controller_mod_detach()
 {
 	curmod = NULL;
 }
 
 static int
-controller_terminate(struct log *log)
+controller_terminate()
 {
 	int i, n, rc, fd, pid, npids, again;
 	uint64_t to;
@@ -64,27 +63,29 @@ controller_terminate(struct log *log)
 	struct dirent *entry;
 	struct pid_wait pw;
 
-	LOG_TRACE(log);
-restart:
 	again = 0;
-	pid_wait_init(log, &pw, PID_WAIT_NONBLOCK);
-	rc = sys_opendir(log, &dir, PID_PATH);
+	pid_wait_init(&pw, PID_WAIT_NONBLOCK);
+	rc = sys_opendir(&dir, PID_PATH);
 	if (rc) {
 		return rc;
 	}
 	while ((entry = readdir(dir)) != NULL) {
-		rc = pid_file_open(log, entry->d_name);
+		rc = sscanf(entry->d_name, "%d.pid", &i);
+		if (rc != 1) {
+			continue;
+		}
+		rc = pid_file_open(entry->d_name);
 		if (rc < 0) {
 			continue;
 		}
 		fd = rc;
-		rc = pid_file_acquire(log, fd, 0);
-		sys_close(log, fd);
+		rc = pid_file_acquire(fd, 0);
+		sys_close(fd);
 		if (rc <= 0) {
 			continue;
 		}
 		pid = rc;
-		rc = pid_wait_add(log, &pw, pid);
+		rc = pid_wait_add(&pw, pid);
 		if (rc == -ENOSPC) {
 			again = 1;
 			break;
@@ -92,38 +93,38 @@ restart:
 			closedir(dir);
 			goto out;
 		}
-		dbg("+ %d", pid);
 	}
 	closedir(dir);
 	npids = 0;
 	n = ARRAY_SIZE(pids);
 	to = 3 * NANOSECONDS_SECOND;
 	while (to && !pid_wait_is_empty(&pw)) {
-		rc = pid_wait_kill(log, &pw, SIGKILL, pids, n - npids);
+		rc = pid_wait_kill(&pw, SIGKILL, pids, n - npids);
 		if (rc > 0) {
 			npids += rc;
 		}
-		rc = pid_wait_read(log, &pw, &to, pids + npids, n - npids);
+		rc = pid_wait_read(&pw, &to, pids + npids, n - npids);
 		if (rc > 0) {
 			npids += rc;
 		}
 	}
 	for (i = 0; i < npids; ++i) {
 		sysctl_make_sockaddr_un(&a, pids[i]);
-		sys_unlink(log, a.sun_path);
+		sys_unlink(a.sun_path);
 	}
 	if (pid_wait_is_empty(&pw)) {
 		rc = 0;
 	} else {
-		LOGF(log, LOG_ERR, -ETIMEDOUT, "failed;");
+		ERR(ETIMEDOUT, "failed;");
 		rc = -ETIMEDOUT;
 	}
 out:
-	pid_wait_deinit(log, &pw);
-	if (rc == 0 && again) {
-		goto restart;
+	pid_wait_deinit(&pw);
+	if (rc) {
+		return rc;
+	} else {
+		return again;
 	}
-	return rc;
 }
 
 static struct service *
@@ -140,22 +141,21 @@ controller_service_get(int pid)
 }
 
 static void
-controller_service_lock_detached(struct log *log, struct service *s)
+controller_service_lock_detached(struct service *s)
 {
 	int rc;
 
 	rc = spinlock_trylock(&s->p_lock);
 	if (rc == 0) {
-		die(log, 0, "Deadlock!!!; pid=%d", s->p_pid);
+		die(0, "Deadlock!!!; pid=%d", s->p_pid);
 	}
 }
 
 static void
-controller_service_lock(struct log *log, struct service *s)
+controller_service_lock(struct service *s)
 {
 	int i, x, rc;
 
-	LOG_TRACE(log);
 	while (1) {
 		for (i = 0; i < 1000; ++i) {
 			rc = spinlock_trylock(&s->p_lock);
@@ -164,10 +164,10 @@ controller_service_lock(struct log *log, struct service *s)
 			}
 			cpu_pause();
 		}
-		rc = sys_recv(log, s->p_fd, &x, 1, MSG_PEEK|MSG_DONTWAIT);
+		rc = sys_recv(s->p_fd, &x, 1, MSG_PEEK|MSG_DONTWAIT);
 		if (rc <= 0) {
 			// Connection closed
-			controller_service_lock_detached(log, s);
+			controller_service_lock_detached(s);
 			return;
 		}
 	}
@@ -180,19 +180,19 @@ controller_service_unlock(struct service *s)
 }
 
 static void
-controller_service_check_deadlock(struct log *log, struct service *s)
+controller_service_check_deadlock(struct service *s)
 {
-	controller_service_lock_detached(log, s);
+	controller_service_lock_detached(s);
 	controller_service_unlock(s);
 }
 
 static void
-controller_service_update_rss_table(struct log *log, struct service *s)
+controller_service_update_rss_table(struct service *s)
 {
 	if (s == controller) {
-		service_update_rss_table(log, s);
+		service_update_rss_table(s);
 	} else {
-		controller_service_lock(log, s);
+		controller_service_lock(s);
 		s->p_dirty_rss_table = 1;
 		controller_service_unlock(s);
 	}
@@ -235,12 +235,11 @@ controller_balance_get(struct service **ppoor, struct service **prich)
 }
 
 static void
-controller_service_del(struct log *log, struct service *s)
+controller_service_del(struct service *s)
 {
 	int i;
 	struct service *new;
 
-	LOG_TRACE(log);
 	NOTICE(0, "hit; pid=%d", s->p_pid);
 	if (s != controller) {
 		for (i = 0; i < nservices; ++i) {
@@ -262,13 +261,13 @@ controller_service_del(struct log *log, struct service *s)
 			}
 		}
 		ASSERT(s->p_rss_nq == 0);
-		controller_service_update_rss_table(log, s);
-		controller_service_update_rss_table(log, new);
+		controller_service_update_rss_table(s);
+		controller_service_update_rss_table(new);
 	} 
 }
 
 static void
-controller_service_add(struct log *log, struct service *s, int pid)
+controller_service_add(struct service *s, int pid)
 {
 	ASSERT(s != controller);
 	ASSERT(nservices < ARRAY_SIZE(services));
@@ -279,13 +278,12 @@ controller_service_add(struct log *log, struct service *s, int pid)
 	s->p_rss_nq = 0;
 	if (controller->p_rss_nq) {
 		ASSERT(nservices == 1);
-		LOG_TRACE(log);
-		controller_service_del(log, controller);
+		controller_service_del(controller);
 	}
 }
 
 static void
-controller_rss_table_reduce(struct log *log, int rss_nq)
+controller_rss_table_reduce(int rss_nq)
 {
 	int i, n;
 	u_char id;
@@ -301,13 +299,13 @@ controller_rss_table_reduce(struct log *log, int rss_nq)
 		ASSERT(s->p_rss_nq > 0);
 		s->p_rss_nq--;
 		if (s->p_rss_nq == 0) {
-			controller_service_update_rss_table(log, s);
+			controller_service_update_rss_table(s);
 		}
 	}
 }
 
 static void
-controller_rss_table_expand(struct log *log, int rss_nq)
+controller_rss_table_expand(int rss_nq)
 {
 	int i; 
 	struct service *s;
@@ -321,13 +319,12 @@ controller_rss_table_expand(struct log *log, int rss_nq)
 }
 
 void
-controller_update_rss_table(struct log *log)
+controller_update_rss_table()
 {
 	int i, rss_nq;
 	struct route_if *ifp;
 	struct service *s;
 
-	LOG_TRACE(log);
 	rss_nq = 0;
 	ROUTE_IF_FOREACH(ifp) {
 		if (ifp->rif_flags & IFF_UP) {
@@ -337,24 +334,24 @@ controller_update_rss_table(struct log *log)
 		}
 	}
 	if (ih->ih_rss_nq > rss_nq) {
-		controller_rss_table_reduce(log, rss_nq);
+		controller_rss_table_reduce(rss_nq);
 	} else if (ih->ih_rss_nq < rss_nq)  {
-		controller_rss_table_expand(log, rss_nq);
+		controller_rss_table_expand(rss_nq);
 	}
 	if (controller->p_rss_nq) {
-		controller_service_update_rss_table(log, controller);
+		controller_service_update_rss_table(controller);
 	}
 	for (i = 0; i < nservices; ++i) {
 		s = services[i];
 		if (s->p_rss_nq) {
-			controller_service_update_rss_table(log, s);
+			controller_service_update_rss_table(s);
 		}
 	}
 }
 
 static int
-sysctl_controller_service_init(struct log *log, struct sysctl_conn *cp,
-	void *udata, const char *new, struct strbuf *old)
+sysctl_controller_service_init(struct sysctl_conn *cp, void *udata,
+	const char *new, struct strbuf *old)
 {
 	int i, fd, pid;
 	struct service *s;
@@ -373,7 +370,7 @@ sysctl_controller_service_init(struct log *log, struct sysctl_conn *cp,
 	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
 		s = ih->ih_services + i;
 		if (s->p_pid == 0) {
-			controller_service_add(log, s, pid);
+			controller_service_add(s, pid);
 			fd = sysctl_conn_fd(cp);
 			s->p_fd = fd;
 			return 0;
@@ -400,7 +397,7 @@ controller_service_clean(struct service *s)
 }
 
 static void
-controller_service_conn_close(struct log *log, struct sysctl_conn *cp)
+controller_service_conn_close(struct sysctl_conn *cp)
 {
 	int pid;
 	struct service *s;
@@ -409,36 +406,35 @@ controller_service_conn_close(struct log *log, struct sysctl_conn *cp)
 	if (pid == 0) {
 		return;
 	}
-	LOG_TRACE(log);
 	s = controller_service_get(pid);
 	if (s != NULL) {
-		controller_service_check_deadlock(log, s);
-		controller_service_del(log, s);
+		controller_service_check_deadlock(s);
+		controller_service_del(s);
 		controller_service_clean(s);
 	}
 }
 
 static int
-controller_bind(struct log *log, int pid)
+controller_bind(int pid)
 {
 	int rc, fd;
 	struct sockaddr_un a;
 
 	sysctl_make_sockaddr_un(&a, pid);
-	rc = sysctl_bind(log, &a, 1);
+	rc = sysctl_bind(&a, 1);
 	if (rc < 0) {
 		return rc;
 	}
 	fd = rc;
-	rc = sysctl_conn_open(log, &controller_listen, fd);
+	rc = sysctl_conn_open(&controller_listen, fd);
 	if (rc) {
-		sys_close(log, fd);
+		sys_close(fd);
 		return rc;	
 	}
-	sys_unlink(log, SYSCTL_CONTROLLER_PATH);
-	rc = sys_symlink(log, a.sun_path, SYSCTL_CONTROLLER_PATH);
+	sys_unlink(SYSCTL_CONTROLLER_PATH);
+	rc = sys_symlink(a.sun_path, SYSCTL_CONTROLLER_PATH);
 	if (rc) {
-		sysctl_conn_close(log, controller_listen);
+		sysctl_conn_close(controller_listen);
 	}
 	controller_listen->sccn_accept_conn = 1;
 	controller_listen->sccn_close_fn = controller_service_conn_close;
@@ -450,43 +446,43 @@ controller_init(int daemonize, const char *p_comm)
 {
 	int i, rc, pid;
 	uint64_t hz;
-	struct log *log;
 	struct service *s;
 
 	api_locked = 1;
 	ih = NULL;
-	log = log_trace0();
 	if (daemonize) {
-		rc = sys_daemon(log, 0, 1);
+		rc = sys_daemon(0, 1);
 		if (rc) {
 			goto err;
 		}
 	}
-	rc = controller_terminate(log);
+	do {
+		rc = controller_terminate();
+	} while (rc == 1);
 	if (rc) {
 		goto err;
 	}
 	pid = getpid();
-	rc = pid_file_open(log, "0.pid");
+	rc = pid_file_open("0.pid");
 	if (rc < 0) {
 		return rc;
 	}
 	controller_pid_fd = rc;
-	rc = pid_file_acquire(log, controller_pid_fd, pid);
+	rc = pid_file_acquire(controller_pid_fd, pid);
 	if (rc != pid) {
 		goto err;
 	}	
 
-	rc = sysctl_root_init(log);
+	rc = sysctl_root_init();
 	if (rc) {
 		goto err;
 	}
-	rc = shm_init(log, (void **)&ih, sizeof(*ih));
+	rc = shm_init((void **)&ih, sizeof(*ih));
 	if (rc) {
 		goto err;
 	}
 	memset(ih, 0, sizeof(*ih));
-	rc = mod_foreach_mod_init(log, ih);
+	rc = mod_foreach_mod_init(ih);
 	if (rc) {
 		goto err;
 	}
@@ -498,25 +494,25 @@ controller_init(int daemonize, const char *p_comm)
 	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
 		s = ih->ih_services + i;
 		s->p_id = i;
-		mod_foreach_mod_service_init(log, s);
+		mod_foreach_mod_service_init(s);
 	}
 	for (i = 0; i < ARRAY_SIZE(ih->ih_rss_table); ++i) {
 		ih->ih_rss_table[i] = -1;
 	}
 	current = controller;
 	current->p_pid = pid;
-	rc = mod_foreach_mod_attach(log, ih);
+	rc = mod_foreach_mod_attach(ih);
 	if (rc) {
 		goto err;
 	}
-	sysctl_read_file(log, p_comm);
-	rc = controller_bind(log, pid);
+	sysctl_read_file(p_comm);
+	rc = controller_bind(pid);
 	if (rc) {
 		goto err;
 	}
-	sysctl_add(log, SYSCTL_CONTROLLER_SERVICE_INIT, SYSCTL_WR,
+	sysctl_add(SYSCTL_CONTROLLER_SERVICE_INIT, SYSCTL_WR,
 	           NULL, NULL, sysctl_controller_service_init);
-	LOGF(log, LOG_NOTICE, 0, "ok; pid=%d", pid);
+	NOTICE(0, "ok; pid=%d", pid);
 	return 0;
 err:
 	if (current != NULL) {
@@ -526,14 +522,14 @@ err:
 	if (ih != NULL) {
 		for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
 			s = ih->ih_services + i;
-			mod_foreach_mod_service_deinit(log, s);
+			mod_foreach_mod_service_deinit(s);
 		}
 	}
-	mod_foreach_mod_detach(log);
-	mod_foreach_mod_deinit(log, ih);
-	shm_deinit(log);
-	sysctl_root_deinit(log);
-	sys_close(log, controller_pid_fd);
+	mod_foreach_mod_detach();
+	mod_foreach_mod_deinit(ih);
+	shm_deinit();
+	sysctl_root_deinit();
+	sys_close(controller_pid_fd);
 	controller_pid_fd = -1;
 	return rc;
 }

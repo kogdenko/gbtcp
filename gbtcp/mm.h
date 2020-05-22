@@ -4,14 +4,14 @@
 
 #include "subr.h"
 
-int shm_init(struct log *, void **, int);
-int shm_attach(struct log *, void **);
-void shm_deinit(struct log *);
-void shm_detach(struct log *);
-int shm_malloc(struct log *, void **, size_t);
-int shm_realloc(struct log *, void **, int);
+int shm_init(void **, int);
+int shm_attach(void **);
+void shm_deinit();
+void shm_detach();
+int shm_malloc(void **, size_t);
+int shm_realloc(void **, int);
 void shm_free(void *);
-int shm_alloc_page(struct log *, void **, int, int);
+int shm_alloc_page(void **, int, int);
 void shm_free_page(void *, int);
 
 #endif // GBTCP_SHM_H

@@ -1,12 +1,12 @@
 #include "internals.h"
 
 struct mod {
-	int (*m_init)(struct log *, void **);
-	int (*m_attach)(struct log *, void *);
-	int (*m_service_init)(struct log *, struct service *);
-	void (*m_deinit)(struct log *, void *);
-	void (*m_detach)(struct log *);
-	void (*m_service_deinit)(struct log *, struct service *);
+	int (*m_init)(void **);
+	int (*m_attach)(void *);
+	int (*m_service_init)(struct service *);
+	void (*m_deinit)(void *);
+	void (*m_detach)();
+	void (*m_service_deinit)(struct service *);
 };
 
 #define MOD_BASE(name) \
@@ -101,14 +101,14 @@ struct mod mods[MOD_COUNT_MAX] = {
 	     ++i, ++mod)
 
 int
-mod_foreach_mod_init(struct log *log, struct init_hdr *ih)
+mod_foreach_mod_init(struct init_hdr *ih)
 {
 	int i, rc;
 	struct mod *mod;
 
 	rc = 0;
 	MOD_FOREACH2(i, mod) {
-		rc = (*mod->m_init)(log, ih->ih_mods + i);
+		rc = (*mod->m_init)(ih->ih_mods + i);
 		if (rc) {
 			return rc;
 		}
@@ -117,7 +117,7 @@ mod_foreach_mod_init(struct log *log, struct init_hdr *ih)
 }
 
 int
-mod_foreach_mod_attach(struct log *log, struct init_hdr *ih)
+mod_foreach_mod_attach(struct init_hdr *ih)
 {
 	int i, rc;
 	struct mod *mod;
@@ -125,7 +125,7 @@ mod_foreach_mod_attach(struct log *log, struct init_hdr *ih)
 	ASSERT(current != NULL);
 	rc = 0;
 	MOD_FOREACH2(i, mod) {
-		rc = (*mod->m_attach)(log, ih->ih_mods[i]);
+		rc = (*mod->m_attach)(ih->ih_mods[i]);
 		if (rc) {
 			return rc;
 		}
@@ -134,7 +134,7 @@ mod_foreach_mod_attach(struct log *log, struct init_hdr *ih)
 }
 
 int
-mod_foreach_mod_service_init(struct log *log, struct service *s)
+mod_foreach_mod_service_init(struct service *s)
 {
 	int i, rc;
 	struct mod *mod;
@@ -142,7 +142,7 @@ mod_foreach_mod_service_init(struct log *log, struct service *s)
 	rc = 0;
 	MOD_FOREACH2(i, mod) {
 		if (mod->m_service_init != NULL) {
-			rc = (*mod->m_service_init)(log, s);
+			rc = (*mod->m_service_init)(s);
 			if (rc) {
 				return rc;
 			}
@@ -152,38 +152,38 @@ mod_foreach_mod_service_init(struct log *log, struct service *s)
 }
 
 void
-mod_foreach_mod_deinit(struct log *log, struct init_hdr *ih)
+mod_foreach_mod_deinit(struct init_hdr *ih)
 {
 	int i;
 	struct mod *mod;
 
 	if (ih != NULL) {
 		MOD_FOREACH2(i, mod) {
-			(*mod->m_deinit)(log, ih->ih_mods[i]);
+			(*mod->m_deinit)(ih->ih_mods[i]);
 		}
 	}
 }
 
 void
-mod_foreach_mod_detach(struct log *log)
+mod_foreach_mod_detach()
 {
 	int i;
 	struct mod *mod;
 
 	MOD_FOREACH2(i, mod) {
-		(*mod->m_detach)(log);
+		(*mod->m_detach)();
 	}
 }
 
 void
-mod_foreach_mod_service_deinit(struct log *log, struct service *s)
+mod_foreach_mod_service_deinit(struct service *s)
 {
 	int i;
 	struct mod *mod;
 
 	MOD_FOREACH2(i, mod) {
 		if (mod->m_service_deinit != NULL) {
-			(*mod->m_service_deinit)(log, s);
+			(*mod->m_service_deinit)(s);
 		}
 	}
 }

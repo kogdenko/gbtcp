@@ -14,8 +14,6 @@
 #define ROUTE_IFNAME_NM 0 // pipe1{0
 #define ROUTE_IFNAME_OS 1 // pipe1
 
-struct log;
-
 struct route_entry_long {
 	struct lptree_rule rtl_rule;
 	struct dlist rtl_list;
@@ -123,10 +121,10 @@ typedef void (*route_msg_f)(struct route_msg *);
 #define ROUTE_IF_FOREACH(ifp) \
 	DLIST_FOREACH(ifp, route_if_head(), rif_list)
 
-int route_mod_init(struct log *, void **);
-int route_mod_attach(struct log *, void *);
-void route_mod_deinit(struct log *, void *);
-void route_mod_detach(struct log *);
+int route_mod_init(void **);
+int route_mod_attach(void *);
+void route_mod_deinit(void *);
+void route_mod_detach();
 
 struct dlist *route_if_head();
 struct route_if *route_if_get_by_ifindex(int);
@@ -144,7 +142,7 @@ void route_if_rxr_next(struct route_if *, struct netmap_ring *);
 void route_if_tx(struct route_if *, struct dev_pkt *);
 int route_if_calc_rss_qid(struct route_if *, struct sock_tuple *);
 
-int route_open(struct route_mod *, struct log *);
+int route_open(struct route_mod *);
 int route_read(int, route_msg_f);
 int route_dump(route_msg_f);
 

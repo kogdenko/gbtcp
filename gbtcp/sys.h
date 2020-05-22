@@ -114,69 +114,68 @@ extern sys_kqueue_f sys_kqueue_fn;
 extern sys_kevent_f sys_kevent_fn;
 #endif /* __linux__ */
 
-int sys_mod_init(struct log *, void **);
-int sys_mod_attach(struct log *, void *);
-void sys_mod_deinit(struct log *, void *);
-void sys_mod_detach(struct log *);
+int sys_mod_init(void **);
+int sys_mod_attach(void *);
+void sys_mod_deinit(void *);
+void sys_mod_detach();
 
 void dlsym_all();
 
-int sys_fork(struct log *);
-int sys_open(struct log *, const char *, int, mode_t);
-int sys_symlink(struct log *, const char *, const char *);
-int sys_unlink(struct log *, const char *);
-int sys_pipe(struct log *, int [2]);
-int sys_socket(struct log *, int, int, int);
-int sys_connect(struct log *, int, const struct sockaddr *, socklen_t);
-int sys_bind(struct log *, int, const struct sockaddr *, socklen_t);
-int sys_listen(struct log *, int, int);
-int sys_accept4(struct log *, int, struct sockaddr *, socklen_t *, int);
-int sys_shutdown(struct log *, int, int);
-int sys_close(struct log *, int);
-ssize_t sys_read(struct log *, int, void *, size_t);
-ssize_t sys_recv(struct log *, int, void *, size_t, int);
-ssize_t sys_recvmsg(struct log *, int, struct msghdr *, int);
-ssize_t sys_write(struct log *, int, const void *, size_t);
-ssize_t sys_send(struct log *, int, const void *, size_t, int);
-ssize_t sys_sendmsg(struct log *, int, const struct msghdr *, int);
-int sys_dup(struct log *, int);
-int sys_fcntl(struct log *, int, int, uintptr_t);
-int sys_ioctl(struct log *, int, unsigned long, uintptr_t);
-int sys_getsockopt(struct log *, int, int, int, void *, socklen_t *);
-int sys_setsockopt(struct log *, int, int, int, void *, socklen_t);
-int sys_ppoll(struct log *, struct pollfd *, nfds_t, const struct timespec *,
+int sys_fork();
+int sys_open(const char *, int, mode_t);
+int sys_symlink(const char *, const char *);
+int sys_unlink(const char *);
+int sys_pipe(int [2]);
+int sys_socket(int, int, int);
+int sys_connect(int, const struct sockaddr *, socklen_t);
+int sys_bind(int, const struct sockaddr *, socklen_t);
+int sys_listen(int, int);
+int sys_accept4(int, struct sockaddr *, socklen_t *, int);
+int sys_shutdown(int, int);
+int sys_close(int);
+ssize_t sys_read(int, void *, size_t);
+ssize_t sys_recv(int, void *, size_t, int);
+ssize_t sys_recvmsg(int, struct msghdr *, int);
+ssize_t sys_write(int, const void *, size_t);
+ssize_t sys_send(int, const void *, size_t, int);
+ssize_t sys_sendmsg(int, const struct msghdr *, int);
+int sys_dup(int);
+int sys_fcntl(int, int, uintptr_t);
+int sys_ioctl(int, unsigned long, uintptr_t);
+int sys_getsockopt(int, int, int, void *, socklen_t *);
+int sys_setsockopt(int, int, int, void *, socklen_t);
+int sys_ppoll(struct pollfd *, nfds_t, const struct timespec *,
 	const sigset_t *);
-void *sys_signal(struct log *, int, void (*)(int));
-int sys_sigaction(struct log *, int, const struct sigaction *, struct sigaction *);
-int sys_sigprocmask(struct log *, int, const sigset_t *, sigset_t *);
-int sys_malloc(struct log *, void **, size_t);
+void *sys_signal(int, void (*)(int));
+int sys_sigaction(int, const struct sigaction *, struct sigaction *);
+int sys_sigprocmask(int, const sigset_t *, sigset_t *);
+int sys_malloc(void **, size_t);
 #define sys_free free
-int sys_realloc(struct log *, void **, size_t);
-int sys_posix_memalign(struct log *, void **, size_t, size_t);
-int sys_fopen(struct log *, FILE **, const char *, const char *);
-int sys_opendir(struct log *, DIR **, const char *);
-int sys_stat(struct log *, const char *, struct stat *);
-int sys_realpath(struct log *, const char *, char *);
-int sys_flock(struct log *, int, int);
-int sys_getgrnam(struct log *, const char *, struct group **);
-int sys_chown(struct log *, const char *, uid_t, gid_t);
-int sys_chmod(struct log *, const char *, mode_t);
-int sys_getifaddrs(struct log *, struct ifaddrs **);
-int sys_if_indextoname(struct log *, int, char *);
-int sys_if_nametoindex(struct log *, const char *);
-int sys_kill(struct log *, int, int);
-int sys_waitpid(struct log *, pid_t, int *, int);
-int sys_daemon(struct log *, int, int);
-int sys_inotify_init1(struct log *, int);
-int sys_inotify_add_watch(struct log *, int, const char *, uint32_t);
-int sys_inotify_rm_watch(struct log *, int, int);
+int sys_realloc(void **, size_t);
+int sys_posix_memalign(void **, size_t, size_t);
+int sys_fopen(FILE **, const char *, const char *);
+int sys_opendir(DIR **, const char *);
+int sys_stat(const char *, struct stat *);
+int sys_realpath(const char *, char *);
+int sys_flock(int, int);
+int sys_getgrnam(const char *, struct group **);
+int sys_chown(const char *, uid_t, gid_t);
+int sys_chmod(const char *, mode_t);
+int sys_getifaddrs(struct ifaddrs **);
+int sys_if_indextoname(int, char *);
+int sys_if_nametoindex(const char *);
+int sys_kill(int, int);
+int sys_waitpid(pid_t, int *, int);
+int sys_daemon(int, int);
+int sys_inotify_init1(int);
+int sys_inotify_add_watch(int, const char *, uint32_t);
+int sys_inotify_rm_watch(int, int);
 
 #ifdef __linux__
-int sys_epoll_create1(struct log *, int);
-int sys_epoll_pwait(struct log *, int, struct epoll_event *, int, int,
-	const sigset_t *);
+int sys_epoll_create1(int);
+int sys_epoll_pwait(int, struct epoll_event *, int, int, const sigset_t *);
 int sys_epoll_ctl(int, int, int, struct epoll_event *);
-int sys_clone(struct log *, int (*)(void *), void *, int , void *,
+int sys_clone(int (*)(void *), void *, int , void *,
 	void *, void *, void *);
 #else /* __linux__ */
 int sys_kqueue();

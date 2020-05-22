@@ -1,8 +1,5 @@
 /* GPL2 license */
-#include "lptree.h"
-#include "mm.h"
-#include "log.h"
-#include "mbuf.h"
+#include "internals.h"
 
 struct lptree_mod {
 	struct log_scope log_scope;
@@ -18,7 +15,7 @@ struct lptree_node {
 
 static struct lptree_mod *curmod;
 	
-#define lptree_node_dynamic_cast(tree, m) \
+#define IS_LPTREE_NODE(tree, m) \
 	(mbuf_get_pool(m) == &(tree)->lpt_pool)
 
 static void
@@ -31,13 +28,12 @@ lptree_node_init(struct lptree_node *node, struct lptree_node *parent)
 }
 
 static int
-lptree_node_alloc(struct log *log, struct lptree *tree,
-	struct lptree_node *parent, struct lptree_node **pnode)
+lptree_node_alloc(struct lptree *tree, struct lptree_node *parent,
+	struct lptree_node **pnode)
 {
 	int rc;
 
-	LOG_TRACE(log);
-	rc = mbuf_alloc(log, &tree->lpt_pool, (struct mbuf **)pnode);
+	rc = mbuf_alloc(&tree->lpt_pool, (struct mbuf **)pnode);
 	if (!rc) {
 		lptree_node_init(*pnode, parent);
 	}
@@ -68,13 +64,12 @@ lptree_node_free(struct lptree_node *node)
 }
 
 int
-lptree_mod_init(struct log *log, void **pp)
+lptree_mod_init(void **pp)
 {
 	int rc;
 	struct lptree_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "lptree");
@@ -83,33 +78,31 @@ lptree_mod_init(struct log *log, void **pp)
 }
 
 int
-lptree_mod_attach(struct log *log, void *raw_mod)
+lptree_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-lptree_mod_deinit(struct log *log, void *raw_mod)
+lptree_mod_deinit(void *raw_mod)
 {
 	struct lptree_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-lptree_mod_detach(struct log *log)
+lptree_mod_detach()
 {
 	curmod = NULL;
 }
 
 void
-lptree_init(struct log *log, struct lptree *tree)
+lptree_init(struct lptree *tree)
 {
-	LOG_TRACE(log);
 	mbuf_pool_init(&tree->lpt_pool, 0, sizeof(struct lptree_node));
 	tree->lpt_root = NULL;
 }
@@ -143,7 +136,7 @@ lptree_search(struct lptree *tree, uint32_t key)
 		m = READ_ONCE(node->lpn_children[id]);
 		if (m == NULL) {
 			break;
-		} else if (lptree_node_dynamic_cast(tree, m)) {
+		} else if (IS_LPTREE_NODE(tree, m)) {
 			node = (struct lptree_node *)m;
 		} else {
 			rule = (struct lptree_rule *)m;
@@ -155,8 +148,8 @@ lptree_search(struct lptree *tree, uint32_t key)
 }
 
 static int
-lptree_node_set(struct log *log, struct lptree *tree,
-	struct lptree_node *parent, int id, struct lptree_node **pnode)
+lptree_node_set(struct lptree *tree, struct lptree_node *parent, int id,
+	struct lptree_node **pnode)
 {
 	int rc;
 	struct mbuf *m;
@@ -164,16 +157,16 @@ lptree_node_set(struct log *log, struct lptree *tree,
 
 	m = parent->lpn_children[id];
 	if (m == NULL) {
-		rc = lptree_node_alloc(log, tree, parent, pnode);
+		rc = lptree_node_alloc(tree, parent, pnode);
 		if (rc) {
 			return rc;
 		}
-	} else if (lptree_node_dynamic_cast(tree, m))  {
+	} else if (IS_LPTREE_NODE(tree, m))  {
 		*pnode = (struct lptree_node *)m;
 		return 0;
 	} else {
 		rule = (struct lptree_rule *)m;
-		rc = lptree_node_alloc(log, tree, parent, pnode);
+		rc = lptree_node_alloc(tree, parent, pnode);
 		if (rc) {
 			return rc;
 		}
@@ -222,7 +215,7 @@ lptree_rule_set(struct lptree *tree, struct lptree_rule *rule)
 		m = (struct mbuf *)(*slot);
 		if (m == NULL) {
 			*slot = rule;
-		} else if (lptree_node_dynamic_cast(tree, m)) {
+		} else if (IS_LPTREE_NODE(tree, m)) {
 			node = (struct lptree_node *)m;
 			tmp = node->lpn_hidden;
 			if (tmp == NULL || rule->lpr_depth > tmp->lpr_depth) {
@@ -251,7 +244,7 @@ lptree_rule_unset(struct lptree *tree, struct lptree_rule *rule)
 		}
 		if (m == (struct mbuf *)rule) {
 			rule->lpr_parent->lpn_children[i] = NULL;
-		} else if (lptree_node_dynamic_cast(tree, m)) {
+		} else if (IS_LPTREE_NODE(tree, m)) {
 			node = (struct lptree_node *)m;
 			if (node->lpn_hidden == rule) {
 				node->lpn_hidden = NULL;
@@ -290,8 +283,8 @@ lptree_del(struct lptree *tree, struct lptree_rule *rule)
 }
 
 static int
-lptree_traverse(struct log *log, struct lptree *tree,
-	struct lptree_rule **prule, uint32_t key, int depth)
+lptree_traverse(struct lptree *tree, struct lptree_rule **prule,
+	uint32_t key, int depth)
 {
 	int i, d, rc;
 	uint32_t k, m;
@@ -301,7 +294,7 @@ lptree_traverse(struct log *log, struct lptree *tree,
 	ASSERT(depth > 0);
 	ASSERT(depth <= 32);
 	if (tree->lpt_root == NULL) {
-		rc = lptree_node_alloc(log, tree, NULL, &tree->lpt_root);
+		rc = lptree_node_alloc(tree, NULL, &tree->lpt_root);
 		if (rc) {
 			return rc;
 		}
@@ -319,8 +312,7 @@ lptree_traverse(struct log *log, struct lptree *tree,
 					return -ESRCH;
 				}
 			} else {
-				rc = lptree_node_set(log, tree, parent,
-				                     k, &node);
+				rc = lptree_node_set(tree, parent, k, &node);
 				if (rc) {
 					return rc;
 				}
@@ -365,14 +357,13 @@ lptree_traverse(struct log *log, struct lptree *tree,
 }
 
 struct lptree_rule *
-lptree_get(struct log *log, struct lptree *tree, uint32_t key, int depth)
+lptree_get(struct lptree *tree, uint32_t key, int depth)
 {
 	int rc;
 	struct lptree_rule *rule;
 
-	LOG_TRACE(log);
 	rule = NULL;
-	rc = lptree_traverse(log, tree, &rule, key, depth);
+	rc = lptree_traverse(tree, &rule, key, depth);
 	ASSERT(rc);
 	if (rc == -EEXIST) {
 		return rule;
@@ -382,12 +373,11 @@ lptree_get(struct log *log, struct lptree *tree, uint32_t key, int depth)
 }
 
 int
-lptree_set(struct log *log, struct lptree *tree,
-	struct lptree_rule *rule, uint32_t key, int depth)
+lptree_set(struct lptree *tree, struct lptree_rule *rule,
+	uint32_t key, int depth)
 {
 	int rc;
 
-	LOG_TRACE(log);
-	rc = lptree_traverse(log, tree, &rule, key, depth);
+	rc = lptree_traverse(tree, &rule, key, depth);
 	return rc;
 }

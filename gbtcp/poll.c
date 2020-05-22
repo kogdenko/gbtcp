@@ -25,13 +25,12 @@ struct poll {
 static struct poll_mod *curmod;
 
 int
-poll_mod_init(struct log *log, void **pp)
+poll_mod_init(void **pp)
 {
 	int rc;
 	struct poll_mod *mod;
 
-	LOG_TRACE(log);
-	rc = shm_malloc(log, pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*mod));
 	if (rc == 0) {
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "poll");
@@ -40,25 +39,24 @@ poll_mod_init(struct log *log, void **pp)
 }
 
 int
-poll_mod_attach(struct log *log, void *raw_mod)
+poll_mod_attach(void *raw_mod)
 {
 	curmod = raw_mod;
 	return 0;
 }
 
 void
-poll_mod_deinit(struct log *log, void *raw_mod)
+poll_mod_deinit(void *raw_mod)
 {
 	struct poll_mod *mod;
 
-	LOG_TRACE(log);
 	mod = raw_mod;
-	log_scope_deinit(log, &mod->log_scope);
+	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }
 
 void
-poll_mod_detach(struct log *log)
+poll_mod_detach()
 {
 	curmod = NULL;
 }
@@ -160,7 +158,7 @@ gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 		if (poll.p_ntriggered) {
 			set.fdes_ts.tv_nsec = 0;
 		}
-		rc = sys_ppoll(NULL, poll.p_pfds,
+		rc = sys_ppoll(poll.p_pfds,
 		               sys + set.fdes_nr_used,
 		               &set.fdes_ts, sigmask);
 		SERVICE_LOCK;

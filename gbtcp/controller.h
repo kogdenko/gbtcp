@@ -4,10 +4,10 @@
 
 #include "subr.h"
 
-int controller_mod_init(struct log *, void **);
-int controller_mod_attach(struct log *, void *);
-void controller_mod_deinit(struct log *, void *);
-void controller_mod_detach(struct log *);
+int controller_mod_init(void **);
+int controller_mod_attach(void *);
+void controller_mod_deinit(void *);
+void controller_mod_detach();
 
 int controller_init(int, const char *);
 void controller_loop();

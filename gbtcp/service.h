@@ -25,7 +25,7 @@
 	spinlock_lock(&current->p_lock); \
 	rd_nanoseconds(); \
 	if (current->p_dirty_rss_table) { \
-		service_update_rss_table(NULL, current); \
+		service_update_rss_table(current); \
 	} \
 } while (0)
 
@@ -67,18 +67,18 @@ struct init_hdr {
 
 void proc_init();
 
-int service_mod_init(struct log *, void **);
-int service_mod_attach(struct log *, void *);
-void service_mod_deinit(struct log *, void *);
-void service_mod_detach(struct log *);
+int service_mod_init(void **);
+int service_mod_attach(void *);
+void service_mod_deinit(void *);
+void service_mod_detach();
 
 int service_init();
-void service_update_rss_table(struct log *, struct service *);
+void service_update_rss_table(struct service *);
 void service_clean(struct service *);
 int service_is_appropriate_rss(struct route_if *, struct sock_tuple *); 
 void service_rxtx(struct dev *, short);
 
-int service_fork(struct log *);
+int service_fork();
 
 #ifdef __linux__
 int service_clone(int (*)(void *), void *, int, void *,
