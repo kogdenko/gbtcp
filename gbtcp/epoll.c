@@ -384,7 +384,7 @@ u_epoll_create(int ep_fd)
 		file_free(fp);
 		return rc;
 	}
-	mbuf_pool_init(ep->ep_pool, sizeof(struct epoll_entry));
+	mbuf_pool_init(ep->ep_pool, current->p_id, sizeof(struct epoll_entry));
 	dlist_init(&ep->ep_triggered);
 	fd = file_get_fd(fp);
 	return fd;

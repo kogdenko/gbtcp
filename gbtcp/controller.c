@@ -5,7 +5,7 @@ struct controller_mod {
 };
 
 static struct controller_mod *curmod;
-static struct proc *services[GT_SERVICE_COUNT_MAX];
+static struct service *services[GT_SERVICE_COUNT_MAX];
 static int nservices;
 static struct sysctl_conn *controller_listen;
 static struct pid_file controller_pid_file;
@@ -13,6 +13,8 @@ static struct pid_file controller_pid_file;
 struct init_hdr *ih;
 
 #define controller (ih->ih_services)
+
+
 
 static int
 controller_terminate(struct log *log)
@@ -85,7 +87,7 @@ out:
 	return rc;
 }
 
-static struct proc *
+static struct service *
 controller_service_get(int pid)
 {
 	int i;
@@ -99,7 +101,7 @@ controller_service_get(int pid)
 }
 
 static void
-controller_service_lock_detached(struct log *log, struct proc *s)
+controller_service_lock_detached(struct log *log, struct service *s)
 {
 	int rc;
 
@@ -110,7 +112,7 @@ controller_service_lock_detached(struct log *log, struct proc *s)
 }
 
 static void
-controller_service_lock(struct log *log, struct proc *s)
+controller_service_lock(struct log *log, struct service *s)
 {
 	int i, x, rc, fd;
 
@@ -134,20 +136,20 @@ controller_service_lock(struct log *log, struct proc *s)
 }
 
 static void
-controller_service_unlock(struct proc *s)
+controller_service_unlock(struct service *s)
 {
 	spinlock_unlock(&s->p_lock);
 }
 
 static void
-controller_service_check_deadlock(struct log *log, struct proc *s)
+controller_service_check_deadlock(struct log *log, struct service *s)
 {
 	controller_service_lock_detached(log, s);
 	controller_service_unlock(s);
 }
 
 static void
-controller_service_update_rss_table(struct log *log, struct proc *s)
+controller_service_update_rss_table(struct log *log, struct service *s)
 {
 	if (s == controller) {
 		service_update_rss_table(log, s);
@@ -159,10 +161,10 @@ controller_service_update_rss_table(struct log *log, struct proc *s)
 }
 
 static void
-controller_balance_get_candidates(struct proc **ppoor, struct proc **prich)
+controller_balance_get(struct service **ppoor, struct service **prich)
 {
 	int i;
-	struct proc *s, *poor, *rich;
+	struct service *s, *poor, *rich;
 
 	if (nservices) {
 		poor = rich = services[0];
@@ -195,12 +197,13 @@ controller_balance_get_candidates(struct proc **ppoor, struct proc **prich)
 }
 
 static void
-controller_service_del(struct log *log, struct proc *s)
+controller_service_del(struct log *log, struct service *s)
 {
 	int i;
-	struct proc *x;
+	struct service *x;
 
 	LOG_TRACE(log);
+	NOTICE(0, "hit; pid=%d", s->p_pid);
 	if (s != controller) {
 		for (i = 0; i < nservices; ++i) {
 			if (services[i] == s) {
@@ -211,7 +214,7 @@ controller_service_del(struct log *log, struct proc *s)
 		services[i] = services[--nservices];
 	}
 	if (s->p_rss_nq) {
-		controller_balance_get_candidates(&x, NULL);
+		controller_balance_get(&x, NULL);
 		for (i = 0; i < ih->ih_rss_nq; ++i) {
 			if (ih->ih_rss_table[i] == s->p_id) {
 				WRITE_ONCE(ih->ih_rss_table[i], x->p_id);
@@ -226,10 +229,12 @@ controller_service_del(struct log *log, struct proc *s)
 }
 
 static void
-controller_service_add(struct log *log, struct proc *s, int pid)
+controller_service_add(struct log *log, struct service *s, int pid)
 {
 	ASSERT(s != controller);
 	ASSERT(nservices < ARRAY_SIZE(services));
+	dbg("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+	NOTICE(0, "hit; pid=%d", pid);
 	services[nservices++] = s;
 	s->p_pid = pid;
 	s->p_dirty_rss_table = 0;
@@ -246,7 +251,7 @@ controller_rss_table_reduce(struct log *log, int rss_nq)
 {
 	int i, n;
 	u_char id;
-	struct proc *s;
+	struct service *s;
 
 	n = ih->ih_rss_nq;
 	WRITE_ONCE(ih->ih_rss_nq, rss_nq);
@@ -267,9 +272,9 @@ static void
 controller_rss_table_expand(struct log *log, int rss_nq)
 {
 	int i; 
-	struct proc *s;
+	struct service *s;
 
-	controller_balance_get_candidates(&s, NULL);
+	controller_balance_get(&s, NULL);
 	for (i = ih->ih_rss_nq; i < rss_nq; ++i) {
 		WRITE_ONCE(ih->ih_rss_table[i], s->p_id);
 		s->p_rss_nq++;
@@ -282,7 +287,7 @@ controller_update_rss_table(struct log *log)
 {
 	int i, rss_nq;
 	struct route_if *ifp;
-	struct proc *s;
+	struct service *s;
 
 	LOG_TRACE(log);
 	rss_nq = 0;
@@ -314,7 +319,7 @@ sysctl_controller_service_init(struct log *log, struct sysctl_conn *cp,
 	void *udata, const char *new, struct strbuf *old)
 {
 	int i, fd, pid;
-	struct proc *s;
+	struct service *s;
 
 	if (new == NULL) {
 		return 0;
@@ -343,7 +348,7 @@ static void
 controller_service_conn_close(struct log *log, struct sysctl_conn *cp)
 {
 	int pid;
-	struct proc *s;
+	struct service *s;
 
 	pid = cp->sccn_peer_pid;
 	if (pid == 0) {
@@ -392,7 +397,7 @@ controller_init(int daemonize, const char *p_comm)
 	int i, rc, pid;
 	uint64_t hz;
 	struct log *log;
-	struct proc *s;
+	struct service *s;
 
 	api_locked = 1;
 	log = log_trace0();

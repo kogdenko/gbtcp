@@ -51,7 +51,6 @@ shm_init(struct log *log, void **pp, int size)
 		rc = -errno;
 		goto err;
 	}
-	dbg("ptr= %p, siggest=%p", ptr, suggest);
 	assert(!(((uintptr_t)ptr) & (PAGE_SIZE - 1)));
 	shm = ptr;
 	shm->shm_addr = (uintptr_t)ptr;

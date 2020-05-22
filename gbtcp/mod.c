@@ -3,10 +3,10 @@
 struct mod {
 	int (*m_init)(struct log *, void **);
 	int (*m_attach)(struct log *, void *);
-	int (*m_service_init)(struct log *, struct proc *);
+	int (*m_service_init)(struct log *, struct service *);
 	void (*m_deinit)(struct log *, void *);
 	void (*m_detach)(struct log *);
-	void (*m_service_deinit)(struct log *, struct proc *);
+	void (*m_service_deinit)(struct log *, struct service *);
 };
 
 #define MOD_BASE(name) \
@@ -128,7 +128,7 @@ mod_foreach_mod_attach(struct log *log, struct init_hdr *ih)
 }
 
 int
-mod_foreach_mod_service_init(struct log *log, struct proc *s)
+mod_foreach_mod_service_init(struct log *log, struct service *s)
 {
 	int i, rc;
 	struct mod *mod;
@@ -168,7 +168,7 @@ mod_foreach_mod_detach(struct log *log)
 }
 
 void
-mod_foreach_mod_service_deinit(struct log *log, struct proc *s)
+mod_foreach_mod_service_deinit(struct log *log, struct service *s)
 {
 	int i;
 	struct mod *mod;

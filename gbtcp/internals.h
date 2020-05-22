@@ -31,6 +31,6 @@
 #include "sockbuf.h"
 #include "api.h"
 #include "service.h"
-#include "proc.h"
+#include "controller.h"
 
 #endif // GBTCP_INETRNALS_H

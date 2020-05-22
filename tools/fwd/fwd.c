@@ -618,7 +618,7 @@ main(int argc, char **argv)
 	}
 	if (nr_socks_max) {
 		if (Mflag) {
-			mbuf_pool_init(&sock_pool, sizeof(struct gt_sock));
+			mbuf_pool_init(&sock_pool, 0, sizeof(struct gt_sock));
 		} else {
 			dlist_init(&free_socks);
 			so_buf = malloc(nr_socks_max * sizeof(struct gt_sock));

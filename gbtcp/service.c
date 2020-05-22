@@ -14,9 +14,7 @@ static int (*service_clone_fn)(void *);
 #else /* __linux__ */
 #endif /* __linux__ */
 
-extern struct init_hdr *ih;
-
-struct proc *current;
+struct service *current;
 
 int
 service_mod_init(struct log *log, void **pp)
@@ -43,6 +41,7 @@ void
 service_mod_deinit(struct log *log, void *raw_mod)
 {
 	struct service_mod *mod;
+
 	LOG_TRACE(log);
 	mod = raw_mod;
 	log_scope_deinit(log, &mod->log_scope);
@@ -149,7 +148,7 @@ int
 service_attach(struct log *log, int fd)
 {
 	int i, rc, pid;
-	struct proc *s;
+	struct service *s;
 	char buf[GT_SYSCTL_BUFSIZ];
 
 	rc = sysctl_connect(log, fd);
@@ -309,7 +308,7 @@ service_rxtx(struct dev *dev, short revents)
 }
 
 static void
-service_update_dev(struct log *log, struct proc *s,
+service_update_dev(struct log *log, struct service *s,
 	struct route_if *ifp, int rss_qid)
 {
 	int id, ifflags;
@@ -332,7 +331,7 @@ service_update_dev(struct log *log, struct proc *s,
 }
 
 void
-service_update_rss_table(struct log *log, struct proc *s)
+service_update_rss_table(struct log *log, struct service *s)
 {
 	int i;
 	struct route_if *ifp;
@@ -347,7 +346,7 @@ service_update_rss_table(struct log *log, struct proc *s)
 }
 
 void
-service_clean_rss_table(struct proc *s)
+service_clean_rss_table(struct service *s)
 {
 	int i;
 	struct dev *dev;

@@ -26,6 +26,7 @@ struct gt_sock {
 	struct file so_file;
 #define so_list so_file.fl_mbuf.mb_list
 #define so_blocked so_file.fl_blocked
+#define so_service_id so_file.fl_mbuf.mb_service_id
 	struct htable_bucket *so_bucket;
 	union {
 		uint64_t so_flags;
@@ -102,10 +103,10 @@ extern struct dlist gt_sock_binded[65536];
 
 int tcp_mod_init(struct log *, void **);
 int tcp_mod_attach(struct log *, void *);
-int tcp_mod_service_init(struct log *, struct proc *);
+int tcp_mod_service_init(struct log *, struct service *);
 void tcp_mod_deinit(struct log *, void *);
 void tcp_mod_detach(struct log *);
-void tcp_mod_service_deinit(struct log *, struct proc *);
+void tcp_mod_service_deinit(struct log *, struct service *);
 
 int so_get(int, struct gt_sock **);
 int so_get_fd(struct gt_sock *);

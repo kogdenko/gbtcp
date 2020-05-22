@@ -110,7 +110,7 @@ typedef uint64_t be64_t;
 
 struct log;
 struct strbuf;
-struct proc;
+struct service;
 struct dev;
 struct route_if;
 struct init_hdr;

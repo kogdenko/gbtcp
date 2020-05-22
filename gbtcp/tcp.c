@@ -272,9 +272,9 @@ tcp_mod_attach(struct log *log, void *raw_mod)
 }
 
 int
-tcp_mod_service_init(struct log *log, struct proc *p)
+tcp_mod_service_init(struct log *log, struct service *s)
 {
-	mbuf_pool_init(&p->p_sockbuf_pool, SOCKBUF_CHUNK_SIZE);
+	mbuf_pool_init(&s->p_sockbuf_pool, s->p_id, SOCKBUF_CHUNK_SIZE);
 	return 0;
 }
 
@@ -300,7 +300,7 @@ tcp_mod_detach(struct log *log)
 }
 
 void
-tcp_mod_service_deinit(struct log *log, struct proc *s)
+tcp_mod_service_deinit(struct log *log, struct service *s)
 {
 }
 
@@ -544,6 +544,7 @@ so_in(int ipproto, struct sock_tuple *so_tuple, struct gt_tcpcb *tcb,
 	BUCKET_LOCK(b);
 	so = so_find(b, so_ipproto, so_tuple);
 	if (so != NULL) {
+		ASSERT(so->so_service_id == current->p_id);
 		so_in_locked(so, so_tuple, tcb, payload);
 	}
 	BUCKET_UNLOCK(b);

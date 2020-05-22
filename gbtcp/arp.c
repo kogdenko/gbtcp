@@ -333,10 +333,10 @@ arp_mod_attach(struct log *log, void *raw_mod)
 }
 
 int
-arp_mod_service_init(struct log *log, struct proc *p)
+arp_mod_service_init(struct log *log, struct service *p)
 {
-	mbuf_pool_init(&p->p_arp_entry_pool, sizeof(struct arp_entry));
-	mbuf_pool_init(&p->p_arp_incomplete_pool, DEV_PKT_SIZE_MAX);
+	mbuf_pool_init(&p->p_arp_entry_pool, p->p_id, sizeof(struct arp_entry));
+	mbuf_pool_init(&p->p_arp_incomplete_pool, p->p_id, DEV_PKT_SIZE_MAX);
 	return 0;
 }
 
@@ -364,7 +364,7 @@ arp_mod_detach(struct log *log)
 }
 
 void
-arp_mod_service_deinit(struct log *log, struct proc *s)
+arp_mod_service_deinit(struct log *log, struct service *s)
 {
 
 }

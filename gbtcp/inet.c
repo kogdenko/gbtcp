@@ -71,7 +71,7 @@ sysctl_inet_stat(struct log *log, struct sysctl_conn *cp, void *udata,
 	int zero;
 	uintptr_t off;
 	uint64_t *ptr, accum;
-	struct proc *s;
+	struct service *s;
 
 	off = (uintptr_t)udata;
 	if (new == NULL) {
@@ -112,12 +112,12 @@ sysctl_add_inet_stat_tcp(struct log *log)
 
 #define SYSCTL_ADD_TCP_STAT(x) \
 	sysctl_add_inet_stat("tcp", #x, \
-	                     field_off(struct proc, p_tcps.tcps_##x));
+	                     field_off(struct service, p_tcps.tcps_##x));
 	GT_TCP_STAT(SYSCTL_ADD_TCP_STAT)
 #undef SYSCTL_ADD_TCP_STAT
 	for (i = 0; i < GT_TCP_NSTATES; ++i) {
 		snprintf(name, sizeof(name), "states.%d", i);
-		off = field_off(struct proc, p_tcps.tcps_states[i]);
+		off = field_off(struct service, p_tcps.tcps_states[i]);
 		sysctl_add_inet_stat("tcp", name, off);
 	}
 }
@@ -127,7 +127,7 @@ sysctl_add_inet_stat_udp(struct log *log)
 {
 #define SYSCTL_ADD_UDP_STAT(x) \
 	sysctl_add_inet_stat("udp", #x, \
-	                     field_off(struct proc, p_udps.udps_##x));
+	                     field_off(struct service, p_udps.udps_##x));
 	GT_UDP_STAT(SYSCTL_ADD_UDP_STAT)
 #undef SYSCTL_ADD_UDP_STAT
 }
@@ -137,7 +137,7 @@ sysctl_add_inet_stat_ip(struct log *log)
 {
 #define SYSCTL_ADD_IP_STAT(x) \
 	sysctl_add_inet_stat("ip", #x, \
-	                     field_off(struct proc, p_ips.ips_##x));
+	                     field_off(struct service, p_ips.ips_##x));
 	GT_IP_STAT(SYSCTL_ADD_IP_STAT)
 #undef SYSCTL_ADD_IP_STAT
 }
@@ -147,7 +147,7 @@ sysctl_add_inet_stat_arp(struct log *log)
 {
 #define SYSCTL_ADD_ARP_STAT(x) \
 	sysctl_add_inet_stat("arp", #x, \
-	                     field_off(struct proc, p_arps.arps_##x));
+	                     field_off(struct service, p_arps.arps_##x));
 	GT_ARP_STAT(SYSCTL_ADD_ARP_STAT)
 #undef SYSCTL_ADD_ARP_STAT
 }

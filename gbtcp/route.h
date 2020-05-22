@@ -17,7 +17,7 @@
 struct log;
 
 struct route_entry_long {
-	struct lprule rtl_rule;
+	struct lptree_rule rtl_rule;
 	struct dlist rtl_list;
 	int rtl_af;
 	struct route_if *rtl_ifp;

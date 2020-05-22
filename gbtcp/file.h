@@ -48,10 +48,10 @@ struct file_aio {
 
 int file_mod_init(struct log *, void **);
 int file_mod_attach(struct log *, void *);
-int file_mod_service_init(struct log *, struct proc *);
+int file_mod_service_init(struct log *, struct service *);
 void file_mod_deinit(struct log *, void *);
 void file_mod_detach(struct log *);
-void file_mod_service_deinit(struct log *, struct proc *);
+void file_mod_service_deinit(struct log *, struct service *);
 
 struct file *file_next(int);
 int file_alloc(struct log *, struct file **, int);

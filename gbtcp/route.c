@@ -334,11 +334,12 @@ route_alloc(struct log *log, struct route_entry_long **proute,
 	uint32_t key, uint8_t depth)
 {
 	int rc;
-	struct lprule *rule;
+	struct lptree_rule *rule;
+
 	rc = mbuf_alloc(log, &curmod->route_pool, (struct mbuf **)proute);
 	if (rc == 0) {
-		rule = (struct lprule *)*proute;
-		rc = lptree_set(log, &curmod->route_lptree, rule, key, depth);
+		rule = (struct lptree_rule *)*proute;
+		lptree_set(log, &curmod->route_lptree, rule, key, depth);
 		if (rc) {
 			mbuf_free((struct mbuf *)rule);
 		}
@@ -351,7 +352,7 @@ route_add(struct log *log, struct route_entry *a)
 {
 	int rc;
 	uint32_t key;
-	struct lprule *rule;
+	struct lptree_rule *rule;
 	struct route_entry_long *route;
 
 	ASSERT(a->rt_af == AF_INET);
@@ -396,7 +397,7 @@ static int
 route_del(struct log *log, be32_t dst, int pfx)
 {
 	int rc;
-	struct lprule *rule;
+	struct lptree_rule *rule;
 	struct route_entry_long *route;
 
 	LOG_TRACE(log);	
@@ -736,11 +737,8 @@ route_mod_init(struct log *log, void **pp)
 	mod->route_default.rtl_af = AF_UNSPEC;
 	dlist_init(&mod->route_if_head);
 	dlist_init(&mod->route_addr_head);
-	rc = lptree_init(log, &mod->route_lptree);
-	if (rc) {
-		goto err;
-	}
-	mbuf_pool_init(&mod->route_pool, sizeof(struct route_entry_long));
+	lptree_init(log, &mod->route_lptree);
+	mbuf_pool_init(&mod->route_pool, 0, sizeof(struct route_entry_long));
 	sysctl_add(log, SYSCTL_ROUTE_MONITOR, SYSCTL_WR,
 	           NULL, NULL, sysctl_route_monitor);
 	sysctl_add_list(log, SYSCTL_ROUTE_IF_LIST, SYSCTL_WR, NULL,
@@ -755,12 +753,6 @@ route_mod_init(struct log *log, void **pp)
 	sysctl_add_list(log, SYSCTL_ROUTE_ROUTE_LIST, SYSCTL_RD, NULL,
 	                sysctl_route_list_next, sysctl_route_list);
 	return 0;
-err:
-	sysctl_del(log, SYSCTL_ROUTE);
-	lptree_deinit(&mod->route_lptree);
-	log_scope_deinit(log, &mod->log_scope);
-	shm_free(mod);
-	return rc;
 }
 
 int
@@ -818,7 +810,7 @@ route_get(int af, struct ipaddr *src, struct route_entry *g)
 {
 	int i;
 	uint32_t key;
-	struct lprule *rule;
+	struct lptree_rule *rule;
 	struct route_entry_long *route;
 	struct route_if_addr *ifa;
 
