@@ -87,6 +87,12 @@ struct mod mods[MOD_COUNT_MAX] = {
 		MOD_BASE(tcp)
 		MOD_SERVICE(tcp)
 	},
+	{
+		MOD_BASE(service)
+	},
+	{
+		MOD_BASE(controller)
+	}
 };
 
 #define MOD_FOREACH2(i, mod) \
@@ -151,8 +157,10 @@ mod_foreach_mod_deinit(struct log *log, struct init_hdr *ih)
 	int i;
 	struct mod *mod;
 
-	MOD_FOREACH2(i, mod) {
-		(*mod->m_deinit)(log, ih->ih_mods[i]);
+	if (ih != NULL) {
+		MOD_FOREACH2(i, mod) {
+			(*mod->m_deinit)(log, ih->ih_mods[i]);
+		}
 	}
 }
 

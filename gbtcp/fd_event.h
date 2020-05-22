@@ -19,7 +19,7 @@ struct fd_event {
 	short fde_id;
 	fd_event_f fde_fn;
 	void *fde_udata;
-	char fde_name[PATH_MAX];
+	char fde_name[64];
 };
 
 struct gt_fd_event_set {

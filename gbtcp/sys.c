@@ -360,6 +360,9 @@ sys_close(struct log *log, int fd)
 {
 	int rc;
 
+	if (fd < 0) {
+		return 0;
+	}
 	rc = (*sys_close_fn)(fd);
 	if (rc == -1) {
 		rc = -errno;

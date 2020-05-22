@@ -4,14 +4,10 @@
 
 #include "gbtcp.h"
 
+#define PID_PATH GT_PREFIX"/pid"
 #define PID_WAIT_NONBLOCK IN_NONBLOCK
 
 struct log;
-
-struct pid_file {
-	int pf_fd;
-	const char *pf_name;
-};
 
 struct pid_wait_entry {
 	int pid;
@@ -30,13 +26,11 @@ void pid_mod_deinit(struct log *, void *);
 void pid_mod_detach(struct log *);
 
 char *pid_file_path(char *, const char *);
-int pid_file_open(struct log *, struct pid_file *);
-int pid_file_lock(struct log *, struct pid_file *);
-int pid_file_read(struct log *, struct pid_file *);
-int pid_file_read_locked(struct log *, const char *);
-int pid_file_write(struct log *, struct pid_file *, int);
-int pid_file_acquire(struct log *, struct pid_file *, int);
-void pid_file_close(struct log *, struct pid_file *);
+int pid_file_open(struct log *, const char *);
+int pid_file_lock(struct log *, int);
+int pid_file_read(struct log *, int);
+int pid_file_write(struct log *, int, int);
+int pid_file_acquire(struct log *, int, int);
 
 int pid_wait_init(struct log *, struct pid_wait *, int);
 void pid_wait_deinit(struct log *, struct pid_wait*);

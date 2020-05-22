@@ -48,53 +48,50 @@ pid_mod_detach(struct log *log)
 char *
 pid_file_path(char *path, const char *filename)
 {
-	snprintf(path, PATH_MAX, "%s/pid/%s", GT_PREFIX, filename);
+	snprintf(path, PATH_MAX, "%s/%s", PID_PATH, filename);
 	return path;
 }
 
 int
-pid_file_open(struct log *log, struct pid_file *pf)
+pid_file_open(struct log *log, const char *filename)
 {
 	int rc;
 	char path[PATH_MAX];
 
 	LOG_TRACE(log);
-	pid_file_path(path, pf->pf_name);
+	pid_file_path(path, filename);
 	rc = sys_open(log, path, O_CREAT|O_RDWR, 0666);
-	if (rc < 0) {
-		return rc;
+	if (rc >= 0) {
+		NOTICE(0, "ok; fd=%d, filename='%s'", rc, filename);
 	}
-	pf->pf_fd = rc;
-	return 0;
-}
-
-int
-pid_file_lock(struct log *log, struct pid_file *pf)
-{
-	int rc;
-
-	LOG_TRACE(log);	
-	rc = sys_flock(log, pf->pf_fd, LOCK_EX|LOCK_NB);
 	return rc;
 }
 
 int
-pid_file_read(struct log *log, struct pid_file *pf)
+pid_file_lock(struct log *log, int fd)
+{
+	int rc;
+
+	LOG_TRACE(log);	
+	rc = sys_flock(log, fd, LOCK_EX|LOCK_NB);
+	return rc;
+}
+
+int
+pid_file_read(struct log *log, int fd)
 {
 	int rc, pid;
 	char buf[32];
-	char path[PATH_MAX];
 
 	LOG_TRACE(log);
-	rc = sys_read(log, pf->pf_fd, buf, sizeof(buf) - 1);
+	rc = sys_read(log, fd, buf, sizeof(buf) - 1);
 	if (rc < 0) {
 		return rc;
 	}
 	buf[rc] = '\0';
 	rc = sscanf(buf, "%d", &pid);
 	if (rc != 1 || pid <= 0) {
-		LOGF(log, LOG_ERR, 0, "bad format; pid_file='%s'",
-		     pid_file_path(path, pf->pf_name));
+		LOGF(log, LOG_ERR, 0, "bad format; fd=%d", fd);
 		return -EINVAL;
 	} else {
 		return pid;
@@ -102,45 +99,38 @@ pid_file_read(struct log *log, struct pid_file *pf)
 }
 
 int
-pid_file_write(struct log *log, struct pid_file *pf, int pid)
+pid_file_write(struct log *log, int fd, int pid)
 {
 	int rc, len;
 	char buf[32];
 
 	LOG_TRACE(log);
-	ASSERT(pid > 0);
+	ASSERT(pid >= 0);
 	len = snprintf(buf, sizeof(buf), "%d", pid);
-	rc = write_full_buf(log, pf->pf_fd, buf, len);
+	rc = write_full_buf(log, fd, buf, len);
 	return rc;
 }
 
 int
-pid_file_acquire(struct log * log, struct pid_file *pf, int pid)
+pid_file_acquire(struct log * log, int fd, int pid)
 {
 	int rc;
 
-	rc = pid_file_lock(log, pf);
+	rc = pid_file_lock(log, fd);
 	if (rc == -EWOULDBLOCK) {
-		rc = pid_file_read(log, pf);
+		rc = pid_file_read(log, fd);
+		if (rc >= 0) {
+			WARN(0, "busy; fd=%d, pid=%d", fd, rc);
+		}
 		return rc;
 	} else if (rc < 0) {
 		return rc;
 	}
-	rc = pid_file_write(log, pf, pid);
+	rc = pid_file_write(log, fd, pid);
 	if (rc) {
 		return rc;
 	}
 	return pid;
-}
-
-void
-pid_file_close(struct log *log, struct pid_file *pf)
-{
-	if (pf->pf_fd >= 0) {
-		LOG_TRACE(log);
-		sys_close(log, pf->pf_fd);
-		pf->pf_fd = -1;
-	}
 }
 
 int

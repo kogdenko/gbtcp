@@ -8,6 +8,8 @@ struct service_mod {
 
 static struct service_mod *curmod;
 static struct spinlock service_init_lock;
+static int service_sysctl_fd = -1;
+static int service_pid_fd = -1;
 
 #ifdef __linux__
 static int (*service_clone_fn)(void *);
@@ -53,7 +55,6 @@ service_mod_detach(struct log *log)
 {
 	curmod = NULL;
 }
-
 
 void
 proc_init()
@@ -145,17 +146,18 @@ service_start_controller(struct log *log, const char *p_name)
 }
 
 int
-service_attach(struct log *log, int fd)
+service_attach(struct log *log)
 {
 	int i, rc, pid;
 	struct service *s;
 	char buf[GT_SYSCTL_BUFSIZ];
 
-	rc = sysctl_connect(log, fd);
+	rc = sysctl_connect(log, service_sysctl_fd);
 	if (rc) {
 		return rc;
 	}
-	rc = sysctl_req(log, fd, SYSCTL_CONTROLLER_SERVICE_INIT, buf, "~");
+	rc = sysctl_req(log, service_sysctl_fd,
+	                SYSCTL_CONTROLLER_SERVICE_INIT, buf, "~");
 	if (rc) {
 		return rc;
 	}
@@ -185,7 +187,8 @@ service_attach(struct log *log, int fd)
 int
 service_init_locked(struct log *log)
 {
-	int rc, fd, pid;
+	int rc, pid;
+	char pid_filename[32];
 	char p_comm[PROC_COMM_MAX];
 	struct sockaddr_un a;
 
@@ -203,27 +206,41 @@ service_init_locked(struct log *log)
 	if (rc < 0) {
 		return rc;
 	}
-	fd = rc;
-	rc = service_attach(log, fd);
+	service_sysctl_fd = rc;
+	rc = service_attach(log);
 	if (rc) {
 		rc = service_start_controller(log, p_comm);
 		if (rc < 0) {
 			goto err;
 		}
-		rc = service_attach(log, fd);
+		rc = service_attach(log);
 		if (rc) {
 			goto err;
 		}
 	}
 	mod_foreach_mod_attach(log, ih);
 	strzcpy(current->p_comm, p_comm, sizeof(current->p_comm));
-	current->p_fd[P_SERVICE] = fd;
 	spinlock_unlock(&current->p_lock);
+	snprintf(pid_filename, sizeof(pid_filename), "%d.pid", pid);
+	rc = pid_file_open(log, pid_filename);
+	if (rc < 0) {
+		goto err;
+	}
+	service_pid_fd = rc;
+	rc = pid_file_acquire(log, service_pid_fd, pid);
+	if (rc != pid) {
+		goto err;
+	}
 	return 0;
 err:
-	if (fd >= 0) {
-		sys_close(log, fd);
-		fd = -1;
+	mod_foreach_mod_detach(log);
+	if (service_sysctl_fd >= 0) {
+		sys_close(log, service_sysctl_fd);
+		service_sysctl_fd = -1;
+	}
+	if (service_pid_fd >= 0) {
+		sys_close(log, service_pid_fd);
+		service_pid_fd = -1;
 	}
 	return rc;
 }
@@ -343,21 +360,6 @@ service_update_rss_table(struct log *log, struct service *s)
 		}
 	}
 	s->p_dirty_rss_table = 0;
-}
-
-void
-service_clean_rss_table(struct service *s)
-{
-	int i;
-	struct dev *dev;
-	struct route_if *ifp;
-
-	ROUTE_IF_FOREACH(ifp) {
-		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
-			dev = &(ifp->rif_dev[s->p_id][i]);
-			dev_clean(dev);
-		}
-	}
 }
 
 static void

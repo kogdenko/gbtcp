@@ -42,7 +42,7 @@ struct service {
 	u_char p_id;
 	u_char p_dirty_rss_table;
 	u_char p_rss_nq;
-	int p_fd[2];
+	int p_fd;
 	uint32_t p_pps;
 	struct tcp_stat p_tcps;
 	struct udp_stat p_udps;
@@ -74,7 +74,7 @@ void service_mod_detach(struct log *);
 
 int service_init();
 void service_update_rss_table(struct log *, struct service *);
-void service_clean_rss_table(struct service *);
+void service_clean(struct service *);
 int service_is_appropriate_rss(struct route_if *, struct sock_tuple *); 
 void service_rxtx(struct dev *, short);
 

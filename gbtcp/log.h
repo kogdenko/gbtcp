@@ -1,4 +1,4 @@
-// GPL2 license
+// GPL2 License
 #ifndef GBTCP_LOG_H
 #define GBTCP_LOG_H
 
@@ -63,6 +63,7 @@ do { \
 #define DBG(err, ...) LOGF(log_trace0(), LOG_DEBUG, err, __VA_ARGS__)
 #define INFO(err, ...) LOGF(log_trace0(), LOG_INFO, err, __VA_ARGS__)
 #define NOTICE(err, ...) LOGF(log_trace0(), LOG_NOTICE, err, __VA_ARGS__)
+#define WARN(err, ...) LOGF(log_trace0(), LOG_WARNING, err, __VA_ARGS__)
 #define ASSERT3(err, expr, fmt, ...) \
 	((expr) ? \
 	(void)(0) : \
