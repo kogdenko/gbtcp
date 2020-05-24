@@ -1,5 +1,9 @@
 #include "internals.h"
 
+// System should periodically RX netmap devices or packets would be lost
+#define FD_EVENT_TIMEOUT_MIN (20 * NANOSECONDS_MICROSECOND)
+#define FD_EVENT_TIMEOUT_MAX (60 * NANOSECONDS_MICROSECOND) 
+
 struct fd_event_mod {
 	struct log_scope log_scope;
 };
@@ -7,6 +11,7 @@ struct fd_event_mod {
 uint64_t gt_fd_event_epoch;
 
 static uint64_t fd_event_last_check_time;
+static uint64_t fd_event_timeout = FD_EVENT_TIMEOUT_MIN;
 static int fd_event_nused;
 static int gt_fd_event_in_cb;
 static struct fd_event *gt_fd_event_used[FD_EVENTS_MAX];
@@ -67,24 +72,33 @@ fd_event_mod_detach()
 }
 
 void
-check_fd_events(int force)
+check_fd_events()
 {
-	uint64_t dt;
+	int throttled;
+	uint64_t elapsed;
 	struct gt_fd_event_set set;
 	struct pollfd pfds[FD_EVENTS_MAX];
 
-	if (!force) {
-		dt = nanoseconds - fd_event_last_check_time;
-		if (dt < FD_EVENT_TIMEOUT) {
-			return;
-		}
+	elapsed = nanoseconds - fd_event_last_check_time;
+	if (elapsed < fd_event_timeout) {
+		return;
 	}
+	throttled = -1;
 	do {
 		set.fdes_to = 0;
 		gt_fd_event_set_init(&set, pfds);
 		sys_ppoll(pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
 		gt_fd_event_set_call(&set, pfds);
+		throttled++;
 	} while (set.fdes_again);
+	if (throttled) {
+		fd_event_timeout >>= 1;
+		if (fd_event_timeout < FD_EVENT_TIMEOUT_MIN) {
+			fd_event_timeout = FD_EVENT_TIMEOUT_MIN;
+		}
+	} else if (fd_event_timeout < FD_EVENT_TIMEOUT_MAX) {
+		fd_event_timeout += NANOSECONDS_MICROSECOND;
+	}
 }
 
 void

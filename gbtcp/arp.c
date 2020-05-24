@@ -161,7 +161,6 @@ arp_tx_req(struct arp_entry *e)
 	struct route_entry route;
 	struct dev_pkt pkt;
 
-	dbg("1111");
 	if (timer_is_running(&e->ae_timer)) {
 		return;
 	}

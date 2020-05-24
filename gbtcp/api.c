@@ -51,7 +51,7 @@ api_unlock()
 {
 	api_locked--;
 	if (current != NULL) {
-		check_fd_events(0);
+		check_fd_events();
 		SERVICE_UNLOCK;
 	}
 	

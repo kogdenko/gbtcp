@@ -213,12 +213,17 @@ static int sysctl_tcp_fin_timeout(const long long *new, long long *old);
 #define BUCKET_UNLOCK(b) spinlock_unlock(&(b)->htb_lock)
 
 static uint32_t
-so_tuple_hash(struct sock_tuple *so_tuple)
+so_tuple_hash(struct sock_tuple *t)
 {
-	uint32_t hash;
+	uint32_t h;
 
+#if 1
+	h = t->sot_faddr ^ (t->sot_faddr >> 16) ^
+		ntoh16(t->sot_lport ^ t->sot_fport);
+#else
 	hash = custom_hash(so_tuple, sizeof(*so_tuple), 0);
-	return hash;
+#endif
+	return h;
 }
 
 static uint32_t

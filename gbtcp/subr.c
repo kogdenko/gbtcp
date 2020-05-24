@@ -984,12 +984,7 @@ rd_nanoseconds()
 	if (ticks2 > ticks) {
 		// tsc can fall after suspend
 		dt = ticks2 - ticks;
-		if (0) {
-			// TODO: Why performance degradate in this case
-			nanoseconds += dt;
-		} else {
-			nanoseconds += 1000 * dt / mHZ;
-		}
+		nanoseconds += 1000 * dt / mHZ; 
 	}
 	ticks = ticks2;
 }

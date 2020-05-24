@@ -6,9 +6,6 @@
 
 #define FD_EVENTS_MAX FD_SETSIZE
 
-// System should RX netmap devices every 20 microseconds
-// or packets would be lost
-#define FD_EVENT_TIMEOUT 20000ull
 
 typedef int (*fd_event_f)(void *, short revents);
 
@@ -38,7 +35,7 @@ int fd_event_mod_attach(void *);
 void fd_event_mod_deinit(void *);
 void fd_event_mod_detach();
 
-void check_fd_events(int);
+void check_fd_events();
 void wait_for_fd_events();
 
 void gt_fd_event_ctl_init(struct fd_event *e);
