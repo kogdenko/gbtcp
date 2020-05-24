@@ -10,8 +10,8 @@ static struct api_mod *curmod;
 
 
 #define API_LOCK \
-	if (!api_lock()) { \
-		API_RETURN(-ENOTSUP); \
+	if (api_lock()) { \
+		return -1; \
 	}
 
 #define API_UNLOCK api_unlock()
@@ -22,27 +22,26 @@ api_lock()
 	int rc;
 	ptrdiff_t stack_off;
 
-//	dbg("pid=%d", getpid());
 	stack_off = (u_char *)&rc - (u_char *)gt_signal_stack;
 	if (stack_off < gt_signal_stack_size) {
 		// Called from signal handler
-		return 0;
+		API_RETURN(-EBADF);
 	}
 	if (api_locked) {
-		return 0;
+		API_RETURN(-EBADF);
 	}
 	api_locked++;
 	if (current == NULL) {
 		rc = service_init();
 		if (rc == 0) {
-			return 1;
+			return 0;
 		} else {
 			api_locked--;
-			return 0;
+			API_RETURN(-EBADF);
 		}
 	}
 	SERVICE_LOCK;
-	return 1;
+	return 0;
 }
 
 static inline void
@@ -100,7 +99,7 @@ api_mod_detach()
 }
 
 pid_t
-gbtcp_fork()
+gt_fork()
 {
 	int rc;
 
@@ -145,14 +144,14 @@ api_socket(int domain, int type, int proto)
 			    rc, log_add_socket_type(type_noflags),
 			    log_add_socket_flags(flags));
 		}
-		return rc;
 	} else {
-		return -ENOTSUP;
+		rc = -EBADF;
 	}
+	return rc;
 }
 
 int
-gbtcp_socket(int domain, int type, int proto)
+gt_socket(int domain, int type, int proto)
 {
 	int rc;
 
@@ -207,7 +206,7 @@ restart:
 }
 
 int
-gbtcp_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
+gt_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
 
@@ -246,7 +245,7 @@ api_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 }
 
 int
-gbtcp_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
+gt_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
 
@@ -277,7 +276,7 @@ api_listen(int fd, int backlog)
 }
 
 int
-gbtcp_listen(int fd, int backlog)
+gt_listen(int fd, int backlog)
 {
 	int rc;
 
@@ -316,7 +315,7 @@ restart:
 }
 
 int
-gbtcp_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
+gt_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
 	int rc;
 
@@ -333,7 +332,7 @@ api_shutdown(int fd, int how)
 }
 
 int
-gbtcp_shutdown(int fd, int how)
+gt_shutdown(int fd, int how)
 {
 	int rc;
 
@@ -361,7 +360,7 @@ api_close(int fd)
 }
 
 int
-gbtcp_close(int fd)
+gt_close(int fd)
 {
 	int rc;
 
@@ -372,11 +371,11 @@ gbtcp_close(int fd)
 }
 
 ssize_t
-gbtcp_read(int fd, void *buf, size_t count)
+gt_read(int fd, void *buf, size_t count)
 {
 	int rc;
 
-	rc = gbtcp_recvfrom(fd, buf, count, 0, NULL, NULL);
+	rc = gt_recvfrom(fd, buf, count, 0, NULL, NULL);
 	return rc;
 }
 
@@ -410,7 +409,7 @@ restart:
 }
 
 ssize_t
-gbtcp_readv(int fd, const struct iovec *iov, int iovcnt)
+gt_readv(int fd, const struct iovec *iov, int iovcnt)
 {
 	ssize_t rc;
 
@@ -421,16 +420,16 @@ gbtcp_readv(int fd, const struct iovec *iov, int iovcnt)
 }
 
 ssize_t
-gbtcp_recv(int fd, void *buf, size_t len, int flags)
+gt_recv(int fd, void *buf, size_t len, int flags)
 {
 	ssize_t rc;
 
-	rc = gbtcp_recvfrom(fd, buf, len, flags, NULL, NULL);
+	rc = gt_recvfrom(fd, buf, len, flags, NULL, NULL);
 	return rc;
 }
 
 ssize_t
-gbtcp_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *addr,
+gt_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *addr,
 	socklen_t *addrlen)
 {
 	ssize_t rc;
@@ -445,18 +444,18 @@ gbtcp_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *addr,
 }
 
 ssize_t
-gbtcp_recvmsg(int fd, struct msghdr *msg, int flags)
+gt_recvmsg(int fd, struct msghdr *msg, int flags)
 {
 	BUG;
 	API_RETURN(-ENOTSUP);
 }
 
 ssize_t
-gbtcp_write(int fd, const void *buf, size_t count)
+gt_write(int fd, const void *buf, size_t count)
 {
 	ssize_t rc;
 
-	rc = gbtcp_send(fd, buf, count, 0);
+	rc = gt_send(fd, buf, count, 0);
 	return rc;
 }
 
@@ -490,7 +489,7 @@ restart:
 }
 
 ssize_t
-gbtcp_writev(int fd, const struct iovec *iov, int iovcnt)
+gt_writev(int fd, const struct iovec *iov, int iovcnt)
 {
 	int rc;
 
@@ -501,11 +500,11 @@ gbtcp_writev(int fd, const struct iovec *iov, int iovcnt)
 }
 
 ssize_t
-gbtcp_send(int fd, const void *buf, size_t cnt, int flags)
+gt_send(int fd, const void *buf, size_t cnt, int flags)
 {
 	ssize_t rc;
 
-	rc = gbtcp_sendto(fd, buf, cnt, flags, NULL, 0);
+	rc = gt_sendto(fd, buf, cnt, flags, NULL, 0);
 	return rc;
 }
 
@@ -533,7 +532,7 @@ api_send6(int fd, struct iovec *iov, int iovlen, int flags,
 }
 
 ssize_t
-gbtcp_sendto(int fd, const void *buf, size_t len, int flags,
+gt_sendto(int fd, const void *buf, size_t len, int flags,
 	const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
@@ -546,7 +545,7 @@ gbtcp_sendto(int fd, const void *buf, size_t len, int flags,
 }
 
 ssize_t
-gbtcp_sendmsg(int fd, const struct msghdr *msg, int flags)
+gt_sendmsg(int fd, const struct msghdr *msg, int flags)
 {
 	int rc;
 
@@ -561,17 +560,6 @@ gbtcp_sendmsg(int fd, const struct msghdr *msg, int flags)
 		}
 	}
 	return rc;
-}
-
-ssize_t
-gbtcp_sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
-{
-	int rc;
-
-	API_LOCK;
-	rc = -EBADF;
-	API_UNLOCK;
-	API_RETURN(rc);
 }
 
 int
@@ -595,7 +583,7 @@ api_fcntl(int fd, int cmd, uintptr_t arg)
 }
 
 int
-gbtcp_fcntl(int fd, int cmd, uintptr_t arg)
+gt_fcntl(int fd, int cmd, uintptr_t arg)
 {
 	int rc;
 
@@ -626,7 +614,7 @@ api_ioctl(int fd, unsigned long req, uintptr_t arg)
 }
 
 int
-gbtcp_ioctl(int fd, unsigned long req, uintptr_t arg)
+gt_ioctl(int fd, unsigned long req, uintptr_t arg)
 {
 	int rc;
 
@@ -663,8 +651,7 @@ api_getsockopt(int fd, int level, int optname, void *optval,
 }
 
 int
-gbtcp_getsockopt(int fd, int level, int optname, void *optval,
-	socklen_t *optlen)
+gt_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
 {
 	int rc;
 
@@ -698,7 +685,7 @@ api_setsockopt(int fd, int level, int optname, const void *optval,
 }
 
 int
-gbtcp_setsockopt(int fd, int level, int optname, const void *optval,
+gt_setsockopt(int fd, int level, int optname, const void *optval,
 	socklen_t optlen)
 {
 	int rc;
@@ -730,7 +717,7 @@ api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 }
 
 int
-gbtcp_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
+gt_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
 
@@ -741,7 +728,7 @@ gbtcp_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 }
 
 int
-gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
+gt_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 {
 	int rc;
 	uint64_t to;
@@ -754,7 +741,7 @@ gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 	API_LOCK;
 	DBG(0, "hit; to=%d, events={%s}",
 	    timeout_ms, log_add_pollfds_events(fds, nfds));
-	rc = gt_poll(fds, nfds, to, NULL);
+	rc = u_poll(fds, nfds, to, NULL);
 	if (rc < 0) {
 		DBG(-rc, "failed");
 	} else {
@@ -766,7 +753,7 @@ gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 }
 
 int
-gbtcp_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
+gt_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 	const sigset_t *sigmask)
 {
 	int rc;
@@ -786,7 +773,7 @@ gbtcp_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 		    timeout->tv_sec, timeout->tv_nsec,
 		    log_add_pollfds_events(fds, nfds));
 	}
-	rc = gt_poll(fds, nfds, to, sigmask);
+	rc = u_poll(fds, nfds, to, sigmask);
 	if (rc < 0) {
 		DBG(-rc, "failed;");
 	} else {
@@ -797,29 +784,8 @@ gbtcp_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 	API_RETURN(rc);
 }
 
-gt_sighandler_t 
-gbtcp_signal(int signum, gt_sighandler_t new_sa_handler)
-{
-	int rc;
-	struct sigaction act, oldact;
-
-	memset(&act, 0, sizeof(act));
-	act.sa_handler = *new_sa_handler;
-	rc = gbtcp_sigaction(signum, &act, &oldact);
-	if (rc < 0) {
-		return SIG_ERR;
-	}
-	if (oldact.sa_flags & SA_SIGINFO) {
-		// TODO: ? check how works in OS
-		return (gt_sighandler_t)oldact.sa_sigaction;
-	} else {
-		return oldact.sa_handler;
-	}
-}
-
 int
-gbtcp_sigaction(int signum, const struct sigaction *act,
-	struct sigaction *oldact)
+gt_sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
 {
 	int rc;
 	void *fn;
@@ -859,7 +825,7 @@ gt_first_fd()
 
 #ifdef __linux__
 int
-gbtcp_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
+gt_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
 	void *ptid, void *tls, void *ctid)
 {
 	int rc;
@@ -877,7 +843,7 @@ gbtcp_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
 }
 
 int
-gbtcp_epoll_create1(int flags)
+gt_epoll_create1(int flags)
 {
 	int rc, fd;
 
@@ -901,7 +867,7 @@ gbtcp_epoll_create1(int flags)
 }
 
 int
-gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
+gt_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
 	int rc;
 
@@ -920,7 +886,7 @@ gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 }
 
 int
-gbtcp_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
+gt_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 	int timeout_ms, const sigset_t *sigmask)
 {
 	int rc;
@@ -944,7 +910,7 @@ gbtcp_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 }
 #else /* __linux__ */
 int
-gbtcp_kqueue()
+gt_kqueue()
 {
 	int rc, fd;
 
@@ -970,7 +936,7 @@ gbtcp_kqueue()
 	API_RETURN(rc);
 }
 int
-gbtcp_kevent(int kq, const struct kevent *changelist, int nchanges,
+gt_kevent(int kq, const struct kevent *changelist, int nchanges,
 	struct kevent *eventlist, int nevents, const struct timespec *timeout)
 {
 	int rc;

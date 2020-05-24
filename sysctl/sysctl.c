@@ -171,7 +171,7 @@ sysctl_list_r(char *path, int path_len, char *buf, int depth)
 		// path: A.B.list.C+
 		rc = gt_sysctl(path, buf, NULL);
 		if (rc == -1) {
-			rc = -gbtcp_errno;
+			rc = -gt_errno;
 			return rc;
 		}
 		if (buf[0] == '\0') {
@@ -190,7 +190,7 @@ sysctl_r(char *path, int path_len, char *buf, const char *new, int depth)
 
 	rc = gt_sysctl(path, buf, new);
 	if (rc == -1) {
-		rc = -gbtcp_errno;
+		rc = -gt_errno;
 		return rc;
 	}
 	if (buf[0] == ',') {
@@ -259,9 +259,9 @@ read_file(const char *path)
 	line_num = 0;
 	file = fopen(path, "r");
 	if (file == NULL) {
-		rc = -gbtcp_errno;
+		rc = -gt_errno;
 		assert(rc < 0);
-		warnx("fopen('%s') failed (%s)", path, strerror(gbtcp_errno));
+		warnx("fopen('%s') failed (%s)", path, strerror(gt_errno));
 		return rc;
 	}
 	while ((s = fgets(buf, sizeof(buf), file)) != NULL) {
@@ -295,6 +295,7 @@ main(int argc, char **argv)
 	int i, rc, opt;
 	const char *path;
 
+	gt_init();
 	path = NULL;
 	while ((opt = getopt(argc, argv, "hf:aniQHL:")) != -1) {
 		switch (opt) {

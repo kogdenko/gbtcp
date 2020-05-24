@@ -139,7 +139,7 @@ poll_read_events(struct poll *poll, struct pollfd *pfds, int npfds)
 }
 
 int
-gt_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
+u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 {
 	int n, m, a, b, sys, rc;
 	struct poll poll;

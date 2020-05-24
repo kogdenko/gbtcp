@@ -271,7 +271,7 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 	} else {
 		set->fdes_to -= dt;
 	}
-	timer_mod_check();
+	check_timers();
 	n = 0;
 	gt_fd_event_in_cb = 1;
 	for (i = 0; i < set->fdes_nr_used; ++i) {

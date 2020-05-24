@@ -1,10 +1,15 @@
 #include "internals.h"
 
-#define HTABLE_BUCKET(t, e) \
-	(struct htable_bucket **)((u_char *)e + t->htd_bucket_off)
-
 struct htable_mod {
 	struct log_scope log_scope;
+};
+
+union htable_id {
+	long long data;
+	struct {
+		uint32_t lo;
+		uint32_t hi;
+	};
 };
 
 static struct htable_mod *curmod;
@@ -53,198 +58,131 @@ htable_bucket_init(struct htable_bucket *b)
 	spinlock_init(&b->htb_lock);
 }
 
-static int
-htable_static_init(struct htable_static *t, int size, htable_f fn, int flags)
+int
+htable_init(struct htable *t, int size, htable_f fn, int flags)
 {
 	int i, rc;
 	malloc_f malloc_fn;
 
-	t->hts_size = size;
-	t->hts_mask = size - 1;
-	t->hts_fn = fn;
+	t->ht_size = upper_pow2_32(size);
+	t->ht_mask = t->ht_size - 1;
+	t->ht_flags = flags;
+	t->ht_fn = fn;
 	if (flags & HTABLE_SHARED) {
 		malloc_fn = shm_malloc;
 	} else {
 		malloc_fn = sys_malloc;
 	}
-	rc = (*malloc_fn)((void **)&t->hts_array,
+	rc = (*malloc_fn)((void **)&t->ht_array,
 	                  size * sizeof(struct htable_bucket));
 	if (rc) {
 		return rc;
 	}
-	t->hts_size = size;
-	t->hts_mask = size - 1;
-	for (i = 0; i < size; ++i) {
-		htable_bucket_init(t->hts_array + i);
+	for (i = 0; i < t->ht_size; ++i) {
+		htable_bucket_init(t->ht_array + i);
 	}
 	return 0;
-}
-
-static void
-htable_static_deinit(struct htable_static *t, int flags)
-{
-	free_f free_fn;
-
-	if (flags & HTABLE_SHARED) {
-		free_fn = shm_free;
-	} else {
-		free_fn = sys_free;
-	}
-	(*free_fn)(t->hts_array);
-	t->hts_array = NULL;
-}
-
-struct htable_bucket *
-htable_static_bucket_get(struct htable_static *t, uint32_t h) 
-{
-	return t->hts_array + ((h) & (t)->hts_mask);
-}
-
-void
-htable_static_del(struct htable_static *t, htable_entry_t *e)
-{
-	dlist_remove(e);
-}
-
-int
-htable_init(struct htable *t, int size,	htable_f fn, int flags, int bucket_off)
-{
-	int rc;
-
-	t->htd_flags = flags;
-	t->htd_bucket_off = bucket_off;
-	t->htd_size_min = size;
-	t->htd_nentries = 0;
-	t->htd_resize_discard = 0;
-	t->htd_old = NULL;
-	t->htd_new = t->htd_tables + 0;
-	t->htd_tables[1].hts_array = NULL;
-	rc = htable_static_init(t->htd_new, size, fn, flags);
-	return rc;
 }
 
 void
 htable_deinit(struct htable *t)
 {
-	int i;
+	free_f free_fn;
 
-	for (i = 0; i < 2; ++i) {
-		htable_static_deinit(t->htd_tables + i, t->htd_flags);
+	if (t->ht_flags & HTABLE_SHARED) {
+		free_fn = shm_free;
+	} else {
+		free_fn = sys_free;
 	}
+	(*free_fn)(t->ht_array);
+	t->ht_array = NULL;
 }
 
 struct htable_bucket *
 htable_bucket_get(struct htable *t, uint32_t h) 
 {
-//	int i;
-	struct htable_bucket *b;
-	struct htable_static *ts;
+	return t->ht_array + ((h) & (t)->ht_mask);
+}
 
-	/*
-	if (t->htd_old == NULL) {
-		ts = t->htd_new;
-	} else {
-		i = h & t->htd_old->hts_mask;
-		if (i <= t->htd_resize_progress) {
-			ts = t->htd_new;
-		} else {
-			ts = t->htd_old;
-		}
-	}
-	*/
-	ts = t->htd_new;
-	b = htable_static_bucket_get(ts, h);
-	return b;
+void
+htable_del(struct htable *t, htable_entry_t *e)
+{
+	dlist_remove(e);
 }
 
 void
 htable_add(struct htable *t, struct htable_bucket *b, htable_entry_t *e)
 {
 	dlist_insert_tail(&b->htb_head, e);
-	*HTABLE_BUCKET(t, e) = b;
-	t->htd_nentries++;
+}
+
+static long long
+sysctl_htable_next(void *udata, long long id_data)
+{
+	int lo;
+	struct dlist *e;
+	struct htable *t;
+	union htable_id id;
+	struct htable_bucket *b;
+
+	id.data = id_data;
+	t = (struct htable *)udata;
+	for (; id.hi < t->ht_size; ++id.hi) {
+		b = t->ht_array + id.hi;
+		lo = 0;
+		spinlock_lock(&b->htb_lock);
+		dlist_foreach(e, &b->htb_head) {
+			if (lo == id.lo) {
+				spinlock_unlock(&b->htb_lock);
+				return id.data;
+			}
+			lo++;
+		}
+		spinlock_unlock(&b->htb_lock);
+		id.lo = 0;
+	}
+	return -ENOENT;
+}
+
+static int
+sysctl_htable(void *udata, long long id_data, const char *new,
+	struct strbuf *out)
+{
+	int lo;
+	struct dlist *e;
+	struct htable *t;
+	union htable_id id;
+	struct htable_bucket *b;
+
+	id.data = id_data;
+	t = (struct htable *)udata;
+	if (id.hi >= t->ht_size) {
+		return -ENOENT;
+	}
+	b = t->ht_array + id.hi;
+	lo = 0;
+	spinlock_lock(&b->htb_lock);
+	dlist_foreach(e, &b->htb_head) {
+		if (lo == id.lo) {
+			(*t->ht_sysctl_fn)(e, new, out);
+			break;
+		}
+		lo++;
+	}
+	spinlock_unlock(&b->htb_lock);
+	if (lo == id.lo) {
+		return 0;
+	} else {
+		return -ENOENT;
+	}
 }
 
 void
-htable_del(struct htable *t, htable_entry_t *e)
+sysctl_add_htable(const char *path, int mode, struct htable *t,
+	htable_sysctl_f fn)
 {
-	ASSERT(t->htd_nentries > 0);
-	dlist_remove(e);
-	t->htd_nentries--;
+	ASSERT(t->ht_sysctl_fn == NULL);
+	ASSERT(fn != NULL);
+	t->ht_sysctl_fn = fn;
+	sysctl_add_list(path, mode, t, sysctl_htable_next, sysctl_htable);
 }
-
-#if 0
-static struct htable_1s *
-htable_1d_new(struct htable *t)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(t->htd_tables); ++i) {
-		if (t->htd_tables[i].hts_array == NULL) {
-			return t->htd_tables + i;
-		}
-	}
-	BUG;
-	return 0;
-}
-
-
-static void
-htable_resize(struct htable *t)
-{
-	int rc, size, new_size;
-	htable_1_bucket_t *b;
-	htable_entry_t *e;
-	struct htable_1s *tmp;
-
-	if (t->htd_old == NULL) {
-		new_size = 0;
-		size = t->htd_new->hts_size;
-		if (t->htd_nentries > size) {
-			new_size = size << 1;
-		} else if (t->htd_nentries < (size >> 2)) {
-			new_size = size >> 1;
-		}
-		if (!new_size) {
-			return;
-		}
-		if (new_size < t->htd_size_min) {
-			return;
-		}
-		if (t->htd_resize_discard) {
-			t->htd_resize_discard--;
-			return;
-		}
-		tmp = htable_1d_new(t);
-		log = log_trace0();
-		rc = htable_1s_init(log, tmp, new_size, t->htd_new->hts_fn,
-		                    t->htd_flags, t->htd_bucket_off);
-		if (rc) {
-			t->htd_resize_discard = new_size;
-			return;
-		}
-		t->htd_old = t->htd_new;
-		t->htd_new = tmp;
-		t->htd_resize_progress = 0;
-		log = log_trace0();
-		LOGF(log, LOG_INFO, 0, "ok; size=%d->%d, nentries=%d",
-		     size, new_size, t->htd_nentries);
-	} else {
-		ASSERT(t->htd_old->hts_size > t->htd_resize_progress);
-		b = t->htd_old->hts_array + t->htd_resize_progress;
-		while (!dlist_is_empty(b)) {
-			e = dlist_first(b);
-			dlist_remove(e);
-			htable_1s_add(t->htd_new, b, e);
-		}
-		t->htd_resize_progress++;
-		if (t->htd_old->hts_size == t->htd_resize_progress) {
-			htable_1s_deinit(t->htd_old);
-			t->htd_old = NULL;
-			log = log_trace0();
-			LOGF(log, LOG_INFO, 0, "done; nentries=%d",
-			     t->htd_nentries);
-		}
-	}
-}
-#endif

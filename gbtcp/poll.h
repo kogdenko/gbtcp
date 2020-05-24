@@ -9,6 +9,6 @@ int poll_mod_attach(void *);
 void poll_mod_deinit(void *);
 void poll_mod_detach();
 
-int gt_poll(struct pollfd *, int, uint64_t, const sigset_t *);
+int u_poll(struct pollfd *, int, uint64_t, const sigset_t *);
 
 #endif // GBTCP_POLL_H

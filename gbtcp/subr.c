@@ -15,7 +15,7 @@ union tsc {
 uint64_t nanoseconds;
 uint64_t ticks;
 uint64_t mHZ = 3000; // default cpu 3 ghz
-__thread int gbtcp_errno;
+__thread int gt_errno;
 
 static struct subr_mod *curmod;
 
@@ -518,7 +518,7 @@ connect_timed(int fd, const struct sockaddr *addr,
 	if (errnum == 0) {
 		return 0;
 	} else if (errnum != EINPROGRESS) {
-		goto out;
+		return -errnum;
 	} else if (*to == 0) {
 		errnum = ETIMEDOUT;
 		goto out;
@@ -972,7 +972,7 @@ print_backtrace(int depth_off)
 void
 set_hz(uint64_t hz)
 {
-	mHZ = hz/1000000ull;
+	mHZ = hz / 1000000ull;
 }
 
 void
@@ -985,6 +985,7 @@ rd_nanoseconds()
 		// tsc can fall after suspend
 		dt = ticks2 - ticks;
 		if (0) {
+			// TODO: Why performance degradate in this case
 			nanoseconds += dt;
 		} else {
 			nanoseconds += 1000 * dt / mHZ;
@@ -992,5 +993,3 @@ rd_nanoseconds()
 	}
 	ticks = ticks2;
 }
-
-

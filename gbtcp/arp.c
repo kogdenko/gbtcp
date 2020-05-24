@@ -43,7 +43,7 @@ static void gt_arp_calc_reachable_time_timeout(struct timer *timer);
 
 static void arp_entry_del(struct arp_entry *e);
 
-static const char *
+const char *
 arp_state_str(int state)
 {
 	switch (state) {
@@ -319,8 +319,7 @@ arp_mod_attach(void *raw_mod)
 	int rc;
 
 	curmod = raw_mod;
-	rc = htable_init(&gt_arp_htable, 32, arp_entry_hash,
-	                 0, field_off(struct arp_entry, ae_bucket));
+	rc = htable_init(&gt_arp_htable, 32, arp_entry_hash, 0);
 	if (rc) {
 		return rc;
 	}

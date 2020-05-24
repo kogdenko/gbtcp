@@ -16,24 +16,23 @@
 typedef uint32_t be32_t;
 typedef uint16_t be16_t;
 
-int aflag;		/* show all sockets (including servers) */
-int bflag;		/* show i/f total bytes in/out */
+int aflag;      /* show all sockets (including servers) */
+int bflag;       /* show i/f total bytes in/out */
 int Pflag = -1;
-int Hflag;		/* show counters in human readable format */
-int iflag;		/* show interfaces */
-int Lflag;		/* show size of listen queues */
-int nflag;              /* show numerically */
-int pflag;		/* show given protocol */
-int sflag;		/* show protocol statistics */
+int Hflag;       /* show counters in human readable format */
+int iflag;       /* show interfaces */
+int Lflag;       /* show size of listen queues */
+int nflag;       /* show numerically */
+int pflag;       /* show given protocol */
+int sflag;       /* show protocol statistics */
 int zflag;       /* zero stats */
 int interval;    /* repeat interval for i/f stats */
 char *interface;
 
-void	print_conn(const char *, int);
-void	tcp_stats();
-void	udp_stats();
-void	arp_stats();
-void	ip_stats();
+void tcp_stats();
+void udp_stats();
+void arp_stats();
+void ip_stats();
 
 struct proto {
 	void (*pr_stats)();
@@ -66,7 +65,7 @@ static const char *tcpstates[GT_TCP_NSTATES] = {
 	[GT_TCP_S_TIME_WAIT] = "TIME_WAIT"
 };
 
-void print_sockaddr(be32_t, be16_t, const char *, int);
+void pr_sockaddr(be32_t, be16_t, const char *, int);
 
 struct netif {
 	LIST_ENTRY(netif) list;
@@ -108,7 +107,7 @@ xsysctl(const char *path, char *old, const char *new)
 
 	rc = gt_sysctl(path, old, new);
 	if (rc < 0) {
-		rc = -gbtcp_errno;
+		rc = -gt_errno;
 		warnx("gt_sysctl('%s') failed (%s)", path, strerror(-rc));
 		return rc;
 	} else if (rc > 0) {
@@ -214,50 +213,74 @@ get_if(struct netif_head *head, const char *ifname)
 	return NULL;
 }
 
-static void
-get_ifs(struct netif_head *head)
+int
+sysctl_list_foreach(const char *name, void *udata,
+	int (*fn)(void *, const char *))
 {
-	int rc, tmpd, tmpx;
-	char ifname[64], id[64], tmp32[32];
-	unsigned long long ipackets, ibytes, opackets, obytes, odrops;
+	int rc, len;
 	char path[PATH_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
-	struct netif *ifp;
-	LIST_INIT(head);
-	rc = xsysctl("route.if.list", buf, NULL);
+
+	rc = xsysctl(name, buf, NULL);
 	while (rc == 0 && buf[0] == ',') {
-		strzcpy(id, buf + 1, sizeof(id));
-		snprintf(path, sizeof(path), "route.if.list.%s", id);
+		len = snprintf(path, sizeof(path), "%s.%s", name, buf + 1);
+		if (len + 1 >= sizeof(path)) {
+			return -ENAMETOOLONG;
+		}
 		rc = xsysctl(path, buf, NULL);
 		if (rc) {
 			break;
 		}
-		rc = sscanf(buf, "%64[^,],%d,%x,%32[^,],%llu,%llu,%llu,%llu,%llu",
-		            ifname, &tmpd, &tmpx, tmp32,
-		            &ipackets, &ibytes, &opackets, &obytes, &odrops);
-		if (rc != 9) {
-			bad_format(path);
-			goto next;
+		rc = (*fn)(udata, buf);
+		if (rc) {
+			break;
 		}
-		if (interface != NULL && strcmp(interface, ifname)) {
-			goto next;
-		}
-		ifp = get_if(head, ifname);
-		if (ifp == NULL) {
-			ifp = xmalloc(sizeof(*ifp));
-			memset(ifp, 0, sizeof(*ifp));
-			netif_set_name(ifp, ifname);
-			LIST_INSERT_HEAD(head, ifp, list);
-		}
-		ifp->ipackets += ipackets;
-		ifp->ibytes += ibytes;
-		ifp->opackets += opackets;
-		ifp->obytes += obytes;
-		ifp->odrops += odrops;
-next:
-		snprintf(path, sizeof(path), "route.if.list.%s+", id);
+		path[len++] = '+';
+		path[len] = '\0';
 		rc = xsysctl(path, buf, NULL);
 	}
+	return rc;
+}
+
+static int
+sc_if(void *udata, const char *buf)
+{
+	int rc, tmpd, tmpx;
+	char ifname[64], tmp32[32];
+	unsigned long long ipackets, ibytes, opackets, obytes, odrops;
+	struct netif *ifp;
+	struct netif_head *head;
+
+	head = udata;
+	rc = sscanf(buf, "%64[^,],%d,%x,%32[^,],%llu,%llu,%llu,%llu,%llu",
+	            ifname, &tmpd, &tmpx, tmp32,
+	            &ipackets, &ibytes, &opackets, &obytes, &odrops);
+	if (rc != 9) {
+		bad_format(buf);
+		return -EPROTO;
+	}
+	if (interface != NULL && strcmp(interface, ifname)) {
+		return 0;
+	}
+	ifp = get_if(head, ifname);
+	if (ifp == NULL) {
+		ifp = xmalloc(sizeof(*ifp));
+		memset(ifp, 0, sizeof(*ifp));
+		netif_set_name(ifp, ifname);
+		LIST_INSERT_HEAD(head, ifp, list);
+	}
+	ifp->ipackets += ipackets;
+	ifp->ibytes += ibytes;
+	ifp->opackets += opackets;
+	ifp->obytes += obytes;
+	ifp->odrops += odrops;
+	return 0;
+}
+
+static void
+get_ifs(struct netif_head *head)
+{
+	sysctl_list_foreach(GT_SYSCTL_ROUTE_IF_LIST, head, sc_if);
 }
 
 static void
@@ -340,82 +363,8 @@ print_if()
 	free_ifs(&head);
 }
 
-// Connections
-struct conn {
-	int c_fd;
-	int c_proto;
-	int c_state;
-	be32_t c_laddr;
-	be32_t c_faddr;
-	be16_t c_lport;
-	be16_t c_fport;
-	int c_q_len;
-	int c_inc_q_len;
-	int c_q_lim;
-};
-
-static int
-sysctl_sock_list_get(struct conn *cp, int fd)
-{
-	int rc;
-	char path[PATH_MAX];
-	char buf[GT_SYSCTL_BUFSIZ];
-
-	snprintf(path, sizeof(path), "sock.list.%d", fd);
-	rc = xsysctl(path, buf, NULL);
-	if (rc) {
-		return rc;
-	}
-	rc = sscanf(buf,
-	            "%d,%d,%d,"
-	            "%x,%hu,"
-	            "%x,%hu,"
-	            "%d,%d,%d",
-	            &cp->c_fd, &cp->c_proto, &cp->c_state,
-	            &cp->c_laddr, &cp->c_lport,
-	            &cp->c_faddr, &cp->c_fport,
-	            &cp->c_q_len, &cp->c_inc_q_len, &cp->c_q_lim);
-	if (rc != 10) {
-		bad_format(path);
-		return -EPROTO;
-	}
-	cp->c_laddr = htonl(cp->c_laddr);
-	cp->c_faddr = htonl(cp->c_faddr);
-	cp->c_lport = htons(cp->c_lport);
-	cp->c_fport = htons(cp->c_fport);
-	return 0;
-}
-
-static int
-sysctl_sock_list_next(int fd)
-{
-	int rc, next_fd;
-	char *endptr;
-	char path[PATH_MAX];
-	char buf[32];
-
-	snprintf(path, sizeof(path), "sock.list.%d+", fd);
-	rc = xsysctl(path, buf, NULL);
-	if (rc) {
-		return rc;
-	}
-	if (buf[0] == 0) {
-		return -ENOENT;
-	} else if (buf[0] != ',') {
-		goto err;
-	}
-	next_fd = strtoul(buf + 1, &endptr, 10);
-	if (*endptr != 0) {
-		goto err;
-	}
-	return next_fd;
-err:
-	bad_format(path);
-	return -EPROTO;
-}
-
 static void
-print_conn_banner()
+pr_sockets_banner()
 {
 	if (!Lflag) {
 		printf("Active Internet connections");
@@ -434,62 +383,64 @@ print_conn_banner()
 	printf("\n");
 }
 
-void
-print_conn(const char *name, int proto)
+static int
+pr_socket(void *udata, const char *buf)
 {
-	int rc, fd, is_tcp;
+	int rc, fd, proto, state, q_len, inc_q_len, q_lim;
+	uint32_t laddr, faddr;
+	uint16_t lport, fport;
+	const char *name;
 	char buf1[33];
-	struct conn buf, *cp;
+	struct proto *p;
 
-	fd = 0;
-	cp = &buf;
-	is_tcp = proto == IPPROTO_TCP;
-	while (1) {
-		rc = sysctl_sock_list_next(fd);
-		if (rc < 0) {
-			return;
-		}
-		fd = rc;
-		rc = sysctl_sock_list_get(cp, fd);
-		if (rc == -ENOENT) {
-			continue;
-		} else if (rc < 0) {
-			return;
-		}
-		if (proto != cp->c_proto) {
-			continue;
-		}
-		if (cp->c_state == GT_TCP_S_LISTEN) {
-			if (!aflag && !Lflag) {
-				continue;
-			}
-		} else {
-			if (Lflag) {
-				continue;
-			}
-		}
-		printf("%-5.5s ", name);
-		print_sockaddr(cp->c_laddr, cp->c_lport, name, nflag > 1);
-		if (cp->c_state == GT_TCP_S_LISTEN) {
-			snprintf(buf1, sizeof(buf1), "%u/%u/%u",
-			         cp->c_q_len,
-			         cp->c_inc_q_len,
-			         cp->c_q_lim);
-			printf("%-32.32s ", buf1);
-		} else {
-			print_sockaddr(cp->c_faddr, cp->c_fport, name, 1);
-			if (is_tcp) {
-				if (cp->c_state >= GT_TCP_NSTATES) {
-					printf("%-11d", cp->c_state);
-				} else {
-					printf("%-11s", tcpstates[cp->c_state]);
-				}
-			} else {
-				printf("%-11s", "           ");
-			}
-		}
-		printf("\n");
+	p = udata;
+	rc = sscanf(buf,
+	            "%d,%d,%d,"
+	            "%x,%hu,"
+	            "%x,%hu,"
+	            "%d,%d,%d",
+	            &fd, &proto, &state,
+	            &laddr, &lport,
+	            &faddr, &fport,
+	            &q_len, &inc_q_len, &q_lim);
+	if (rc != 10) {
+		bad_format(buf);
+		return -EPROTO;
 	}
+	if (p != NULL && p->pr_ipproto != proto) {
+		return 0;
+	}
+	laddr = htonl(laddr);
+	faddr = htonl(faddr);
+	lport = htons(lport);
+	fport = htons(fport);
+	name = proto == IPPROTO_TCP ? "tcp" : "udp";
+	printf("%-5.5s ", name);
+	pr_sockaddr(laddr, lport, name, nflag > 1);
+	if (state == GT_TCP_S_LISTEN) {
+		snprintf(buf1, sizeof(buf1), "%u/%u/%u",
+			 q_len, inc_q_len, q_lim);
+		printf("%-32.32s ", buf1);
+	} else {
+		pr_sockaddr(faddr, fport, name, 1);
+		if (proto == IPPROTO_TCP) {
+			if (state >= GT_TCP_NSTATES) {
+				printf("%-11d", state);
+			} else {
+				printf("%-11s", tcpstates[state]);
+			}
+		} else {
+			printf("%-11s", "           ");
+		}
+	}
+	printf("\n");
+	return 0;
+}
+
+void
+pr_sockets(struct proto *p)
+{
+	sysctl_list_foreach(GT_SYSCTL_SOCKET_HTABLE, p, pr_socket);
 }
 
 struct stat_entry {
@@ -568,8 +519,9 @@ sysctl_net_stat(const char *name, struct stat_entry *e)
 	char *endptr;
 	char path[PATH_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
+
 	snprintf(path, sizeof(path), "inet.stat.%s.%s", name, e->name);
-	rc = xsysctl(path, buf, NULL);
+	rc = xsysctl(path, buf, zflag ? "0" : NULL);
 	if (rc) {
 		*e->ptr = 0;
 		return rc;
@@ -595,64 +547,168 @@ sysctl_net_stats(const char *name, struct stat_entry *entries)
 void
 tcp_stats()
 {
-	int i;
+	int i, first;
 
 	sysctl_net_stats("tcp", stat_tcp_entries);
 	printf("tcp:\n");
-	printf("\t%llu packets sent\n",	tcps.sndtotal);
-	printf("\t\t%llu data packets (%llu bytes)\n", tcps.sndpack, tcps.sndbyte);
-	printf("\t\t%llu data packets (%llu bytes) retransmitted\n", tcps.sndrexmitpack, tcps.sndrexmitbyte);
+	if (tcps.sndtotal || sflag > 1) {
+		printf("\t%llu packets sent\n",	tcps.sndtotal);
+	}
+	if (tcps.sndpack || tcps.sndbyte || sflag > 1) {
+		printf("\t\t%llu data packets (%llu bytes)\n",
+		       tcps.sndpack, tcps.sndbyte);
+	}
+	if (tcps.sndrexmitpack || tcps.sndrexmitbyte ||sflag > 1) {
+		printf("\t\t%llu data packets (%llu bytes) retransmitted\n",
+		       tcps.sndrexmitpack, tcps.sndrexmitbyte);
+	}
 //	printf("\t\t%llu data packets unnecessarily retransmitted\n", tcps.sndrexmitbad);
 //	printf("\t\t%llu resends initiated by MTU discovery\n", tcps.mturesent);
-	printf("\t\t%llu ack-only packets (%llu delayed)\n", tcps.sndacks, tcps.delack);
-	printf("\t\t%llu URG only packets\n", tcps.sndurg);
-	printf("\t\t%llu window probe packets\n", tcps.sndprobe);
-	printf("\t\t%llu window update packets\n", tcps.sndwinup);
-	printf("\t\t%llu control packets\n", tcps.sndctrl);
+	if (tcps.sndacks || tcps.delack || sflag > 1) {
+		printf("\t\t%llu ack-only packets (%llu delayed)\n",
+		       tcps.sndacks, tcps.delack);
+	}
+	if (tcps.sndurg || sflag > 1) {
+		printf("\t\t%llu URG only packets\n", tcps.sndurg);
+	}
+	if (tcps.sndprobe || sflag > 1) {
+		printf("\t\t%llu window probe packets\n", tcps.sndprobe);
+	}
+	if (tcps.sndwinup || sflag > 1) {
+		printf("\t\t%llu window update packets\n", tcps.sndwinup);
+	}
+	if (tcps.sndctrl || sflag > 1) {
+		printf("\t\t%llu control packets\n", tcps.sndctrl);
+	}
 	// packets received
-	printf("\t%llu packets received\n", tcps.rcvtotal);
-	printf("\t\t%llu acks (for %llu bytes)\n", tcps.rcvackpack, tcps.rcvackbyte);
-	printf("\t\t%llu duplicate acks\n", tcps.rcvdupack);
-	printf("\t\t%llu acks for unsent data\n", tcps.rcvacktoomuch);
-	printf("\t\t%llu packets (%llu bytes) received in-sequence\n", tcps.rcvpack, tcps.rcvbyte);
-	printf("\t\t%llu completely duplicate packets (%llu bytes)\n", tcps.rcvduppack, tcps.rcvdupbyte);
-	printf("\t\t%llu old duplicate packets\n", tcps.pawsdrop);
-	printf("\t\t%llu packets with some dup. data (%llu bytes duped)\n", tcps.rcvpartduppack, tcps.rcvpartdupbyte);
-	printf("\t\t%llu out-of-order packets (%llu bytes)\n", tcps.rcvoopack, tcps.rcvoobyte);
-	printf("\t\t%llu packets (%llu bytes) of data after window\n", tcps.rcvpackafterwin, tcps.rcvbyteafterwin);
-	printf("\t\t%llu window probes\n", tcps.rcvwinprobe);
-	printf("\t\t%llu window update packets\n", tcps.rcvwinupd);
-	printf("\t\t%llu packets received after close\n", tcps.rcvafterclose);
-	printf("\t\t%llu discarded for bad checksums\n", tcps.rcvbadsum);
-	printf("\t\t%llu discarded for bad header offset fields\n", tcps.rcvbadoff);
-	printf("\t\t%llu discarded because packet too short\n", tcps.rcvshort);
-	printf("\t\t%llu discarded due to memory problems\n", tcps.rcvmemdrop);
+	if (tcps.rcvtotal || sflag > 1) {
+		printf("\t%llu packets received\n", tcps.rcvtotal);
+	}
+	if (tcps.rcvackpack || tcps.rcvackbyte || sflag > 1) {
+		printf("\t\t%llu acks (for %llu bytes)\n",
+		       tcps.rcvackpack, tcps.rcvackbyte);
+	}
+	if (tcps.rcvdupack || sflag > 1) {
+		printf("\t\t%llu duplicate acks\n", tcps.rcvdupack);
+	}
+	if (tcps.rcvacktoomuch || sflag > 1) {
+		printf("\t\t%llu acks for unsent data\n", tcps.rcvacktoomuch);
+	}
+	if (tcps.rcvpack || tcps.rcvbyte || sflag > 1) {
+		printf("\t\t%llu packets (%llu bytes) received in-sequence\n",
+		       tcps.rcvpack, tcps.rcvbyte);
+	}
+	if (tcps.rcvduppack || tcps.rcvdupbyte || sflag > 1) {
+		printf("\t\t%llu completely duplicate packets (%llu bytes)\n",
+		       tcps.rcvduppack, tcps.rcvdupbyte);
+	}
+	if (tcps.pawsdrop || sflag > 1) {
+		printf("\t\t%llu old duplicate packets\n", tcps.pawsdrop);
+	}
+	if (tcps.rcvpartduppack || tcps.rcvpartdupbyte || sflag > 1) {
+		printf("\t\t%llu packets with some dup. data (%llu bytes duped)\n",
+		       tcps.rcvpartduppack, tcps.rcvpartdupbyte);
+	}
+	if (tcps.rcvoopack || tcps.rcvoobyte || sflag > 1) {
+		printf("\t\t%llu out-of-order packets (%llu bytes)\n",
+		       tcps.rcvoopack, tcps.rcvoobyte);
+	}
+	if (tcps.rcvpackafterwin || tcps.rcvbyteafterwin || sflag > 1) {
+		printf("\t\t%llu packets (%llu bytes) of data after window\n",
+		       tcps.rcvpackafterwin, tcps.rcvbyteafterwin);
+	}
+	if (tcps.rcvwinprobe || sflag > 1) {
+		printf("\t\t%llu window probes\n", tcps.rcvwinprobe);
+	}
+	if (tcps.rcvwinupd || sflag > 1) {
+		printf("\t\t%llu window update packets\n", tcps.rcvwinupd);
+	}
+	if (tcps.rcvafterclose || sflag > 1) {
+		printf("\t\t%llu packets received after close\n",
+		       tcps.rcvafterclose);
+	}
+	if (tcps.rcvbadsum || sflag > 1) {
+		printf("\t\t%llu discarded for bad checksums\n",
+		       tcps.rcvbadsum);
+	}
+	if (tcps.rcvbadoff || sflag > 1) {
+		printf("\t\t%llu discarded for bad header offset fields\n",
+		       tcps.rcvbadoff);
+	}
+	if (tcps.rcvshort || sflag > 1) {
+		printf("\t\t%llu discarded because packet too short\n",
+		       tcps.rcvshort);
+	}
+	if (tcps.rcvmemdrop || sflag > 1) {
+		printf("\t\t%llu discarded due to memory problems\n",
+		       tcps.rcvmemdrop);
+	}
 	// connection requests
-	printf("\t%llu connection requests\n", tcps.connattempt);
-	printf("\t%llu connection accepts\n", tcps.accepts);
-	printf("\t%llu bad connection attempts\n", tcps.badsyn);
-	printf("\t%llu listen queue overflows\n", tcps.listendrop);
+	if (tcps.connattempt || sflag > 1) {
+		printf("\t%llu connection requests\n", tcps.connattempt);
+	}
+	if (tcps.accepts || sflag > 1) {
+		printf("\t%llu connection accepts\n", tcps.accepts);
+	}
+	if (tcps.badsyn || sflag > 1) {
+		printf("\t%llu bad connection attempts\n", tcps.badsyn);
+	}
+	if (tcps.listendrop || sflag > 1) {
+		printf("\t%llu listen queue overflows\n", tcps.listendrop);
+	}
 //	printf("\t%llu ignored RSTs in the windows\n", tcps.badrst);
-	printf("\t%llu connections established (including accepts)\n", tcps.connects);
+	if (tcps.connects || sflag > 1) {
+		printf("\t%llu connections established (including accepts)\n",
+		       tcps.connects);
+	}
 //	printf("\t\t%llu times used RTT from hostcache\n", tcps.usedrtt);
 //	printf("\t\t%llu times used RTT variance from hostcache\n", tcps.usedrttvar);
 //	printf("\t\t%llu times used slow-start threshold from hostcache\n", tcps.usedssthresh);
-	printf("\t%llu connections closed (including %llu drops)\n", tcps.closed, tcps.drops);
+	if (tcps.closed || tcps.drops || sflag > 1) {
+		printf("\t%llu connections closed (including %llu drops)\n",
+		       tcps.closed, tcps.drops);
+	}
 //	printf("\t\t%llu connections updated cached RTT on close\n", tcps.cachedrtt);
 //	printf("\t\t%llu connections updated cached RTT variance on close\n", tcps.cachedrttvar);
 //	printf("\t\t%llu connections updated cached ssthresh on close\n", tcps.cachedssthresh);
-	printf("\t%llu embryonic connections dropped\n", tcps.conndrops);
-	printf("\t%llu segments updated rtt (of %llu attempts)\n", tcps.rttupdated, tcps.segstimed);
-	printf("\t%llu retransmit timeouts\n", tcps.rexmttimeo);
-	printf("\t\t%llu connections dropped by rexmit timeout\n", tcps.timeoutdrop);
-	printf("\t%llu persist timeouts\n", tcps.persisttimeo);
+	if (tcps.conndrops || sflag > 1) {
+		printf("\t%llu embryonic connections dropped\n",
+		       tcps.conndrops);
+	}
+	if (tcps.rttupdated || tcps.segstimed || sflag > 1) {
+		printf("\t%llu segments updated rtt (of %llu attempts)\n",
+		       tcps.rttupdated, tcps.segstimed);
+	}
+	if (tcps.rexmttimeo || sflag > 1) {
+		printf("\t%llu retransmit timeouts\n", tcps.rexmttimeo);
+	}
+	if (tcps.timeoutdrop || sflag > 1) {
+		printf("\t\t%llu connections dropped by rexmit timeout\n",
+		       tcps.timeoutdrop);
+	}
+	if (tcps.persisttimeo || sflag > 1) {
+		printf("\t%llu persist timeouts\n", tcps.persisttimeo);
+	}
 //	printf("\t\t%llu connections dropped by persist timeout\n", tcps.persistdrop);
 //	printf("\t%llu Connections (fin_wait_2) dropped because of timeout\n", tcps.finwait2_drops);
-	printf("\t%llu keepalive timeouts\n", tcps.keeptimeo);
-	printf("\t\t%llu keepalive probes sent\n", tcps.keepprobe);
-	printf("\t\t%llu connections dropped by keepalive\n", tcps.keepdrops);
-	printf("\t%llu correct ACK header predictions\n", tcps.predack);
-	printf("\t%llu correct data packet header predictions\n", tcps.preddat);
+	if (tcps.keeptimeo || sflag > 1) {
+		printf("\t%llu keepalive timeouts\n", tcps.keeptimeo);
+	}
+	if (tcps.keepprobe || sflag > 1) {
+		printf("\t\t%llu keepalive probes sent\n", tcps.keepprobe);
+	}
+	if (tcps.keepdrops || sflag > 1) {
+		printf("\t\t%llu connections dropped by keepalive\n",
+		       tcps.keepdrops);
+	}
+	if (tcps.predack || sflag > 1) {
+		printf("\t%llu correct ACK header predictions\n",
+		       tcps.predack);
+	}
+	if (tcps.preddat || sflag > 1) {
+		printf("\t%llu correct data packet header predictions\n",
+		       tcps.preddat);
+	}
 //	// syncache
 //	printf("\t%llu syncache entries added\n", tcps.sc_added);
 //	printf("\t\t%llu retransmitted\n", tcps.sc_retransmitted);
@@ -689,9 +745,16 @@ tcp_stats()
 //	printf("\t%llu times failed to make signature due to no SA\n", tcps.sig_err_buildsig);
 //	printf("\t%llu times unexpected signature received\n", tcps.sig_err_sigopt);
 //	printf("\t%llu times no signature provided by segment\n", tcps.sig_err_nosigopt);
-	printf("TCP connection count by state:\n");
+	first = 1;
 	for (i = 0; i < GT_TCP_NSTATES; ++i) {
-		printf("\t%llu connections in %s state\n", tcps.states[i], tcpstates[i]);
+		if (tcps.states[i] || sflag > 1) {
+			if (first) {
+				first = 0;
+				printf("TCP connection count by state:\n");
+			}
+			printf("\t%llu connections in %s state\n",
+			       tcps.states[i], tcpstates[i]);
+		}
 	}
 }
 
@@ -702,14 +765,29 @@ udp_stats()
 
 	sysctl_net_stats("udp", stat_udp_entries);
 	printf("udp:\n");
-	printf("\t%llu datagrams received\n", udps.ipackets);
-	printf("\t%llu with incomplete header\n", udps.hdrops);
-	printf("\t%llu with bad data length field\n", udps.badlen);
-	printf("\t%llu with bad checksum\n", udps.badsum);
-	printf("\t%llu with no checksum\n", udps.nosum);
-	printf("\t%llu dropped due to no socket\n", udps.noport);
+	if (udps.ipackets || sflag > 1) {
+		printf("\t%llu datagrams received\n", udps.ipackets);
+	}
+	if (udps.hdrops || sflag > 1) {
+		printf("\t%llu with incomplete header\n", udps.hdrops);
+	}
+	if (udps.badlen || sflag > 1) {
+		printf("\t%llu with bad data length field\n", udps.badlen);
+	}
+	if (udps.badsum || sflag > 1) {
+		printf("\t%llu with bad checksum\n", udps.badsum);
+	}
+	if (udps.nosum || sflag > 1) {
+		printf("\t%llu with no checksum\n", udps.nosum);
+	}
+	if (udps.noport || sflag > 1) {
+		printf("\t%llu dropped due to no socket\n", udps.noport);
+	}
 //	printf("\t%llu broadcast/multicast datagrams undelivered\n", udps.noportbcast);
-	printf("\t%llu dropped due to full socket buffers\n", udps.fullsock);
+	if (udps.fullsock || sflag > 1) {
+		printf("\t%llu dropped due to full socket buffers\n",
+		       udps.fullsock);
+	}
 //	printf("\t%llu not for hashed pcb\n", udpps_pcbhashmiss);
 	delivered = udps.ipackets -
 	            udps.hdrops -
@@ -718,10 +796,12 @@ udp_stats()
 	            udps.noport -
 //	            udps.noportbcast -
 	            udps.fullsock;
-	if (delivered || sflag <= 1) {
+	if (delivered || sflag > 1) {
 		printf("\t%llu delivered\n", delivered);
 	}
-	printf("\t%llu datagrams output\n", udps.opackets);
+	if (udps.opackets || sflag > 1) {
+		printf("\t%llu datagrams output\n", udps.opackets);
+	}
 }
 
 void
@@ -729,25 +809,64 @@ ip_stats(const char *name, int proto)
 {
 	sysctl_net_stats("ip", stat_ip_entries);
 	printf("ip:\n");
-	printf("\t%llu total packets received\n", ips.total);
-	printf("\t%llu bad header checksums\n", ips.badsum);
-	printf("\t%llu with size smaller than minimum\n", ips.toosmall);
-	printf("\t%llu with data size < data length\n", ips.tooshort);
-	printf("\t%llu with ip length > max ip packet size\n", ips.toolong);
-	printf("\t%llu with header length < data size\n", ips.badhlen);
-	printf("\t%llu with data length < header length\n", ips.badlen);
+	if (ips.total || sflag > 1) {
+		printf("\t%llu total packets received\n", ips.total);
+	}
+	if (ips.badsum || sflag > 1) {
+		printf("\t%llu bad header checksums\n", ips.badsum);
+	}
+	if (ips.toosmall || sflag > 1) {
+		printf("\t%llu with size smaller than minimum\n",
+		       ips.toosmall);
+	}
+	if (ips.tooshort || sflag > 1) {
+		printf("\t%llu with data size < data length\n", ips.tooshort);
+	}
+	if (ips.toolong || sflag > 1) {
+		printf("\t%llu with ip length > max ip packet size\n",
+		       ips.toolong);
+	}
+	if (ips.badhlen || sflag > 1) {
+		printf("\t%llu with header length < data size\n", ips.badhlen);
+	}
+	if (ips.badlen || sflag > 1) {
+		printf("\t%llu with data length < header length\n",
+		       ips.badlen);
+	}
 //	printf("\t%llu with bad options\n", ips.badoptions);
-	printf("\t%llu with incorrect version number\n", ips.badvers);
-	printf("\t%llu fragments received\n", ips.fragments);
-	printf("\t%llu fragments dropped (dup or out of space)\n", ips.fragdropped);
+	if (ips.badvers || sflag > 1) {
+		printf("\t%llu with incorrect version number\n", ips.badvers);
+	}
+	if (ips.fragments || sflag > 1) {
+		printf("\t%llu fragments received\n", ips.fragments);
+	}
+	if (ips.fragdropped || sflag > 1) {
+		printf("\t%llu fragments dropped (dup or out of space)\n",
+		       ips.fragdropped);
+	}
 //	printf("\t%llu fragments dropped after timeout\n", ips.fragtimeout);
 //	printf("\t%llu packets reassembled ok\n", ips.reassembled);
-	printf("\t%llu packets for this host\n", ips.delivered);
-	printf("\t%llu packets for unknown/unsupported protocol\n", ips.noproto);
-	printf("\t%llu packets sent from this host\n", ips.localout);
-	printf("\t%llu output packets discarded due to no route\n", ips.noroute);
-	printf("\t%llu output datagrams fragmented\n", ips.fragmented);
-	printf("\t%llu datagrams that can't be fragmented\n", ips.cantfrag);
+	if (ips.delivered || sflag > 1) {
+		printf("\t%llu packets for this host\n", ips.delivered);
+	}
+	if (ips.noproto || sflag > 1) {
+		printf("\t%llu packets for unknown/unsupported protocol\n",
+		       ips.noproto);
+	}
+	if (ips.localout || sflag > 1) {
+		printf("\t%llu packets sent from this host\n", ips.localout);
+	}
+	if (ips.noroute || sflag > 1) {
+		printf("\t%llu output packets discarded due to no route\n",
+		       ips.noroute);
+	}
+	if (ips.fragmented || sflag > 1) {
+		printf("\t%llu output datagrams fragmented\n", ips.fragmented);
+	}
+	if (ips.cantfrag || sflag > 1) {
+		printf("\t%llu datagrams that can't be fragmented\n",
+		       ips.cantfrag);
+	}
 }
 
 void
@@ -755,22 +874,43 @@ arp_stats()
 {
 	sysctl_net_stats("arp", stat_arp_entries);
 	printf("arp:\n");
-	printf("\t%llu ARP requests sent\n", arps.txrequests);
-	printf("\t%llu ARP replies sent\n", arps.txreplies);
-	printf("\t%llu ARP replies tx dropped\n", arps.txrepliesdropped);
-	printf("\t%llu ARP requests received\n", arps.rxrequests);
-	printf("\t%llu ARP replies received\n", arps.rxreplies);
-	printf("\t%llu ARP packets received\n", arps.received);
-	printf("\t%llu ARP packets bypassed\n", arps.bypassed);
-	printf("\t%llu ARP packets filtered\n", arps.filtered);
-	printf("\t%llu total packets dropped due to no ARP entry\n", arps.dropped);
-	printf("\t%llu ARP entries timed out\n", arps.timeouts);
+	if (arps.txrequests || sflag > 1) {
+		printf("\t%llu ARP requests sent\n", arps.txrequests);
+	}
+	if (arps.txreplies || sflag > 1) {
+		printf("\t%llu ARP replies sent\n", arps.txreplies);
+	}
+	if (arps.txrepliesdropped || sflag > 1) {
+		printf("\t%llu ARP replies tx dropped\n",
+		       arps.txrepliesdropped);
+	}
+	if (arps.rxrequests || sflag > 1) {
+		printf("\t%llu ARP requests received\n", arps.rxrequests);
+	}
+	if (arps.rxreplies || sflag > 1) {
+		printf("\t%llu ARP replies received\n", arps.rxreplies);
+	}
+	if (arps.received || sflag > 1) {
+		printf("\t%llu ARP packets received\n", arps.received);
+	}
+	if (arps.bypassed || sflag > 1) {
+		printf("\t%llu ARP packets bypassed\n", arps.bypassed);
+	}
+	if (arps.filtered || sflag > 1) {
+		printf("\t%llu ARP packets filtered\n", arps.filtered);
+	}
+	if (arps.dropped || sflag > 1) {
+		printf("\t%llu total packets dropped due to no ARP entry\n",
+		       arps.dropped);
+	}
+	if (arps.timeouts || sflag > 1) {
+		printf("\t%llu ARP entries timed out\n", arps.timeouts);
+	}
 //	printf("\t%llu Duplicate IPs seen\n", arps.dupips);
 }
 
 void
-print_sockaddr(be32_t addr, be16_t port,
-               const char *proto, int num_port)
+pr_sockaddr(be32_t addr, be16_t port, const char *proto, int num_port)
 {
 	struct servent *sp = 0;
 	char line[80], *cp;
@@ -783,7 +923,6 @@ print_sockaddr(be32_t addr, be16_t port,
 	if (!num_port && port) {
 		sp = getservbyport(port, proto);
 	}
-
 	if (sp || port == 0) {
 		snprintf(cp, sizeof(line) - alen,
 			"%.15s ", sp ? sp->s_name : "*");
@@ -791,7 +930,6 @@ print_sockaddr(be32_t addr, be16_t port,
 		snprintf(cp, sizeof(line) - alen,
 			"%d ", ntohs(port));
 	}
-
 	width = 22;
 	printf("%-*.*s ", width, width, line);
 }
@@ -841,7 +979,7 @@ static void
 usage(void)
 {
 	printf("%s",
-	"Usage: netstat [-aLn] [--tcp] [--udp] [--ip] [--arp]\n"
+	"Usage: netstat [-avLn] [--tcp] [--udp] [--ip] [--arp]\n"
 	"       netstat -s [-z] [--tcp] [--udp] [--ip] [--arp]\n"
 	"       netstat {-i|-I interface} [-Hb] [-w wait]\n"
 	"\n"
@@ -868,6 +1006,8 @@ main(int argc, char **argv)
 	struct proto *proto, *p;
 	int opt, long_opt;
 
+	gt_init();
+	gt_preload_passthru = 1;
 	proto = NULL;
 	while ((opt = getopt_long(argc, argv, "habHI:iLnsw:z",
 	                          long_opts, &long_opt)) != -1) {
@@ -908,7 +1048,7 @@ main(int argc, char **argv)
 			iflag = 1;
 			break;
 		case 'z':
-			zflag = 1; // TODO: zero stats
+			zflag = 1;
 			break;
 		}
 	}
@@ -916,17 +1056,15 @@ main(int argc, char **argv)
 		print_if();
 		return 0;
 	}
-	if (!sflag) {
-		print_conn_banner();
-	}
-	for (p = protos; p->pr_name != NULL; ++p) {
-		if (proto == NULL || proto == p) {
-			if (sflag) {
+	if (sflag) {
+		for (p = protos; p->pr_name != NULL; ++p) {
+			if (proto == NULL || proto == p) {
 				(*p->pr_stats)(p->pr_name);
-			} else {
-				print_conn(p->pr_name, p->pr_ipproto);
 			}
 		}
+	} else {
+		pr_sockets_banner();
+		pr_sockets(proto);
 	}
 	return 0;
 }

@@ -8,7 +8,7 @@
 
 struct gt_tcpcb;
 
-struct gt_sockcb {
+struct socb {
 	int socb_fd;
 	int socb_flags;
 	int socb_ipproto;
@@ -33,6 +33,7 @@ struct gt_sock {
 		struct {
 			u_int so_err : 4;
 			u_int so_ipproto : 2;
+			u_int so_binded : 1;
 			// TCP
 			u_int so_is_listen : 1;
 			u_int so_passive_open : 1;
@@ -115,7 +116,7 @@ int gt_sock_get_eno(struct gt_sock *so);
 
 short so_get_events(struct file *fp);
 
-void gt_sock_get_sockcb(struct gt_sock *so, struct gt_sockcb *socb);
+void so_get_socb(struct gt_sock *so, struct socb *);
 
 int gt_sock_nread(struct file *fp);
 

@@ -23,7 +23,7 @@ int timer_mod_attach(void *);
 void timer_mod_deinit(void *);
 void timer_mod_detach();
 
-void timer_mod_check();
+void check_timers();
 
 void timer_init(struct timer *);
 int timer_is_running(struct timer *);

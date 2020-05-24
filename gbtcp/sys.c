@@ -233,6 +233,8 @@ sys_pipe(int pipefd[2])
 		rc = -errno;
 		ASSERT(rc);
 		ERR(-rc, "failed;");
+	} else {
+		INFO(0, "pipefd=[%d, %d]", pipefd[0], pipefd[1]);
 	}
 	return rc;
 }

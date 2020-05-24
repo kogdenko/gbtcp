@@ -12,22 +12,12 @@
 #define SYSCTL_PATH GT_PREFIX"/sock"
 #define SYSCTL_CONTROLLER_PATH SYSCTL_PATH"/controller.sock"
 
-#define SYSCTL_FILE_FIRST_FD "file.first_fd"
 #define SYSCTL_CONTROLLER_SERVICE_INIT "controller.service.init"
-#define SYSCTL_ROUTE "route"
 #define SYSCTL_ROUTE_MONITOR "route.monitor"
-#define SYSCTL_ROUTE_RSS_QID "route.rss.qid"
-#define SYSCTL_ROUTE_IF_LIST "route.if.list"
-#define SYSCTL_ROUTE_IF_ADD "route.if.add"
-#define SYSCTL_ROUTE_IF_DEL "route.if.del"
-#define SYSCTL_ROUTE_ADDR_LIST "route.addr.list"
-#define SYSCTL_ROUTE_ROUTE_LIST "route.route.list"
-#define SYSCTL_TCP_FIN_TIMEOUT "tcp.fin_timeout"
 
 #define GT_CTL_INET_RX_CKSUM_OFFLOAD "inet.rx_cksum_offload"
 #define GT_CTL_INET_TX_CKSUM_OFFLOAD "inet.tx_cksum_offload"
 
-#define GT_CTL_SOCK_LIST "sock.list"
 
 struct sysctl_conn {
 	void (*sccn_close_fn)(struct sysctl_conn *);
@@ -38,8 +28,8 @@ struct sysctl_conn {
 
 typedef int (*sysctl_f)(struct sysctl_conn *, void *,
 	const char *, struct strbuf *);
-typedef int (*sysctl_list_next_f)(void *, int);
-typedef int (*sysctl_list_f)(void *, int, const char *, struct strbuf *);
+typedef long long (*sysctl_list_next_f)(void *, long long);
+typedef int (*sysctl_list_f)(void *, long long, const char *, struct strbuf *);
 
 int sysctl_mod_init(void **);
 int sysctl_mod_attach(void *);

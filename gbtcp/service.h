@@ -65,8 +65,6 @@ struct init_hdr {
 	int ih_rss_table[GT_RSS_NQ_MAX];
 };
 
-void proc_init();
-
 int service_mod_init(void **);
 int service_mod_attach(void *);
 void service_mod_deinit(void *);

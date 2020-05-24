@@ -6,7 +6,7 @@
 
 #define API_RETURN(rc) \
 	if (rc < 0) { \
-		gbtcp_errno = -rc; \
+		gt_errno = -rc; \
 		return -1; \
 	} else { \
 		return rc; \

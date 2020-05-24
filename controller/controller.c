@@ -8,7 +8,7 @@ main(int argc, char **argv)
 
 	daemonize = 0;
 	proc_name = "controller";
-	proc_init();
+	gt_init();
 	//log_set_level(LOG_DEBUG);
 	while ((opt = getopt(argc, argv, "n:d")) != -1) {
 		switch (opt) {

@@ -531,15 +531,17 @@ sysctl_route_if_del(struct sysctl_conn *cp, void *udata,
 	return rc;
 }
 
-static int
-sysctl_route_if_list_next(void *udata, int id)
+static long long
+sysctl_route_if_list_next(void *udata, long long id)
 {
 	int rc;
 	struct route_if *ifp;
 
 	rc = -ENOENT;
 	ROUTE_IF_FOREACH(ifp) {
-		if (ifp->rif_index > id) {
+		if (ifp->rif_index == id) {
+			return id;
+		} else if (ifp->rif_index > id) {
 			if (rc < 0 || rc > ifp->rif_index) {
 				rc = ifp->rif_index;
 			}
@@ -549,7 +551,8 @@ sysctl_route_if_list_next(void *udata, int id)
 }
 
 static int
-sysctl_route_if_list(void *udata, int id, const char *new, struct strbuf *out)
+sysctl_route_if_list(void *udata, long long id, const char *new,
+	struct strbuf *out)
 {
 	struct route_if *ifp;
 
@@ -593,8 +596,8 @@ sysctl_route_if_add(struct sysctl_conn *cp, void *udata,
 	return 0;
 }
 
-static int
-sysctl_route_addr_list_next(void *udata, int id)
+static long long
+sysctl_route_addr_list_next(void *udata, long long id)
 {
 	int off;
 	struct route_if *ifp;
@@ -610,7 +613,7 @@ sysctl_route_addr_list_next(void *udata, int id)
 }
 
 static int
-sysctl_route_addr_list(void *udata, int id, const char *new,
+sysctl_route_addr_list(void *udata, long long id, const char *new,
 	struct strbuf *out)
 {
 	int off;
@@ -630,8 +633,8 @@ sysctl_route_addr_list(void *udata, int id, const char *new,
 	return -ENOENT;
 }
 
-static int
-sysctl_route_list_next(void *udata, int id)
+static long long
+sysctl_route_list_next(void *udata, long long id)
 {
 	int rc;
 	struct mbuf *m;
@@ -652,11 +655,13 @@ sysctl_route_list_next(void *udata, int id)
 }
 
 static int
-sysctl_route_list(void *udata, int id, const char *new, struct strbuf *out)
+sysctl_route_list(void *udata, long long id, const char *new,
+	struct strbuf *out)
 {
 	int pfx;
 	uint32_t key;
 	be32_t dst;
+	struct mbuf *m;
 	struct route_entry_long *route;
 
 	if (id == 0) {
@@ -669,8 +674,8 @@ sysctl_route_list(void *udata, int id, const char *new, struct strbuf *out)
 			return -ENOENT;
 		}
 	}
-	route = (struct route_entry_long *)
-		mbuf_get(&curmod->route_pool, id - 1);
+	m = mbuf_get(&curmod->route_pool, id - 1);
+	route = (struct route_entry_long *)m;
 	if (route == NULL) {
 		return -ENOENT;
 	}
@@ -724,16 +729,16 @@ route_mod_init(void **pp)
 	mbuf_pool_init(&mod->route_pool, 0, sizeof(struct route_entry_long));
 	sysctl_add(SYSCTL_ROUTE_MONITOR, SYSCTL_WR,
 	           NULL, NULL, sysctl_route_monitor);
-	sysctl_add_list(SYSCTL_ROUTE_IF_LIST, SYSCTL_WR, NULL,
+	sysctl_add_list(GT_SYSCTL_ROUTE_IF_LIST, SYSCTL_WR, NULL,
 	                sysctl_route_if_list_next, sysctl_route_if_list);
-	sysctl_add(SYSCTL_ROUTE_IF_ADD, SYSCTL_WR,
+	sysctl_add(GT_SYSCTL_ROUTE_IF_ADD, SYSCTL_WR,
 	           NULL, NULL, sysctl_route_if_add);
-	sysctl_add(SYSCTL_ROUTE_IF_DEL, SYSCTL_WR,
+	sysctl_add(GT_SYSCTL_ROUTE_IF_DEL, SYSCTL_WR,
 	           NULL, NULL, sysctl_route_if_del);
-	sysctl_add_list(SYSCTL_ROUTE_ADDR_LIST, SYSCTL_RD, NULL,
+	sysctl_add_list(GT_SYSCTL_ROUTE_ADDR_LIST, SYSCTL_RD, NULL,
 	                sysctl_route_addr_list_next,
 	                sysctl_route_addr_list);
-	sysctl_add_list(SYSCTL_ROUTE_ROUTE_LIST, SYSCTL_RD, NULL,
+	sysctl_add_list(GT_SYSCTL_ROUTE_ROUTE_LIST, SYSCTL_RD, NULL,
 	                sysctl_route_list_next, sysctl_route_list);
 	return 0;
 }
@@ -751,7 +756,7 @@ route_mod_deinit(void *raw_mod)
 	struct route_mod *mod;
 
 	mod = raw_mod;
-	sysctl_del(SYSCTL_ROUTE);
+	sysctl_del(GT_SYSCTL_ROUTE);
 	lptree_deinit(&mod->route_lptree);
 	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);

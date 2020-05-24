@@ -1,7 +1,6 @@
-#include "sys.h"
-#include "log.h"
-#include "strbuf.h"
-#include "gbtcp.h"
+#include "internals.h"
+
+int gt_preload_passthru;
 
 #define SYS_CALL(func, ...) \
 ({ \
@@ -14,20 +13,25 @@
 	rc; \
 })
 
-#define PRELOAD_PASSTHRU(e) ((e) == EBADF || (e) == ENOTSOCK || (e) == ENOTSUP)
+#define PRELOAD_PASSTHRU(e) ((e) == EBADF || (e) == ENOTSOCK)
 
 #define PRELOAD_CALL2(func, return_fd, ...) \
 ({ \
 	ssize_t rc; \
  \
-	rc = gbtcp_##func(__VA_ARGS__); \
-	if (rc == -1) { \
-		if (PRELOAD_PASSTHRU(gbtcp_errno)) { \
-			rc = SYS_CALL(func, ##__VA_ARGS__); \
-			if (return_fd) \
-				rc = preload_return_fd(rc); \
-		} else { \
-			preload_set_errno(gbtcp_errno); \
+	if (gt_preload_passthru) { \
+		rc = SYS_CALL(func, ##__VA_ARGS__); \
+	} else { \
+		rc = gt_##func(__VA_ARGS__); \
+		if (rc == -1) { \
+			if (PRELOAD_PASSTHRU(gt_errno)) { \
+				rc = SYS_CALL(func, ##__VA_ARGS__); \
+				if (return_fd) {\
+					rc = preload_return_fd(rc); \
+				} \
+			} else { \
+				preload_set_errno(gt_errno); \
+			} \
 		} \
 	} \
 	rc; \
@@ -55,7 +59,6 @@
 #define PRELOAD_SEND send
 #define PRELOAD_SENDTO sendto
 #define PRELOAD_SENDMSG sendmsg
-//#define PRELOAD_SENDFILE sendfile
 #define PRELOAD_FCNTL fcntl
 #define PRELOAD_IOCTL ioctl
 #define PRELOAD_GETSOCKOPT getsockopt
@@ -286,15 +289,6 @@ PRELOAD_SENDMSG(int fd, const struct msghdr *msg, int flags)
 	return rc;
 }
 
-size_t
-PRELOAD_SENDFILE(int out_fd, int in_fd, off_t *offset, size_t count)
-{
-	int rc;
-
-	rc = PRELOAD_CALL(sendfile, out_fd, in_fd, offset, count);
-	return rc;
-}
-
 int
 PRELOAD_FCNTL(int fd, int cmd, ...)
 {
@@ -467,13 +461,21 @@ PRELOAD_GETPEERNAME(int fd, struct sockaddr *addr, socklen_t *addrlen)
 gt_sighandler_t 
 PRELOAD_SIGNAL(int signum, gt_sighandler_t fn)
 {
-	gt_sighandler_t res;
+	int rc;
+	struct sigaction act, oldact;
 
-	res = gbtcp_signal(signum, fn);
-	if (res == SIG_ERR) {
-		preload_set_errno(gbtcp_errno);
+	memset(&act, 0, sizeof(act));
+	act.sa_handler = fn;
+	rc = PRELOAD_CALL(sigaction, signum, &act, &oldact);
+	if (rc < 0) {
+		return SIG_ERR;
 	}
-	return res;
+	if (oldact.sa_flags & SA_SIGINFO) {
+		// TODO: ? check how works in OS
+		return (gt_sighandler_t)oldact.sa_sigaction;
+	} else {
+		return oldact.sa_handler;
+	}
 }
 
 int
@@ -482,9 +484,9 @@ PRELOAD_SIGACTION(int signum, const struct sigaction *act,
 {
 	int rc;
 
-	rc = gbtcp_sigaction(signum, act, oldact);
+	rc = gt_sigaction(signum, act, oldact);
 	if (rc == -1) {
-		preload_set_errno(gbtcp_errno);
+		preload_set_errno(gt_errno);
 	}
 	return rc;
 }

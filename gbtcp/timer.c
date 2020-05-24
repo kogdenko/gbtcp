@@ -134,7 +134,7 @@ timer_mod_detach()
 }
 
 static void
-timer_mod_call(struct dlist *queue)
+call_timers(struct dlist *queue)
 {
 	struct timer *timer;
 	timer_f fn;
@@ -178,7 +178,7 @@ timer_ring_check(struct timer_ring *ring, struct dlist *queue)
 }
 
 void
-timer_mod_check()
+check_timers()
 {
 	int i;
 	static uint64_t last_time;
@@ -194,7 +194,7 @@ timer_mod_check()
 		ring = timer_rings[i];
 		timer_ring_check(ring, &queue);
 	}
-	timer_mod_call(&queue);
+	call_timers(&queue);
 }
 
 void

@@ -18,16 +18,22 @@ static int log_fd = -1;
 static int log_stdout_fd = -1;
 static struct log_mod *curmod;
 
+#define ldbg(...) if (debug) dbg(__VA_ARGS__)
+
 static int
 log_is_stdout(int force_stdout, int debug)
 {
 	if (log_stdout_fd < 0) {
+		ldbg("a");
 		return 0;
 	} else if (force_stdout) {
+		ldbg("b");
 		return 1;
 	} else if (curmod != NULL) {
+		ldbg("c");
 		return curmod->log_stdout;
 	} else {
+		ldbg("d");
 		return log_early_stdout;
 	}
 }
@@ -179,11 +185,10 @@ log_mod_deinit(void *raw_mod)
 void
 log_mod_detach()
 {
-	sys_close(log_stdout_fd);
-	log_stdout_fd = -1;
 	log_fclose();
 	curmod = NULL;
 }
+
 void
 log_scope_init_early(struct log_scope *scope, const char *name)
 {
@@ -193,6 +198,7 @@ log_scope_init_early(struct log_scope *scope, const char *name)
 	scope->lgs_name_len = strlen(scope->lgs_name);
 	ASSERT(scope->lgs_name_len);
 }
+
 void
 log_scope_init(struct log_scope *scope, const char *name)
 {

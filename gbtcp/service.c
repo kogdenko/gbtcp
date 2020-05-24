@@ -1,7 +1,6 @@
 // GPL2 license
 #include "internals.h"
 
-
 struct service_mod {
 	struct log_scope log_scope;
 };
@@ -56,7 +55,7 @@ service_mod_detach()
 }
 
 void
-proc_init()
+gt_init()
 {
 	dlsym_all();
 	rd_nanoseconds();
@@ -129,7 +128,7 @@ service_start_controller(const char *p_comm)
 	} else if (rc == 0) {
 		sys_close(pipe_fd[0]);
 		rc = controller_init(1, p_comm);
-		send_full_buf(pipe_fd[1], &rc, sizeof(rc), MSG_NOSIGNAL);
+		write_full_buf(pipe_fd[1], &rc, sizeof(rc));
 		sys_close(pipe_fd[1]);
 		if (rc == 0) {
 			controller_loop();
@@ -256,13 +255,13 @@ service_init()
 		spinlock_unlock(&service_init_lock);
 		return 0;
 	}
-	proc_init();
-	INFO(0, "hit;");
+	gt_init();
+	ERR(0, "hit;");
 	rc = service_init_locked();
 	if (rc) {
 		ERR(-rc, "failed;");
 	} else {
-		INFO(0, "ok; current=%p", current);
+		ERR(0, "ok; current=%p", current);
 	}
 	spinlock_unlock(&service_init_lock);
 	return rc;

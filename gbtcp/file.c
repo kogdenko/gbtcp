@@ -40,7 +40,7 @@ file_mod_init(void **pp)
 		mod = *pp;
 		log_scope_init(&mod->log_scope, "file");
 		mod->file_first_fd = FD_SETSIZE / 2;
-		sysctl_add_int(SYSCTL_FILE_FIRST_FD, SYSCTL_LD,
+		sysctl_add_int(GT_SYSCTL_FILE_FIRST_FD, SYSCTL_LD,
 			       &mod->file_first_fd, 3, 1024 * 1024);
 	}
 	return rc;
@@ -66,7 +66,7 @@ file_mod_deinit(void *raw_mod)
 	struct file_mod *mod;
 
 	mod = raw_mod;
-	sysctl_del(SYSCTL_FILE_FIRST_FD);
+	sysctl_del(GT_SYSCTL_FILE_FIRST_FD);
 	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);
 }

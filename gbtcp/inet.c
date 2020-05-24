@@ -101,7 +101,7 @@ sysctl_add_inet_stat(const char *proto, const char *name, uintptr_t off)
 	char path[PATH_MAX];
 
 	snprintf(path, sizeof(path), "inet.stat.%s.%s", proto, name);
-	sysctl_add(path, SYSCTL_RD, (void *)off, NULL, sysctl_inet_stat);
+	sysctl_add(path, SYSCTL_WR, (void *)off, NULL, sysctl_inet_stat);
 }
 
 static void

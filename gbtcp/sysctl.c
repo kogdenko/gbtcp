@@ -20,7 +20,7 @@ struct sysctl_int_data {
 	long long i_max;
 };
 
-struct sysctl_list_data {
+struct sysctl_list_udata {
 	sysctl_list_next_f l_next_fn;
 	sysctl_list_f l_fn;
 };
@@ -44,9 +44,11 @@ struct sysctl_node {
 	void (*n_free_fn)(void *);
 	char n_name[SYSCTL_NODE_NAME_MAX];
 	union {
-		struct sysctl_int_data n_int_data;
-		struct sysctl_list_data n_list_data;
+		struct sysctl_int_data nud_int_data;
+		struct sysctl_list_udata nud_list_data;
 	} n_udata_buf;
+#define n_int_udata n_udata_buf.nud_int_data
+#define n_list_udata n_udata_buf.nud_list_data
 };
 
 static struct sysctl_node *sysctl_root;
@@ -57,13 +59,13 @@ static int sysctl_node_alloc(struct sysctl_node **,
 
 static void sysctl_node_del(struct sysctl_node *node);
 
-static int sysctl_node_in_list(struct sysctl_node *,
+static int sysctl_list_handler(struct sysctl_node *,
 	const char *, const char *, struct strbuf *);
 
-static int sysctl_node_in_branch(struct sysctl_node *,
+static int sysctl_branch_handler(struct sysctl_node *,
 	const char *, struct strbuf *);
 
-static int sysctl_node_in_leaf(struct sysctl_conn *, struct sysctl_node *,
+static int sysctl_handler(struct sysctl_conn *, struct sysctl_node *,
 	const char *, struct strbuf *);
 
 static int sysctl_process_events(void *udata, short revents);
@@ -464,7 +466,7 @@ sysctl_node_del(struct sysctl_node *node)
 
 
 static int
-sysctl_node_in(struct sysctl_conn *cp,
+sysctl_process_node(struct sysctl_conn *cp,
 	struct sysctl_node *node, char *tail, int load,
 	const char *new, struct strbuf *out)
 {
@@ -500,62 +502,61 @@ sysctl_node_in(struct sysctl_conn *cp,
 	}
 	len = out->sb_len;
 	if (node->n_is_list) {
-		rc = sysctl_node_in_list(node, tail, new, out);
+		rc = sysctl_list_handler(node, tail, new, out);
 	} else if (node->n_fn == NULL) {
-		rc = sysctl_node_in_branch(node, tail, out);
+		rc = sysctl_branch_handler(node, tail, out);
 	} else {
 		if (tail[0] != '\0') {
-			rc = 1;
+			rc = -ENOENT;
 		} else {
-			rc = sysctl_node_in_leaf(cp, node, new, out);
+			rc = sysctl_handler(cp, node, new, out);
 		}
 	}
-	if (rc == 1) {
-		return -ENOENT;
-	}
 	if (rc < 0) {
+		// Repair old in error case
 		out->sb_len = len;
 	}
 	return rc;
 }
 
 static int
-sysctl_node_in_list(struct sysctl_node *node, const char *tail,
+sysctl_list_handler(struct sysctl_node *node, const char *tail,
 	const char *new, struct strbuf *out)
 {
-	int rc, id;
+	int rc;
+	long long id, next_id;
 	char *endptr;
-	struct sysctl_list_data *data;
+	struct sysctl_list_udata *udata;
 
-	data = &node->n_udata_buf.n_list_data;
+	udata = &node->n_list_udata;
 	if (tail[0] == '\0') {
 		id = 0;
 		goto next;
 	}
-	id = strtoul(tail, &endptr, 10);
+	id = strtoll(tail, &endptr, 10);
 	switch (*endptr) {
 	case '\0':
-		rc = (data->l_fn)(node->n_udata, id, new, out);
-		ASSERT3(0, rc <= 0, "%s", sysctl_log_add_node(node));
+		rc = (*udata->l_fn)(node->n_udata, id, new, out);
 		return rc;
 	case '+':
 		if (*(endptr + 1) != '\0') {
-			return 1;
+			return -ENOENT;
 		}
 		id++;
-next:
-		rc = (*data->l_next_fn)(node->n_udata, id);
-		if (rc >= 0) {
-			strbuf_addf(out, ",%d", rc);
-		}
-		return 0;
+		break;
 	default:
-		return 1;
+		return -ENOENT;
 	}
+next:
+	next_id = (*udata->l_next_fn)(node->n_udata, id);
+	if (next_id >= 0) {
+		strbuf_addf(out, ",%lld", next_id);
+	}
+	return 0;
 }
 
 static int
-sysctl_node_in_branch(struct sysctl_node *node, const char *tail,
+sysctl_branch_handler(struct sysctl_node *node, const char *tail,
 	struct strbuf *out)
 {
 	int len;
@@ -584,7 +585,7 @@ sysctl_node_in_branch(struct sysctl_node *node, const char *tail,
 }
 
 static int
-sysctl_node_in_leaf(struct sysctl_conn *cp, struct sysctl_node *node,
+sysctl_handler(struct sysctl_conn *cp, struct sysctl_node *node,
 	const char *new, struct strbuf *out)
 {
 	int rc, off;
@@ -593,7 +594,7 @@ sysctl_node_in_leaf(struct sysctl_conn *cp, struct sysctl_node *node,
 	off = out->sb_len;
 	rc = (*node->n_fn)(cp, node->n_udata, new, out);
 	if (rc < 0) {
-		ERR(-rc, "handler failed; path='%s', new='%s'",
+		ERR(-rc, "failed; path='%s', new='%s'",
 		    sysctl_log_add_node(node), new);
 		return rc;
 	}
@@ -827,7 +828,7 @@ sysctl_in(struct sysctl_conn *cp,
 
 	rc = sysctl_node_find(path, &node, &tail);
 	if (rc == 0) {
-		rc = sysctl_node_in(cp, node, tail, load, new, out);
+		rc = sysctl_process_node(cp, node, tail, load, new, out);
 	}
 	return rc;
 }
@@ -886,7 +887,7 @@ sysctl_add_int_union(const char *path, int mode, void *ptr,
 	ASSERT(min <= max);
 	sysctl_add6(path, mode, NULL, NULL,
 	            sysctl_node_in_int, &node);
-	data = &node->n_udata_buf.n_int_data;
+	data = &node->n_int_udata;
 	node->n_udata = data;
 	data->i_ptr = ptr;
 	data->i_min = min;
@@ -927,14 +928,14 @@ sysctl_add_list(const char *path, int mode,
 	void *udata, sysctl_list_next_f next_fn, sysctl_list_f fn)
 {
 	struct sysctl_node *node;
-	struct sysctl_list_data *data;
+	struct sysctl_list_udata *list_udata;
 
 	sysctl_add6(path, mode, NULL, NULL, NULL, &node);
 	node->n_is_list = 1;
-	data = &node->n_udata_buf.n_list_data;
+	list_udata = &node->n_list_udata;
 	node->n_udata = udata;
-	data->l_next_fn = next_fn;
-	data->l_fn = fn;
+	list_udata->l_next_fn = next_fn;
+	list_udata->l_fn = fn;
 }
 
 int
@@ -1130,12 +1131,7 @@ int
 gt_sysctl(const char *path, char *old, const char *new)
 {
 	int rc;
-	static int inited;
 
-	if (!inited) {
-		inited = 1;
-		proc_init();
-	}
 	INFO(0, "hit; path='%s'", path);
 	rc = sysctl_req_safe(path, old, new);
 	if (rc < 0) {

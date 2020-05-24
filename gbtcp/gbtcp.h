@@ -36,6 +36,17 @@
 #define GT_SERVICE_COUNT_MAX 128
 #define GT_GROUP_NAME "gbtcp"
 
+#define GT_SYSCTL_FILE_FIRST_FD "file.first_fd"
+#define GT_SYSCTL_ROUTE "route"
+#define GT_SYSCTL_ROUTE_RSS_QID "route.rss.qid"
+#define GT_SYSCTL_ROUTE_IF_LIST "route.if.list"
+#define GT_SYSCTL_ROUTE_IF_ADD "route.if.add"
+#define GT_SYSCTL_ROUTE_IF_DEL "route.if.del"
+#define GT_SYSCTL_ROUTE_ADDR_LIST "route.addr.list"
+#define GT_SYSCTL_ROUTE_ROUTE_LIST "route.route.list"
+#define GT_SYSCTL_TCP_FIN_TIMEOUT "tcp.fin_timeout"
+#define GT_SYSCTL_SOCKET_HTABLE "socket.htable"
+
 #define GT_TCP_STAT(x) \
 	x(sndtotal) \
 	x(sndpack) \
@@ -151,98 +162,50 @@ typedef void (*gt_sighandler_t)(int);
 //typedef __sighandler_t gt_sighandler_t;
 //#endif /* __linux__ */
 
-extern __thread int gbtcp_errno;
+extern __thread int gt_errno;
+extern int gt_preload_passthru;
 
-pid_t gbtcp_fork();
-
-pid_t gbtcp_vfork();
-
-int gbtcp_socket(int domain, int type, int protocol);
-
-int gbtcp_connect(int fd, const struct sockaddr *addr, socklen_t addrlen);
-
-int gbtcp_bind(int fd, const struct sockaddr *addr, socklen_t addrlen);
-
-int gbtcp_listen(int fd, int backlog);
-
-int gbtcp_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen,
-	int flags);
-
-int gbtcp_shutdown(int fd, int how);
-
-int gbtcp_close(int fd);
-
-ssize_t gbtcp_read(int fd, void *buf, size_t count);
-
-ssize_t gbtcp_readv(int fd, const struct iovec *iov, int iovcnt);
-
-ssize_t gbtcp_recv(int fd, void *buf, size_t len, int flags);
-
-ssize_t gbtcp_recvfrom(int fd, void *buf, size_t len, int flags,
-	struct sockaddr *src_addr, socklen_t *addrlen);
-
-ssize_t gbtcp_recvmsg(int fd, struct msghdr *msg, int flags);
-
-ssize_t gbtcp_write(int fd, const void *buf, size_t count);
-
-ssize_t gbtcp_writev(int fd, const struct iovec *iov, int iovcnt);
-
-ssize_t gbtcp_send(int fd, const void *buf, size_t len, int flags);
-
-ssize_t gbtcp_sendto(int fd, const void *buf, size_t len, int flags,
-	const struct sockaddr *dest_addr, socklen_t addrlen);
-
-ssize_t gbtcp_sendmsg(int fd, const struct msghdr *msg, int flags);
-
-ssize_t gbtcp_sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
-
-int gbtcp_fcntl(int fd, int cmd, uintptr_t arg);
-
-int gbtcp_ioctl(int fd, unsigned long request, uintptr_t arg);
-
-int gbtcp_getsockopt(int fd, int level, int optname,
-	void *optval, socklen_t *optlen);
-
-int gbtcp_setsockopt(int fd, int level, int optname,
-	const void *optval, socklen_t optlen);
-
-int gbtcp_getsockname(int fd, struct sockaddr *addr, socklen_t *addrlen);
-
-int gbtcp_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen);
-
-int gbtcp_poll(struct pollfd *fds, nfds_t nfds, int timeout);
-
-int gbtcp_ppoll(struct pollfd *fds, nfds_t nfds,
-	const struct timespec *timeout_ts, const sigset_t *sigmask);
-
+pid_t gt_fork();
+int gt_socket(int, int, int);
+int gt_connect(int, const struct sockaddr *, socklen_t);
+int gt_bind(int, const struct sockaddr *, socklen_t);
+int gt_listen(int, int);
+int gt_accept4(int, struct sockaddr *, socklen_t *, int);
+int gt_shutdown(int, int);
+int gt_close(int);
+ssize_t gt_read(int, void *, size_t);
+ssize_t gt_readv(int, const struct iovec *, int);
+ssize_t gt_recv(int, void *, size_t, int);
+ssize_t gt_recvfrom(int, void *, size_t, int, struct sockaddr *, socklen_t *);
+ssize_t gt_recvmsg(int, struct msghdr *, int);
+ssize_t gt_write(int, const void *, size_t);
+ssize_t gt_writev(int, const struct iovec *, int);
+ssize_t gt_send(int, const void *, size_t, int);
+ssize_t gt_sendto(int, const void *, size_t, int,
+	const struct sockaddr *, socklen_t);
+ssize_t gt_sendmsg(int, const struct msghdr *, int);
+int gt_fcntl(int, int, uintptr_t);
+int gt_ioctl(int, unsigned long, uintptr_t);
+int gt_getsockopt(int, int, int, void *, socklen_t *);
+int gt_setsockopt(int, int, int, const void *, socklen_t);
+int gt_getpeername(int, struct sockaddr *, socklen_t *);
+int gt_poll(struct pollfd *, nfds_t, int);
+int gt_ppoll(struct pollfd *, nfds_t, const struct timespec *,
+	const sigset_t *);
 int gt_sysctl(const char *, char *, const char *);
-
+void gt_init();
 int gt_first_fd();
-
-gt_sighandler_t gbtcp_signal(int signum, gt_sighandler_t new_sa_handler);
-
-int gbtcp_sigaction(int signum, const struct sigaction *act,
-	struct sigaction *oldact);
+int gt_sigaction(int, const struct sigaction *,	struct sigaction *);
 
 #ifdef __linux__
-
-int gbtcp_clone(int (*fn)(void *), void *child_stack,
-	int flags, void *arg, void *ptid, void *tls, void *ctid);
-
-int gbtcp_epoll_create1(int);
-
-int gbtcp_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
-
-int gbtcp_epoll_pwait(int epfd, struct epoll_event *events,
-	int maxevents, int timeout, const sigset_t *sigmask);
-
+int gt_clone(int (*)(void *), void *, int, void *, void *, void *, void *);
+int gt_epoll_create1(int);
+int gt_epoll_ctl(int, int, int, struct epoll_event *);
+int gt_epoll_pwait(int, struct epoll_event *, int, int, const sigset_t *);
 #else /* __linux__ */
-
-int gbtcp_kqueue();
-
-int gbtcp_kevent(int, const struct kevent *, int, struct kevent *, int,
+int gt_kqueue();
+int gt_kevent(int, const struct kevent *, int, struct kevent *, int,
 	const struct timespec *);
-
 #endif /* __linux__ */
 
 #ifndef gt_dbg
