@@ -9,6 +9,7 @@ static struct service *services[GT_SERVICE_COUNT_MAX];
 static int nservices;
 static struct sysctl_conn *controller_listen;
 static int controller_pid_fd = -1;
+static int controller_done;
 
 struct init_hdr *ih;
 
@@ -249,6 +250,9 @@ controller_service_del(struct service *s)
 		}
 		ASSERT(i < nservices);
 		services[i] = services[--nservices];
+		if (!nservices) {
+			controller_done = 1;
+		}
 	}
 	if (s->p_rss_nq) {
 		controller_balance_get(&new, NULL);
@@ -267,15 +271,19 @@ controller_service_del(struct service *s)
 }
 
 static void
-controller_service_add(struct service *s, int pid)
+controller_service_add(struct service *s, int pid, struct sysctl_conn *cp)
 {
+	int fd;
+
 	ASSERT(s != controller);
 	ASSERT(nservices < ARRAY_SIZE(services));
-	NOTICE(0, "hit; pid=%d", pid);
+	fd = sysctl_conn_fd(cp);
+	NOTICE(0, "hit; pid=%d, fd=%d", pid, fd);
 	services[nservices++] = s;
 	s->p_pid = pid;
 	s->p_dirty_rss_table = 0;
 	s->p_rss_nq = 0;
+	s->p_fd = fd;
 	if (controller->p_rss_nq) {
 		ASSERT(nservices == 1);
 		controller_service_del(controller);
@@ -353,7 +361,7 @@ static int
 sysctl_controller_service_init(struct sysctl_conn *cp, void *udata,
 	const char *new, struct strbuf *old)
 {
-	int i, fd, pid;
+	int i, pid;
 	struct service *s;
 
 	if (new == NULL) {
@@ -370,13 +378,41 @@ sysctl_controller_service_init(struct sysctl_conn *cp, void *udata,
 	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
 		s = ih->ih_services + i;
 		if (s->p_pid == 0) {
-			controller_service_add(s, pid);
-			fd = sysctl_conn_fd(cp);
-			s->p_fd = fd;
+			controller_service_add(s, pid, cp);
 			return 0;
 		}
 	}
 	return -ENOENT;
+}
+
+static long long
+sysctl_controller_service_list_next(void *udata, long long id)
+{
+	int i;
+
+	for (i = id < 1 ? 1 : id; i < ARRAY_SIZE(ih->ih_services); ++i) {
+		if (ih->ih_services[i].p_pid) {
+			return i;
+		}
+	}
+	return -ENOENT;
+}
+
+static int
+sysctl_controller_service_list(void *udata, long long id, const char *new,
+	struct strbuf *out)
+{
+	struct service *s;
+
+	if (id < 1 || id >= ARRAY_SIZE(ih->ih_services)) {
+		return -ENOENT;
+	}
+	s = ih->ih_services + id;
+	if (!s->p_pid) {
+		return -ENOENT;
+	}
+	strbuf_addf(out, "%d,%d,%u", s->p_pid, s->p_rss_nq, s->p_pps);
+	return 0;
 }
 
 static void
@@ -448,7 +484,7 @@ controller_init(int daemonize, const char *p_comm)
 	uint64_t hz;
 	struct service *s;
 
-	api_locked = 1;
+	gt_preload_passthru = 1;
 	ih = NULL;
 	if (daemonize) {
 		rc = sys_daemon(0, 1);
@@ -501,6 +537,7 @@ controller_init(int daemonize, const char *p_comm)
 	}
 	current = controller;
 	current->p_pid = pid;
+	strzcpy(current->p_comm, "controller", sizeof(current->p_comm));
 	rc = mod_foreach_mod_attach(ih);
 	if (rc) {
 		goto err;
@@ -510,8 +547,11 @@ controller_init(int daemonize, const char *p_comm)
 	if (rc) {
 		goto err;
 	}
-	sysctl_add(SYSCTL_CONTROLLER_SERVICE_INIT, SYSCTL_WR,
-	           NULL, NULL, sysctl_controller_service_init);
+	sysctl_add(SYSCTL_CONTROLLER_SERVICE_INIT, SYSCTL_WR, NULL, NULL,
+	           sysctl_controller_service_init);
+	sysctl_add_list(GT_SYSCTL_CONTROLLER_SERVICE_LIST, SYSCTL_RD, NULL,
+	                sysctl_controller_service_list_next,
+	                sysctl_controller_service_list);
 	NOTICE(0, "ok; pid=%d", pid);
 	return 0;
 err:
@@ -537,7 +577,7 @@ err:
 void
 controller_loop()
 {
-	while (1) {
+	while (!controller_done) {
 		wait_for_fd_events();
 	}
 }

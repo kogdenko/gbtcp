@@ -132,7 +132,7 @@ epoll_entry_free(struct epoll_entry *e)
 }
 
 static void
-epoll_trigger(struct file_aio *aio, int fd, short revents)
+epoll_handler(struct file_aio *aio, int fd, short revents)
 {
 	struct epoll_entry *e;
 	struct epoll *ep;
@@ -158,7 +158,7 @@ epoll_entry_set(struct epoll_entry *e, struct gt_sock *so, short filter)
 			epoll_entry_untrigger(e);
 		}
 		e->e_revents = 0;
-		file_aio_set(&so->so_file, &e->e_aio, filter, epoll_trigger);
+		file_aio_set(&so->so_file, &e->e_aio, filter, epoll_handler);
 	}
 }
 
@@ -170,6 +170,7 @@ epoll_entry_get_event(struct epoll_entry *e, struct gt_sock *so,
 	short x, y;
 
 	x = e->e_revents;
+	ASSERT(x);
 	y = 0;
 	if (x & POLLERR) {
 		y |= EPOLLERR;
@@ -183,6 +184,7 @@ epoll_entry_get_event(struct epoll_entry *e, struct gt_sock *so,
 	if (x & POLLOUT) {
 		y |= EPOLLOUT;
 	}
+	ASSERT(y);
 	event->events = y;
 	event->data.u64 = e->e_udata_u64;
 }
@@ -243,11 +245,11 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 	struct gt_sock *so;
 	struct epoll_entry *e, *tmp;
 
-	if (cnt <= 0) {
-		return 0;
-	}
 	n = 0;
 	DLIST_FOREACH_SAFE(e, &ep->ep_triggered, e_list, tmp) {
+		if (n == cnt) {
+			break;
+		}
 		if ((e->e_flags & EPOLL_FLAG_ENABLED) == 0) {
 			continue;
 		}
@@ -273,9 +275,6 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 			epoll_entry_free(e);
 		}
 		n++;
-		if (n == cnt) {
-			break;
-		}
 	}
 	return n;
 }
@@ -424,9 +423,6 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 		return rc;
 	}
 	n = epoll_read_triggered(ep, buf, cnt);
-	if (n) {
-		return n;
-	}
 	pfds[0].fd = ep->ep_fd;
 	pfds[0].events = POLLIN;
 	set.fdes_to = to;

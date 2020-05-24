@@ -123,9 +123,8 @@ service_start_controller(const char *p_comm)
 		return rc;
 	}
 	rc = sys_fork();
-	if (rc < 0) {
-		return rc;
-	} else if (rc == 0) {
+	if (rc == 0) {
+		sys_close(service_sysctl_fd);
 		sys_close(pipe_fd[0]);
 		rc = controller_init(1, p_comm);
 		write_full_buf(pipe_fd[1], &rc, sizeof(rc));
@@ -133,11 +132,12 @@ service_start_controller(const char *p_comm)
 		if (rc == 0) {
 			controller_loop();
 		}
-		return rc;
+		exit(EXIT_SUCCESS);
+	} else if (rc > 0) {
+		rc = wait_controller_init(pipe_fd);
+		sys_close(pipe_fd[0]);
+		sys_close(pipe_fd[1]);
 	}
-	rc = wait_controller_init(pipe_fd);
-	sys_close(pipe_fd[0]);
-	sys_close(pipe_fd[1]);
 	return rc;
 }
 

@@ -6,7 +6,7 @@ struct fd_event_mod {
 
 uint64_t gt_fd_event_epoch;
 
-static uint64_t last_check_time;
+static uint64_t fd_event_last_check_time;
 static int fd_event_nused;
 static int gt_fd_event_in_cb;
 static struct fd_event *gt_fd_event_used[FD_EVENTS_MAX];
@@ -67,11 +67,18 @@ fd_event_mod_detach()
 }
 
 void
-check_fd_events()
+check_fd_events(int force)
 {
+	uint64_t dt;
 	struct gt_fd_event_set set;
 	struct pollfd pfds[FD_EVENTS_MAX];
 
+	if (!force) {
+		dt = nanoseconds - fd_event_last_check_time;
+		if (dt < FD_EVENT_TIMEOUT) {
+			return;
+		}
+	}
 	do {
 		set.fdes_to = 0;
 		gt_fd_event_set_init(&set, pfds);
@@ -95,8 +102,8 @@ wait_for_fd_events()
 }
 
 int
-gt_fd_event_new(struct fd_event **pe,
-	int fd, const char *name, fd_event_f fn, void *udata)
+fd_event_new(struct fd_event **pe, int fd, const char *name,
+	fd_event_f fn, void *udata)
 {
 	int i, id;
 	struct fd_event *e;
@@ -137,7 +144,7 @@ gt_fd_event_new(struct fd_event **pe,
 	gt_fd_event_used[e->fde_id] = e;
 	fd_event_nused++;
 	*pe = e;
-	DBG(0, "ok; event='%s'", e->fde_name);
+	INFO(0, "ok; event='%s', fd=%d", e->fde_name, e->fde_fd);
 	return 0;
 }
 
@@ -146,7 +153,7 @@ gt_fd_event_free(struct fd_event *e)
 {
 	struct fd_event *last;
 
-	DBG(0, "hit; event='%s'", e->fde_name);
+	INFO(0, "hit; event='%s'", e->fde_name);
 	ASSERT(e->fde_id < fd_event_nused);
 	if (e->fde_id != fd_event_nused - 1) {
 		last = gt_fd_event_used[fd_event_nused - 1];
@@ -174,7 +181,7 @@ void
 gt_fd_event_del(struct fd_event *e)
 {
 	if (e != NULL) {
-		DBG(0, "hit; event='%s'", e->fde_name);
+		INFO(0, "hit; event='%s'", e->fde_name);
 		ASSERT(fd_event_nused);
 		ASSERT(e->fde_fd != -1);
 		ASSERT(e->fde_id < fd_event_nused);
@@ -291,7 +298,7 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 	}
 	gt_fd_event_in_cb = 0;
 	if (set->fdes_again == 0) {
-		last_check_time = nanoseconds;
+		fd_event_last_check_time = nanoseconds;
 	}
 	return n;
 }

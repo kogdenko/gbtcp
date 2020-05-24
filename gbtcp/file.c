@@ -263,7 +263,7 @@ struct file_wait_data {
 };
 
 static void
-file_wait_cb(struct file_aio *aio, int fd, short revents)
+file_handler(struct file_aio *aio, int fd, short revents)
 {
 	struct file_wait_data *data;
 
@@ -279,7 +279,7 @@ file_wait(struct file *fp, short events)
 	mbuf_init(&data.w_aio.faio_mbuf);
 	file_aio_init(&data.w_aio);
 	data.w_revents = 0;
-	file_aio_set(fp, &data.w_aio, events, file_wait_cb);
+	file_aio_set(fp, &data.w_aio, events, file_handler);
 	do {
 		wait_for_fd_events();
 	} while (data.w_revents == 0);

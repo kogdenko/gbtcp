@@ -261,6 +261,7 @@ event_queue_wait(int eq_fd, int to_ms)
 	for (i = 0; i < n; ++i) {
 		e = events + i;
 		revents = 0;
+		assert(e->events);
 		if (e->events & EPOLLIN) {
 			revents |= POLLIN;
 		}
@@ -269,6 +270,9 @@ event_queue_wait(int eq_fd, int to_ms)
 		}
 		if (e->events & (EPOLLERR|EPOLLHUP|EPOLLRDHUP)) {
 			revents |= POLLERR;	
+		}
+		if (!revents) {
+			printf("! %x\n", e->events);
 		}
 		assert(revents);
 		rc = on_event(eq_fd, (union my_data *)&e->data, revents);

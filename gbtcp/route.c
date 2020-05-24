@@ -499,7 +499,7 @@ route_monitor_start()
 	if (rc < 0) {
 		goto err;
 	}
-	rc = gt_fd_event_new(&route_monitor_event, route_monfd,
+	rc = fd_event_new(&route_monitor_event, route_monfd,
 	                     "route_monitor", route_monitor_handler, NULL);
 	if (rc) {
 		goto err;

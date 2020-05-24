@@ -28,6 +28,8 @@ api_lock()
 		API_RETURN(-EBADF);
 	}
 	if (api_locked) {
+		// Called inside api function.
+		// netmap call ioctl inside nm_open.
 		API_RETURN(-EBADF);
 	}
 	api_locked++;
@@ -37,7 +39,7 @@ api_lock()
 			return 0;
 		} else {
 			api_locked--;
-			API_RETURN(-EBADF);
+			API_RETURN(-ECANCELED);
 		}
 	}
 	SERVICE_LOCK;
@@ -47,15 +49,9 @@ api_lock()
 static inline void
 api_unlock()
 {
-	static uint64_t last_check_time;
-	uint64_t dt;
-
 	api_locked--;
 	if (current != NULL) {
-		dt = nanoseconds - last_check_time;
-		if (dt >= FD_EVENT_TIMEOUT) {
-			check_fd_events();
-		}
+		check_fd_events(0);
 		SERVICE_UNLOCK;
 	}
 	
@@ -345,17 +341,16 @@ gt_shutdown(int fd, int how)
 int
 api_close(int fd)
 {
-/*	int rc;
-	struct gt_sock *so;
+	int rc;
+	struct file *fp;
 
-	rc = sock_get(fd, &so);
+	rc = file_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
-	log = log_trace0();
-	DBG(log, 0, "hit; fd=%d", fd);
-	file_close(fp, GT_SOCK_GRACEFULL);
-	DBG(log, 0, "ok");*/
+	DBG(0, "hit; fd=%d", fd);
+	file_close(fp);
+	DBG(0, "ok");
 	return 0;
 }
 

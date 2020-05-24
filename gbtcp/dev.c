@@ -122,8 +122,8 @@ dev_init(struct dev *dev, const char *ifname, dev_f dev_fn)
 		return rc;
 	}
 	dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
-	rc = gt_fd_event_new(&dev->dev_event, dev->dev_nmd->fd,
-	                     dev_name + NETMAP_PFX_LEN, dev_rxtx, dev);
+	rc = fd_event_new(&dev->dev_event, dev->dev_nmd->fd,
+	                  dev_name + NETMAP_PFX_LEN, dev_rxtx, dev);
 	if (rc) {
 		dev_nm_close(dev);
 		return rc;

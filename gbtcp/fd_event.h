@@ -38,12 +38,12 @@ int fd_event_mod_attach(void *);
 void fd_event_mod_deinit(void *);
 void fd_event_mod_detach();
 
-void check_fd_events();
+void check_fd_events(int);
 void wait_for_fd_events();
 
 void gt_fd_event_ctl_init(struct fd_event *e);
 
-int gt_fd_event_new(struct fd_event **pe, int fd,
+int fd_event_new(struct fd_event **pe, int fd,
 	const char *name, fd_event_f fn, void *udata);
 
 void gt_fd_event_del(struct fd_event *e);

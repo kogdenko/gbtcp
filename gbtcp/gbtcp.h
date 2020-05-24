@@ -46,6 +46,7 @@
 #define GT_SYSCTL_ROUTE_ROUTE_LIST "route.route.list"
 #define GT_SYSCTL_TCP_FIN_TIMEOUT "tcp.fin_timeout"
 #define GT_SYSCTL_SOCKET_HTABLE "socket.htable"
+#define GT_SYSCTL_CONTROLLER_SERVICE_LIST "controller.service.list"
 
 #define GT_TCP_STAT(x) \
 	x(sndtotal) \

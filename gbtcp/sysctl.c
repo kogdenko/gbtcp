@@ -682,8 +682,8 @@ sysctl_conn_open(struct sysctl_conn **cpp, int fd)
 	cp = *cpp;
 	memset(cp, 0, sizeof(*cp));
 	snprintf(name, sizeof(name), "sysctl.%d", fd);
-	rc = gt_fd_event_new(&cp->sccn_event, fd, name,
-	                     sysctl_process_events, cp);
+	rc = fd_event_new(&cp->sccn_event, fd, name,
+	                  sysctl_process_events, cp);
 	if (rc < 0) {
 		sys_free(cp);
 	} else {
