@@ -1,5 +1,15 @@
 #include "internals.h"
 
+struct route_entry_long {
+	struct lptree_rule rtl_rule;
+	struct dlist rtl_list;
+	int rtl_af;
+	struct route_if *rtl_ifp;
+	struct ipaddr rtl_via;
+	int rtl_nsrcs;
+	struct route_if_addr **rtl_srcs;
+};
+
 static struct route_mod *curmod;
 
 static struct fd_event *route_monitor_event;
@@ -11,7 +21,8 @@ static int route_src_compar(const void *a, const void *b, void *);
 
 static int route_set_srcs(struct route_entry_long *route);
 
-static int route_del(be32_t dst, int pfx);
+static void route_del(struct route_entry_long *);
+static int route_del2(be32_t, int);
 
 static void route_on_msg(struct route_msg *msg);
 
@@ -169,15 +180,11 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 	return 0;
 }
 
-static int
+static void
 route_if_del(struct route_if *ifp)
 {
-	int rc, pfx;
-	uint32_t key;
-	be32_t dst;
 	struct route_entry_long *route;
 
-	rc = 0;
 	DLIST_REMOVE(ifp, rif_list);
 	INFO(0, "ok; ifname='%s'", ifp->rif_name);
 	ifp->rif_list.dls_next = NULL;
@@ -185,23 +192,11 @@ route_if_del(struct route_if *ifp)
 		route = DLIST_FIRST(&ifp->rif_routes,
 		                     struct route_entry_long,
 		                     rtl_list);
-		if (route == &curmod->route_default) {
-			pfx = 0;
-			dst = 0;
-		} else {
-			pfx = route->rtl_rule.lpr_depth;
-			key = route->rtl_rule.lpr_key;
-			dst = hton32(key);
-		}
-		rc = route_del(dst, pfx);
-		ASSERT3(-rc, rc == 0, "route_del(%s/%u)",
-		        log_add_ipaddr(AF_INET, &dst), pfx);
+		route_del(route);
 	}
 	while (ifp->rif_naddrs) {
 		route_ifaddr_del(ifp, &(ifp->rif_addrs[0]->ria_addr));
 	}
-	
-	return rc;
 }
 
 static int
@@ -282,20 +277,14 @@ route_ifaddr_del(struct route_if *ifp, const struct ipaddr *addr)
 static int
 route_src_compar(const void *a, const void *b, void *arg)
 {
-	uint32_t ax, bx, key;
-	struct route_entry_long *route;
+	uint32_t ax, bx, *next_hop;
 	struct route_if_addr *ifa_a, *ifa_b;
 
-	route = arg;
-	if (route == &curmod->route_default) {
-		key = 0;
-	} else {
-		key = route->rtl_rule.lpr_key;
-	}
+	next_hop = arg;
 	ifa_a = *((struct route_if_addr **)a);
 	ifa_b = *((struct route_if_addr **)b);
-	ax = (key - ntoh32(ifa_b->ria_addr.ipa_4));
-	bx = (key - ntoh32(ifa_a->ria_addr.ipa_4));
+	ax = (*next_hop - ntoh32(ifa_b->ria_addr.ipa_4));
+	bx = (*next_hop - ntoh32(ifa_a->ria_addr.ipa_4));
 	return ax - bx;
 }
 
@@ -303,6 +292,7 @@ static int
 route_set_srcs(struct route_entry_long *route)
 {
 	int n, rc, size;
+	uint32_t next_hop;
 
 	n = route->rtl_ifp->rif_naddrs;
 	size = n * sizeof(struct route_if_addr *);
@@ -314,27 +304,15 @@ route_set_srcs(struct route_entry_long *route)
 	}
 	memcpy(route->rtl_srcs, route->rtl_ifp->rif_addrs, size);
 	route->rtl_nsrcs = n;
+	if (route->rtl_via.ipa_4) {
+		next_hop = ntoh32(route->rtl_via.ipa_4);
+	} else {
+		next_hop = route->rtl_rule.lpr_key;
+	}
 	qsort_r(route->rtl_srcs, route->rtl_nsrcs,
 	        sizeof(struct route_if_addr *),
-	        route_src_compar, (void *)route);
+	        route_src_compar, &next_hop);
 	return 0;
-}
-
-static int
-route_alloc(struct route_entry_long **proute, uint32_t key, uint8_t depth)
-{
-	int rc;
-	struct lptree_rule *rule;
-
-	rc = mbuf_alloc(&curmod->route_pool, (struct mbuf **)proute);
-	if (rc == 0) {
-		rule = (struct lptree_rule *)*proute;
-		lptree_set(&curmod->route_lptree, rule, key, depth);
-		if (rc) {
-			mbuf_free((struct mbuf *)rule);
-		}
-	}
-	return rc;
 }
 
 static int
@@ -347,31 +325,45 @@ route_add(struct route_entry *a)
 
 	ASSERT(a->rt_af == AF_INET);
 	ASSERT(a->rt_ifp != NULL);
+	key = ntoh32(a->rt_dst.ipa_4);
 	if (a->rt_pfx > 32) {
 		rc = -EINVAL;
-	} else if (a->rt_pfx == 0) {
-		route = &curmod->route_default;
-		rc = 0;
+		goto out;
+	}
+	if (a->rt_pfx == 0) {
+		route = curmod->route_default;
 	} else {
-		key = ntoh32(a->rt_dst.ipa_4);
 		rule = lptree_get(&curmod->route_lptree, key, a->rt_pfx);
 		route = (struct route_entry_long *)rule;
-		if (route != NULL) {
-			rc = -EEXIST;
-		} else {
-			rc = route_alloc(&route, key, a->rt_pfx);
+	}
+	if (route != NULL) {
+		rc = -EEXIST;
+		goto out;
+	}
+	rc = mbuf_alloc(&curmod->route_pool, (struct mbuf **)&route);
+	if (rc) {
+		goto out;
+	}
+	rule = (struct lptree_rule *)route;
+	if (a->rt_pfx == 0) {
+		rule->lpr_key = key; 
+		rule->lpr_depth = a->rt_pfx;
+		curmod->route_default = route;
+	} else {
+		lptree_set(&curmod->route_lptree, rule, key, a->rt_pfx);
+		if (rc) {
+			mbuf_free((struct mbuf *)rule);
+			goto out;
 		}
 	}
-	if (rc == 0) {
-		route->rtl_af = a->rt_af;
-		route->rtl_ifp = a->rt_ifp;
-		route->rtl_via = a->rt_via;
-		route->rtl_nsrcs = 0;
-		route->rtl_srcs = NULL;
-		DLIST_INSERT_HEAD(&route->rtl_ifp->rif_routes,
-		                  route, rtl_list);
-		route_set_srcs(route);
-	}
+	route->rtl_af = a->rt_af;
+	route->rtl_ifp = a->rt_ifp;
+	route->rtl_via = a->rt_via;
+	route->rtl_nsrcs = 0;
+	route->rtl_srcs = NULL;
+	DLIST_INSERT_HEAD(&route->rtl_ifp->rif_routes, route, rtl_list);
+	route_set_srcs(route);
+out:
 	LOGF(rc ? LOG_ERR : LOG_INFO, -rc,
 	     "%s; dst=%s/%u, dev='%s', via=%s",
 	     rc  ? "failed" : "ok",
@@ -382,8 +374,24 @@ route_add(struct route_entry *a)
 	return rc;
 }
 
+static void
+route_del(struct route_entry_long *route)
+{
+	int pfx;
+	uint32_t dst;
+	struct lptree_rule *rule;
+
+	rule = &route->rtl_rule;
+	dst = hton32(rule->lpr_key);
+	pfx = rule->lpr_depth;
+	NOTICE(0, "ok; dst=%s/%d", log_add_ipaddr(AF_INET, &dst), pfx);
+	shm_free(route->rtl_srcs);
+	DLIST_REMOVE(route, rtl_list);
+	lptree_del(&curmod->route_lptree, rule);
+}
+
 static int
-route_del(be32_t dst, int pfx)
+route_del2(be32_t dst, int pfx)
 {
 	int rc;
 	struct lptree_rule *rule;
@@ -391,27 +399,22 @@ route_del(be32_t dst, int pfx)
 
 	if (pfx > 32) {
 		rc = -EINVAL;
-	} else if (pfx == 0) {
-		route = &curmod->route_default;
-		route->rtl_af = AF_UNSPEC;
-		rc = 0;
+		goto err;
+	}
+	if (pfx == 0) {
+		route = curmod->route_default;
 	} else {
 		rule = lptree_get(&curmod->route_lptree, ntoh32(dst), pfx);
 		route = (struct route_entry_long *)rule;
-		if (route != NULL) {
-			rc = 0;
-			shm_free(route->rtl_srcs);
-			lptree_del(&curmod->route_lptree, &route->rtl_rule);
-		} else {
-			rc = -ESRCH;
-		}
 	}
-	if (rc == 0) {
-		DLIST_REMOVE(route, rtl_list);
-	}
-	LOGF(rc ? LOG_ERR : LOG_INFO, -rc, "%s; dst=%s/%d",
-	     rc ? "failed" : "ok",
-	     log_add_ipaddr(AF_INET, &dst), pfx);
+	if (route == NULL) {
+		rc = -ESRCH;
+		goto err;
+	}		
+	route_del(route);
+	return 0;
+err:
+	ERR(-rc, "failed; dst=%s/%d", log_add_ipaddr(AF_INET, &dst), pfx);
 	return rc;
 }
 
@@ -454,7 +457,7 @@ route_on_msg(struct route_msg *msg)
 		if (msg->rtm_cmd == ROUTE_MSG_ADD) {
 			route_add(&route);
 		} else {
-			route_del(route.rt_dst.ipa_4, route.rt_pfx);
+			route_del2(route.rt_dst.ipa_4, route.rt_pfx);
 		}
 		break;
 	default:
@@ -517,7 +520,6 @@ static int
 sysctl_route_if_del(struct sysctl_conn *cp, void *udata,
 	const char *new, struct strbuf *out)
 {
-	int rc;
 	struct route_if *ifp;
 
 	if (new == NULL) {
@@ -527,36 +529,48 @@ sysctl_route_if_del(struct sysctl_conn *cp, void *udata,
 	if (ifp == NULL) {
 		return -ENXIO;
 	}
-	rc = route_if_del(ifp);
-	return rc;
-}
-
-static long long
-sysctl_route_if_list_next(void *udata, long long id)
-{
-	int rc;
-	struct route_if *ifp;
-
-	rc = -ENOENT;
-	ROUTE_IF_FOREACH(ifp) {
-		if (ifp->rif_index == id) {
-			return id;
-		} else if (ifp->rif_index > id) {
-			if (rc < 0 || rc > ifp->rif_index) {
-				rc = ifp->rif_index;
-			}
-		}
-	}
-	return rc;
+	route_if_del(ifp);
+	return 0;
 }
 
 static int
-sysctl_route_if_list(void *udata, long long id, const char *new,
-	struct strbuf *out)
+sysctl_route_if_list_next(void *udata, const char *ident, struct strbuf *out)
 {
+	int rc, ifindex;
 	struct route_if *ifp;
 
-	ifp = route_if_get_by_ifindex(id);
+	rc = -1;
+	if (ident == NULL) {
+		ifindex = 0;
+	} else {
+		ifindex = strtoul(ident, NULL, 10) + 1;
+	}
+	ROUTE_IF_FOREACH(ifp) {
+		if (ifp->rif_index == ifindex) {
+			rc = ifindex;
+			break;
+		} else if (ifp->rif_index > ifindex &&
+		           (rc < 0 || rc > ifp->rif_index)) {
+			rc = ifp->rif_index;
+		}
+	}
+	if (rc < 0) {
+		return -ENOENT;
+	} else {
+		strbuf_addf(out, "%d", rc);
+		return 0;
+	}
+}
+
+static int
+sysctl_route_if_list(void *udata, const char *ident, const char *new,
+	struct strbuf *out)
+{
+	int ifindex;
+	struct route_if *ifp;
+
+	ifindex = strtoul(ident, NULL, 10);
+	ifp = route_if_get_by_ifindex(ifindex);
 	if (ifp == NULL) {
 		return -ENOENT;
 	}
@@ -596,16 +610,22 @@ sysctl_route_if_add(struct sysctl_conn *cp, void *udata,
 	return 0;
 }
 
-static long long
-sysctl_route_addr_list_next(void *udata, long long id)
+static int
+sysctl_route_addr_list_next(void *udata, const char *ident, struct strbuf *out)
 {
-	int off;
+	int id, off;
 	struct route_if *ifp;
 
+	if (ident == NULL) {
+		id = 0;
+	} else {
+		id = strtoul(ident, NULL, 10) + 1;
+	}
 	off = 0;
 	ROUTE_IF_FOREACH(ifp) {
 		if (id - off < ifp->rif_naddrs) {
-			return id;
+			strbuf_addf(out, "%d", id);
+			return 0;
 		}
 		off += ifp->rif_naddrs;
 	}
@@ -613,13 +633,14 @@ sysctl_route_addr_list_next(void *udata, long long id)
 }
 
 static int
-sysctl_route_addr_list(void *udata, long long id, const char *new,
+sysctl_route_addr_list(void *udata, const char *ident, const char *new,
 	struct strbuf *out)
 {
-	int off;
+	int id, off;
 	struct route_if *ifp;
 	struct route_if_addr *ifa;
 
+	id = strtoul(ident, NULL, 10);
 	off = 0;
 	ROUTE_IF_FOREACH(ifp) {
 		if (id - off < ifp->rif_naddrs) {
@@ -633,58 +654,50 @@ sysctl_route_addr_list(void *udata, long long id, const char *new,
 	return -ENOENT;
 }
 
-static long long
-sysctl_route_list_next(void *udata, long long id)
+static int
+sysctl_route_list_next(void *udata, const char *ident, struct strbuf *out)
 {
-	int rc;
+	int rc, id;
 	struct mbuf *m;
 
-	if (id == 0) {
-		if (curmod->route_default.rtl_af == AF_INET) {
-			return 0;
-		}
-		id++;
+	if (ident == NULL) {
+		id = 0;
+	} else {
+		id = strtoul(ident, NULL, 10) + 1;
 	}
-	m = mbuf_next(&curmod->route_pool, id - 1);
+	m = mbuf_next(&curmod->route_pool, id);
 	if (m == NULL) {
 		return -ENOENT;
 	} else {
 		rc = mbuf_get_id(m);
-		return rc + 1;
+		strbuf_addf(out, "%d", rc);
+		return 0;
 	}
 }
 
 static int
-sysctl_route_list(void *udata, long long id, const char *new,
+sysctl_route_list(void *udata, const char *ident, const char *new,
 	struct strbuf *out)
 {
-	int pfx;
-	uint32_t key;
+	int id, pfx;
 	be32_t dst;
 	struct mbuf *m;
 	struct route_entry_long *route;
 
-	if (id == 0) {
-		if (curmod->route_default.rtl_af == AF_INET) {
-			dst = 0;
-			pfx = 0;
-			route = &curmod->route_default;
-			goto out;
-		} else {
-			return -ENOENT;
-		}
+	if (ident == NULL) {
+		id = 0;
+	} else {
+		id = strtoul(ident, NULL, 10) + 1;
 	}
-	m = mbuf_get(&curmod->route_pool, id - 1);
+	m = mbuf_get(&curmod->route_pool, id);
 	route = (struct route_entry_long *)m;
 	if (route == NULL) {
 		return -ENOENT;
 	}
 	ASSERT(route->rtl_ifp != NULL);
 	ASSERT(route->rtl_af == AF_INET);
-	key = route->rtl_rule.lpr_key;
 	pfx = route->rtl_rule.lpr_depth;
-	dst = hton32(key);
-out:
+	dst = hton32(route->rtl_rule.lpr_key);
 	strbuf_add_ipaddr(out, AF_INET, &dst);
 	strbuf_addf(out, "/%u,%s,", pfx, route->rtl_ifp->rif_name);
 	strbuf_add_ipaddr(out, AF_INET, &route->rtl_via);
@@ -722,7 +735,7 @@ route_mod_init(void **pp)
 	}
 	mod = *pp;
 	log_scope_init(&mod->log_scope, "route");
-	mod->route_default.rtl_af = AF_UNSPEC;
+	mod->route_default = NULL;
 	dlist_init(&mod->route_if_head);
 	dlist_init(&mod->route_addr_head);
 	lptree_init(&mod->route_lptree);
@@ -810,9 +823,8 @@ route_get(int af, struct ipaddr *src, struct route_entry *g)
 	rule = lptree_search(&curmod->route_lptree, key);
 	route = (struct route_entry_long *)rule;
 	if (route == NULL) {
-		if (curmod->route_default.rtl_af == AF_INET) {
-			route = &curmod->route_default;
-		} else {
+		route = curmod->route_default;
+		if (route == NULL) {
 			return -ENETUNREACH;
 		}
 	}

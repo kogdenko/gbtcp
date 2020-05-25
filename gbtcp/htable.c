@@ -4,12 +4,9 @@ struct htable_mod {
 	struct log_scope log_scope;
 };
 
-union htable_id {
-	long long data;
-	struct {
-		uint32_t lo;
-		uint32_t hi;
-	};
+struct htable_id {
+	uint32_t lo;
+	uint32_t hi;
 };
 
 static struct htable_mod *curmod;
@@ -116,16 +113,22 @@ htable_add(struct htable *t, struct htable_bucket *b, htable_entry_t *e)
 	dlist_insert_tail(&b->htb_head, e);
 }
 
-static long long
-sysctl_htable_next(void *udata, long long id_data)
+static int
+sysctl_htable_next(void *udata, const char *ident, struct strbuf *out)
 {
-	int lo;
+	int rc, lo;
 	struct dlist *e;
 	struct htable *t;
-	union htable_id id;
+	struct htable_id id;
 	struct htable_bucket *b;
 
-	id.data = id_data;
+	id.hi = id.lo = 0;
+	if (ident != NULL) {
+		rc = sscanf(ident, "%d.%d", &id.hi, &id.lo);
+		if (rc == 2) {
+			id.lo++;
+		}
+	}
 	t = (struct htable *)udata;
 	for (; id.hi < t->ht_size; ++id.hi) {
 		b = t->ht_array + id.hi;
@@ -134,7 +137,8 @@ sysctl_htable_next(void *udata, long long id_data)
 		dlist_foreach(e, &b->htb_head) {
 			if (lo == id.lo) {
 				spinlock_unlock(&b->htb_lock);
-				return id.data;
+				strbuf_addf(out, "%d.%d", id.hi, id.lo);
+				return 0;
 			}
 			lo++;
 		}
@@ -145,16 +149,19 @@ sysctl_htable_next(void *udata, long long id_data)
 }
 
 static int
-sysctl_htable(void *udata, long long id_data, const char *new,
+sysctl_htable(void *udata, const char *ident, const char *new,
 	struct strbuf *out)
 {
-	int lo;
+	int rc, lo;
 	struct dlist *e;
 	struct htable *t;
-	union htable_id id;
+	struct htable_id id;
 	struct htable_bucket *b;
 
-	id.data = id_data;
+	rc = sscanf(ident, "%d.%d", &id.hi, &id.lo);
+	if (rc != 2) {
+		return -EPROTO;
+	}
 	t = (struct htable *)udata;
 	if (id.hi >= t->ht_size) {
 		return -ENOENT;

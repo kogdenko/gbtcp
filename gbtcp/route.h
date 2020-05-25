@@ -14,22 +14,13 @@
 #define ROUTE_IFNAME_NM 0 // pipe1{0
 #define ROUTE_IFNAME_OS 1 // pipe1
 
-struct route_entry_long {
-	struct lptree_rule rtl_rule;
-	struct dlist rtl_list;
-	int rtl_af;
-	struct route_if *rtl_ifp;
-	struct ipaddr rtl_via;
-	int rtl_nsrcs;
-	struct route_if_addr **rtl_srcs;
-};
 
 struct route_mod {
 	struct log_scope log_scope;
 	struct lptree route_lptree;
 	struct mbuf_pool route_pool;
 	struct dlist route_if_head;
-	struct route_entry_long route_default;
+	struct route_entry_long *route_default;
 	struct dlist route_addr_head;
 };
 
@@ -84,7 +75,7 @@ enum route_table {
 
 struct route_entry {
 	int rt_af;
-	u_int rt_pfx;
+	u_char rt_pfx;
 	struct ipaddr rt_dst;
 	struct ipaddr rt_via;
 	struct route_if *rt_ifp;

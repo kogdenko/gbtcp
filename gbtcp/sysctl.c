@@ -258,6 +258,8 @@ sysctl_parse_line(char *s)
 {
 	int rc;
 	char *ptr, *path, *new;
+	char out_buf[GT_SYSCTL_BUFSIZ];
+	struct strbuf out;
 
 	ptr = strchr(s, '#');
 	if (ptr != NULL) {
@@ -269,7 +271,8 @@ sysctl_parse_line(char *s)
 		new = strtrim(new + 1);
 	}
 	path = strtrim(s);
-	rc = sysctl_in(NULL, path, 1, new, NULL);
+	strbuf_init(&out, out_buf, sizeof(out_buf));
+	rc = sysctl_in(NULL, path, 1, new, &out);
 	return rc;
 }
 
@@ -470,14 +473,9 @@ sysctl_process_node(struct sysctl_conn *cp,
 	struct sysctl_node *node, char *tail, int load,
 	const char *new, struct strbuf *out)
 {
-	int rc, len;
-	char buf[GT_SYSCTL_BUFSIZ];
+	int rc;
 	const char *access;
-	struct strbuf stub;
 
-	if (tail == NULL) {
-		tail = "";
-	}
 	if (new != NULL) {
 		access = NULL;
 		switch (node->n_mode) {
@@ -496,25 +494,16 @@ sysctl_process_node(struct sysctl_conn *cp,
 			return -EACCES;
 		}
 	}
-	if (out == NULL) {
-		strbuf_init(&stub, buf, sizeof(buf));
-		out = &stub;
-	}
-	len = out->sb_len;
 	if (node->n_is_list) {
 		rc = sysctl_list_handler(node, tail, new, out);
 	} else if (node->n_fn == NULL) {
 		rc = sysctl_branch_handler(node, tail, out);
 	} else {
-		if (tail[0] != '\0') {
+		if (tail != NULL) {
 			rc = -ENOENT;
 		} else {
 			rc = sysctl_handler(cp, node, new, out);
 		}
-	}
-	if (rc < 0) {
-		// Repair old in error case
-		out->sb_len = len;
 	}
 	return rc;
 }
@@ -523,36 +512,22 @@ static int
 sysctl_list_handler(struct sysctl_node *node, const char *tail,
 	const char *new, struct strbuf *out)
 {
-	int rc;
-	long long id, next_id;
-	char *endptr;
+	int rc, len;
 	struct sysctl_list_udata *udata;
 
 	udata = &node->n_list_udata;
-	if (tail[0] == '\0') {
-		id = 0;
-		goto next;
-	}
-	id = strtoll(tail, &endptr, 10);
-	switch (*endptr) {
-	case '\0':
-		rc = (*udata->l_fn)(node->n_udata, id, new, out);
-		return rc;
-	case '+':
-		if (*(endptr + 1) != '\0') {
-			return -ENOENT;
+	len = strzlen(tail);
+	if (len == 0 || tail[len - 1] == '+') {
+		strbuf_add_ch(out, ',');
+		rc = (*udata->l_next_fn)(node->n_udata, tail, out);
+		if (rc) {
+			out->sb_len = 0;
 		}
-		id++;
-		break;
-	default:
-		return -ENOENT;
+		return 0;
+	} else {
+		rc = (*udata->l_fn)(node->n_udata, tail, new, out);
+		return rc;
 	}
-next:
-	next_id = (*udata->l_next_fn)(node->n_udata, id);
-	if (next_id >= 0) {
-		strbuf_addf(out, ",%lld", next_id);
-	}
-	return 0;
 }
 
 static int
@@ -567,7 +542,7 @@ sysctl_branch_handler(struct sysctl_node *node, const char *tail,
 	}
 	first = DLIST_FIRST(&node->n_children, struct sysctl_node, n_list);
 	last = DLIST_LAST(&node->n_children, struct sysctl_node, n_list);
-	if (tail[0] == '\0') {
+	if (tail == NULL) {
 		x = first;
 	} else {
 		len = strlen(tail);
@@ -818,9 +793,8 @@ sysctl_process_events(void *udata, short revents)
 }
 
 static int
-sysctl_in(struct sysctl_conn *cp,
-	const char *path, int load,
-          const char *new, struct strbuf *out)
+sysctl_in(struct sysctl_conn *cp, const char *path, int load,
+	const char *new, struct strbuf *out)
 {
 	int rc;
 	char *tail;
@@ -837,22 +811,23 @@ static int
 sysctl_in_req(struct sysctl_conn *cp, struct iovec *t)
 {
 	int rc;
-	char buf[GT_SYSCTL_BUFSIZ];
+	char out_buf[GT_SYSCTL_BUFSIZ];
 	const char *path;
-	struct strbuf sb;
+	struct strbuf out;
 
 	path = t[0].iov_base;
-	strbuf_init(&sb, buf, sizeof(buf));
-	rc = sysctl_in(cp, path, 0, t[1].iov_base, &sb);
+	strbuf_init(&out, out_buf, sizeof(out_buf));
+	rc = sysctl_in(cp, path, 0, t[1].iov_base, &out);
 	if (rc) {
-		strbuf_addf(&sb, "error %d", -rc);
+		out.sb_len = 0;
+		strbuf_addf(&out, "error %d", -rc);
 	}
-	strbuf_add_ch(&sb, '\n');
-	if (strbuf_space(&sb) == 0) {
+	strbuf_add_ch(&out, '\n');
+	if (strbuf_space(&out) == 0) {
 		ERR(0, "too long msg; path='%s'", path);
 		return -ENOBUFS;
 	}
-	rc = sysctl_conn_send(cp, &sb);
+	rc = sysctl_conn_send(cp, &out);
 	return rc;
 }
 

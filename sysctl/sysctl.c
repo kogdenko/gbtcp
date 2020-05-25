@@ -15,13 +15,14 @@ static int qflag;
 static int Hflag;
 static int Lflag = INT_MAX;
 
-static int sysctl_r(char *, int,  char *, const char *, int);
+static int sysctl_r(char *, int,  char *);
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif
 
 #define outf(...) if (1) printf(__VA_ARGS__)
+#define dbg gt_dbg
 
 static char *
 ltrim(const char *s, const char *what)
@@ -36,24 +37,25 @@ ltrim(const char *s, const char *what)
 	return p;
 }
 
-static char *
-trim(const char *s, const char *what)
+char *
+trim(char *dst, const char *src, const char *what)
 {
-	char *p;
 	int i, len;
+	char *p;
 
-	p = ltrim(s, what);
-	len = strlen(p);
-	for (i = len - 1; i >= 0; --i) {
+	p = ltrim(src, what);
+	len = 0;
+	for (i = 0; p[i] != '\0'; ++i) {
+		dst[i] = p[i];
 		if (strchr(what, p[i]) == NULL) {
-			break;
+			len = i + 1;
 		}
 	}
-	p[i + 1] = '\0';
-	return p;
+	dst[len] = '\0';
+	return dst;
 }
 
-static char *
+/*static char *
 strzcpy(char *dest, const char *src, size_t n)
 {
 	size_t i;
@@ -66,7 +68,7 @@ strzcpy(char *dest, const char *src, size_t n)
 	}
 	dest[i] = '\0';
 	return dest;
-}
+}*/
 
 static void
 print_human_num(unsigned long long ull)
@@ -141,8 +143,24 @@ print_sysctl(const char *path, char *old)
 	outf("\n");
 }
 
+int
+xsysctl(const char *path, char *old, const char *new)
+{
+	int rc;
+
+	rc = gt_sysctl(path, old, new);
+	if (rc < 0) {
+		rc = -gt_errno;
+		//warnx("gt_sysctl('%s') failed (%s)", path, strerror(-rc));
+	} else if (rc > 0) {
+		//warnx("gt_sysctl('%s') error (%s)", path, strerror(rc));		
+		rc = -rc;
+	}
+	return rc;
+}
+
 static int
-sysctl_list_r(char *path, int path_len, char *buf, int depth)
+sysctl_list_r(char *path, int path_len, char *buf)
 {
 	int i, rc, len;
 
@@ -153,25 +171,24 @@ sysctl_list_r(char *path, int path_len, char *buf, int depth)
 		if (buf[1] == '\0') {
 			return -EPROTO;
 		}
-		len = snprintf(path + path_len, PATH_MAX - path_len, ".%s+", buf + 1);
+		len = snprintf(path + path_len, PATH_MAX - path_len,
+		               ".%s", buf + 1);
 		len += path_len;
-		// path: A.B.list.C+
-		if (len >= PATH_MAX) {
+		if (len + 1 >= PATH_MAX) {
 			path[PATH_MAX - 1] = '\0';
 			return -ENAMETOOLONG;
 		}
-		path[len - 1] = '\0';
 		// path: A.B.list.C
-		rc = sysctl_r(path, len - 1, buf, NULL, depth + 1);
+		buf[0] = '\0';
+		rc = sysctl_r(path, len, buf);
 		if (rc < 0 && rc != -ENOENT) {
 			return rc;
 		}
-		path[len - 1] = '+';
+		path[len++] = '+';
 		path[len] = '\0';
 		// path: A.B.list.C+
-		rc = gt_sysctl(path, buf, NULL);
-		if (rc == -1) {
-			rc = -gt_errno;
+		rc = xsysctl(path, buf, NULL);
+		if (rc) {
 			return rc;
 		}
 		if (buf[0] == '\0') {
@@ -183,53 +200,54 @@ sysctl_list_r(char *path, int path_len, char *buf, int depth)
 	return 0;
 }
 
-static int
-sysctl_r(char *path, int path_len, char *buf, const char *new, int depth)
-{
-	int rc;
-
-	rc = gt_sysctl(path, buf, new);
-	if (rc == -1) {
-		rc = -gt_errno;
-		return rc;
-	}
-	if (buf[0] == ',') {
-		if (path_len && path[path_len - 1] == '+') {
+#if 0
 			// path A.B.C.DDDD+
 			// Remove .DDDD+
 			path_len--;
 			while (path_len > 0 && path[path_len] != '.') {
 				path_len--;
 			}
-		}
-		rc = sysctl_list_r(path, path_len, buf, depth + 1);
+#endif
+
+
+static int
+sysctl_r(char *path, int path_len, char *buf)
+{
+	int rc;
+
+	rc = xsysctl(path, buf, buf);
+	if (rc) {
 		return rc;
-	} else {
-		print_sysctl(path, buf);
 	}
+	if (buf[0] == ',') {
+		if (path_len == 0 || path[path_len - 1] != '+') {
+			rc = sysctl_list_r(path, path_len, buf);
+			return rc;
+		}
+	}
+	print_sysctl(path, buf);
 	return 0;
 }
 
 static int
-sysctl_raw(const char *arg, int line_num)
+sysctl_raw(char *arg, int line_num)
 {
 	int rc;
-	char *path, *new, *eql;
+	char *d;
 	char line[32];
-	char arg_buf[GT_SYSCTL_BUFSIZ];
+	char path[PATH_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
 
-	strzcpy(arg_buf, arg, sizeof(arg_buf));
 	// Separate variable name and value
-	eql = strchr(arg_buf, '=');
-	if (eql == NULL) {
-		new = NULL;
+	d = strchr(arg, '=');
+	if (d == NULL) {
+		buf[0] = '\0';
 	} else {
-		*eql = '\0';
-		new = trim(eql + 1, " \r\n\t");
+		*d = '\0';
+		trim(buf, d + 1, " \r\n\t");
 	}
-	path = trim(arg_buf, " .\r\n\t");
-	rc = sysctl_r(path, strlen(path), buf, new, 0);
+	trim(path, arg, " .\r\n\t");
+	rc = sysctl_r(path, strlen(path), buf);
 	if (rc < 0) {
 		if (rc == -ENOENT) {
 			if (iflag) {

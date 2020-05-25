@@ -385,34 +385,51 @@ sysctl_controller_service_init(struct sysctl_conn *cp, void *udata,
 	return -ENOENT;
 }
 
-static long long
-sysctl_controller_service_list_next(void *udata, long long id)
+static int
+sysctl_controller_service_list_next(void *udata, const char *ident,
+	struct strbuf *out)
 {
 	int i;
 
-	for (i = id < 1 ? 1 : id; i < ARRAY_SIZE(ih->ih_services); ++i) {
+	if (ident == NULL) {
+		i = 1;
+	} else {
+		i = strtoul(ident, NULL, 10) + 1;
+		if (i < 1) {
+			i = 1;
+		}
+	}
+	for (; i < ARRAY_SIZE(ih->ih_services); ++i) {
 		if (ih->ih_services[i].p_pid) {
-			return i;
+			strbuf_addf(out, "%d", i);
+			return 0;
 		}
 	}
 	return -ENOENT;
 }
 
 static int
-sysctl_controller_service_list(void *udata, long long id, const char *new,
+sysctl_controller_service_list(void *udata, const char *ident, const char *new,
 	struct strbuf *out)
 {
+	int i;
 	struct service *s;
 
-	if (id < 1 || id >= ARRAY_SIZE(ih->ih_services)) {
+	if (ident == NULL) {
+		i = 1;
+	} else {
+		i = strtoul(ident, NULL, 10);
+	}
+	if (i < 1 || i >= ARRAY_SIZE(ih->ih_services)) {
 		return -ENOENT;
 	}
-	s = ih->ih_services + id;
+	s = ih->ih_services + i;
 	if (!s->p_pid) {
 		return -ENOENT;
+	} else {
+		strbuf_addf(out, "%d,%d,%u", s->p_pid, s->p_rss_nq, s->p_pps);
+		return 0;
 	}
-	strbuf_addf(out, "%d,%d,%u", s->p_pid, s->p_rss_nq, s->p_pps);
-	return 0;
 }
 
 static void

@@ -113,6 +113,7 @@ struct strbuf;
 struct service;
 struct dev;
 struct route_if;
+struct route_entry_long;
 struct init_hdr;
 
 typedef int (*malloc_f)(void **, size_t);
@@ -275,6 +276,7 @@ void spinlock_unlock(struct spinlock *);
 void profiler_enter(struct profiler *);
 void profiler_leave(struct profiler *);
 
+size_t strzlen(const char *);
 char *strltrim(const char *);
 char *strtrim(char *);
 char *strtrim2(char *, const char *);

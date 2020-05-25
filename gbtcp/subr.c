@@ -260,6 +260,16 @@ profiler_leave(struct profiler *p)
 	p->prf_tsc = 0;
 }
 
+size_t
+strzlen(const char *s)
+{
+	if (s == NULL) {
+		return 0;
+	} else {
+		return strlen(s);
+	}
+}
+
 char *
 strltrim(const char *s)
 {
