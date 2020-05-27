@@ -9,15 +9,12 @@
 #define SYSCTL_LD 1
 #define SYSCTL_WR 2
 
-#define SYSCTL_PATH GT_PREFIX"/sock"
-#define SYSCTL_CONTROLLER_PATH SYSCTL_PATH"/controller.sock"
+#define SYSCTL_SOCK_PATH GT_PREFIX"/sock"
+#define SYSCTL_CONFIG_PATH GT_PREFIX"/sysctl"
+#define SYSCTL_CONTROLLER_PATH SYSCTL_SOCK_PATH"/controller.sock"
 
-#define SYSCTL_CONTROLLER_SERVICE_INIT "controller.service.init"
+#define SYSCTL_CONTROLLER_SERVICE_ATTACH "controller.service.attach"
 #define SYSCTL_ROUTE_MONITOR "route.monitor"
-
-#define GT_CTL_INET_RX_CKSUM_OFFLOAD "inet.rx_cksum_offload"
-#define GT_CTL_INET_TX_CKSUM_OFFLOAD "inet.tx_cksum_offload"
-
 
 struct sysctl_conn {
 	void (*sccn_close_fn)(struct sysctl_conn *);

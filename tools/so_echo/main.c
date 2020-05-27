@@ -58,10 +58,11 @@ static int Cflag;
 static int on_event(int eq_fd, union my_data *data, short revents);
 
 static void
-E(int e, const char *format, ...)
+log_errf(int e, const char *format, ...)
 {
 	va_list ap;
 
+	fprintf(stderr, "%d: ", getpid());
 	va_start(ap, format);
 	vfprintf(stderr, format, ap);
 	va_end(ap);
@@ -85,7 +86,8 @@ sys_socket(int domain, int type, int protocol)
 	if (rc == -1) {
 		assert(errno);
 		rc = -errno;
-		E(-rc, "socket(domain=0x%x, type=0x%x) failed", domain, type);
+		log_errf(-rc, "socket(domain=0x%x, type=0x%x) failed",
+		         domain, type);
 	}
 	return rc;
 }
@@ -93,8 +95,8 @@ sys_socket(int domain, int type, int protocol)
 static void
 log_connect_failed(int err, struct sockaddr_in *addr)
 {
-	E(err, "connect(%s:%hu) failed",
-	  inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));
+	log_errf(err, "connect(%s:%hu) failed",
+	         inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));
 }
 
 static int
@@ -122,7 +124,8 @@ sys_listen(int fd, int backlog)
 	if (rc == -1) {
 		assert(errno);
 		rc = -errno;
-		E(-rc, "listen(fd=%d, backlog=%d) failed", fd, backlog);
+		log_errf(-rc, "listen(fd=%d, backlog=%d) failed",
+		         fd, backlog);
 	}
 	return rc;
 }
@@ -136,9 +139,9 @@ sys_bind(int fd, struct sockaddr_in *addr)
 	if (rc == -1) {
 		assert(errno);
 		rc = -errno;
-		E(-rc, "bind(fd=%d, addr=%s, port=%hu) failed",
-		  fd, inet_ntoa(addr->sin_addr),
-		  ntohs(addr->sin_port));
+		log_errf(-rc, "bind(fd=%d, addr=%s, port=%hu) failed",
+		         fd, inet_ntoa(addr->sin_addr),
+		         ntohs(addr->sin_port));
 	}
 	return rc;
 }
@@ -153,7 +156,8 @@ sys_accept4(int fd, int flags)
 		assert(errno);
 		rc = -errno;
 		if (errno != EAGAIN) {
-			E(-rc, "accept4(fd=%d, flags=0x%x) failed", fd, flags);
+			log_errf(-rc, "accept4(fd=%d, flags=0x%x) failed",
+			         fd, flags);
 		}
 	}
 	return rc;
@@ -169,8 +173,8 @@ sys_setsockopt(int fd, int level, int optname,
 	if (rc == -1) {
 		assert(errno);
 		rc = -errno;
-		E(-rc, "setsockopt(fd=%d, level=%d, optname=%d) failed",
-			fd, level, optname);
+		log_errf(-rc, "setsockopt(fd=%d, level=%d, optname=%d) failed",
+			 fd, level, optname);
 	}
 	return rc;
 }
@@ -185,7 +189,7 @@ event_queue_create()
 	if (rc == -1) {
 		assert(errno);
 		rc = -errno;
-		E(-rc, "epoll_create1() failed");
+		log_errf(-rc, "epoll_create1() failed");
 	}
 	return rc;
 }
@@ -199,7 +203,7 @@ event_queue_create()
 	if (rc == -1) {
 		assert(errno);
 		rc = -errno;
-		E(-rc, "kqueue() failed");
+		log_errf(-rc, "kqueue() failed");
 	}
 	return rc;
 }
@@ -221,9 +225,9 @@ event_queue_ctl(int eq_fd, int is_new, union my_data *data, int write)
 	if (rc == -1) {
 		assert(errno);
 		rc = -errno;
-		E(-rc, "epoll_ctl(%s, events=0x%x, fd=%d) failed",
-		  is_new ? "EPOLL_CTL_ADD" : "EPOLL_CTL_MOD",
-		  event.events, data->fd);
+		log_errf(-rc, "epoll_ctl(%s, events=0x%x, fd=%d) failed",
+		         is_new ? "EPOLL_CTL_ADD" : "EPOLL_CTL_MOD",
+		         event.events, data->fd);
 		exit(1);
 	}
 }
@@ -243,7 +247,8 @@ event_queue_ctl(int eq_fd, int is_new, union my_data *data, int write)
 	if (rc == -1) {
 		assert(errno);
 		rc = -errno;
-		E(-rc, "kevent(EV_ADD, EVFILT_READ, fd=%d) failed", data->fd);
+		log_errf(-rc, "kevent(EV_ADD, EVFILT_READ, fd=%d) failed",
+		         data->fd);
 		exit(1);
 	}
 }
@@ -555,7 +560,7 @@ set_affinity(int cpu_id)
 	CPU_SET(cpu_id, &cpumask);
 	rc = pthread_setaffinity_np(pthread_self(), sizeof(cpumask), &cpumask);
 	if (rc != 0) {
-		E(rc, "pthread_setaffinity_np(%d) failed", cpu_id);
+		log_errf(rc, "pthread_setaffinity_np(%d) failed", cpu_id);
 	}
 	return -rc;
 }
@@ -573,7 +578,6 @@ loop(int idx, int affinity)
 		set_affinity(affinity + idx);
 	}
 	proc_idx = idx;
-	printf("loop %d\n", idx);
 	rc = event_queue_create();
 	if (rc < 0) {
 		return;
@@ -674,12 +678,12 @@ main(int argc, char **argv)
 	if (optind < argc) {
 		rc = inet_aton(argv[optind], &conf_addr.sin_addr);
 		if (rc != 1) {
-			E(0, "Invalid address '%s'", argv[optind]);
+			log_errf(0, "Invalid address '%s'", argv[optind]);
 			return 1;
 		}
 	} else {
 		if (lflag == 0) {
-			E(0, "Address or '-l' flag must be specified");
+			log_errf(0, "Address or '-l' flag must be specified");
 			return 2;
 		}
 	}
@@ -687,9 +691,7 @@ main(int argc, char **argv)
 	       inet_ntoa(conf_addr.sin_addr),
 	       ntohs(conf_addr.sin_port));
 	for (i = 1; i < nr_procs; ++i) {
-		printf("fork\n");
 		rc = fork();
-		printf("fork ret %d\n", rc);
 		if (rc == 0) {
 			loop(i, affinity);
 		}

@@ -15,7 +15,7 @@ struct pid_wait_entry {
 struct pid_wait {
 	int pw_fd;
 	int pw_nentries;
-	struct pid_wait_entry pw_entries[GT_SERVICE_COUNT_MAX];
+	struct pid_wait_entry pw_entries[GT_SERVICES_MAX];
 };
 
 int pid_mod_init(void **);

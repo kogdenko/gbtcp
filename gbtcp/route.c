@@ -478,7 +478,7 @@ route_monitor_stop()
 	if (route_monfd == -1) {
 		return -EALREADY;
 	}
-	gt_fd_event_del(route_monitor_event);
+	fd_event_del(route_monitor_event);
 	sys_close(route_monfd);
 	route_monfd = -1;
 	route_monitor_event = NULL;
@@ -502,12 +502,12 @@ route_monitor_start()
 	if (rc < 0) {
 		goto err;
 	}
-	rc = fd_event_new(&route_monitor_event, route_monfd,
-	                     "route_monitor", route_monitor_handler, NULL);
+	rc = fd_event_add(&route_monitor_event, route_monfd,
+	                  "route_monitor", NULL, route_monitor_handler);
 	if (rc) {
 		goto err;
 	}
-	gt_fd_event_set(route_monitor_event, POLLIN);
+	fd_event_set(route_monitor_event, POLLIN);
 	INFO(0, "ok; fd=%d", route_monfd);
 	route_dump(route_on_msg);
 	return 0;
@@ -567,6 +567,7 @@ sysctl_route_if_list(void *udata, const char *ident, const char *new,
 	struct strbuf *out)
 {
 	int ifindex;
+	uint64_t rx_pkts, rx_bytes, tx_pkts, tx_bytes, tx_drop;
 	struct route_if *ifp;
 
 	ifindex = strtoul(ident, NULL, 10);
@@ -574,22 +575,16 @@ sysctl_route_if_list(void *udata, const char *ident, const char *new,
 	if (ifp == NULL) {
 		return -ENOENT;
 	}
+	rx_pkts = counter64_get(&ifp->rif_rx_pkts);
+	rx_bytes = counter64_get(&ifp->rif_rx_bytes);
+	tx_pkts = counter64_get(&ifp->rif_tx_pkts);
+	tx_bytes = counter64_get(&ifp->rif_tx_bytes);
+	tx_drop = counter64_get(&ifp->rif_tx_drop);
 	strbuf_addf(out, "%s,%d,%x,",
 	            ifp->rif_name, ifp->rif_index, ifp->rif_flags);
-	strbuf_add_ethaddr(out, &ifp->rif_hwaddr);
+	strbuf_add_eth_addr(out, &ifp->rif_hwaddr);
 	strbuf_addf(out, ",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64,
-                    ifp->rif_cnt_rx_pkts,
-	            ifp->rif_cnt_rx_bytes,
-	            ifp->rif_cnt_tx_pkts,
-	            ifp->rif_cnt_tx_bytes,
-	            ifp->rif_cnt_tx_drop);
-	if (new != NULL && !strcmp(new, "0")) {
-		ifp->rif_cnt_rx_pkts = 0;
-		ifp->rif_cnt_rx_bytes = 0;
-		ifp->rif_cnt_tx_pkts = 0;
-		ifp->rif_cnt_tx_bytes = 0;
-		ifp->rif_cnt_tx_drop = 0;
-	}
+                    rx_pkts, rx_bytes, tx_pkts, tx_bytes, tx_drop);
 	return 0;
 }
 
@@ -885,19 +880,17 @@ route_if_rxr_next(struct route_if *ifp, struct netmap_ring *rxr)
 	struct netmap_slot *slot;
 
 	slot = rxr->slot + rxr->cur;
-	ifp->rif_cnt_rx_pkts++;
-	ifp->rif_cnt_rx_bytes += slot->len;
+	counter64_inc(&ifp->rif_rx_pkts);
+	counter64_add(&ifp->rif_rx_bytes, slot->len);
 	DEV_RXR_NEXT(rxr);
 }
 
 void
 route_if_tx(struct route_if *ifp, struct dev_pkt *pkt)
 {
-	ifp->rif_cnt_tx_pkts++;
-	ifp->rif_cnt_tx_bytes += pkt->pkt_len;
-//	if (pkt->pkt_no_dev) {
-//		(*gt_route_if_tx_fn)(ifp, pkt);
-//	}
+	service_inc_pkts(); // ?????
+	counter64_inc(&ifp->rif_tx_pkts);
+	counter64_add(&ifp->rif_tx_bytes, pkt->pkt_len);
 	dev_tx(pkt);
 }
 

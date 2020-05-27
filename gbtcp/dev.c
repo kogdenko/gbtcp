@@ -55,7 +55,7 @@ dev_rxtx(void *udata, short revents)
 	dev = udata;
 	if (revents & POLLOUT) {
 		dev->dev_tx_full = 0;
-		gt_fd_event_clear(dev->dev_event, POLLOUT);
+		fd_event_clear(dev->dev_event, POLLOUT);
 	}
 	(*dev->dev_fn)(dev, revents);
 	if (revents & POLLIN) {
@@ -72,12 +72,7 @@ dev_rxtx(void *udata, short revents)
 static void
 dev_nm_close(struct dev *dev)
 {
-	INFO(0, "ok; nmd=%p", dev->dev_nmd);
-	if (dev->dev_nmd->fd != -1) { 
-		// ?????????????????
-		sys_close(dev->dev_nmd->fd);
-		dev->dev_nmd->fd = -1;
-	}
+	NOTICE(0, "ok; nmd=%p", dev->dev_nmd);
 	nm_close(dev->dev_nmd);
 	dev->dev_nmd = NULL;
 }
@@ -95,10 +90,10 @@ dev_nm_open(struct dev *dev, const char *dev_name)
 		ASSERT(dev->dev_nmd->nifp != NULL);
 		sys_fcntl(dev->dev_nmd->fd, F_SETFD, FD_CLOEXEC);
 		nmr = dev->dev_nmd->req;
-		INFO(0, "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
-		     dev_name, dev->dev_nmd,
-	             nmr.nr_rx_rings, nmr.nr_rx_slots,
-		     nmr.nr_tx_rings, nmr.nr_tx_slots);
+		NOTICE(0, "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
+		       dev_name, dev->dev_nmd,
+	               nmr.nr_rx_rings, nmr.nr_rx_slots,
+		       nmr.nr_tx_rings, nmr.nr_tx_slots);
 		return 0;
 	} else {
 		rc = -errno;
@@ -122,8 +117,8 @@ dev_init(struct dev *dev, const char *ifname, dev_f dev_fn)
 		return rc;
 	}
 	dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
-	rc = fd_event_new(&dev->dev_event, dev->dev_nmd->fd,
-	                  dev_name + NETMAP_PFX_LEN, dev_rxtx, dev);
+	rc = fd_event_add(&dev->dev_event, dev->dev_nmd->fd,
+	                  dev_name + NETMAP_PFX_LEN, dev, dev_rxtx);
 	if (rc) {
 		dev_nm_close(dev);
 		return rc;
@@ -134,13 +129,17 @@ dev_init(struct dev *dev, const char *ifname, dev_f dev_fn)
 }
 
 void
-dev_deinit(struct dev *dev)
+dev_deinit(struct dev *dev, int forked)
 {
 	if (dev_is_inited(dev)) {
-		gt_fd_event_del(dev->dev_event);
-		dev->dev_event = NULL;
-		dev_nm_close(dev);
-		dev->dev_fn = NULL;
+		if (forked) {
+			sys_close(dev->dev_nmd->fd);
+		} else {
+			fd_event_del(dev->dev_event);
+			dev->dev_event = NULL;
+			dev_nm_close(dev);
+			dev->dev_fn = NULL;
+		}
 	}
 }
 
@@ -154,7 +153,7 @@ void
 dev_rx_on(struct dev *dev)
 {
 	if (dev->dev_event != NULL) {
-		gt_fd_event_set(dev->dev_event, POLLIN);
+		fd_event_set(dev->dev_event, POLLIN);
 	}
 }
 
@@ -162,7 +161,7 @@ void
 dev_rx_off(struct dev *dev)
 {
 	if (dev->dev_event != NULL) {
-		gt_fd_event_clear(dev->dev_event, POLLIN);
+		fd_event_clear(dev->dev_event, POLLIN);
 	}
 }
 
@@ -195,7 +194,7 @@ dev_not_empty_txr(struct dev *dev, struct dev_pkt *pkt)
 		}
 	}
 	dev->dev_tx_full = 1;
-	gt_fd_event_set(dev->dev_event, POLLOUT);
+	fd_event_set(dev->dev_event, POLLOUT);
 	return -ENOBUFS;
 }
 
@@ -222,20 +221,4 @@ dev_tx(struct dev_pkt *pkt)
 	dst = txr->slot + txr->cur;
 	dst->len = pkt->pkt_len;
 	txr->head = txr->cur = nm_ring_next(txr, txr->cur);
-}
-
-int
-dev_tx3(struct dev *dev, void *data, int len)
-{
-	int rc;
-	struct dev_pkt pkt;
-
-	rc = dev_not_empty_txr(dev, &pkt);
-	if (rc) {
-		return rc;
-	}
-	GT_PKT_COPY(pkt.pkt_data, data, len);
-	pkt.pkt_len = len;
-	dev_tx(&pkt);
-	return 0;
 }

@@ -24,16 +24,16 @@ static int
 log_is_stdout(int force_stdout, int debug)
 {
 	if (log_stdout_fd < 0) {
-		ldbg("a");
+		ldbg("no: fd");
 		return 0;
 	} else if (force_stdout) {
-		ldbg("b");
+		ldbg("yes: force");
 		return 1;
 	} else if (curmod != NULL) {
-		ldbg("c");
+		ldbg("curmod->log_stdout=%d", curmod->log_stdout);
 		return curmod->log_stdout;
 	} else {
-		ldbg("d");
+		ldbg("log_early=%d", log_early_stdout);
 		return log_early_stdout;
 	}
 }
@@ -397,6 +397,7 @@ log_abort(const char *filename, int line, int errnum,
 	}
 	log_fill_sfx(&sb, errnum);
 	log_write(&sb, 1);
+	log_backtrace(1);
 	abort();
 }
 

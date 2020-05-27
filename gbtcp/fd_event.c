@@ -13,16 +13,10 @@ uint64_t gt_fd_event_epoch;
 static uint64_t fd_event_last_check_time;
 static uint64_t fd_event_timeout = FD_EVENT_TIMEOUT_MIN;
 static int fd_event_nused;
-static int gt_fd_event_in_cb;
+static int fd_event_in_cb;
 static struct fd_event *gt_fd_event_used[FD_EVENTS_MAX];
 static struct fd_event gt_fd_event_buf[FD_EVENTS_MAX];
 static struct fd_event_mod *curmod;
-
-static void gt_fd_event_free(struct fd_event *e);
-
-static int gt_fd_event_unref(struct fd_event *e);
-
-static int gt_fd_event_call(struct fd_event *e, short revents);
 
 int
 fd_event_mod_init(void **pp)
@@ -116,8 +110,8 @@ wait_for_fd_events()
 }
 
 int
-fd_event_new(struct fd_event **pe, int fd, const char *name,
-	fd_event_f fn, void *udata)
+fd_event_add(struct fd_event **pe, int fd, const char *name,
+	void *udata, fd_event_f fn)
 {
 	int i, id;
 	struct fd_event *e;
@@ -162,37 +156,30 @@ fd_event_new(struct fd_event **pe, int fd, const char *name,
 	return 0;
 }
 
-static void
-gt_fd_event_free(struct fd_event *e)
-{
-	struct fd_event *last;
-
-	INFO(0, "hit; event='%s'", e->fde_name);
-	ASSERT(e->fde_id < fd_event_nused);
-	if (e->fde_id != fd_event_nused - 1) {
-		last = gt_fd_event_used[fd_event_nused - 1];
-		gt_fd_event_used[e->fde_id] = last;
-		gt_fd_event_used[e->fde_id]->fde_id = e->fde_id;
-	}
-	fd_event_nused--;
-}
-
 static int
-gt_fd_event_unref(struct fd_event *e)
+fd_event_unref(struct fd_event *e)
 {
 	int ref_cnt;
+	struct fd_event *last;
 
 	ASSERT(e->fde_ref_cnt > 0);
 	e->fde_ref_cnt--;
 	ref_cnt = e->fde_ref_cnt;
 	if (ref_cnt == 0) {
-		gt_fd_event_free(e);
+		INFO(0, "hit; event='%s'", e->fde_name);
+		ASSERT(e->fde_id < fd_event_nused);
+		if (e->fde_id != fd_event_nused - 1) {
+			last = gt_fd_event_used[fd_event_nused - 1];
+			gt_fd_event_used[e->fde_id] = last;
+			gt_fd_event_used[e->fde_id]->fde_id = e->fde_id;
+		}
+		fd_event_nused--;
 	}
 	return ref_cnt;
 }
 
 void
-gt_fd_event_del(struct fd_event *e)
+fd_event_del(struct fd_event *e)
 {
 	if (e != NULL) {
 		INFO(0, "hit; event='%s'", e->fde_name);
@@ -201,12 +188,12 @@ gt_fd_event_del(struct fd_event *e)
 		ASSERT(e->fde_id < fd_event_nused);
 		ASSERT(e == gt_fd_event_used[e->fde_id]);
 		e->fde_fd = -1;
-		gt_fd_event_unref(e);
+		fd_event_unref(e);
 	}
 }
 
 void
-gt_fd_event_set(struct fd_event *e, short events)
+fd_event_set(struct fd_event *e, short events)
 {	
 	ASSERT(events);
 	ASSERT((events & ~(POLLIN|POLLOUT)) == 0);
@@ -218,7 +205,7 @@ gt_fd_event_set(struct fd_event *e, short events)
 }
 
 void
-gt_fd_event_clear(struct fd_event *e, short events)
+fd_event_clear(struct fd_event *e, short events)
 {
 	ASSERT(events);
 	ASSERT(e != NULL);
@@ -229,7 +216,7 @@ gt_fd_event_clear(struct fd_event *e, short events)
 }
 
 int
-gt_fd_event_is_set(struct fd_event *e, short events)
+fd_event_is_set(struct fd_event *e, short events)
 {
 	return e->fde_events & events;
 }
@@ -240,7 +227,7 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 	int i, idx;
 	struct fd_event *e;
 
-	ASSERT3(0, gt_fd_event_in_cb == 0, "recursive wait");
+	ASSERT3(0, fd_event_in_cb == 0, "recursive wait");
 	set->fdes_again = 0;
 	rd_nanoseconds(); // FIXME: !!!!
 	set->fdes_time = nanoseconds;
@@ -269,7 +256,7 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 }
 
 static int
-gt_fd_event_call(struct fd_event *e, short revents)
+fd_event_call(struct fd_event *e, short revents)
 {
 	int rc;
 
@@ -294,23 +281,23 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 	}
 	check_timers();
 	n = 0;
-	gt_fd_event_in_cb = 1;
+	fd_event_in_cb = 1;
 	for (i = 0; i < set->fdes_nr_used; ++i) {
 		e = set->fdes_used[i];
 		if (pfds[i].revents) {
 			n++;
 			if (e->fde_fd != -1) {
 				ASSERT(pfds[i].fd == e->fde_fd);
-				rc = gt_fd_event_call(e, pfds[i].revents);
+				rc = fd_event_call(e, pfds[i].revents);
 				if (rc) {
 					ASSERT(rc == -EAGAIN);
 					set->fdes_again = 1;
 				}
 			}
 		}
-		gt_fd_event_unref(e);
+		fd_event_unref(e);
 	}
-	gt_fd_event_in_cb = 0;
+	fd_event_in_cb = 0;
 	if (set->fdes_again == 0) {
 		fd_event_last_check_time = nanoseconds;
 	}

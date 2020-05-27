@@ -1,3 +1,4 @@
+// gpl2 license
 #ifndef GBTCP_IPADDR_H
 #define GBTCP_IPADDR_H
 
@@ -17,31 +18,20 @@ struct ipaddr {
 extern struct ipaddr ipaddr_zero;
 
 int ipaddr_is_zero(int, const struct ipaddr *);
-
 int ipaddr_cmp(int af, const struct ipaddr *, const struct ipaddr *);
-
 struct ipaddr *ipaddr_cpy(int, struct ipaddr *, const struct ipaddr *);
-
 int ipaddr_pfx(int, const struct ipaddr *);
-
 int ipaddr_pton(int, struct ipaddr *, const char *);
-
 int ipaddr_aton(be32_t *, const char *);
 
 int ipaddr4_is_loopback(be32_t);
-
 int ipaddr4_is_mcast(be32_t);
-
 int ipaddr4_is_bcast(be32_t);
 
 int ipaddr6_is_mcast(const void *);
-
 int ipaddr6_is_unspecified(const void *);
- 
 int ipaddr6_is_solicited_node_mcast(const void *);
-
 int ip6addr_is_link_local(const void *);
-
 int ipaddr6_net_cmp(const uint8_t *, const uint8_t *, int);
 
-#endif /* GBTCP_IPADDR_H */
+#endif // GBTCP_IPADDR_H

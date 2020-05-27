@@ -1,3 +1,4 @@
+// gpl2 license
 #ifndef GBTCP_FD_EVENT_H
 #define GBTCP_FD_EVENT_H
 
@@ -6,8 +7,7 @@
 
 #define FD_EVENTS_MAX FD_SETSIZE
 
-
-typedef int (*fd_event_f)(void *, short revents);
+typedef int (*fd_event_f)(void *, short);
 
 struct fd_event {
 	int fde_fd;
@@ -38,21 +38,13 @@ void fd_event_mod_detach();
 void check_fd_events();
 void wait_for_fd_events();
 
-void gt_fd_event_ctl_init(struct fd_event *e);
-
-int fd_event_new(struct fd_event **pe, int fd,
-	const char *name, fd_event_f fn, void *udata);
-
-void gt_fd_event_del(struct fd_event *e);
-
-void gt_fd_event_set(struct fd_event *e, short events);
-
-void gt_fd_event_clear(struct fd_event *e, short events);
-
-int gt_fd_event_is_set(struct fd_event *e, short events);
+int fd_event_add(struct fd_event **, int, const char *, void *, fd_event_f);
+void fd_event_del(struct fd_event *);
+void fd_event_set(struct fd_event *, short);
+void fd_event_clear(struct fd_event *, short);
+int fd_event_is_set(struct fd_event *, short);
 
 void gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds);
-
 int gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds);
 
-#endif /* GBTCP_FD_EVENT_H */
+#endif // GBTCP_FD_EVENT_H

@@ -34,10 +34,8 @@ api_lock()
 	}
 	api_locked++;
 	if (current == NULL) {
-		rc = service_init();
-		if (rc == 0) {
-			return 0;
-		} else {
+		rc = service_attach();
+		if (rc) {
 			api_locked--;
 			API_RETURN(-ECANCELED);
 		}
@@ -862,15 +860,15 @@ gt_epoll_create1(int flags)
 }
 
 int
-gt_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
+gt_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 {
 	int rc;
 
 	API_LOCK;
-	DBG(0, "hit; epfd=%d, op=%s, fd=%d, events={%s}",
-	    epfd, log_add_epoll_op(op), fd,
+	DBG(0, "hit; ep_fd=%d, op=%s, fd=%d, events={%s}",
+	    ep_fd, log_add_epoll_op(op), fd,
 	    log_add_epoll_event_events(event->events));
-	rc = u_epoll_ctl(epfd, op, fd, event);
+	rc = u_epoll_ctl(ep_fd, op, fd, event);
 	if (rc) {
 		DBG(-rc, "failed;");
 	} else {

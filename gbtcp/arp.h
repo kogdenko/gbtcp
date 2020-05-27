@@ -1,18 +1,14 @@
-// GPL2 license
+// gpl2 license
 #ifndef GBTCP_ARP_H
 #define GBTCP_ARP_H
 
 #include "mbuf.h"
 #include "ip_addr.h"
 
-struct route_if;
-struct gt_arp_hdr;
-struct dev_pkt;
-
-struct gt_arp_advert_msg {
+struct arp_advert_msg {
 	int arpam_af;
 	be32_t arpam_next_hop;
-	struct ethaddr arpam_addr;
+	struct eth_addr arpam_addr;
 	int arpam_advert;
 	int arpam_solicited;
 	int arpam_override;
@@ -25,9 +21,9 @@ void arp_mod_deinit(void *);
 void arp_mod_detach();
 void arp_mod_service_deinit(struct service *);
 
-void gt_arp_resolve(struct route_if *, be32_t,	struct dev_pkt *);
-void gt_arp_update(struct gt_arp_advert_msg *);
-int gt_arp_add(be32_t, struct ethaddr *);
-void gt_arp_reply(struct route_if *, struct gt_arp_hdr *);
+void arp_resolve(struct route_if *, be32_t, struct dev_pkt *);
+void arp_update(struct arp_advert_msg *);
+int arp_add(be32_t, struct eth_addr *);
+void arp_reply(struct route_if *, struct arp_hdr *);
 
 #endif // GBTCP_ARP_H

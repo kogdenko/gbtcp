@@ -21,7 +21,7 @@ void strbuf_add_str(struct strbuf *, const char *);
 void strbuf_vaddf(struct strbuf *, const char *, va_list);
 void strbuf_addf(struct strbuf *, const char *, ...)
 	__attribute__((format(printf, 2, 3)));
-void strbuf_add_ethaddr(struct strbuf *, struct ethaddr *);
+void strbuf_add_eth_addr(struct strbuf *, struct eth_addr *);
 void strbuf_add_ipaddr(struct strbuf *, int, const void *);
 void strbuf_add_rss_key(struct strbuf *, u_char *);
 void strbuf_add_flag_end(struct strbuf *, int);

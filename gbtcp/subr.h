@@ -110,6 +110,7 @@ typedef uint32_t be32_t;
 typedef uint64_t be64_t;
 
 struct strbuf;
+struct arp_hdr;
 struct service;
 struct dev;
 struct route_if;
@@ -119,8 +120,8 @@ struct init_hdr;
 typedef int (*malloc_f)(void **, size_t);
 typedef void (*free_f)(void *);
 
-struct ethaddr {
-	uint8_t etha_bytes[ETHADDR_LEN];
+struct eth_addr {
+	u_char ea_bytes[ETHADDR_LEN];
 } __attribute__((packed));
 
 struct sock_tuple {
@@ -133,6 +134,10 @@ struct sock_tuple {
 struct spinlock {
 	volatile int spinlock_locked;
 };
+
+typedef struct counter64 {
+	uint64_t cnt64[GT_SERVICES_MAX];
+} counter64_t;
 
 struct profiler {
 	const char *prf_name;
@@ -204,16 +209,10 @@ struct profiler {
 #define wmb _mm_lfence
 #define cpu_pause _mm_pause
 
-#if 1
-#define GT_PKT_COPY(d, s, len) nm_pkt_copy(s, d, len)
-#else
-#define GT_PKT_COPY(d, s, len) memcpy(d, s, len)
-#endif
-
-#define GT_UNIQV_CAT3(x, res) res
-#define GT_UNIQV_CAT2(x, y, z) GT_UNIQV_CAT3(~, x##y##z)
-#define GT_UNIQV_CAT(x, y, z) GT_UNIQV_CAT2(x, y, z)
-#define GT_UNIQV(n) GT_UNIQV_CAT(n, uniqv_, __LINE__)
+#define UNIQV_CAT3(x, res) res
+#define UNIQV_CAT2(x, y, z) UNIQV_CAT3(~, x##y##z)
+#define UNIQV_CAT(x, y, z) UNIQV_CAT2(x, y, z)
+#define UNIQV(n) UNIQV_CAT(n, uniqv_, __LINE__)
 
 #define MEM_PREFETCH(ptr) \
 	__builtin_prefetch(ptr)
@@ -221,18 +220,19 @@ struct profiler {
 
 #define printf_rl(period, fmt, ...) \
 do { \
-	static uint64_t GT_UNIQV(last); \
-	static uint64_t GT_UNIQV(now); \
-	static int GT_UNIQV(cnt); \
-	GT_UNIQV(now) = rdtsc(); \
-	if (GT_UNIQV(now) - GT_UNIQV(last) >= period) { \
-		GT_UNIQV(last) = GT_UNIQV(now); \
-		if (GT_UNIQV(cnt)) { \
-			printf("suppresed %d; ", GT_UNIQV(cnt)); \
+	static uint64_t UNIQV(last); \
+	static uint64_t UNIQV(now); \
+	static int UNIQV(cnt); \
+ \
+	UNIQV(now) = nanoseconds; \
+	if (UNIQV(now) - UNIQV(last) >= period) { \
+		UNIQV(last) = UNIQV(now); \
+		if (UNIQV(cnt)) { \
+			printf("suppresed %d; ", UNIQV(cnt)); \
 		} \
 		printf(fmt, ##__VA_ARGS__); \
 	} else { \
-		GT_UNIQV(cnt)++; \
+		UNIQV(cnt)++; \
 	} \
 } while (0)
 
@@ -263,15 +263,19 @@ int subr_mod_attach(void *);
 void subr_mod_deinit(void *);
 void subr_mod_detach();
 
-int ethaddr_aton(struct ethaddr *, const char *);
-int ethaddr_is_mcast(const uint8_t *);
-int ethaddr_is_ucast(const uint8_t *);
-void ethaddr_make_ip6_mcast(struct ethaddr *, const uint8_t *);
+int eth_addr_aton(struct eth_addr *, const char *);
+int eth_addr_is_mcast(const u_char *);
+int eth_addr_is_ucast(const u_char *);
+void eth_addr_make_ip6_mcast(struct eth_addr *, const u_char *);
 
 void spinlock_init(struct spinlock *);
 void spinlock_lock(struct spinlock *);
 int spinlock_trylock(struct spinlock *);
 void spinlock_unlock(struct spinlock *);
+
+#define counter64_add(c, v) ((c)->cnt64[current->p_id] += (v))
+#define counter64_inc(c) counter64_add(c, 1)
+uint64_t counter64_get(struct counter64 *);
 
 void profiler_enter(struct profiler *);
 void profiler_leave(struct profiler *);
@@ -279,7 +283,7 @@ void profiler_leave(struct profiler *);
 size_t strzlen(const char *);
 char *strltrim(const char *);
 char *strtrim(char *);
-char *strtrim2(char *, const char *);
+int strtrimcpy(char *, const char *, int);
 int strsplit(const char *, const char *, struct iovec *, int);
 char *strzcpy(char *, const char *, size_t);
 
@@ -289,7 +293,6 @@ uint32_t custom_hash(const void *data, size_t cnt, uint32_t val);
 uint32_t toeplitz_hash(const u_char *, int, const u_char *);
 
 int proc_get_comm(char *, int);
-
 
 uint32_t upper_pow2_32(uint32_t x);
 uint64_t upper_pow2_64(uint64_t x);

@@ -228,12 +228,11 @@ sysctl_list_foreach(const char *name, void *udata,
 			return -ENAMETOOLONG;
 		}
 		rc = xsysctl(path, buf, NULL);
-		if (rc) {
-			break;
-		}
-		rc = (*fn)(udata, buf);
-		if (rc) {
-			break;
+		if (rc == 0) {
+			rc = (*fn)(udata, buf);
+			if (rc) {
+				break;
+			}
 		}
 		path[len++] = '+';
 		path[len] = '\0';

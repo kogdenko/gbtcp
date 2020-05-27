@@ -144,6 +144,7 @@ int sys_fcntl(int, int, uintptr_t);
 int sys_ioctl(int, unsigned long, uintptr_t);
 int sys_getsockopt(int, int, int, void *, socklen_t *);
 int sys_setsockopt(int, int, int, void *, socklen_t);
+int sys_getpeername(int, struct sockaddr *, socklen_t *);
 int sys_ppoll(struct pollfd *, nfds_t, const struct timespec *,
 	const sigset_t *);
 void *sys_signal(int, void (*)(int));

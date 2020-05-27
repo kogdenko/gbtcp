@@ -68,15 +68,13 @@ murmur(const void * key, unsigned int len, uint32_t init_val)
 int
 proc_get_comm(char *name, int pid)
 {
-	int rc;
+	int rc, len;
 	FILE *file;
 	char *s;
-	char fmt[32];
-	char path[32];
 	char buf[256];
 
-	snprintf(path, sizeof(path), "/proc/%d/status", pid);
-	rc = sys_fopen(&file, path, "r");
+	snprintf(buf, sizeof(buf), "/proc/%d/status", pid);
+	rc = sys_fopen(&file, buf, "r");
 	if (rc) {
 		return rc;
 	}
@@ -85,14 +83,19 @@ proc_get_comm(char *name, int pid)
 	if (s == NULL) {
 		goto err;
 	}
-	snprintf(fmt, sizeof(fmt), "Name: %%%dc", PROC_COMM_MAX - 1);
-	rc = sscanf(buf, fmt, name);
-	if (rc == 1) {
-		strtrim2(name, name);
+	len = strlen(s);
+	if (len < 5) {
+		goto err;
+	}
+	if (memcmp(s, STRSZ("Name:"))) {
+		goto err;
+	}
+	len = strtrimcpy(name, s + 6, PROC_COMM_MAX);
+	if (len > 0 && len < PROC_COMM_MAX) {
 		return 0;
 	}
 err:
-	ERR(0, "bad format; path=%s", path);
+	ERR(0, "bad format; path=/proc/%d/status", pid);
 	return -EPROTO;
 }
 #else /* __linux__ */
@@ -151,14 +154,14 @@ subr_mod_detach()
 }
 
 int
-ethaddr_aton(struct ethaddr *a, const char *s)
+eth_addr_aton(struct eth_addr *a, const char *s)
 {
 	int rc;
-	struct ethaddr x;
+	struct eth_addr x;
 
 	rc = sscanf(s, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
-	            x.etha_bytes + 0, x.etha_bytes + 1, x.etha_bytes + 2,
-	            x.etha_bytes + 3, x.etha_bytes + 4, x.etha_bytes + 5);
+	            x.ea_bytes + 0, x.ea_bytes + 1, x.ea_bytes + 2,
+	            x.ea_bytes + 3, x.ea_bytes + 4, x.ea_bytes + 5);
 	if (rc == 6) {
 		*a = x;
 		return 0;
@@ -169,33 +172,33 @@ ethaddr_aton(struct ethaddr *a, const char *s)
 
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 int
-ethaddr_is_mcast(const uint8_t *addr)
+eth_addr_is_mcast(const u_char *addr)
 {
 	return 0x01 & (addr >> ((sizeof(addr) * 8) - 8));
 }
 #else /* __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ */
 int
-ethaddr_is_mcast(const uint8_t *addr)
+eth_addr_is_mcast(const u_char *addr)
 {
 	return 0x01 & addr[0];
 }
 #endif /* __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ */
 
 int
-ethaddr_is_ucast(const uint8_t *addr)
+eth_addr_is_ucast(const u_char *addr)
 {
-	return !ethaddr_is_mcast(addr);
+	return !eth_addr_is_mcast(addr);
 }
 
 void
-ethaddr_make_ip6_mcast(struct ethaddr *addr, const uint8_t *ip6) 
+eth_addr_make_ip6_mcast(struct eth_addr *addr, const u_char *ip6) 
 {   
-	addr->etha_bytes[0] = 0x33;
-	addr->etha_bytes[1] = 0x33;
-	addr->etha_bytes[2] = ip6[12];
-	addr->etha_bytes[3] = ip6[13];
-	addr->etha_bytes[4] = ip6[14];
-	addr->etha_bytes[5] = ip6[15];
+	addr->ea_bytes[0] = 0x33;
+	addr->ea_bytes[1] = 0x33;
+	addr->ea_bytes[2] = ip6[12];
+	addr->ea_bytes[3] = ip6[13];
+	addr->ea_bytes[4] = ip6[14];
+	addr->ea_bytes[5] = ip6[15];
 }
 
 void
@@ -225,6 +228,19 @@ void
 spinlock_unlock(struct spinlock *sl)
 {
 	__sync_lock_release(&sl->spinlock_locked);
+}
+
+uint64_t
+counter64_get(struct counter64 *c)
+{
+	int i;
+	uint64_t accum;
+
+	accum = 0;
+	for (i = 0; i < ARRAY_SIZE(c->cnt64); ++i) {
+		accum += c->cnt64[i];
+	}
+	return accum;
 }
 
 void
@@ -309,8 +325,8 @@ strtrim(char *s)
 	return trimmed;
 }
 
-char *
-strtrim2(char *dst, const char *src)
+int
+strtrimcpy(char *dst, const char *src, int count)
 {
 	int i, len;
 	const char *x;
@@ -318,13 +334,17 @@ strtrim2(char *dst, const char *src)
 	x = strltrim(src);
 	len = 0;
 	for (i = 0; x[i] != '\0'; ++i) {
-		dst[i] = x[i];
+		if (i < count) {
+			dst[i] = x[i];
+		}
 		if (!isspace(x[i])) {
 			len = i + 1;
 		}
 	}
-	dst[len] = '\0';
-	return dst;
+	if (len < count) {
+		dst[len] = '\0';
+	}
+	return len;
 }
 
 int

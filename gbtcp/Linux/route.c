@@ -106,12 +106,10 @@ route_handle_link(struct nlmsghdr *h, struct route_msg *msg)
 	if (attr != NULL) {
 		tmp = RTA_PAYLOAD(attr);
 		if (tmp != 6) {
-			ERR(0, "attr bad len; attr=IFLA_ADDRESS, len=%d, need=6",
-			    tmp);
+			ERR(0, "attr bad len; attr=IFLA_ADDRESS, len=%d", tmp);
 			return -EPROTO;
 		}
-		memcpy(msg->rtm_link.rtml_hwaddr.etha_bytes,
-		       RTA_DATA(attr), 6);
+		memcpy(msg->rtm_link.rtml_hwaddr.ea_bytes, RTA_DATA(attr), 6);
 	}
 	return 1;
 }

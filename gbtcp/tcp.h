@@ -120,10 +120,8 @@ void so_get_socb(struct gt_sock *so, struct socb *);
 
 int gt_sock_nread(struct file *fp);
 
-int so_in(int ipproto, struct sock_tuple *so_tuple, struct gt_tcpcb *tcb,
-	void *payload);
-
-int so_in_err(int ipproto, struct sock_tuple *so_tuple, int eno);
+int so_in(int, struct sock_tuple *, struct tcpcb *, void *);
+int so_in_err(int, struct sock_tuple *, int);
 
 void sock_tx_flush();
 

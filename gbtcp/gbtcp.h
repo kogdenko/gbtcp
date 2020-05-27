@@ -33,7 +33,7 @@
 
 #define GT_SYSCTL_BUFSIZ 4096
 #define GT_RSS_NQ_MAX 32
-#define GT_SERVICE_COUNT_MAX 128
+#define GT_SERVICES_MAX 128
 #define GT_GROUP_NAME "gbtcp"
 
 #define GT_SYSCTL_FILE_FIRST_FD "file.first_fd"
@@ -46,7 +46,10 @@
 #define GT_SYSCTL_ROUTE_ROUTE_LIST "route.route.list"
 #define GT_SYSCTL_TCP_FIN_TIMEOUT "tcp.fin_timeout"
 #define GT_SYSCTL_SOCKET_HTABLE "socket.htable"
+#define GT_SYSCTL_ARP_ADD "arp.add"
 #define GT_SYSCTL_CONTROLLER_SERVICE_LIST "controller.service.list"
+#define GT_SYSCTL_INET_CKSUM_OFFLOAD_RX "inet.cksum.offload.rx"
+#define GT_SYSCTL_INET_CKSUM_OFFLOAD_TX "inet.cksum.offload.tx"
 
 #define GT_TCP_STAT(x) \
 	x(sndtotal) \
@@ -210,11 +213,11 @@ int gt_kevent(int, const struct kevent *, int, struct kevent *, int,
 #endif /* __linux__ */
 
 #ifndef gt_dbg
-#define gt_dbg(f, ...) \
+#define gt_dbg(fmt, ...) \
 do { \
 	printf("%-6d: %-20s: %-4d: %-20s: ", \
 	       getpid(), __FILE__, __LINE__, __func__); \
-	printf(f, ##__VA_ARGS__); \
+	printf(fmt, ##__VA_ARGS__); \
 	printf("\n"); \
 } while (0)
 #endif // gt_dbg

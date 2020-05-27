@@ -20,7 +20,7 @@ struct mod {
 	.m_service_deinit = name##_mod_service_deinit,
 
 
-struct mod mods[MOD_COUNT_MAX] = {
+struct mod mods[MODS_MAX] = {
 	{
 		MOD_BASE(sysctl)
 	},

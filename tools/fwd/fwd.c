@@ -1,3 +1,6 @@
+#if 1
+int main() {return 0;}
+#else
 #include <gbtcp/internals.h>
 
 #define ETH_ADDR_LEN 6
@@ -5,40 +8,6 @@
 
 typedef uint16_t be16_t;
 typedef uint32_t be32_t;
-
-struct eth_hdr {
-	struct ethaddr daddr;
-	struct ethaddr saddr;
-	be16_t type;
-};
-
-struct ip4_hdr {
-	uint8_t ver_ihl;
-	uint8_t type_of_svc;
-	be16_t total_len;
-	be16_t id;
-	be16_t frag_off;
-	uint8_t ttl;
-	uint8_t proto;
-	uint16_t cksum;
-	be32_t saddr;
-	be32_t daddr;
-} __attribute__((packed));
-
-struct ip4_pseudo_hdr {
-	be32_t saddr;
-	be32_t daddr;
-	uint8_t pad;
-	uint8_t proto;
-	be16_t len;
-} __attribute__((packed));
-
-struct udp_hdr {                                                                                                       
-	be16_t sport; 
-	be16_t dport;
-	be16_t len;
-	uint16_t cksum;
-} __attribute__((packed));
 
 struct fwd_dev {
 	struct nm_desc *nmd;
@@ -665,3 +634,4 @@ main(int argc, char **argv)
 	printf("bad_cksum   %llu\n", cnt_bad_cksum);
 	return 0;
 }
+#endif

@@ -547,6 +547,25 @@ sys_setsockopt(int fd, int level, int optname, void *optval, socklen_t optlen)
 }
 
 int
+sys_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
+{
+	int rc;
+
+	ASSERT(addr != NULL);
+	ASSERT(addrlen != NULL);
+	rc = (*sys_getpeername_fn)(fd, addr, addrlen);
+	if (rc == -1) {
+		rc = -errno;
+		ASSERT(rc);
+		ERR(-rc, "failed; fd=%d", fd);
+	} else {
+		INFO(0, "ok; fd=%d, addr=%s",
+		     fd, log_add_sockaddr(addr, *addrlen));
+	}
+	return rc;
+}
+
+int
 sys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *to,
 	const sigset_t *sigmask)
 {
@@ -887,6 +906,8 @@ sys_inotify_init1(int flags)
 		rc = -errno;
 		ASSERT(rc);
 		ERR(-rc, "failed;");
+	} else {
+		INFO(0, "ok; fd=%d", rc);
 	}
 	return rc;
 }
@@ -900,7 +921,9 @@ sys_inotify_add_watch(int fd, const char *path, uint32_t mask)
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
-		ERR(-rc, "failed; fd=%d, path=%s", fd, path);
+		ERR(-rc, "failed; fd=%d, path='%s'", fd, path);
+	} else {
+		INFO(0, "ok; fd=%d, path='%s'", fd, path);
 	}
 	return rc;
 }
@@ -915,6 +938,8 @@ sys_inotify_rm_watch(int fd, int wd)
 		rc = -errno;
 		ASSERT(rc);
 		ERR(-rc, "failed; fd=%d, wd=%d", fd, wd);
+	} else {
+		INFO(0, "ok; fd=%d, wd=%d", fd, wd);
 	}
 	return rc;
 }

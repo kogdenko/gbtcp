@@ -70,7 +70,7 @@ static int sysctl_handler(struct sysctl_conn *, struct sysctl_node *,
 
 static int sysctl_process_events(void *udata, short revents);
 
-static int sysctl_in(struct sysctl_conn *, const char *, int,
+static int sysctl_process(struct sysctl_conn *, const char *, int,
 	const char *, struct strbuf *);
 
 static int sysctl_in_req(struct sysctl_conn *, struct iovec *);
@@ -184,11 +184,11 @@ sysctl_make_sockaddr_un(struct sockaddr_un *a, int pid)
 {
 	a->sun_family = AF_UNIX;
 	snprintf(a->sun_path, sizeof(a->sun_path), "%s/%d.sock",
-	         SYSCTL_PATH, pid);
+	         SYSCTL_SOCK_PATH, pid);
 }
 
 static void
-sysctl_strbuf_add_node(struct strbuf *sb, struct sysctl_node *node)
+strbuf_add_sysctl_node(struct strbuf *sb, struct sysctl_node *node)
 {
 	int i, n;
 	struct sysctl_node *path[SYSCTL_DEPTH_MAX];
@@ -209,12 +209,12 @@ sysctl_strbuf_add_node(struct strbuf *sb, struct sysctl_node *node)
 }
 
 const char *
-sysctl_log_add_node(struct sysctl_node *node) 
+log_add_sysctl_node(struct sysctl_node *node) 
 {
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
-	sysctl_strbuf_add_node(sb, node);
+	strbuf_add_sysctl_node(sb, node);
 	return strbuf_cstr(sb);
 }
 
@@ -272,7 +272,7 @@ sysctl_parse_line(char *s)
 	}
 	path = strtrim(s);
 	strbuf_init(&out, out_buf, sizeof(out_buf));
-	rc = sysctl_in(NULL, path, 1, new, &out);
+	rc = sysctl_process(NULL, path, 1, new, &out);
 	return rc;
 }
 
@@ -292,8 +292,8 @@ sysctl_read_file(const char *proc_name)
 			return rc;
 		}
 	} else {
-		snprintf(path_buf, sizeof(path_buf), "%s/sysctl/%s.conf",
-		         GT_PREFIX, proc_name);
+		snprintf(path_buf, sizeof(path_buf), "%s/%s.conf",
+		         SYSCTL_CONFIG_PATH, proc_name);
 	}
 	path = path_buf;
 	rc = sys_fopen(&file, path, "r");
@@ -570,7 +570,7 @@ sysctl_handler(struct sysctl_conn *cp, struct sysctl_node *node,
 	rc = (*node->n_fn)(cp, node->n_udata, new, out);
 	if (rc < 0) {
 		ERR(-rc, "failed; path='%s', new='%s'",
-		    sysctl_log_add_node(node), new);
+		    log_add_sysctl_node(node), new);
 		return rc;
 	}
 	if (off < out->sb_cap) {
@@ -657,12 +657,12 @@ sysctl_conn_open(struct sysctl_conn **cpp, int fd)
 	cp = *cpp;
 	memset(cp, 0, sizeof(*cp));
 	snprintf(name, sizeof(name), "sysctl.%d", fd);
-	rc = fd_event_new(&cp->sccn_event, fd, name,
-	                  sysctl_process_events, cp);
+	rc = fd_event_add(&cp->sccn_event, fd, name,
+	                  cp, sysctl_process_events);
 	if (rc < 0) {
 		sys_free(cp);
 	} else {
-		gt_fd_event_set(cp->sccn_event, POLLIN);
+		fd_event_set(cp->sccn_event, POLLIN);
 	}
 	return rc;
 }
@@ -753,7 +753,7 @@ sysctl_conn_close(struct sysctl_conn *cp)
 		(*cp->sccn_close_fn)(cp);
 	}
 	sys_close(sysctl_conn_fd(cp));
-	gt_fd_event_del(cp->sccn_event);
+	fd_event_del(cp->sccn_event);
 }
 
 static int
@@ -793,7 +793,7 @@ sysctl_process_events(void *udata, short revents)
 }
 
 static int
-sysctl_in(struct sysctl_conn *cp, const char *path, int load,
+sysctl_process(struct sysctl_conn *cp, const char *path, int load,
 	const char *new, struct strbuf *out)
 {
 	int rc;
@@ -817,7 +817,7 @@ sysctl_in_req(struct sysctl_conn *cp, struct iovec *t)
 
 	path = t[0].iov_base;
 	strbuf_init(&out, out_buf, sizeof(out_buf));
-	rc = sysctl_in(cp, path, 0, t[1].iov_base, &out);
+	rc = sysctl_process(cp, path, 0, t[1].iov_base, &out);
 	if (rc) {
 		out.sb_len = 0;
 		strbuf_addf(&out, "error %d", -rc);
@@ -1023,7 +1023,7 @@ sysctl_recv_rpl(int fd, char *old)
 		if (rc < 0) {
 			return rc;
 		} else if (rc == 0) {
-			return -EPROTO;
+			return -ECONNREFUSED;
 		} else {
 			ptr = memchr(old + len, '\n', rc);
 			if (ptr == NULL) {
@@ -1060,9 +1060,17 @@ sysctl_req(int fd, const char *path, char *old, const char *new)
 {
 	int rc;
 
+	INFO(0, "hit; path='%s'", path);
 	rc = sysctl_send_req(fd, path, new);
 	if (rc == 0) {
 		rc = sysctl_recv_rpl(fd, old);
+	}
+	if (rc < 0) {
+		ERR(-rc, "failed; path='%s'", path);
+	} else if (rc > 0) {
+		WARN(rc, "error; path='%s'", path);
+	} else {
+		INFO(0, "ok;");
 	}
 	return rc;
 }

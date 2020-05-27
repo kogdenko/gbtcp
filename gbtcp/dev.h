@@ -24,9 +24,8 @@ struct dev_pkt {
 	struct mbuf pkt_mbuf;
 	union {
 		struct {
-			unsigned int pkt_len : 11;
-			unsigned int pkt_off : 11;
-			unsigned int pkt_no_dev : 1;
+			u_int pkt_len : 11;
+			u_int pkt_off : 11;
 		};
 		uint32_t pkt_flags;
 	};
@@ -44,16 +43,16 @@ struct dev_pkt {
 	NETMAP_TXRING((dev)->dev_nmd->nifp, (dev)->dev_nmd->first_tx_ring)
 
 #define DEV_FOREACH_RXRING(rxr, dev) \
-	for (int GT_UNIQV(i) = (dev)->dev_nmd->first_rx_ring; \
-	     GT_UNIQV(i) <= (dev)->dev_nmd->last_rx_ring && \
-	     ((rxr = NETMAP_RXRING((dev)->dev_nmd->nifp, GT_UNIQV(i))), 1); \
-	     ++GT_UNIQV(i))
+	for (int UNIQV(i) = (dev)->dev_nmd->first_rx_ring; \
+	     UNIQV(i) <= (dev)->dev_nmd->last_rx_ring && \
+	     ((rxr = NETMAP_RXRING((dev)->dev_nmd->nifp, UNIQV(i))), 1); \
+	     ++UNIQV(i))
 
 #define DEV_FOREACH_TXRING(txr, dev) \
-	for (int GT_UNIQV(i) = (dev)->dev_nmd->first_tx_ring; \
-	     GT_UNIQV(i) <= (dev)->dev_nmd->last_tx_ring && \
-	     ((txr = NETMAP_TXRING((dev)->dev_nmd->nifp, GT_UNIQV(i))), 1); \
-	     ++GT_UNIQV(i))
+	for (int UNIQV(i) = (dev)->dev_nmd->first_tx_ring; \
+	     UNIQV(i) <= (dev)->dev_nmd->last_tx_ring && \
+	     ((txr = NETMAP_TXRING((dev)->dev_nmd->nifp, UNIQV(i))), 1); \
+	     ++UNIQV(i))
 
 #define DEV_FOREACH_TXRING_CONTINUE(i, txr, dev) \
 	for (; i <= (dev)->dev_nmd->last_tx_ring && \
@@ -63,6 +62,12 @@ struct dev_pkt {
 #define DEV_RXR_NEXT(rxr) \
 	(rxr)->head = (rxr)->cur = nm_ring_next(rxr, (rxr)->cur)
 
+#if 1
+#define DEV_PKT_COPY(d, s, len) nm_pkt_copy(s, d, len)
+#else
+#define DEV_PKT_COPY(d, s, len) memcpy(d, s, len)
+#endif
+
 #define dev_is_inited(dev) ((dev)->dev_fn != NULL)
 
 int dev_mod_init(void **);
@@ -71,14 +76,13 @@ void dev_mod_deinit(void *);
 void dev_mod_detach();
 
 int dev_init(struct dev *, const char *, dev_f);
-void dev_deinit(struct dev *);
+void dev_deinit(struct dev *, int);
 void dev_clean(struct dev *);
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);
 int dev_not_empty_txr(struct dev *, struct dev_pkt *);
 int dev_rxr_space(struct dev *, struct netmap_ring *);
 void dev_tx(struct dev_pkt *);
-int dev_tx3(struct dev *, void *, int);
 
 static inline void
 dev_prefetch(struct netmap_ring *ring)

@@ -151,9 +151,7 @@ xsysctl(const char *path, char *old, const char *new)
 	rc = gt_sysctl(path, old, new);
 	if (rc < 0) {
 		rc = -gt_errno;
-		//warnx("gt_sysctl('%s') failed (%s)", path, strerror(-rc));
 	} else if (rc > 0) {
-		//warnx("gt_sysctl('%s') error (%s)", path, strerror(rc));		
 		rc = -rc;
 	}
 	return rc;
@@ -199,16 +197,6 @@ sysctl_list_r(char *path, int path_len, char *buf)
 	}
 	return 0;
 }
-
-#if 0
-			// path A.B.C.DDDD+
-			// Remove .DDDD+
-			path_len--;
-			while (path_len > 0 && path[path_len] != '.') {
-				path_len--;
-			}
-#endif
-
 
 static int
 sysctl_r(char *path, int path_len, char *buf)

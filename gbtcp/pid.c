@@ -164,7 +164,7 @@ pid_wait_add(struct pid_wait *pw, int pid)
 			goto err;
 		}
 	}
-	if (pw->pw_nentries == GT_SERVICE_COUNT_MAX) {
+	if (pw->pw_nentries == GT_SERVICES_MAX) {
 		rc = -ENOSPC;
 		goto err;
 	}

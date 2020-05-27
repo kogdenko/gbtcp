@@ -42,18 +42,20 @@ struct route_if {
 	int rif_naddrs;
 	int rif_name_len[2];
 	struct route_if_addr **rif_addrs;
-	struct ethaddr rif_hwaddr;
+	struct eth_addr rif_hwaddr;
 	u_char rif_rss_key[RSS_KEY_SIZE];
 	struct dlist rif_routes;
 	struct dev rif_host_dev;
-	struct dlist PER_SERVICE(rif_txq);
-	uint64_t rif_cnt_rx_pkts;
-	uint64_t rif_cnt_rx_bytes;
-	uint64_t rif_cnt_rx_drop;
-	uint64_t rif_cnt_tx_pkts;
-	uint64_t rif_cnt_tx_bytes;
-	uint64_t rif_cnt_tx_drop;
-	struct dev PER_SERVICE(rif_dev)[GT_RSS_NQ_MAX];
+	struct dlist rif_txq[GT_SERVICES_MAX];
+	struct dev rif_dev[GT_SERVICES_MAX][GT_RSS_NQ_MAX];
+	counter64_t rif_rx_pkts;
+	counter64_t rif_rx_bytes;
+	counter64_t rif_rx_drop;
+	counter64_t rif_rx_redir;
+	counter64_t rif_tx_pkts;
+	counter64_t rif_tx_bytes;
+	counter64_t rif_tx_drop;
+	counter64_t rif_tx_redir;
 	char rif_name[NM_IFNAMSIZ];
 };
 
@@ -84,7 +86,7 @@ struct route_entry {
 
 struct route_msg_link {
 	int rtml_flags;
-	struct ethaddr rtml_hwaddr;
+	struct eth_addr rtml_hwaddr;
 	char rtml_name[IFNAMSIZ];
 };
 

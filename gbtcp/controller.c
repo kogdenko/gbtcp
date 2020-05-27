@@ -5,15 +5,13 @@ struct controller_mod {
 };
 
 static struct controller_mod *curmod;
-static struct service *services[GT_SERVICE_COUNT_MAX];
+static struct service *services[GT_SERVICES_MAX];
 static int nservices;
 static struct sysctl_conn *controller_listen;
 static int controller_pid_fd = -1;
 static int controller_done;
 
 struct init_hdr *ih;
-
-#define controller (ih->ih_services)
 
 int
 controller_mod_init(void **pp)
@@ -58,7 +56,7 @@ controller_terminate()
 {
 	int i, n, rc, fd, pid, npids, again;
 	uint64_t to;
-	int pids[GT_SERVICE_COUNT_MAX];
+	int pids[GT_SERVICES_MAX];
 	struct sockaddr_un a;
 	DIR *dir;
 	struct dirent *entry;
@@ -114,6 +112,7 @@ controller_terminate()
 		sys_unlink(a.sun_path);
 	}
 	if (pid_wait_is_empty(&pw)) {
+		INFO(0, "ok;");
 		rc = 0;
 	} else {
 		ERR(ETIMEDOUT, "failed;");
@@ -148,14 +147,14 @@ controller_service_lock_detached(struct service *s)
 
 	rc = spinlock_trylock(&s->p_lock);
 	if (rc == 0) {
-		die(0, "Deadlock!!!; pid=%d", s->p_pid);
+		die(0, "deadlocked; pid=%d", s->p_pid);
 	}
 }
 
 static void
 controller_service_lock(struct service *s)
 {
-	int i, x, rc;
+	int i, b, rc;
 
 	while (1) {
 		for (i = 0; i < 1000; ++i) {
@@ -165,8 +164,8 @@ controller_service_lock(struct service *s)
 			}
 			cpu_pause();
 		}
-		rc = sys_recv(s->p_fd, &x, 1, MSG_PEEK|MSG_DONTWAIT);
-		if (rc <= 0) {
+		rc = sys_recv(s->p_fd, &b, sizeof(b), MSG_PEEK|MSG_DONTWAIT);
+		if (rc < 0 && rc != -EAGAIN) {
 			// Connection closed
 			controller_service_lock_detached(s);
 			return;
@@ -188,13 +187,13 @@ controller_service_check_deadlock(struct service *s)
 }
 
 static void
-controller_service_update_rss_table(struct service *s)
+controller_service_update(struct service *s)
 {
-	if (s == controller) {
-		service_update_rss_table(s);
+	if (s == current) {
+		service_update(s);
 	} else {
 		controller_service_lock(s);
-		s->p_dirty_rss_table = 1;
+		s->p_dirty = 1;
 		controller_service_unlock(s);
 	}
 }
@@ -208,21 +207,21 @@ controller_balance_get(struct service **ppoor, struct service **prich)
 	if (nservices) {
 		poor = rich = services[0];
 	} else {
-		poor = rich = controller;
+		poor = rich = current;
 	}
 	for (i = 1; i < nservices; ++i) {
 		s = services[i];
 		if (poor->p_rss_nq > s->p_rss_nq) {
 			poor = s;
 		} else if (poor->p_rss_nq == s->p_rss_nq) {
-			if (poor->p_pps < s->p_pps) {
+			if (poor->p_kpps < s->p_kpps) {
 				poor = s;
 			}
 		}
 		if (rich->p_rss_nq < s->p_rss_nq) {
 			rich = s;
 		} else if (rich->p_rss_nq == s->p_rss_nq) {
-			if (rich->p_pps > s->p_pps) {
+			if (rich->p_kpps > s->p_kpps) {
 				rich = s;
 			}
 		}
@@ -236,13 +235,60 @@ controller_balance_get(struct service **ppoor, struct service **prich)
 }
 
 static void
+controller_rss_table_set(u_int rss_qid, int service_id)
+{
+	ASSERT(rss_qid < GT_RSS_NQ_MAX);
+	ASSERT(service_id == -1 || service_id < GT_SERVICES_MAX);
+	if (ih->ih_rss_table[rss_qid] != service_id) {
+		NOTICE(0, "hit; rss_qid=%d, pid=%d",
+		       rss_qid, ih->ih_services[service_id].p_pid);
+	}
+	WRITE_ONCE(ih->ih_rss_table[rss_qid], service_id);
+}
+
+static void
+controller_balance()
+{
+	int i;
+	struct service *poor, *rich;
+
+	controller_balance_get(&poor, &rich);
+	if (poor == current) {
+		return;
+	}
+	if (rich->p_rss_nq == 1) {
+		return;
+	}
+	if (poor->p_rss_nq > 0) {
+		return;
+	}
+//	if (rich->p_kpps < 1000) {
+//		return;
+//	}
+//	if (poor->p_kpps > (rich->p_kpps >> 3)) {
+//		return;
+//	}
+	// TODO: find best quited qid
+	for (i = 0; ih->ih_rss_nq; ++i) {
+		if (ih->ih_rss_table[i] == rich->p_id) {
+			controller_rss_table_set(i, poor->p_id);
+			rich->p_rss_nq--;
+			poor->p_rss_nq++;
+			controller_service_update(rich);
+			controller_service_update(poor);
+			return;
+		}
+	}
+}
+
+static void
 controller_service_del(struct service *s)
 {
 	int i;
 	struct service *new;
 
 	NOTICE(0, "hit; pid=%d", s->p_pid);
-	if (s != controller) {
+	if (s != current) {
 		for (i = 0; i < nservices; ++i) {
 			if (services[i] == s) {
 				break;
@@ -258,16 +304,16 @@ controller_service_del(struct service *s)
 		controller_balance_get(&new, NULL);
 		for (i = 0; i < ih->ih_rss_nq; ++i) {
 			if (ih->ih_rss_table[i] == s->p_id) {
-				WRITE_ONCE(ih->ih_rss_table[i], new->p_id);
+				controller_rss_table_set(i, new->p_id);
 				ASSERT(s->p_rss_nq > 0);
 				s->p_rss_nq--;
 				new->p_rss_nq++;
 			}
 		}
 		ASSERT(s->p_rss_nq == 0);
-		controller_service_update_rss_table(s);
-		controller_service_update_rss_table(new);
-	} 
+		controller_service_update(s);
+		controller_service_update(new);
+	}
 }
 
 static void
@@ -275,18 +321,18 @@ controller_service_add(struct service *s, int pid, struct sysctl_conn *cp)
 {
 	int fd;
 
-	ASSERT(s != controller);
+	ASSERT(s != current);
 	ASSERT(nservices < ARRAY_SIZE(services));
 	fd = sysctl_conn_fd(cp);
 	NOTICE(0, "hit; pid=%d, fd=%d", pid, fd);
 	services[nservices++] = s;
 	s->p_pid = pid;
-	s->p_dirty_rss_table = 0;
+	s->p_dirty = 0;
 	s->p_rss_nq = 0;
 	s->p_fd = fd;
-	if (controller->p_rss_nq) {
+	if (current->p_rss_nq) {
 		ASSERT(nservices == 1);
-		controller_service_del(controller);
+		controller_service_del(current);
 	}
 }
 
@@ -301,13 +347,13 @@ controller_rss_table_reduce(int rss_nq)
 	WRITE_ONCE(ih->ih_rss_nq, rss_nq);
 	for (i = rss_nq; i < n; ++i) {
 		id = ih->ih_rss_table[i];
-		WRITE_ONCE(ih->ih_rss_table[i], -1);
-		ASSERT(id < GT_SERVICE_COUNT_MAX);
+		controller_rss_table_set(i, -1);
+		ASSERT(id < GT_SERVICES_MAX);
 		s = ih->ih_services + id;
 		ASSERT(s->p_rss_nq > 0);
 		s->p_rss_nq--;
 		if (s->p_rss_nq == 0) {
-			controller_service_update_rss_table(s);
+			controller_service_update(s);
 		}
 	}
 }
@@ -320,7 +366,7 @@ controller_rss_table_expand(int rss_nq)
 
 	controller_balance_get(&s, NULL);
 	for (i = ih->ih_rss_nq; i < rss_nq; ++i) {
-		WRITE_ONCE(ih->ih_rss_table[i], s->p_id);
+		controller_rss_table_set(i, s->p_id);
 		s->p_rss_nq++;
 	}
 	WRITE_ONCE(ih->ih_rss_nq, rss_nq);
@@ -346,19 +392,19 @@ controller_update_rss_table()
 	} else if (ih->ih_rss_nq < rss_nq)  {
 		controller_rss_table_expand(rss_nq);
 	}
-	if (controller->p_rss_nq) {
-		controller_service_update_rss_table(controller);
+	if (current->p_rss_nq) {
+		controller_service_update(current);
 	}
 	for (i = 0; i < nservices; ++i) {
 		s = services[i];
 		if (s->p_rss_nq) {
-			controller_service_update_rss_table(s);
+			controller_service_update(s);
 		}
 	}
 }
 
 static int
-sysctl_controller_service_init(struct sysctl_conn *cp, void *udata,
+sysctl_controller_service_attach(struct sysctl_conn *cp, void *udata,
 	const char *new, struct strbuf *old)
 {
 	int i, pid;
@@ -427,7 +473,7 @@ sysctl_controller_service_list(void *udata, const char *ident, const char *new,
 	if (!s->p_pid) {
 		return -ENOENT;
 	} else {
-		strbuf_addf(out, "%d,%d,%u", s->p_pid, s->p_rss_nq, s->p_pps);
+		strbuf_addf(out, "%d,%d,%u", s->p_pid, s->p_rss_nq, s->p_kpps);
 		return 0;
 	}
 }
@@ -495,7 +541,7 @@ controller_bind(int pid)
 }
 
 int
-controller_init(int daemonize, const char *p_comm)
+controller_init(int daemonize, const char *service_comm)
 {
 	int i, rc, pid;
 	uint64_t hz;
@@ -552,20 +598,23 @@ controller_init(int daemonize, const char *p_comm)
 	for (i = 0; i < ARRAY_SIZE(ih->ih_rss_table); ++i) {
 		ih->ih_rss_table[i] = -1;
 	}
-	current = controller;
+	current = ih->ih_services + 0;
 	current->p_pid = pid;
-	strzcpy(current->p_comm, "controller", sizeof(current->p_comm));
 	rc = mod_foreach_mod_attach(ih);
 	if (rc) {
 		goto err;
 	}
-	sysctl_read_file(p_comm);
+	rc = service_init("controller");
+	if (rc) {
+		goto err;
+	}
+	sysctl_read_file(service_comm);
 	rc = controller_bind(pid);
 	if (rc) {
 		goto err;
 	}
-	sysctl_add(SYSCTL_CONTROLLER_SERVICE_INIT, SYSCTL_WR, NULL, NULL,
-	           sysctl_controller_service_init);
+	sysctl_add(SYSCTL_CONTROLLER_SERVICE_ATTACH, SYSCTL_WR, NULL, NULL,
+	           sysctl_controller_service_attach);
 	sysctl_add_list(GT_SYSCTL_CONTROLLER_SERVICE_LIST, SYSCTL_RD, NULL,
 	                sysctl_controller_service_list_next,
 	                sysctl_controller_service_list);
@@ -582,6 +631,7 @@ err:
 			mod_foreach_mod_service_deinit(s);
 		}
 	}
+	service_deinit(0);
 	mod_foreach_mod_detach();
 	mod_foreach_mod_deinit(ih);
 	shm_deinit();
@@ -596,5 +646,6 @@ controller_loop()
 {
 	while (!controller_done) {
 		wait_for_fd_events();
+		controller_balance();
 	}
 }

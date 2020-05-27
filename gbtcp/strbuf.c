@@ -131,11 +131,11 @@ strbuf_addf(struct strbuf *sb, const char *fmt, ...)
 }
 
 void
-strbuf_add_ethaddr(struct strbuf *sb, struct ethaddr *a)
+strbuf_add_eth_addr(struct strbuf *sb, struct eth_addr *a)
 {
 	strbuf_addf(sb, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
-	            a->etha_bytes[0], a->etha_bytes[1], a->etha_bytes[2],
-	            a->etha_bytes[3], a->etha_bytes[4], a->etha_bytes[5]);
+	            a->ea_bytes[0], a->ea_bytes[1], a->ea_bytes[2],
+	            a->ea_bytes[3], a->ea_bytes[4], a->ea_bytes[5]);
 }
 
 void
