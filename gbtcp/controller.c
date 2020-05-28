@@ -240,8 +240,12 @@ controller_rss_table_set(u_int rss_qid, int service_id)
 	ASSERT(rss_qid < GT_RSS_NQ_MAX);
 	ASSERT(service_id == -1 || service_id < GT_SERVICES_MAX);
 	if (ih->ih_rss_table[rss_qid] != service_id) {
-		NOTICE(0, "hit; rss_qid=%d, pid=%d",
-		       rss_qid, ih->ih_services[service_id].p_pid);
+		if (service_id == -1) {
+			NOTICE(0, "clear; rss_qid=%d", rss_qid);
+		} else {
+			NOTICE(0, "hit; rss_qid=%d, pid=%d",
+			       rss_qid, ih->ih_services[service_id].p_pid);
+		}
 	}
 	WRITE_ONCE(ih->ih_rss_table[rss_qid], service_id);
 }

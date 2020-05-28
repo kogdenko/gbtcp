@@ -1,4 +1,4 @@
-// GPL2 license
+// gpl2 license
 #ifndef GBTCP_HTABLE_H
 #define GBTCP_HTABLE_H
 
@@ -34,8 +34,6 @@ void htable_bucket_init(struct htable_bucket *);
 int htable_init(struct htable *, int, htable_f, int);
 void htable_deinit(struct htable *);
 struct htable_bucket *htable_bucket_get(struct htable *, uint32_t);
-void htable_add(struct htable *, struct htable_bucket *, htable_entry_t *);
-void htable_del(struct htable *, htable_entry_t *);
 
 void sysctl_add_htable(const char *, int, struct htable *, htable_sysctl_f);
 

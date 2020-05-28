@@ -361,14 +361,14 @@ arp_entry_alloc(struct arp_entry **ep, be32_t next_hop)
 	e->ae_next_hop = next_hop;
 	h = arp_entry_hash(e);
 	b = htable_bucket_get(&curmod->arp_htable, h);
-	htable_add(&curmod->arp_htable, b, (htable_entry_t *)e);
+	dlist_insert_tail_rcu(&b->htb_head, &e->ae_list);
 	return 0;
 }
 
 static void
 arp_entry_del(struct arp_entry *e)
 {
-	htable_del(&curmod->arp_htable, (htable_entry_t *)e);
+	dlist_remove_rcu(&e->ae_list);
 	timer_del(&e->ae_timer);
 	arp_set_state(e, ARP_NONE);
 	mbuf_free(&e->ae_incomplete_q->pkt_mbuf);

@@ -204,10 +204,6 @@ struct profiler {
 #define ntoh32(x) ((uint32_t)BSWAP32(x))
 #endif // __BIG_ENDIAN
 
-#define mb _mm_mfence
-#define rmb _mm_sfence
-#define wmb _mm_lfence
-#define cpu_pause _mm_pause
 
 #define UNIQV_CAT3(x, res) res
 #define UNIQV_CAT2(x, y, z) UNIQV_CAT3(~, x##y##z)
@@ -250,8 +246,39 @@ do { \
 #define dbg gt_dbg
 #define dbg0 dbg("D")
 
-#define WRITE_ONCE(x, val) (x) = (val);
-#define READ_ONCE(x) (x)
+#define barrier() __asm__ __volatile__("": : :"memory")
+#define mb _mm_mfence
+#define rmb _mm_sfence
+#define wmb _mm_lfence
+#define cpu_pause _mm_pause
+
+#define READ_ONCE(x) \
+({ \
+	union { \
+		typeof(x) val; \
+		u_char data[1]; \
+	} u; \
+	read_once(&(x), u.data, sizeof(x)); \
+	u.val; \
+})
+
+#define WRITE_ONCE(x, v) \
+({ \
+	union { \
+		typeof(x) val; \
+		u_char data[1]; \
+	} u = { \
+		.val = (typeof(x))(v) \
+	}; \
+	write_once(&(x), u.data, sizeof(x)); \
+	u.val; \
+})
+
+#define rcu_assign_pointer(p, v) \
+({ \
+	barrier(); \
+	WRITE_ONCE(p, v); \
+})
 
 extern uint64_t nanoseconds;
 extern uint64_t HZ;
@@ -286,6 +313,7 @@ char *strtrim(char *);
 int strtrimcpy(char *, const char *, int);
 int strsplit(const char *, const char *, struct iovec *, int);
 char *strzcpy(char *, const char *, size_t);
+
 
 uint32_t custom_hash32(uint32_t data, uint32_t initval);
 uint32_t custom_hash(const void *data, size_t cnt, uint32_t val);
@@ -341,5 +369,27 @@ void print_backtrace(int);
 
 void set_hz(uint64_t);
 void rd_nanoseconds();
+
+static inline void
+read_once(const volatile void *p, void *data, int size)
+{
+	switch (size) {
+	case 1: *(uint8_t *)data = *(volatile uint8_t *)p; break;
+	case 2: *(uint16_t *)data = *(volatile uint16_t *)p; break;
+	case 4: *(uint32_t *)data = *(volatile uint32_t *)p; break;
+	case 8: *(uint64_t *)data = *(volatile uint64_t *)p; break;
+	}
+}
+
+static inline void
+write_once(volatile void *p, void *data, int size)
+{
+	switch (size) {
+	case 1: *(volatile uint8_t *)p = *(uint8_t *)data; break;
+	case 2: *(volatile uint16_t *)p = *(uint16_t *)data; break;
+	case 4: *(volatile uint32_t *)p = *(uint32_t *)data; break;
+	case 8: *(volatile uint64_t *)p = *(uint64_t *)data; break;
+	}
+}
 
 #endif // GBTCP_SUBR_H

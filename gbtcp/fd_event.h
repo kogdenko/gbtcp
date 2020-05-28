@@ -19,11 +19,12 @@ struct fd_event {
 	char fde_name[64];
 };
 
-struct gt_fd_event_set {
+struct fd_poll {
 	uint64_t fdes_to;
 	uint64_t fdes_time;
 	struct timespec fdes_ts;
 	int fdes_nr_used;
+	int fdes_first;
 	int fdes_again; // For repeted `rxtx` call
 	struct fd_event *fdes_used[FD_EVENTS_MAX];
 };
@@ -44,7 +45,8 @@ void fd_event_set(struct fd_event *, short);
 void fd_event_clear(struct fd_event *, short);
 int fd_event_is_set(struct fd_event *, short);
 
-void gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds);
-int gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds);
+void fd_poll_init(struct fd_poll *);
+void fd_poll_set(struct fd_poll *, struct pollfd *);
+int fd_poll_call(struct fd_poll *, struct pollfd *);
 
 #endif // GBTCP_FD_EVENT_H

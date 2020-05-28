@@ -82,7 +82,7 @@ poll_init(struct poll *poll, struct pollfd *pfds, int npfds, uint64_t to)
 {
 	int i, n, rc, fd;
 	struct pollfd *pfd;
-	struct gt_sock *so;
+	struct sock *so;
 	struct poll_entry *e;
 
 	poll->p_ntriggered = 0;
@@ -115,7 +115,7 @@ poll_read_events(struct poll *poll, struct pollfd *pfds, int npfds)
 {
 	int i, rc, ntriggered;
 	short revents;
-	struct gt_sock *so;
+	struct sock *so;
 	struct poll_entry *e;
 
 	ntriggered = 0;
@@ -143,7 +143,7 @@ u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 {
 	int n, m, a, b, sys, rc;
 	struct poll poll;
-	struct gt_fd_event_set set;
+	struct fd_poll fd_poll;
 
 	UNUSED(b);
 	UNUSED(a);
@@ -151,25 +151,25 @@ u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 		return -EINVAL;
 	}
 	sys = poll_init(&poll, pfds, npfds, to);
-	set.fdes_to = to;
+	fd_poll_init(&fd_poll);
 	do {
-		gt_fd_event_set_init(&set, poll.p_pfds + sys);
+		fd_poll_set(&fd_poll, poll.p_pfds + sys);
 		SERVICE_UNLOCK;
 		if (poll.p_ntriggered) {
-			set.fdes_ts.tv_nsec = 0;
+			fd_poll.fdes_ts.tv_nsec = 0;
 		}
 		rc = sys_ppoll(poll.p_pfds,
-		               sys + set.fdes_nr_used,
-		               &set.fdes_ts, sigmask);
+		               sys + fd_poll.fdes_nr_used,
+		               &fd_poll.fdes_ts, sigmask);
 		SERVICE_LOCK;
-		m = gt_fd_event_set_call(&set, poll.p_pfds + sys);
+		m = fd_poll_call(&fd_poll, poll.p_pfds + sys);
 		if (rc < 0) {
 			return rc;
 		}
 		n = rc - m;
 		a = n;
 		n += poll.p_ntriggered;
-	} while (n == 0 && set.fdes_to > 0);
+	} while (n == 0 && fd_poll.fdes_to > 0);
 	b = poll_read_events(&poll, pfds, npfds);
 	ASSERT3(0, a == b, "%d, %d", a, b);
 	return n;

@@ -1,12 +1,17 @@
-// GPL2 license
+// gpl2 license
 #ifndef GBTCP_LIST_H
 #define GBTCP_LIST_H
+
+#include "subr.h"
 
 // Double linked list
 struct dlist {
 	struct dlist *dls_next;
 	struct dlist *dls_prev;
 };
+
+#define dlist_entry_rcu(ptr, type, member) \
+	container_of(READ_ONCE(ptr), type, member)
 
 void dlist_init(struct  dlist *);
 void dlist_init_rcu(struct dlist *);
@@ -16,9 +21,11 @@ struct dlist *dlist_first(struct dlist *);
 struct dlist *dlist_last(struct dlist *);
 void dlist_insert_head(struct dlist *, struct dlist *);
 void dlist_insert_tail(struct dlist *, struct dlist *);
+void dlist_insert_tail_rcu(struct dlist *, struct dlist *);
 void dist_insert_before(struct dlist *, struct dlist *);
 void dlist_insert_after(struct dlist *, struct dlist *);
 void dlist_remove(struct dlist *);
+void dlist_remove_rcu(struct dlist *);
 void dlist_replace(struct dlist *, struct dlist *);
 void dlist_replace_init(struct dlist *, struct dlist *);
 
@@ -55,17 +62,21 @@ void dlist_replace_init(struct dlist *, struct dlist *);
 
 #define DLIST_FOREACH(var, head, field) \
 	for (var = DLIST_FIRST(head, typeof(*(var)), field); \
-		&((var)->field) != (head); \
-		var = DLIST_NEXT(var, field))
+	     &((var)->field) != (head); \
+	     var = DLIST_NEXT(var, field))
 
-#define DLIST_FOREACH_CONTINUE(pos, head, field) \
-	for (; &((pos)->field) != (head); \
-		pos = DLIST_NEXT(pos, field))
+#define DLIST_FOREACH_RCU(var, head, field) \
+	for (var = dlist_entry_rcu((head)->dls_next, typeof(*(var)), field); \
+	     &var->field != (head); \
+	     var = dlist_entry_rcu(var->field.dls_next, typeof(*(var)), field))
+
+#define DLIST_FOREACH_CONTINUE(var, head, field) \
+	for (; &((var)->field) != (head); var = DLIST_NEXT(var, field))
 
 #define DLIST_FOREACH_SAFE(var, head, field, tvar) \
 	for (var = DLIST_FIRST(head, typeof(*(var)), field); \
-		(&((var)->field) != (head)) && \
-		((tvar = DLIST_NEXT(var, field)), 1); \
-		var = tvar)
+	     (&((var)->field) != (head)) && \
+	     ((tvar = DLIST_NEXT(var, field)), 1); \
+	     var = tvar)
 
 #endif // GBTCP_LIST_H

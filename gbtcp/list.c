@@ -1,5 +1,5 @@
-// GPL2 license
-#include "list.h"
+// gpl2 license
+#include "internals.h"
 
 void
 dlist_init(struct  dlist *head)
@@ -57,6 +57,15 @@ dlist_insert_tail(struct dlist *head, struct dlist *l)
 }
 
 void
+dlist_insert_tail_rcu(struct dlist *head, struct dlist *l)
+{
+	l->dls_next = head;
+	l->dls_prev = head->dls_prev;
+	rcu_assign_pointer(head->dls_prev->dls_next, l);
+	head->dls_prev = l;
+}
+
+void
 dlist_insert_before(struct dlist *b, struct dlist *l)
 {
 	l->dls_next = b;
@@ -77,6 +86,13 @@ dlist_remove(struct dlist *list)
 {
 	list->dls_next->dls_prev = list->dls_prev;
 	list->dls_prev->dls_next = list->dls_next;
+}
+
+void
+dlist_remove_rcu(struct dlist *list)
+{
+	list->dls_next->dls_prev = list->dls_prev;
+	WRITE_ONCE(list->dls_prev->dls_next, list->dls_next);
 }
 
 void

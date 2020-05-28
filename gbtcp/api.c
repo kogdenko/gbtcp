@@ -162,7 +162,7 @@ api_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	socklen_t optlen;
 	const struct sockaddr_in *faddr_in;
 	struct sockaddr_in laddr_in;
-	struct gt_sock *so;
+	struct sock *so;
 
 	if (addr->sa_family != AF_INET) {
 		return -EAFNOSUPPORT;
@@ -215,7 +215,7 @@ api_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
 	const struct sockaddr_in *addr_in;
-	struct gt_sock *so;
+	struct sock *so;
 
 	if (addr->sa_family != AF_INET) {
 		return -EAFNOSUPPORT;
@@ -253,7 +253,7 @@ int
 api_listen(int fd, int backlog)
 {
 	int rc;
-	struct gt_sock *so;
+	struct sock *so;
 
 	rc = so_get(fd, &so);
 	if (rc) {
@@ -284,7 +284,7 @@ int
 api_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
 	int rc;
-	struct gt_sock *so;
+	struct sock *so;
 
 	rc = so_get(lfd, &so);
 	if (rc) {
@@ -377,7 +377,7 @@ api_recvfrom(int fd, const struct iovec *iov, int iovcnt, int flags,
 	struct sockaddr *addr, socklen_t *addrlen)
 {
 	ssize_t rc;
-	struct gt_sock *so;
+	struct sock *so;
 
 	rc = so_get(fd, &so);
 	if (rc) {
@@ -457,7 +457,7 @@ api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
 	be32_t faddr, be16_t fport)
 {
 	int rc;
-	struct gt_sock *so;
+	struct sock *so;
 
 	rc = so_get(fd, &so);
 	if (rc) {
@@ -622,7 +622,7 @@ api_getsockopt(int fd, int level, int optname, void *optval,
 	socklen_t *optlen)
 {
 	int rc;
-	struct gt_sock *so;
+	struct sock *so;
 
 	rc = so_get(fd, &so);
 	if (rc) {
@@ -659,7 +659,7 @@ api_setsockopt(int fd, int level, int optname, const void *optval,
 	socklen_t optlen)
 {
 	int rc;
-	struct gt_sock *so;
+	struct sock *so;
 
 	rc = so_get(fd, &so);
 	if (rc) {
@@ -693,7 +693,7 @@ int
 api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
-	struct gt_sock *so;
+	struct sock *so;
 
 	rc = so_get(fd, &so);
 	if (rc) {

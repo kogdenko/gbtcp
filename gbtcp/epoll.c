@@ -32,7 +32,7 @@ struct epoll_entry {
 
 static struct epoll_mod *curmod;
 
-static void epoll_entry_set(struct epoll_entry *, struct gt_sock *, short);
+static void epoll_entry_set(struct epoll_entry *, struct sock *, short);
 
 int
 epoll_mod_init(void **pp)
@@ -40,7 +40,7 @@ epoll_mod_init(void **pp)
 	int rc;
 	struct epoll_mod *mod;
 
-	ASSERT(sizeof(struct epoll) <= sizeof(struct gt_sock));
+	ASSERT(sizeof(struct epoll) <= sizeof(struct sock));
 	rc = shm_malloc(pp, sizeof(*mod));
 	if (!rc) {
 		mod = *pp;
@@ -94,7 +94,7 @@ epoll_entry_is_triggered(struct epoll_entry *e)
 }
 
 static struct epoll_entry *
-epoll_entry_alloc(struct epoll *ep, struct gt_sock *so, short filter)
+epoll_entry_alloc(struct epoll *ep, struct sock *so, short filter)
 {
 	int rc;
         struct epoll_entry *e;
@@ -151,7 +151,7 @@ epoll_handler(struct file_aio *aio, int fd, short revents)
 }
 
 static void
-epoll_entry_set(struct epoll_entry *e, struct gt_sock *so, short filter)
+epoll_entry_set(struct epoll_entry *e, struct sock *so, short filter)
 {
 	if (e->e_filter != filter) {
 		if (epoll_entry_is_triggered(e)) {
@@ -164,7 +164,7 @@ epoll_entry_set(struct epoll_entry *e, struct gt_sock *so, short filter)
 
 #ifdef __linux__
 static void
-epoll_entry_get_event(struct epoll_entry *e, struct gt_sock *so,
+epoll_entry_get_event(struct epoll_entry *e, struct sock *so,
 	epoll_event_t *event)
 {
 	short x, y;
@@ -190,7 +190,7 @@ epoll_entry_get_event(struct epoll_entry *e, struct gt_sock *so,
 }
 #else /* __linux__ */
 static void
-epoll_entry_get_event(struct epoll_entry *e, struct gt_sock *so,
+epoll_entry_get_event(struct epoll_entry *e, struct sock *so,
 	epoll_event_t *event)
 {
 	short x, filter;
@@ -210,7 +210,7 @@ epoll_entry_get_event(struct epoll_entry *e, struct gt_sock *so,
 	}
 	if (x & POLLERR) {
 		flags |= EV_ERROR;
-		data = gt_sock_get_eno((struct gt_sock *)fp);
+		data = sock_get_eno((struct sock *)fp);
 	}
 	GT_ASSERT(filter || flags);
 	event->filter = filter;
@@ -242,7 +242,7 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 {
 	int n, rc;
 	short revents;
-	struct gt_sock *so;
+	struct sock *so;
 	struct epoll_entry *e, *tmp;
 
 	n = 0;
@@ -413,7 +413,7 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 	int rc, n;
 	struct pollfd pfds[1 + FD_EVENTS_MAX];
 	struct epoll *ep;
-	struct gt_fd_event_set set;
+	struct fd_poll fd_poll;
 
 	if (cnt <= 0) {
 		return -EINVAL;
@@ -425,17 +425,17 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 	n = epoll_read_triggered(ep, buf, cnt);
 	pfds[0].fd = ep->ep_fd;
 	pfds[0].events = POLLIN;
-	set.fdes_to = to;
+	fd_poll_init(&fd_poll);
 	do {
-		gt_fd_event_set_init(&set, pfds + 1);
+		fd_poll_set(&fd_poll, pfds + 1);
 		SERVICE_UNLOCK;
 		if (n) {
-			set.fdes_ts.tv_nsec = 0;
+			fd_poll.fdes_ts.tv_nsec = 0;
 		}
-		rc = sys_ppoll(pfds, set.fdes_nr_used + 1,
-		               &set.fdes_ts, sigmask);
+		rc = sys_ppoll(pfds, fd_poll.fdes_nr_used + 1,
+		               &fd_poll.fdes_ts, sigmask);
 		SERVICE_LOCK;
-		gt_fd_event_set_call(&set, pfds + 1);
+		fd_poll_call(&fd_poll, pfds + 1);
 		if (rc < 0) {
 			return rc;
 		}
@@ -454,7 +454,7 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 			}
 		}
 		n += epoll_read_triggered(ep, buf + n, cnt - n);
-	} while (n == 0 && set.fdes_to > 0);
+	} while (n == 0 && fd_poll.fdes_to > 0);
 	return n;
 }
 
@@ -463,7 +463,7 @@ int
 u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 {
 	int rc, filter;
-	struct gt_sock *so;
+	struct sock *so;
 	struct epoll *ep;
 	struct epoll_entry *e;
 
@@ -548,7 +548,7 @@ u_kevent(int kq, const struct kevent *changelist, int nchanges,
 	}
 	for (i = 0; i < nchanges; ++i) {
 		event = (struct kevent *)changelist + i;
-		rc = gt_sock_get(event->ident, &fp);
+		rc = sock_get(event->ident, &fp);
 		if (rc) {
 			rc = (*sys_kevent_fn)(ep->ep_fd, event, 1,
 			                      NULL, 0, NULL);

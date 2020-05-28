@@ -70,7 +70,7 @@ check_fd_events()
 {
 	int throttled;
 	uint64_t elapsed;
-	struct gt_fd_event_set set;
+	struct fd_poll fd_poll;
 	struct pollfd pfds[FD_EVENTS_MAX];
 
 	elapsed = nanoseconds - fd_event_last_check_time;
@@ -78,13 +78,13 @@ check_fd_events()
 		return;
 	}
 	throttled = -1;
+	fd_poll_init(&fd_poll);
 	do {
-		set.fdes_to = 0;
-		gt_fd_event_set_init(&set, pfds);
-		sys_ppoll(pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
-		gt_fd_event_set_call(&set, pfds);
+		fd_poll_set(&fd_poll, pfds);
+		sys_ppoll(pfds, fd_poll.fdes_nr_used, &fd_poll.fdes_ts, NULL);
+		fd_poll_call(&fd_poll, pfds);
 		throttled++;
-	} while (set.fdes_again);
+	} while (fd_poll.fdes_again);
 	if (throttled) {
 		fd_event_timeout >>= 1;
 		if (fd_event_timeout < FD_EVENT_TIMEOUT_MIN) {
@@ -98,15 +98,16 @@ check_fd_events()
 void
 wait_for_fd_events()
 {
-	struct gt_fd_event_set set;
+	struct fd_poll fd_poll;
 	struct pollfd pfds[FD_EVENTS_MAX];
 
-	set.fdes_to = TIMER_TIMO;
-	gt_fd_event_set_init(&set, pfds);
+	fd_poll_init(&fd_poll);
+	fd_poll.fdes_to = TIMER_TIMO;
+	fd_poll_set(&fd_poll, pfds);
 	SERVICE_UNLOCK;
-	sys_ppoll(pfds, set.fdes_nr_used, &set.fdes_ts, NULL);
+	sys_ppoll(pfds, fd_poll.fdes_nr_used, &fd_poll.fdes_ts, NULL);
 	SERVICE_LOCK;
-	gt_fd_event_set_call(&set, pfds);
+	fd_poll_call(&fd_poll, pfds);
 }
 
 int
@@ -222,16 +223,26 @@ fd_event_is_set(struct fd_event *e, short events)
 }
 
 void
-gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
+fd_poll_init(struct fd_poll *p)
+{
+	p->fdes_to = 0;
+	p->fdes_first = 1;
+}
+
+void
+fd_poll_set(struct fd_poll *p, struct pollfd *pfds)
 {
 	int i, idx;
 	struct fd_event *e;
 
 	ASSERT3(0, fd_event_in_cb == 0, "recursive wait");
-	set->fdes_again = 0;
-	rd_nanoseconds(); // FIXME: !!!!
-	set->fdes_time = nanoseconds;
-	set->fdes_nr_used = 0;
+	p->fdes_again = 0;
+	if (!p->fdes_first) {
+		rd_nanoseconds();
+	}
+	p->fdes_first = 0;
+	p->fdes_time = nanoseconds;
+	p->fdes_nr_used = 0;
 	sock_tx_flush();
 	for (i = 0; i < fd_event_nused; ++i) {
 		e = gt_fd_event_used[i];
@@ -239,19 +250,19 @@ gt_fd_event_set_init(struct gt_fd_event_set *set, struct pollfd *pfds)
 			continue;
 		}
 		e->fde_ref_cnt++;
-		idx = set->fdes_nr_used;
+		idx = p->fdes_nr_used;
 		pfds[idx].fd = e->fde_fd;
 		pfds[idx].events = e->fde_events;
-		set->fdes_used[idx] = e;
-		set->fdes_nr_used++;
+		p->fdes_used[idx] = e;
+		p->fdes_nr_used++;
 	}
-	set->fdes_ts.tv_sec = 0;
-	if (set->fdes_to == 0) {
-		set->fdes_ts.tv_nsec = 0;
-	} else if (set->fdes_to >= TIMER_TIMO) {
-		set->fdes_ts.tv_nsec = TIMER_TIMO;
+	p->fdes_ts.tv_sec = 0;
+	if (p->fdes_to == 0) {
+		p->fdes_ts.tv_nsec = 0;
+	} else if (p->fdes_to >= TIMER_TIMO) {
+		p->fdes_ts.tv_nsec = TIMER_TIMO;
 	} else {
-		set->fdes_ts.tv_nsec = set->fdes_to;
+		p->fdes_ts.tv_nsec = p->fdes_to;
 	}
 }
 
@@ -265,7 +276,7 @@ fd_event_call(struct fd_event *e, short revents)
 }
 
 int
-gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
+fd_poll_call(struct fd_poll *p, struct pollfd *pfds)
 {
 	int i, n, rc;
 	uint64_t dt;
@@ -273,17 +284,17 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 
 	gt_fd_event_epoch++;
 	rd_nanoseconds();
-	dt = nanoseconds - set->fdes_time;
-	if (dt > set->fdes_to) {
-		set->fdes_to = 0;
+	dt = nanoseconds - p->fdes_time;
+	if (dt > p->fdes_to) {
+		p->fdes_to = 0;
 	} else {
-		set->fdes_to -= dt;
+		p->fdes_to -= dt;
 	}
 	check_timers();
 	n = 0;
 	fd_event_in_cb = 1;
-	for (i = 0; i < set->fdes_nr_used; ++i) {
-		e = set->fdes_used[i];
+	for (i = 0; i < p->fdes_nr_used; ++i) {
+		e = p->fdes_used[i];
 		if (pfds[i].revents) {
 			n++;
 			if (e->fde_fd != -1) {
@@ -291,14 +302,14 @@ gt_fd_event_set_call(struct gt_fd_event_set *set, struct pollfd *pfds)
 				rc = fd_event_call(e, pfds[i].revents);
 				if (rc) {
 					ASSERT(rc == -EAGAIN);
-					set->fdes_again = 1;
+					p->fdes_again = 1;
 				}
 			}
 		}
 		fd_event_unref(e);
 	}
 	fd_event_in_cb = 0;
-	if (set->fdes_again == 0) {
+	if (p->fdes_again == 0) {
 		fd_event_last_check_time = nanoseconds;
 	}
 	return n;

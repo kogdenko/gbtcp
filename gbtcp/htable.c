@@ -101,18 +101,6 @@ htable_bucket_get(struct htable *t, uint32_t h)
 	return t->ht_array + ((h) & (t)->ht_mask);
 }
 
-void
-htable_del(struct htable *t, htable_entry_t *e)
-{
-	dlist_remove(e);
-}
-
-void
-htable_add(struct htable *t, struct htable_bucket *b, htable_entry_t *e)
-{
-	dlist_insert_tail(&b->htb_head, e);
-}
-
 static int
 sysctl_htable_next(void *udata, const char *ident, struct strbuf *out)
 {

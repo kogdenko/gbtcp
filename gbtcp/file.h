@@ -12,6 +12,16 @@ enum file_type {
 	FILE_EPOLL,
 };
 
+typedef void (*file_aio_f)(struct file_aio *, int, short);
+
+struct file_aio {
+	struct mbuf faio_mbuf;
+#define faio_list faio_mbuf.mb_list
+	file_aio_f faio_fn;
+	int faio_fd;
+	short faio_filter;
+};
+
 struct file {
 	struct mbuf fl_mbuf;
 	union {
@@ -23,16 +33,6 @@ struct file {
 		};
 	};
 	struct dlist fl_aioq;
-};
-
-typedef void (*file_aio_f)(struct file_aio *, int, short);
-
-struct file_aio {
-	struct mbuf faio_mbuf;
-#define faio_list faio_mbuf.mb_list
-	file_aio_f faio_fn;
-	int faio_fd;
-	short faio_filter;
 };
 
 #define FILE_FOREACH(fp) \

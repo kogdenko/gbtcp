@@ -181,14 +181,14 @@ void
 check_timers()
 {
 	int i;
-	static uint64_t last_time;
+	static uint64_t last_check_time;
 	struct dlist queue;
 	struct timer_ring *ring;
 
-	if (nanoseconds - last_time < TIMER_TIMO) {
+	if (nanoseconds - last_check_time < TIMER_TIMO) {
 		return;
 	}
-	last_time = nanoseconds;
+	last_check_time = nanoseconds;
 	dlist_init(&queue);
 	for (i = 0; i < timer_nrings; ++i) {
 		ring = timer_rings[i];

@@ -22,9 +22,10 @@ struct socb {
 	int socb_backlog;
 };
 
-struct gt_sock {
+struct sock {
 	struct file so_file;
-#define so_list so_file.fl_mbuf.mb_list
+	struct dlist so_list;	
+//#define so_list so_file.fl_mbuf.mb_list
 #define so_blocked so_file.fl_blocked
 #define so_service_id so_file.fl_mbuf.mb_service_id
 	struct htable_bucket *so_bucket;
@@ -89,18 +90,13 @@ struct gt_sock {
 			int so_acceptq_len;
 		};
 	};
-	struct gt_sock *so_listen;
+	struct sock *so_listen;
 	struct sockbuf so_rcvbuf;
 	union {
 		struct sockbuf so_sndbuf; // TCP
 		struct sockbuf so_msgbuf; // UDP
 	};
 };
-
-extern void (*gt_sock_no_opened_fn)();
-extern int gt_sock_nr_opened;
-extern struct dlist gt_sock_binded[65536];
-
 
 int tcp_mod_init(void **);
 int tcp_mod_attach(void *);
@@ -109,16 +105,16 @@ void tcp_mod_deinit(void *);
 void tcp_mod_detach();
 void tcp_mod_service_deinit(struct service *);
 
-int so_get(int, struct gt_sock **);
-int so_get_fd(struct gt_sock *);
+int so_get(int, struct sock **);
+int so_get_fd(struct sock *);
 
-int gt_sock_get_eno(struct gt_sock *so);
+int sock_get_eno(struct sock *so);
 
 short so_get_events(struct file *fp);
 
-void so_get_socb(struct gt_sock *so, struct socb *);
+void so_get_socb(struct sock *so, struct socb *);
 
-int gt_sock_nread(struct file *fp);
+int sock_nread(struct file *fp);
 
 int so_in(int, struct sock_tuple *, struct tcpcb *, void *);
 int so_in_err(int, struct sock_tuple *, int);
@@ -127,27 +123,27 @@ void sock_tx_flush();
 
 int so_socket(int domain, int type, int flags, int proto);
 
-int so_connect(struct gt_sock *so, const struct sockaddr_in *f_addr_in,
+int so_connect(struct sock *so, const struct sockaddr_in *f_addr_in,
 	struct sockaddr_in *l_addr_in);
 
-int so_bind(struct gt_sock *, const struct sockaddr_in *);
+int so_bind(struct sock *, const struct sockaddr_in *);
 
-int so_listen(struct gt_sock *, int);
+int so_listen(struct sock *, int);
 
-int so_accept(struct gt_sock *, struct sockaddr *, socklen_t *, int);
+int so_accept(struct sock *, struct sockaddr *, socklen_t *, int);
 
-void so_close(struct gt_sock *);
+void so_close(struct sock *);
 
-int so_recvfrom(struct gt_sock *, const struct iovec *, int,
+int so_recvfrom(struct sock *, const struct iovec *, int,
 	int, struct sockaddr *, socklen_t *);
 
-int so_sendto(struct gt_sock *, const struct iovec *, int, int, be32_t, be16_t);
+int so_sendto(struct sock *, const struct iovec *, int, int, be32_t, be16_t);
 
-int gt_sock_ioctl(struct file *fp, unsigned long request, uintptr_t arg);
+int sock_ioctl(struct file *fp, unsigned long request, uintptr_t arg);
 
-int so_getsockopt(struct gt_sock *, int, int, void *, socklen_t *);
-int so_setsockopt(struct gt_sock *, int, int, const void *, socklen_t);
+int so_getsockopt(struct sock *, int, int, void *, socklen_t *);
+int so_setsockopt(struct sock *, int, int, const void *, socklen_t);
 
-int so_getpeername(struct gt_sock *, struct sockaddr *, socklen_t *);
+int so_getpeername(struct sock *, struct sockaddr *, socklen_t *);
 
 #endif // GBTCP_TCP_H

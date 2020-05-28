@@ -56,7 +56,7 @@ file_mod_attach(void *raw_mod)
 int
 file_mod_service_init(struct service *s)
 {
-	mbuf_pool_init(&s->p_file_pool, s->p_id, sizeof(struct gt_sock));
+	mbuf_pool_init(&s->p_file_pool, s->p_id, sizeof(struct sock));
 	return 0;
 }
 
@@ -165,7 +165,7 @@ file_close(struct file *fp)
 	ASSERT(dlist_is_empty(&fp->fl_aioq));
 	switch (fp->fl_type) {
 	case FILE_SOCK:
-		so_close((struct gt_sock *)fp);
+		so_close((struct sock *)fp);
 		break;
 	case FILE_EPOLL:
 		u_epoll_close(fp);
@@ -226,14 +226,14 @@ file_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 		}
 		break;
 	case FIONREAD:
-		rc = gt_sock_nread(fp);
+		rc = sock_nread(fp);
 		if (rc < 0) {
 			break;
 		}
 		*((int *)arg) = rc;
 		break;
 	default:
-		rc = gt_sock_ioctl(fp, request, arg);
+		rc = sock_ioctl(fp, request, arg);
 		break;
 	}
 	return rc;
