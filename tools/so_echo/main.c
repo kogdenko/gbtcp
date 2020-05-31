@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <poll.h>
+#include <signal.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -565,14 +566,29 @@ set_affinity(int cpu_id)
 	return -rc;
 }
 
+static struct timeval tv, tv2;
+static unsigned long long requests;
+
+static void
+sighandler(int signum)
+{
+	double rps;
+	suseconds_t usec;
+
+	gettimeofday(&tv2, NULL);
+	usec = 1000000 * (tv2.tv_sec - tv.tv_sec) + 
+		(tv2.tv_usec - tv.tv_usec);
+	rps = 1000000.0 * (requests2 - requests) / usec;
+	printf("%d: rps=%d\n", (int)getpid(), (int)rps);
+	tv = tv2;
+	requests = requests2;
+	alarm(1);
+}
+
 static void
 loop(int idx, int affinity)
 {
 	int rc, eq_fd, to_ms;
-	unsigned long long requests;
-	double rps;
-	suseconds_t usec;
-	struct timeval tv, tv2;
 
 	if (affinity != -1) {
 		set_affinity(affinity + idx);
@@ -592,19 +608,11 @@ loop(int idx, int affinity)
 		sys_close(eq_fd);
 		return;
 	}
-	requests = 0;
 	to_ms = dflag ? -1 : 200;
 	gettimeofday(&tv, NULL);
+	signal(SIGALRM, sighandler);
+	alarm(1);
 	do {
-		gettimeofday(&tv2, NULL);
-		usec = 1000000 * (tv2.tv_sec - tv.tv_sec) + 
-			(tv2.tv_usec - tv.tv_usec);
-		if (usec >= 1000000) {
-			rps = 1000000.0 * (requests2 - requests) / usec;
-			printf("%d: rps=%d\n", (int)getpid(), (int)rps);
-			tv = tv2;
-			requests = requests2;
-		}
 		rc = event_queue_wait(eq_fd, to_ms);
 	} while (rc == 0);
 }

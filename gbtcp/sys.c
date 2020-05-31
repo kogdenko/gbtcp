@@ -575,7 +575,11 @@ sys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *to,
 	if (rc == -1) {
 		rc = -errno;
 		ASSERT(rc);
-		ERR(-rc, "failed;");
+		if (rc == -EINTR) {
+			INFO(-rc, "interrupted;");
+		} else {
+			ERR(-rc, "failed;");
+		}
 	}
 	return rc;
 }

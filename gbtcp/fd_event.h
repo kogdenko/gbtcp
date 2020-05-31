@@ -7,16 +7,17 @@
 
 #define FD_EVENTS_MAX FD_SETSIZE
 
+#define FD_EVENT_SLOW (1 << 0)
+
 typedef int (*fd_event_f)(void *, short);
 
 struct fd_event {
-	int fde_fd;
-	int fde_ref_cnt;
+	short fde_fd;
+	short fde_ref_cnt;
 	short fde_events;
 	short fde_id;
 	fd_event_f fde_fn;
 	void *fde_udata;
-	char fde_name[64];
 };
 
 struct fd_poll {
@@ -29,7 +30,7 @@ struct fd_poll {
 	struct fd_event *fdes_used[FD_EVENTS_MAX];
 };
 
-extern uint64_t gt_fd_event_epoch;
+extern int fd_poll_epoch;
 
 int fd_event_mod_init(void **);
 int fd_event_mod_attach(void *);

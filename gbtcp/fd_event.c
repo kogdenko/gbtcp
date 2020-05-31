@@ -8,14 +8,14 @@ struct fd_event_mod {
 	struct log_scope log_scope;
 };
 
-uint64_t gt_fd_event_epoch;
+int fd_poll_epoch;
 
 static uint64_t fd_event_last_check_time;
 static uint64_t fd_event_timeout = FD_EVENT_TIMEOUT_MIN;
 static int fd_event_nused;
 static int fd_event_in_cb;
-static struct fd_event *gt_fd_event_used[FD_EVENTS_MAX];
-static struct fd_event gt_fd_event_buf[FD_EVENTS_MAX];
+static struct fd_event *fd_event_used[FD_EVENTS_MAX];
+static struct fd_event fd_event_buf[FD_EVENTS_MAX];
 static struct fd_event_mod *curmod;
 
 int
@@ -40,9 +40,9 @@ fd_event_mod_attach(void *raw_mod)
 
 	curmod = raw_mod;
 	fd_event_nused = 0;
-	memset(gt_fd_event_buf, 0, sizeof(gt_fd_event_buf));
-	for (i = 0; i < ARRAY_SIZE(gt_fd_event_buf); ++i) {
-		e = gt_fd_event_buf + i;
+	memset(fd_event_buf, 0, sizeof(fd_event_buf));
+	for (i = 0; i < ARRAY_SIZE(fd_event_buf); ++i) {
+		e = fd_event_buf + i;
 		e->fde_fd = -1;
 	}
 	return 0;
@@ -61,7 +61,6 @@ fd_event_mod_deinit(void *raw_mod)
 void
 fd_event_mod_detach()
 {
-	fd_event_nused = 0;
 	curmod = NULL;
 }
 
@@ -119,17 +118,18 @@ fd_event_add(struct fd_event **pe, int fd, const char *name,
 
 	ASSERT(fd != -1);
 	ASSERT(fn != NULL);
-	if (fd_event_nused == ARRAY_SIZE(gt_fd_event_used)) {
-		ERR(ENOMEM, "failed; event='%s', limit=%zu",
-		    name, ARRAY_SIZE(gt_fd_event_used));
+	if (fd_event_nused == ARRAY_SIZE(fd_event_used)) {
+		ERR(ENOMEM, "failed; fd=%d, event='%s', limit=%zu",
+		    fd, name, ARRAY_SIZE(fd_event_used));
 		return -ENOMEM;
 	}
 	id = -1;
-	for (i = 0; i < ARRAY_SIZE(gt_fd_event_buf); ++i) {
-		e = gt_fd_event_buf + i;
+	for (i = 0; i < ARRAY_SIZE(fd_event_buf); ++i) {
+		e = fd_event_buf + i;
 		if (e->fde_fd != -1) {
-			if (!strcmp(e->fde_name, name)) {
-				ERR(EEXIST, "failed; event='%s'", name);
+			if (e->fde_fd == fd) {
+				ERR(EEXIST, "failed; fd=%d, event='%s'",
+				    fd, name);
 				return -EEXIST;
 			}
 		} else {
@@ -141,19 +141,18 @@ fd_event_add(struct fd_event **pe, int fd, const char *name,
 		}
 	}
 	ASSERT(id != -1);
-	e = gt_fd_event_buf + id;
+	e = fd_event_buf + id;
 	memset(e, 0, sizeof(*e));
 	e->fde_fd = fd;
 	e->fde_ref_cnt = 1;
 	e->fde_events = 0;
 	e->fde_fn = fn;
-	strzcpy(e->fde_name, name, sizeof(e->fde_name));
 	e->fde_udata = udata;
 	e->fde_id = fd_event_nused;
-	gt_fd_event_used[e->fde_id] = e;
+	fd_event_used[e->fde_id] = e;
 	fd_event_nused++;
 	*pe = e;
-	INFO(0, "ok; event='%s', fd=%d", e->fde_name, e->fde_fd);
+	INFO(0, "ok; fd=%d, event='%s'", e->fde_fd, name);
 	return 0;
 }
 
@@ -167,12 +166,12 @@ fd_event_unref(struct fd_event *e)
 	e->fde_ref_cnt--;
 	ref_cnt = e->fde_ref_cnt;
 	if (ref_cnt == 0) {
-		INFO(0, "hit; event='%s'", e->fde_name);
+		INFO(0, "hit; fd=%d", e->fde_fd);
 		ASSERT(e->fde_id < fd_event_nused);
 		if (e->fde_id != fd_event_nused - 1) {
-			last = gt_fd_event_used[fd_event_nused - 1];
-			gt_fd_event_used[e->fde_id] = last;
-			gt_fd_event_used[e->fde_id]->fde_id = e->fde_id;
+			last = fd_event_used[fd_event_nused - 1];
+			fd_event_used[e->fde_id] = last;
+			fd_event_used[e->fde_id]->fde_id = e->fde_id;
 		}
 		fd_event_nused--;
 	}
@@ -183,11 +182,11 @@ void
 fd_event_del(struct fd_event *e)
 {
 	if (e != NULL) {
-		INFO(0, "hit; event='%s'", e->fde_name);
+		INFO(0, "hit; fd=%d", e->fde_fd);
 		ASSERT(fd_event_nused);
 		ASSERT(e->fde_fd != -1);
 		ASSERT(e->fde_id < fd_event_nused);
-		ASSERT(e == gt_fd_event_used[e->fde_id]);
+		ASSERT(e == fd_event_used[e->fde_id]);
 		e->fde_fd = -1;
 		fd_event_unref(e);
 	}
@@ -201,7 +200,7 @@ fd_event_set(struct fd_event *e, short events)
 	ASSERT(e != NULL);
 	ASSERT(e->fde_fd != -1);
 	ASSERT(e->fde_id < fd_event_nused);
-	ASSERT(e == gt_fd_event_used[e->fde_id]);
+	ASSERT(e == fd_event_used[e->fde_id]);
 	e->fde_events |= events;
 }
 
@@ -211,7 +210,7 @@ fd_event_clear(struct fd_event *e, short events)
 	ASSERT(events);
 	ASSERT(e != NULL);
 	ASSERT(e->fde_id < fd_event_nused);
-	ASSERT(e == gt_fd_event_used[e->fde_id]);
+	ASSERT(e == fd_event_used[e->fde_id]);
 	ASSERT((events & ~(POLLIN|POLLOUT)) == 0);
 	e->fde_events &= ~events;
 }
@@ -245,7 +244,7 @@ fd_poll_set(struct fd_poll *p, struct pollfd *pfds)
 	p->fdes_nr_used = 0;
 	sock_tx_flush();
 	for (i = 0; i < fd_event_nused; ++i) {
-		e = gt_fd_event_used[i];
+		e = fd_event_used[i];
 		if (e->fde_fd == -1 || e->fde_events == 0) {
 			continue;
 		}
@@ -282,7 +281,7 @@ fd_poll_call(struct fd_poll *p, struct pollfd *pfds)
 	uint64_t dt;
 	struct fd_event *e;
 
-	gt_fd_event_epoch++;
+	fd_poll_epoch++;
 	rd_nanoseconds();
 	dt = nanoseconds - p->fdes_time;
 	if (dt > p->fdes_to) {

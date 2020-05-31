@@ -221,6 +221,9 @@ mbuf_free(struct mbuf *m)
 	ASSERT(m->mb_used == 1);
 	ASSERT(m->mb_service_id == current->p_id); // TODO
 	m->mb_used = 0;
+	if (!m->mb_allocated) {
+		return;
+	}
 	chunk = mbuf_get_chunk(m);
 	p = chunk->c_pool;
 	DLIST_INSERT_HEAD(&chunk->c_freeq, m, mb_list);

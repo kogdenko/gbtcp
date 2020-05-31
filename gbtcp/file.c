@@ -250,7 +250,7 @@ file_wakeup(struct file *fp, short events)
 	    file_get_fd(fp), log_add_poll_events(events));
 	DLIST_FOREACH_SAFE(aio, &fp->fl_aioq, faio_list, tmp) {
 		ASSERT(aio->faio_filter);
-		revents = (events &aio->faio_filter);
+		revents = (events & aio->faio_filter);
 		if (revents) {
 			file_aio_call(aio, revents);
 		}

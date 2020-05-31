@@ -1,4 +1,4 @@
-// GPL2 license
+// gpl2 license
 #ifndef GBTCP_FILE_H
 #define GBTCP_FILE_H
 

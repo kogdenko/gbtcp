@@ -24,11 +24,9 @@ struct socb {
 
 struct sock {
 	struct file so_file;
-	struct dlist so_list;	
-//#define so_list so_file.fl_mbuf.mb_list
+#define so_list so_file.fl_mbuf.mb_list
 #define so_blocked so_file.fl_blocked
 #define so_service_id so_file.fl_mbuf.mb_service_id
-	struct htable_bucket *so_bucket;
 	union {
 		uint64_t so_flags;
 		struct {
@@ -79,8 +77,8 @@ struct sock {
 			uint16_t so_rwnd;
 			uint16_t so_rwnd_max;
 			uint16_t so_ip_id;
-			struct dlist so_acceptl;
-			struct dlist so_txl;
+			struct dlist so_accept_list;
+			struct dlist so_tx_list;
 		};
 		struct {
 			// Listen

@@ -226,7 +226,7 @@ service_rssq_rxtx(struct dev *dev, short revents)
 	DEV_FOREACH_RXRING(rxr, dev) {
 		n = dev_rxr_space(dev, rxr);
 		for (i = 0; i < n; ++i) {
-			//DEV_RX_PREFETCH(rxr);
+			dev_prefetch(rxr);
 			slot = rxr->slot + rxr->cur;
 			data = NETMAP_BUF(rxr, slot->buf_idx);
 			len = slot->len;

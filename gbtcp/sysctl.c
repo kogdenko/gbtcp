@@ -647,7 +647,6 @@ int
 sysctl_conn_open(struct sysctl_conn **cpp, int fd)
 {
 	int rc;
-	char name[PATH_MAX];
 	struct sysctl_conn *cp;
 
 	rc = sys_malloc((void **)cpp, sizeof(*cp));
@@ -656,8 +655,7 @@ sysctl_conn_open(struct sysctl_conn **cpp, int fd)
 	}
 	cp = *cpp;
 	memset(cp, 0, sizeof(*cp));
-	snprintf(name, sizeof(name), "sysctl.%d", fd);
-	rc = fd_event_add(&cp->sccn_event, fd, name,
+	rc = fd_event_add(&cp->sccn_event, fd, "sysctl",
 	                  cp, sysctl_process_events);
 	if (rc < 0) {
 		sys_free(cp);

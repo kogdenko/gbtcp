@@ -1,6 +1,6 @@
 #include "internals.h"
 
-#define DEV_BURST_SIZE  256
+#define DEV_BURST_SIZE 256
 
 struct dev_mod {
 	struct log_scope log_scope;
@@ -178,8 +178,8 @@ dev_not_empty_txr(struct dev *dev, struct dev_pkt *pkt)
 	if (dev->dev_tx_full) {
 		return -ENOBUFS;
 	}
-	if (dev->dev_cur_tx_ring_epoch != gt_fd_event_epoch) {
-		dev->dev_cur_tx_ring_epoch = gt_fd_event_epoch;
+	if (dev->dev_cur_tx_ring_epoch != fd_poll_epoch) {
+		dev->dev_cur_tx_ring_epoch = fd_poll_epoch;
 		dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
 	}
 	DEV_FOREACH_TXRING_CONTINUE(dev->dev_cur_tx_ring, txr, dev) {
