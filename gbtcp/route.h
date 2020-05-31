@@ -133,7 +133,6 @@ int route_get4(be32_t, struct route_entry *);
 int route_if_not_empty_txr(struct route_if *, struct dev_pkt *);
 void route_if_rxr_next(struct route_if *, struct netmap_ring *);
 void route_if_tx(struct route_if *, struct dev_pkt *);
-int route_if_calc_rss_qid(struct route_if *, struct sock_tuple *);
 
 int route_open(struct route_mod *);
 int route_read(int, route_msg_f);

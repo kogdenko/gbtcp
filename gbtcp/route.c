@@ -893,18 +893,3 @@ route_if_tx(struct route_if *ifp, struct dev_pkt *pkt)
 	counter64_add(&ifp->rif_tx_bytes, pkt->pkt_len);
 	dev_tx(pkt);
 }
-
-int
-route_if_calc_rss_qid(struct route_if *ifp, struct sock_tuple *so_tuple)
-{
-	uint32_t h;
-	struct sock_tuple tmp;
-
-	tmp.sot_laddr = so_tuple->sot_faddr;
-	tmp.sot_faddr = so_tuple->sot_laddr;
-	tmp.sot_lport = so_tuple->sot_fport;
-	tmp.sot_fport = so_tuple->sot_lport;
-	h = toeplitz_hash((u_char *)&tmp, sizeof(tmp), ifp->rif_rss_key);
-	h &= 0x0000007F;
-	return h % ifp->rif_rss_nq;
-}

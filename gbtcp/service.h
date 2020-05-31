@@ -71,7 +71,7 @@ void service_deinit();
 int service_attach();
 void service_update();
 void service_inc_pkts();
-int service_is_appropriate_rss(struct route_if *, struct sock_tuple *); 
+int service_can_connect(struct route_if *, be32_t, be32_t, be16_t, be16_t);
 
 int service_fork();
 

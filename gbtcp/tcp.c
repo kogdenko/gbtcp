@@ -58,8 +58,6 @@ static const char *tcp_flags_str(struct strbuf *sb, int proto,
 static const char *gt_log_add_sock(struct sock *so)
 	__attribute__((unused));
 
-int gt_calc_rss_q_id(struct sock_tuple *so_tuple);
-
 static void gt_set_sockaddr(struct sockaddr *addr, socklen_t *addrlen,
 	be32_t s_addr, be16_t port);
 
@@ -103,10 +101,6 @@ static void gt_tcp_timeout_tcp_fin_timeout(struct timer *timer);
 
 static void tcp_rcv_SYN_SENT(struct sock *so, struct tcpcb *tcb);
 
-static void tcp_rcv_LISTEN(struct sock *, struct sock_tuple *, struct tcpcb *);
-
-static void tcp_rcv_open(struct sock *, struct tcpcb *, void *);
-
 static int tcp_is_in_order(struct sock *so, struct tcpcb *tcb);
 
 static int gt_tcp_process_badack(struct sock *so, uint32_t acked);
@@ -146,10 +140,8 @@ int gt_udp_sendto(struct sock *so, const struct iovec *iov, int iovcnt,
 static const char *sock_str(struct strbuf *sb, struct sock *so);
 
 
-static struct sock *so_find(struct htable_bucket *, int, struct sock_tuple *);
-static struct sock *
-so_find_binded(struct htable_bucket *b,
-	int so_ipproto, struct sock_tuple *so_tuple);
+static struct sock *so_find(struct htable_bucket *, int, be32_t, be32_t, be16_t, be16_t);
+static struct sock *so_find_binded(struct htable_bucket *, int, be32_t, be32_t, be16_t, be16_t);
 
 
 static int so_bind_ephemeral_port(struct sock *, struct route_entry *);
@@ -204,19 +196,8 @@ static int sysctl_tcp_fin_timeout(const long long *new, long long *old);
 #define BUCKET_UNLOCK(b) spinlock_unlock(&(b)->htb_lock)
 #endif
 
-static uint32_t
-so_tuple_hash(struct sock_tuple *t)
-{
-	uint32_t h;
-
-#if 1
-	h = t->sot_faddr ^ (t->sot_faddr >> 16) ^
-		ntoh16(t->sot_lport ^ t->sot_fport);
-#else
-	hash = custom_hash(so_tuple, sizeof(*so_tuple), 0);
-#endif
-	return h;
-}
+#define SO_HASH(faddr, lport, fport) \
+	((faddr) ^ ((faddr) >> 16) ^ ntoh16((lport) ^ (fport)))
 
 static uint32_t
 so_hash(void *e)
@@ -225,12 +206,21 @@ so_hash(void *e)
 	uint32_t hash;
 
 	so = (struct sock *)e;
-	hash = so_tuple_hash(&so->so_tuple);
+	hash = SO_HASH(so->so_faddr, so->so_lport, so->so_fport);
 	return hash;
 }
 
 static void sysctl_socket(void *udata, const char *new, struct strbuf *out);
 
+static int
+sysctl_tcp_fin_timeout(const long long *new, long long *old)
+{
+	*old = curmod->tcp_fin_timeout / NANOSECONDS_SECOND;
+	if (new != NULL) {
+		curmod->tcp_fin_timeout = (*new) * NANOSECONDS_SECOND;
+	}
+	return 0;
+}
 
 int
 tcp_mod_init( void **pp)
@@ -442,7 +432,7 @@ so_get_events(struct file *fp)
 		}
 		break;
 	case SO_IPPROTO_UDP:
-		if (so->so_tuple.sot_faddr != 0) {
+		if (so->so_faddr != 0) {
 			events |= POLLOUT;
 		}
 		if (sock_nread(fp)) {
@@ -461,10 +451,10 @@ so_get_socb(struct sock *so, struct socb *cb)
 	cb->socb_fd = so_get_fd(so);
 	cb->socb_flags = file_fcntl(&so->so_file, F_GETFL, 0);
 	cb->socb_state = so->so_state;
-	cb->socb_laddr = so->so_tuple.sot_laddr;
-	cb->socb_faddr = so->so_tuple.sot_faddr;
-	cb->socb_lport = so->so_tuple.sot_lport;
-	cb->socb_fport = so->so_tuple.sot_fport;
+	cb->socb_laddr = so->so_laddr;
+	cb->socb_faddr = so->so_faddr;
+	cb->socb_lport = so->so_lport;
+	cb->socb_fport = so->so_fport;
 	cb->socb_ipproto = so->so_ipproto == SO_IPPROTO_TCP ?
 	                                   IPPROTO_TCP : IPPROTO_UDP;
 	if (so->so_is_listen) {
@@ -485,136 +475,6 @@ sock_nread(struct file *fp)
 
 	so = (struct sock *)fp;
 	return so->so_rcvbuf.sob_len;
-}
-
-int
-so_in(int ipproto, struct sock_tuple *t, struct tcpcb *tcb,
-	void *payload)
-{
-	int so_ipproto, lport;
-	uint32_t h;
-	struct htable_bucket *b;
-	struct sock *so;
-
-	switch (ipproto) {
-	case IPPROTO_UDP:
-		so_ipproto = SO_IPPROTO_UDP;
-		break;
-	case IPPROTO_TCP:
-		so_ipproto = SO_IPPROTO_TCP;
-		break;
-	default:
-		return IN_BYPASS;
-	}
-	h = so_tuple_hash(t);
-	b = htable_bucket_get(&curmod->htable, h);
-	BUCKET_LOCK(b);
-	my_locked = 1;
-	so = so_find(b, so_ipproto, t);
-	if (so == NULL) {
-		my_locked = 0;
-		BUCKET_UNLOCK(b);
-		lport = hton16(t->sot_lport);
-		if (lport >= ARRAY_SIZE(curmod->binded)) {
-			return IN_BYPASS;
-		}
-		b = curmod->binded + lport; // rcv_LISTEN
-		so = so_find_binded(b, so_ipproto, t);
-	}
-	if (so == NULL) {
-		return IN_BYPASS;
-	}
-	if (so->so_service_id != current->p_id) {
-		ASSERT(0);
-		if (my_locked) {
-			my_locked = 0;
-			BUCKET_UNLOCK(b);
-		}
-		return so->so_service_id;
-	}
-	if (so_ipproto == SO_IPPROTO_TCP) {
-		tcps.tcps_rcvtotal++;
-	} else {
-		udps.udps_ipackets++;
-	}
-	DBG(0, "hit; flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
-	    log_add_tcp_flags(so->so_ipproto, tcb->tcb_flags),
-	    tcb->tcb_len, tcb->tcb_seq, tcb->tcb_ack, so_get_fd(so));
-	switch (so->so_ipproto) {
-	case SO_IPPROTO_UDP:
-		sock_on_rcv(so, payload, tcb->tcb_len, t->sot_faddr, t->sot_fport);
-		break;
-	case SO_IPPROTO_TCP:
-		switch (so->so_state) {
-		case GT_TCP_S_CLOSED:
-			break;
-		case GT_TCP_S_LISTEN:
-			tcp_rcv_LISTEN(so, t, tcb);
-			break;
-		case GT_TCP_S_TIME_WAIT:
-			tcp_rcv_TIME_WAIT(so);
-			break;
-		default:
-			tcp_rcv_open(so, tcb, payload);
-			break;
-		}
-	}
-	if (my_locked) {
-		my_locked = 0;
-		BUCKET_UNLOCK(b);
-	}
-	return IN_OK;
-}
-
-int
-so_in_err(int ipproto, struct sock_tuple *so_tuple, int errnum)
-{
-#if 0
-	int rc, lport;
-	uint32_t h;
-	int so_ipproto, lport;
-	struct htable_bucket *b;
-	struct sock *so;
-
-	if (ipproto == IPPROTO_UDP) {
-		so_ipproto = SO_IPPROTO_UDP;
-	} else {
-		so_ipproto = SO_IPPROTO_TCP;
-	}
-	h = so_tuple_hash(so_tuple);
-	b = htable_bucket_get(&curmod->htable, h);
-	BUCKET_LOCK(b);
-	so = so_find(b, so_ipproto, so_tuple);
-	if (so != NULL) {
-		so_set_err(so, errnum); 
-	}
-	BUCKET_UNLOCK(b);
-	if (so != NULL) {
-		return IP_OK;
-	}
-	if (ipproto == SO_IPPROTO_TCP) {
-		return IP_BYPASS;
-	}
-	lport = ntoh16(so_tuple->sot_lport);
-	if (lport >= ARRAY_SIZE(curmod->binded)) {
-		return IP_BYPASS;
-	}
-	b = curmod->binded + lport;
-	BUCKET_LOCK(b);
-	rc = IP_BYPASS;
-	DLIST_FOREACH(so, b, so_bind_list) {
-		if (so->so_ipproto == SO_IPPROTO_UDP &&
-		    (so->so_tuple.sot_laddr == 0 ||
-		     so->so_tuple.sot_laddr == so_tuple->sot_laddr)) {
-			so_set_err(so, errnum);
-			rc = IP_OK;
-		}
-	}
-	BUCKET_UNLOCK(b);
-	return rc;
-#else
-	return IN_OK;
-#endif
 }
 
 int
@@ -665,7 +525,7 @@ so_connect(struct sock *so, const struct sockaddr_in *faddr_in,
 		return -EINVAL;
 	}
 	if (so->so_ipproto == SO_IPPROTO_UDP) {
-		if (so->so_tuple.sot_faddr) {
+		if (so->so_faddr) {
 			return -EISCONN;			
 		}
 	} else {
@@ -681,28 +541,28 @@ so_connect(struct sock *so, const struct sockaddr_in *faddr_in,
 		}
 	}
 	ASSERT(!sock_in_txq(so));
-	if (so->so_tuple.sot_lport) {
+	if (so->so_lport) {
 		return -ENOTSUP;
 	}
-	so->so_tuple.sot_faddr = faddr_in->sin_addr.s_addr;
-	so->so_tuple.sot_fport = faddr_in->sin_port;
+	so->so_faddr = faddr_in->sin_addr.s_addr;
+	so->so_fport = faddr_in->sin_port;
 	rc = sock_route(so, &r);
 	if (rc) {
 		return rc;
 	}
-	so->so_tuple.sot_laddr = r.rt_ifa->ria_addr.ipa_4;
+	so->so_laddr = r.rt_ifa->ria_addr.ipa_4;
 	rc = so_bind_ephemeral_port(so, &r);
 	if (rc < 0) {
 		return rc;
 	}
 	DBG(0, "ok; tuple=%s:%hu>%s:%hu, fd=%d",
-	    log_add_ipaddr(AF_INET, &so->so_tuple.sot_laddr),
-	    ntoh16(so->so_tuple.sot_lport),
-	    log_add_ipaddr(AF_INET, &so->so_tuple.sot_faddr),
-	    ntoh16(so->so_tuple.sot_fport), so_get_fd(so));
+	    log_add_ipaddr(AF_INET, &so->so_laddr),
+	    ntoh16(so->so_lport),
+	    log_add_ipaddr(AF_INET, &so->so_faddr),
+	    ntoh16(so->so_fport), so_get_fd(so));
 	laddr_in->sin_family = AF_INET;
-	laddr_in->sin_addr.s_addr = so->so_tuple.sot_laddr;
-	laddr_in->sin_port = so->so_tuple.sot_lport;
+	laddr_in->sin_addr.s_addr = so->so_laddr;
+	laddr_in->sin_port = so->so_lport;
 	if (so->so_ipproto == SO_IPPROTO_UDP) {
 		return 0;
 	}
@@ -726,14 +586,14 @@ so_bind(struct sock *so, const struct sockaddr_in *addr)
 	if (lport == 0) {
 		return -EINVAL;
 	}
-	if (so->so_tuple.sot_laddr != 0 || so->so_tuple.sot_lport != 0) {
+	if (so->so_laddr != 0 || so->so_lport != 0) {
 		return -EINVAL;
 	}
 	if (lport >= ARRAY_SIZE(curmod->binded)) {
 		return -EADDRNOTAVAIL;
 	}
-	so->so_tuple.sot_laddr = addr->sin_addr.s_addr;
-	so->so_tuple.sot_lport = addr->sin_port;
+	so->so_laddr = addr->sin_addr.s_addr;
+	so->so_lport = addr->sin_port;
 	b = curmod->binded + lport;
 	BUCKET_LOCK(b);
 	so->so_binded = 1;
@@ -754,7 +614,7 @@ so_listen(struct sock *so, int backlog)
 	if (so->so_state != GT_TCP_S_CLOSED) {
 		return -EINVAL;
 	}
-	if (so->so_tuple.sot_lport == 0) {
+	if (so->so_lport == 0) {
 		return -EADDRINUSE;
 	}
 	dlist_init(&so->so_incompleteq);
@@ -786,8 +646,7 @@ so_accept(struct sock *lso, struct sockaddr *addr, socklen_t *addrlen,
 	so->so_accepted = 1;
 	DLIST_REMOVE(so, so_accept_list);
 	lso->so_acceptq_len--;
-	gt_set_sockaddr(addr, addrlen, so->so_tuple.sot_faddr,
-	                so->so_tuple.sot_fport);
+	gt_set_sockaddr(addr, addrlen, so->so_faddr, so->so_fport);
 	if (flags & SOCK_NONBLOCK) {
 		so->so_file.fl_blocked = 0;
 	}
@@ -1018,7 +877,7 @@ so_setsockopt(struct sock *so, int level, int optname, const void *optval,
 int
 so_getpeername(struct sock *so, struct sockaddr *addr, socklen_t *addrlen)
 {
-	if (so->so_tuple.sot_faddr == 0) {
+	if (so->so_faddr == 0) {
 		return -ENOTCONN;
 	}
 	if (so->so_ipproto == SO_IPPROTO_TCP) {
@@ -1026,8 +885,7 @@ so_getpeername(struct sock *so, struct sockaddr *addr, socklen_t *addrlen)
 			return -ENOTCONN;
 		}
 	}
-	gt_set_sockaddr(addr, addrlen, so->so_tuple.sot_faddr,
-	                so->so_tuple.sot_fport);
+	gt_set_sockaddr(addr, addrlen, so->so_faddr, so->so_fport);
 	return 0;
 }
 
@@ -1415,7 +1273,8 @@ tcp_rcv_SYN_SENT(struct sock *so, struct tcpcb *tcb)
 }
 
 static void
-tcp_rcv_LISTEN(struct sock *lso, struct sock_tuple *so_tuple, struct tcpcb *tcb)
+tcp_rcv_LISTEN(struct sock *lso, be32_t laddr, be32_t faddr,
+	be16_t lport, be16_t fport, struct tcpcb *tcb)
 {
 	uint32_t h;
 	struct htable_bucket *b;
@@ -1431,24 +1290,27 @@ tcp_rcv_LISTEN(struct sock *lso, struct sock_tuple *so_tuple, struct tcpcb *tcb)
 		tcps.tcps_rcvmemdrop++;
 		return;
 	}
-	so->so_tuple = *so_tuple;
+	so->so_laddr = laddr;
+	so->so_faddr = faddr;
+	so->so_lport = lport;
+	so->so_fport = fport;
 	gt_tcp_open(so);
 	if (tcb->tcb_flags != TCP_FLAG_SYN) {
 		DBG(0, "not a SYN; tuple=%s:%hu>%s:%hu, lfd=%d, fd=%d",
-		    log_add_ipaddr(AF_INET, &so->so_tuple.sot_laddr),
-		    ntoh16(so->so_tuple.sot_lport),
-	            log_add_ipaddr(AF_INET, &so->so_tuple.sot_faddr),
-		    ntoh16(so->so_tuple.sot_fport),
+		    log_add_ipaddr(AF_INET, &so->so_laddr),
+		    ntoh16(so->so_lport),
+	            log_add_ipaddr(AF_INET, &so->so_faddr),
+		    ntoh16(so->so_fport),
 		    so_get_fd(lso), so_get_fd(so));
 		tcps.tcps_badsyn++;
 		tcp_reset(so, tcb);
 		return;
 	} else {
 		DBG(0, "ok; tuple=%s:%hu>%s:%hu, lfd=%d, fd=%d",
-		    log_add_ipaddr(AF_INET, &so->so_tuple.sot_laddr),
-		    ntoh16(so->so_tuple.sot_lport),
-	            log_add_ipaddr(AF_INET, &so->so_tuple.sot_faddr),
-		    ntoh16(so->so_tuple.sot_fport),
+		    log_add_ipaddr(AF_INET, &so->so_so_laddr),
+		    ntoh16(so->so_lport),
+	            log_add_ipaddr(AF_INET, &so->so_faddr),
+		    ntoh16(so->so_fport),
 		    so_get_fd(lso), so_get_fd(so));
 	}
 	DLIST_INSERT_HEAD(&lso->so_incompleteq, so, so_accept_list);
@@ -1494,7 +1356,7 @@ tcp_rcv_data(struct sock *so, struct tcpcb *tcb, u_char *payload)
 		tcps.tcps_rcvpartduppack++;
 		tcps.tcps_rcvpartdupbyte += n;
 	}
-	rc = sock_on_rcv(so, payload, n, so->so_tuple.sot_faddr, so->so_tuple.sot_fport);
+	rc = sock_on_rcv(so, payload, n, so->so_faddr, so->so_fport);
 	if (rc < 0) {
 		tcps.tcps_rcvmemdrop++;
 		return;
@@ -2015,10 +1877,10 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcpcb *tcb,
 	ih->ih_ttl = 64;
 	ih->ih_proto = IPPROTO_TCP;
 	ih->ih_cksum = 0;
-	ih->ih_saddr = so->so_tuple.sot_laddr;
-	ih->ih_daddr = so->so_tuple.sot_faddr;
-	th->th_sport = so->so_tuple.sot_lport;
-	th->th_dport = so->so_tuple.sot_fport;
+	ih->ih_saddr = so->so_laddr;
+	ih->ih_daddr = so->so_faddr;
+	th->th_sport = so->so_lport;
+	th->th_dport = so->so_fport;
 	th->th_seq = hton32(tcb->tcb_seq);
 	th->th_ack = hton32(tcb->tcb_ack);
 	th->th_data_off = th_len << 2;
@@ -2145,9 +2007,9 @@ gt_udp_sendto(struct sock *so, const struct iovec *iov, int iovcnt,
 		cnt = iov[0].iov_len;
 		buf = iov[0].iov_base;
 	}
-	if (so->so_tuple.sot_faddr != 0) {
-		faddr = so->so_tuple.sot_faddr;
-		fport = so->so_tuple.sot_fport;
+	if (so->so_faddr != 0) {
+		faddr = so->so_faddr;
+		fport = so->so_fport;
 	}
 	if (faddr == 0 || fport == 0) {
 		return -EDESTADDRREQ;
@@ -2196,13 +2058,13 @@ gt_udp_sendto(struct sock *so, const struct iovec *iov, int iovcnt,
 		ih->ttl = 64;
 		ih->proto = IPPROTO_UDP;
 		ih->cksum = 0;
-		ih->saddr = so->so_tuple.sot_laddr;
+		ih->saddr = so->so_laddr;
 		ih->daddr = faddr;
 		pkt.len = sizeof(*hdr) + sizeof(*ih);
 		len = mtu - sizeof(*ih);
 		if (i == 0) {
 			udp_h = (struct udp_hdr *)(ih + 1);
-			udp_h->sport = so->so_tuple.sot_lport;
+			udp_h->sport = so->so_lport;
 			udp_h->dport = fport;
 			udp_h->cksum = 0;
 			udp_h->len = GT_HTON16(sizeof(*udp_h) + cnt);
@@ -2232,9 +2094,9 @@ sock_str(struct strbuf *sb, struct sock *so)
 	is_tcp = so->so_ipproto == SO_IPPROTO_TCP;
 	strbuf_addf(sb, "{ proto=%s, fd=%d, tuple=",
 	            is_tcp ? "tcp" : "udp", so_get_fd(so));
-	strbuf_add_ipaddr(sb, AF_INET, &so->so_tuple.sot_laddr);
-	strbuf_addf(sb, ".%hu>", ntoh16(so->so_tuple.sot_lport));
-	strbuf_add_ipaddr(sb, AF_INET, &so->so_tuple.sot_faddr);
+	strbuf_add_ipaddr(sb, AF_INET, &so->so_laddr);
+	strbuf_addf(sb, ".%hu>", ntoh16(so->so_lport));
+	strbuf_add_ipaddr(sb, AF_INET, &so->so_faddr);
 	strbuf_addf(sb,
 		".%hu"
 		", in_txq=%u"
@@ -2245,7 +2107,7 @@ sock_str(struct strbuf *sb, struct sock *so)
 		", lmss=%u"
 		", rmss=%u"
 		,
-		ntoh16(so->so_tuple.sot_fport),
+		ntoh16(so->so_fport),
 		sock_in_txq(so),
 		so->so_err,
 		so->so_reuseaddr,
@@ -2341,16 +2203,15 @@ so_get_fd(struct sock *so)
 }
 
 static struct sock *
-so_find(struct htable_bucket *b, int so_ipproto, struct sock_tuple *so_tuple)
+so_find(struct htable_bucket *b, int so_ipproto,
+	be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
 	struct sock *so;
 
 	DLIST_FOREACH_RCU(so, &b->htb_head, so_list) {
 		if (so->so_ipproto == so_ipproto &&
-		    so->so_tuple.sot_laddr == so_tuple->sot_laddr &&
-		    so->so_tuple.sot_faddr == so_tuple->sot_faddr &&
-		    so->so_tuple.sot_lport == so_tuple->sot_lport &&
-		    so->so_tuple.sot_fport == so_tuple->sot_fport) {
+		    so->so_laddr == laddr && so->so_faddr == faddr &&
+		    so->so_lport == lport && so->so_fport == fport) {
 			return so;
 		}
 	}
@@ -2358,8 +2219,8 @@ so_find(struct htable_bucket *b, int so_ipproto, struct sock_tuple *so_tuple)
 }
 
 static struct sock *
-so_find_binded(struct htable_bucket *b,
-	int so_ipproto, struct sock_tuple *so_tuple)
+so_find_binded(struct htable_bucket *b, int so_ipproto,
+	be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
 	struct sock *so, *found;
 
@@ -2367,8 +2228,7 @@ so_find_binded(struct htable_bucket *b,
 	found = NULL;
 	DLIST_FOREACH(so, &b->htb_head, so_bind_list) {
 		if (so->so_ipproto == so_ipproto &&
-		    (so->so_tuple.sot_laddr == 0 ||
-		     so->so_tuple.sot_laddr == so_tuple->sot_laddr)) {
+		    (so->so_laddr == 0 || so->so_laddr == laddr)) {
 			found = so;
 			if (so->so_service_id == current->p_id) {
 				return so;
@@ -2390,18 +2250,20 @@ so_bind_ephemeral_port(struct sock *so, struct route_entry *r)
 	n = EPHEMERAL_PORT_MAX - EPHEMERAL_PORT_MIN + 1;
 	for (i = 0; i < n; ++i) {
 		lport = r->rt_ifa->ria_ephemeral_port;
-		so->so_tuple.sot_lport = hton16(lport);
+		so->so_lport = hton16(lport);
 		if (lport == EPHEMERAL_PORT_MAX) {
 			r->rt_ifa->ria_ephemeral_port = EPHEMERAL_PORT_MIN;
 		} else {
 			r->rt_ifa->ria_ephemeral_port++;
 		}
-		rc = service_is_appropriate_rss(r->rt_ifp, &so->so_tuple);
+		rc = service_can_connect(r->rt_ifp, so->so_laddr, so->so_faddr,
+		                         so->so_lport, so->so_fport);
 		if (rc) {
-			h = so_hash(so);
+			h = SO_HASH(so->so_faddr, so->so_lport, so->so_fport);
 			b = htable_bucket_get(&curmod->htable, h);
 			BUCKET_LOCK(b);
-			tmp = so_find(b, so->so_ipproto, &so->so_tuple);
+			tmp = so_find(b, so->so_ipproto, so->so_laddr, so->so_faddr,
+			              so->so_lport, so->so_fport);
 			if (tmp == NULL) {
 				dlist_insert_tail_rcu(&b->htb_head, &so->so_list);
 				BUCKET_UNLOCK(b);
@@ -2418,8 +2280,8 @@ sock_route(struct sock *so, struct route_entry *r)
 {
 	int rc;
 
-	r->rt_dst.ipa_4 = so->so_tuple.sot_faddr;
-	rc = route_get4(so->so_tuple.sot_laddr, r);
+	r->rt_dst.ipa_4 = so->so_faddr;
+	rc = route_get4(so->so_laddr, r);
 	if (rc) {
 		ips.ips_noroute++;
 	} else {
@@ -2482,10 +2344,10 @@ so_new(int so_ipproto)
 	so->so_list.dls_next = NULL;
 	so->so_flags = 0;
 	so->so_ipproto = so_ipproto;
-	so->so_tuple.sot_laddr = 0;
-	so->so_tuple.sot_lport = 0;
-	so->so_tuple.sot_faddr = 0;
-	so->so_tuple.sot_fport = 0;
+	so->so_laddr = 0;
+	so->so_lport = 0;
+	so->so_faddr = 0;
+	so->so_fport = 0;
 	so->so_listen = NULL;
 	so->so_tx_list.dls_next = NULL;
 	timer_init(&so->so_timer);
@@ -2531,7 +2393,7 @@ sock_del(struct sock *so)
 	}
 	if (so->so_binded) {
 		so->so_binded = 1;
-		lport = ntoh16(so->so_tuple.sot_lport);
+		lport = ntoh16(so->so_lport);
 		if (lport > 0 && lport < ARRAY_SIZE(curmod->binded)) {
 			b = curmod->binded + lport;
 			BUCKET_LOCK(b);
@@ -2699,12 +2561,135 @@ sysctl_socket(void *udata, const char *new, struct strbuf *out)
 		cb.socb_backlog);
 }
 
-static int
-sysctl_tcp_fin_timeout(const long long *new, long long *old)
+int
+so_in(int ipproto, be32_t laddr, be32_t faddr, be16_t lport, be16_t fport,
+	struct tcpcb *tcb, void *payload)
 {
-	*old = curmod->tcp_fin_timeout / NANOSECONDS_SECOND;
-	if (new != NULL) {
-		curmod->tcp_fin_timeout = (*new) * NANOSECONDS_SECOND;
+	int so_ipproto, i;
+	uint32_t h;
+	struct htable_bucket *b;
+	struct sock *so;
+
+	switch (ipproto) {
+	case IPPROTO_UDP:
+		so_ipproto = SO_IPPROTO_UDP;
+		break;
+	case IPPROTO_TCP:
+		so_ipproto = SO_IPPROTO_TCP;
+		break;
+	default:
+		return IN_BYPASS;
 	}
-	return 0;
+	h = SO_HASH(faddr, lport, fport);
+	b = htable_bucket_get(&curmod->htable, h);
+	BUCKET_LOCK(b);
+	my_locked = 1;
+	so = so_find(b, so_ipproto, laddr, faddr, lport, fport);
+	if (so == NULL) {
+		my_locked = 0;
+		BUCKET_UNLOCK(b);
+		i = hton16(lport);
+		if (i >= ARRAY_SIZE(curmod->binded)) {
+			return IN_BYPASS;
+		}
+		b = curmod->binded + i; // rcv_LISTEN
+		so = so_find_binded(b, so_ipproto, laddr, faddr, lport, fport);
+	}
+	if (so == NULL) {
+		return IN_BYPASS;
+	}
+	if (so->so_service_id != current->p_id) {
+		ASSERT(0);
+		if (my_locked) {
+			my_locked = 0;
+			BUCKET_UNLOCK(b);
+		}
+		return so->so_service_id;
+	}
+	if (so_ipproto == SO_IPPROTO_TCP) {
+		tcps.tcps_rcvtotal++;
+	} else {
+		udps.udps_ipackets++;
+	}
+	DBG(0, "hit; flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
+	    log_add_tcp_flags(so->so_ipproto, tcb->tcb_flags),
+	    tcb->tcb_len, tcb->tcb_seq, tcb->tcb_ack, so_get_fd(so));
+	switch (so->so_ipproto) {
+	case SO_IPPROTO_UDP:
+		sock_on_rcv(so, payload, tcb->tcb_len, faddr, fport);
+		break;
+	case SO_IPPROTO_TCP:
+		switch (so->so_state) {
+		case GT_TCP_S_CLOSED:
+			break;
+		case GT_TCP_S_LISTEN:
+			tcp_rcv_LISTEN(so, laddr, faddr, lport, fport, tcb);
+			break;
+		case GT_TCP_S_TIME_WAIT:
+			tcp_rcv_TIME_WAIT(so);
+			break;
+		default:
+			tcp_rcv_open(so, tcb, payload);
+			break;
+		}
+	}
+	if (my_locked) {
+		my_locked = 0;
+		BUCKET_UNLOCK(b);
+	}
+	return IN_OK;
 }
+
+int
+so_in_err(int ipproto, be32_t laddr, be32_t faddr,
+	be16_t lport, be16_t fport, int errnum)
+{
+#if 0
+	int rc, lport;
+	uint32_t h;
+	int so_ipproto, lport;
+	struct htable_bucket *b;
+	struct sock *so;
+
+	if (ipproto == IPPROTO_UDP) {
+		so_ipproto = SO_IPPROTO_UDP;
+	} else {
+		so_ipproto = SO_IPPROTO_TCP;
+	}
+	h = so_tuple_hash(so_tuple);
+	b = htable_bucket_get(&curmod->htable, h);
+	BUCKET_LOCK(b);
+	so = so_find(b, so_ipproto, so_tuple);
+	if (so != NULL) {
+		so_set_err(so, errnum); 
+	}
+	BUCKET_UNLOCK(b);
+	if (so != NULL) {
+		return IP_OK;
+	}
+	if (ipproto == SO_IPPROTO_TCP) {
+		return IP_BYPASS;
+	}
+	lport = ntoh16(so_tuple->sot_lport);
+	if (lport >= ARRAY_SIZE(curmod->binded)) {
+		return IP_BYPASS;
+	}
+	b = curmod->binded + lport;
+	BUCKET_LOCK(b);
+	rc = IP_BYPASS;
+	DLIST_FOREACH(so, b, so_bind_list) {
+		if (so->so_ipproto == SO_IPPROTO_UDP &&
+		    (so->so_tuple.sot_laddr == 0 ||
+		     so->so_tuple.sot_laddr == so_tuple->sot_laddr)) {
+			so_set_err(so, errnum);
+			rc = IP_OK;
+		}
+	}
+	BUCKET_UNLOCK(b);
+	return rc;
+#else
+	return IN_OK;
+#endif
+}
+
+

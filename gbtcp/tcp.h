@@ -62,7 +62,10 @@ struct sock {
 		};
 	};
 	struct dlist so_bind_list;
-	struct sock_tuple so_tuple;
+	be32_t so_laddr;
+	be32_t so_faddr;
+	be32_t so_lport;
+	be32_t so_fport;
 	be32_t so_next_hop;
 	uint16_t so_lmss;
 	uint16_t so_rmss;
@@ -114,8 +117,8 @@ void so_get_socb(struct sock *so, struct socb *);
 
 int sock_nread(struct file *fp);
 
-int so_in(int, struct sock_tuple *, struct tcpcb *, void *);
-int so_in_err(int, struct sock_tuple *, int);
+int so_in(int, be32_t, be32_t, be16_t, be16_t, struct tcpcb *, void *);
+int so_in_err(int, be32_t, be32_t, be16_t, be16_t, int);
 
 void sock_tx_flush();
 

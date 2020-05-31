@@ -124,13 +124,6 @@ struct eth_addr {
 	u_char ea_bytes[ETHADDR_LEN];
 } __attribute__((packed));
 
-struct sock_tuple {
-	be32_t sot_laddr;
-	be32_t sot_faddr;
-	be16_t sot_lport;
-	be16_t sot_fport;
-};
-
 struct spinlock {
 	volatile int spinlock_locked;
 };
@@ -319,6 +312,7 @@ uint32_t custom_hash32(uint32_t data, uint32_t initval);
 uint32_t custom_hash(const void *data, size_t cnt, uint32_t val);
 
 uint32_t toeplitz_hash(const u_char *, int, const u_char *);
+uint32_t rss_hash4(be32_t, be32_t, be16_t, be16_t, u_char *);
 
 int proc_get_comm(char *, int);
 

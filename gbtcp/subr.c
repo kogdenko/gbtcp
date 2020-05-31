@@ -427,6 +427,27 @@ toeplitz_hash(const u_char *data, int cnt, const u_char *key)
 }
 
 uint32_t
+rss_hash4(be32_t laddr, be32_t faddr, be16_t lport, be16_t fport, u_char *key)
+{
+	int off;
+	uint32_t h;
+	u_char data[12];
+
+	off = 0;
+	*(be32_t *)(data + off) = faddr;
+	off += 4;
+	*(be32_t *)(data + off) = laddr;
+	off += 4;
+	*(be16_t *)(data + off) = fport;
+	off += 2;
+	*(be16_t *)(data + off) = lport;
+	off += 2;
+	h = toeplitz_hash(data, off, key);
+	h &= 0x0000007F;
+	return h;
+}
+
+uint32_t
 upper_pow2_32(uint32_t x)
 {
 	x--;

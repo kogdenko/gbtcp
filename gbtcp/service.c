@@ -69,9 +69,11 @@ gt_init()
 }
 
 int
-service_is_appropriate_rss(struct route_if *ifp, struct sock_tuple *so_tuple)
+service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
+	be16_t lport, be16_t fport)
 {
 	int i, rss_qid;
+	uint32_t h;
 
 	if (ifp->rif_rss_nq == 1) {
 		return 1;
@@ -80,7 +82,9 @@ service_is_appropriate_rss(struct route_if *ifp, struct sock_tuple *so_tuple)
 	for (i = 0; i < ifp->rif_rss_nq; ++i) {
 		if (ih->ih_rss_table[i] == current->p_id) {
 			if (rss_qid == -1) {
-				rss_qid = route_if_calc_rss_qid(ifp, so_tuple);
+				h = rss_hash4(laddr, faddr, lport, fport,
+				              ifp->rif_rss_key);
+				rss_qid = h % ifp->rif_rss_nq;
 			}
 			if (i == rss_qid) {
 				return 1;
@@ -149,7 +153,6 @@ static int
 service_in(struct inet_parser *p)
 {
 	int rc, ipproto;
-	struct sock_tuple t;
 
 	rc = eth_in(p);
 	ASSERT(rc < 0);
@@ -158,19 +161,17 @@ service_in(struct inet_parser *p)
 	}
 	ipproto = p->inp_ipproto;
 	if (ipproto == IPPROTO_UDP || ipproto == IPPROTO_TCP) {
-		t.sot_laddr = p->inp_ih->ih_daddr;
-		t.sot_faddr = p->inp_ih->ih_saddr;
-		t.sot_lport = p->inp_uh->uh_dport;
-		t.sot_fport = p->inp_uh->uh_sport;
-		rc = so_in(ipproto, &t, &p->inp_tcb, p->inp_payload);
+		rc = so_in(ipproto,
+		           p->inp_ih->ih_daddr, p->inp_ih->ih_saddr,
+		           p->inp_uh->uh_dport, p->inp_uh->uh_sport,
+		           &p->inp_tcb, p->inp_payload);
 	} else if (ipproto == IPPROTO_ICMP && p->inp_errnum &&
 	           (p->inp_emb_ipproto == IPPROTO_UDP ||
 	            p->inp_emb_ipproto == IPPROTO_TCP)) {
-		t.sot_laddr = p->inp_emb_ih->ih_saddr;
-		t.sot_faddr = p->inp_emb_ih->ih_daddr;
-		t.sot_lport = p->inp_emb_uh->uh_sport;
-		t.sot_fport = p->inp_emb_uh->uh_dport;
-		rc = so_in_err(p->inp_emb_ipproto, &t, p->inp_errnum);
+		rc = so_in_err(p->inp_emb_ipproto,
+		               p->inp_ih->ih_daddr, p->inp_ih->ih_saddr,
+		               p->inp_uh->uh_dport, p->inp_uh->uh_sport,
+		               p->inp_errnum);
 	}
 	return rc;
 }
