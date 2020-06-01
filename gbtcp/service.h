@@ -63,7 +63,7 @@ struct init_hdr {
 
 int service_mod_init(void **);
 int service_mod_attach(void *);
-void service_mod_deinit(void *);
+void service_mod_deinit();
 void service_mod_detach();
 
 int service_init(const char *);

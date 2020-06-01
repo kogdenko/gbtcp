@@ -64,87 +64,34 @@ murmur(const void * key, unsigned int len, uint32_t init_val)
 }
 
 
-#ifdef __linux__
-int
-proc_get_comm(char *name, int pid)
-{
-	int rc, len;
-	FILE *file;
-	char *s;
-	char buf[256];
-
-	snprintf(buf, sizeof(buf), "/proc/%d/status", pid);
-	rc = sys_fopen(&file, buf, "r");
-	if (rc) {
-		return rc;
-	}
-	s = fgets(buf, sizeof(buf), file);
-	fclose(file);
-	if (s == NULL) {
-		goto err;
-	}
-	len = strlen(s);
-	if (len < 5) {
-		goto err;
-	}
-	if (memcmp(s, STRSZ("Name:"))) {
-		goto err;
-	}
-	len = strtrimcpy(name, s + 6, PROC_COMM_MAX);
-	if (len > 0 && len < PROC_COMM_MAX) {
-		return 0;
-	}
-err:
-	ERR(0, "bad format; path=/proc/%d/status", pid);
-	return -EPROTO;
-}
-#else /* __linux__ */
-static int
-proc_get_comm(char *name, int pid)
-{
-	int rc;
-	struct kinfo_proc *info;
-
-	info = kinfo_getproc(pid);
-	if (info == NULL) {
-		rc = -errno;
-		ASSERT(rc);
-		return rc;
-	}
-	strzcpy(name, info->ki_comm, PROC_COMM_MAX);
-	free(info);
-	return 0;
-}
-#endif /* __linux__ */
-
 int
 subr_mod_init(void **pp)
 {
 	int rc;
-	struct subr_mod *mod;
-	rc = shm_malloc(pp, sizeof(*mod));
+
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (!rc) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "subr");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "subr");
 	}
 	return rc;
 }
 
 int
-subr_mod_attach(void *raw_mod)
+subr_mod_attach(void *p)
 {
-	curmod = raw_mod;
+	curmod = p;
 	return 0;
 }
 
 void
-subr_mod_deinit(void *raw_mod)
+subr_mod_deinit()
 {
-	struct subr_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	if (curmod != NULL) {
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void
@@ -741,15 +688,8 @@ out:
 	sys_close(fd);
 	return rc;
 }
-#else /* __linux__ */
-int
-read_rsskey(const char *ifname, u_char *rsskey)
-{
-	return 0;
-}
-#endif /* __linux__ */
 
-#ifdef __linux__
+
 long
 gettid()
 {
@@ -758,7 +698,41 @@ gettid()
 	tid = syscall(SYS_gettid);
 	return tid;
 }
-#else /* __linux__ */
+
+int
+read_comm(char *name, int pid)
+{
+	int rc, len;
+	FILE *file;
+	char *s;
+	char buf[256];
+
+	snprintf(buf, sizeof(buf), "/proc/%d/status", pid);
+	rc = sys_fopen(&file, buf, "r");
+	if (rc) {
+		return rc;
+	}
+	s = fgets(buf, sizeof(buf), file);
+	fclose(file);
+	if (s == NULL) {
+		goto err;
+	}
+	len = strlen(s);
+	if (len < 5) {
+		goto err;
+	}
+	if (memcmp(s, STRSZ("Name:"))) {
+		goto err;
+	}
+	len = strtrimcpy(name, s + 6, PROC_COMM_MAX);
+	if (len > 0 && len < PROC_COMM_MAX) {
+		return 0;
+	}
+err:
+	ERR(0, "bad format; path=/proc/%d/status", pid);
+	return -EPROTO;
+}
+#else // __linux__
 long
 gettid()
 {
@@ -767,7 +741,24 @@ gettid()
 	thr_self(&tid);
 	return tid;
 }
-#endif /* __linux__ */
+
+int
+read_comm(char *name, int pid)
+{
+	int rc;
+	struct kinfo_proc *info;
+
+	info = kinfo_getproc(pid);
+	if (info == NULL) {
+		rc = -errno;
+		ASSERT(rc);
+		return rc;
+	}
+	strzcpy(name, info->ki_comm, PROC_COMM_MAX);
+	free(info);
+	return 0;
+}
+#endif // __linux__
 
 uint64_t
 rdtsc()

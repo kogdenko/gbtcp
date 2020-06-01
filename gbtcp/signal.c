@@ -12,43 +12,47 @@ int
 signal_mod_init(void **pp)
 {
 	int rc;
-	struct signal_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (rc) {
 		return rc;
 	}
-	mod = *pp;
-	log_scope_init(&mod->log_scope, "signal");
-	rc = sys_malloc(&gt_signal_stack, SIGSTKSZ);
-	if (rc == 0)
-		gt_signal_stack_size = SIGSTKSZ;
+	curmod = *pp;
+	log_scope_init(&curmod->log_scope, "signal");
 	return rc;
 }
 
 int
-signal_mod_attach(void *raw_mod)
+signal_mod_attach(void *p)
 {
-	curmod = raw_mod;
-	return 0;
+	int rc;
+
+	curmod = p;
+	rc = sys_malloc(&gt_signal_stack, SIGSTKSZ);
+	if (rc == 0) {
+		gt_signal_stack_size = SIGSTKSZ;
+	} else {
+		curmod = NULL;
+	}
+	return rc;
 }
 
 void
-signal_mod_deinit(void *raw_mod)
+signal_mod_deinit()
 {
-	struct signal_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	free(gt_signal_stack);
-	gt_signal_stack = NULL;
-	gt_signal_stack_size = 0;
-	shm_free(mod);
+	if (curmod != NULL) {
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void
 signal_mod_detach()
 {
+	sys_free(gt_signal_stack);
+	gt_signal_stack = NULL;
+	gt_signal_stack_size = 0;
 	curmod = NULL;
 }
 

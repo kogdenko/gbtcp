@@ -6,7 +6,7 @@
 
 int controller_mod_init(void **);
 int controller_mod_attach(void *);
-void controller_mod_deinit(void *);
+void controller_mod_deinit();
 void controller_mod_detach();
 
 int controller_init(int, const char *);

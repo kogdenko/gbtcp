@@ -58,12 +58,11 @@ int
 sys_mod_init(void **pp)
 {
 	int rc;
-	struct sys_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (!rc) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "sys");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "sys");
 	}
 	return rc;
 }

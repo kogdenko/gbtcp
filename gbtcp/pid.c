@@ -10,31 +10,30 @@ int
 pid_mod_init(void **pp)
 {
 	int rc;
-	struct pid_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (!rc) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "pid");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "pid");
 	}
 	return rc;
 }
 
 int
-pid_mod_attach(void *raw_mod)
+pid_mod_attach(void *p)
 {
-	curmod = raw_mod;
+	curmod = p;
 	return 0;
 }
 
 void
-pid_mod_deinit(void *raw_mod)
+pid_mod_deinit()
 {
-	struct pid_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	if (curmod != NULL) {
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void

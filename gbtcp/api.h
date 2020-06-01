@@ -14,7 +14,7 @@
 
 int api_mod_init(void **);
 int api_mod_attach(void *);
-void api_mod_deinit(void *);
+void api_mod_deinit();
 void api_mod_detach();
 
 int api_socket(int, int, int);

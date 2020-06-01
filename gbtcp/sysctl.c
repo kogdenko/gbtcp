@@ -106,20 +106,19 @@ int
 sysctl_mod_init(void **pp)
 {
 	int rc;
-	struct sysctl_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (rc == 0) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "sysctl");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "sysctl");
 	}
 	return rc;
 }
 
 int
-sysctl_mod_attach(void *raw_mod)
+sysctl_mod_attach(void *p)
 {
-	curmod = raw_mod;
+	curmod = p;
 	return 0;
 }
 
@@ -136,13 +135,13 @@ sysctl_root_init()
 }
 
 void
-sysctl_mod_deinit(void *raw_mod)
+sysctl_mod_deinit()
 {
-	struct sysctl_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	if (curmod != NULL) {
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void
@@ -254,7 +253,7 @@ sysctl_split_msg(struct iovec *t, char *msg)
 }
 
 static int
-sysctl_parse_line(char *s)
+sysctl_parse_line(int loader, char *s)
 {
 	int rc;
 	char *ptr, *path, *new;
@@ -272,17 +271,18 @@ sysctl_parse_line(char *s)
 	}
 	path = strtrim(s);
 	strbuf_init(&out, out_buf, sizeof(out_buf));
-	rc = sysctl_process(NULL, path, 1, new, &out);
+	rc = sysctl_process(NULL, path, loader, new, &out);
 	return rc;
 }
 
 int
-sysctl_read_file(const char *proc_name)
+sysctl_read_file(int loader, const char *proc_name)
 {
 	int rc, line;
 	const char *path;
+	char *s;
 	char path_buf[PATH_MAX];
-	char str[2000];
+	char buf[2000];
 	FILE *file;
 
 	path = getenv("GBTCP_CTL");
@@ -302,9 +302,9 @@ sysctl_read_file(const char *proc_name)
 	}
 	rc = 0;
 	line = 0;
-	while (fgets(str, sizeof(str), file) != NULL) {
+	while ((s = fgets(buf, sizeof(buf), file)) != NULL) {
 		line++;
-		rc = sysctl_parse_line(str);
+		rc = sysctl_parse_line(loader, s);
 		if (rc) {
 			ERR(-rc, "bad line; file='%s', line=%d",  path, line);
 		}
@@ -470,28 +470,31 @@ sysctl_node_del(struct sysctl_node *node)
 
 static int
 sysctl_process_node(struct sysctl_conn *cp,
-	struct sysctl_node *node, char *tail, int load,
+	struct sysctl_node *node, char *tail, int loader,
 	const char *new, struct strbuf *out)
 {
 	int rc;
-	const char *access;
 
 	if (new != NULL) {
-		access = NULL;
 		switch (node->n_mode) {
+		case SYSCTL_RD:
+			return -EACCES;
 		case SYSCTL_LD:
-			if (load == 0) {
-				access = "load";
+			if (loader == 0) {
+				if (cp == NULL) {
+					return 0;
+				} else {
+					return -EACCES;
+				}
 			}
 			break;
-		case SYSCTL_RD:
-			access = "read";
+		case SYSCTL_WR:
+			if (loader) {
+				return 0;
+			}
 			break;
 		default:
-			break;
-		}
-		if (access != NULL) {
-			return -EACCES;
+			BUG;
 		}
 	}
 	if (node->n_is_list) {
@@ -791,7 +794,7 @@ sysctl_process_events(void *udata, short revents)
 }
 
 static int
-sysctl_process(struct sysctl_conn *cp, const char *path, int load,
+sysctl_process(struct sysctl_conn *cp, const char *path, int loader,
 	const char *new, struct strbuf *out)
 {
 	int rc;
@@ -800,7 +803,7 @@ sysctl_process(struct sysctl_conn *cp, const char *path, int load,
 
 	rc = sysctl_node_find(path, &node, &tail);
 	if (rc == 0) {
-		rc = sysctl_process_node(cp, node, tail, load, new, out);
+		rc = sysctl_process_node(cp, node, tail, loader, new, out);
 	}
 	return rc;
 }

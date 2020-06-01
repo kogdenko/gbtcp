@@ -722,23 +722,24 @@ int
 route_mod_init(void **pp)
 {
 	int rc;
-	struct route_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (rc) {
 		return rc;
 	}
-	mod = *pp;
-	log_scope_init(&mod->log_scope, "route");
-	mod->route_default = NULL;
-	dlist_init(&mod->route_if_head);
-	dlist_init(&mod->route_addr_head);
-	lptree_init(&mod->route_lptree);
-	mbuf_pool_init(&mod->route_pool, 0, sizeof(struct route_entry_long));
+	curmod = *pp;
+	log_scope_init(&curmod->log_scope, "route");
+	curmod->route_default = NULL;
+	dlist_init(&curmod->route_if_head);
+	dlist_init(&curmod->route_addr_head);
+	lptree_init(&curmod->route_lptree);
+	mbuf_pool_init(&curmod->route_pool, 0,
+	               sizeof(struct route_entry_long));
 	sysctl_add(SYSCTL_ROUTE_MONITOR, SYSCTL_WR,
 	           NULL, NULL, sysctl_route_monitor);
 	sysctl_add_list(GT_SYSCTL_ROUTE_IF_LIST, SYSCTL_WR, NULL,
-	                sysctl_route_if_list_next, sysctl_route_if_list);
+	                sysctl_route_if_list_next,
+	                sysctl_route_if_list);
 	sysctl_add(GT_SYSCTL_ROUTE_IF_ADD, SYSCTL_WR,
 	           NULL, NULL, sysctl_route_if_add);
 	sysctl_add(GT_SYSCTL_ROUTE_IF_DEL, SYSCTL_WR,
@@ -747,7 +748,8 @@ route_mod_init(void **pp)
 	                sysctl_route_addr_list_next,
 	                sysctl_route_addr_list);
 	sysctl_add_list(GT_SYSCTL_ROUTE_ROUTE_LIST, SYSCTL_RD, NULL,
-	                sysctl_route_list_next, sysctl_route_list);
+	                sysctl_route_list_next,
+	                sysctl_route_list);
 	return 0;
 }
 

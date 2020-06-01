@@ -187,38 +187,39 @@ struct arp_stat {
 };
 #undef ARP_STAT_DECLARE
 
-struct inet_parser {
-	struct route_if *inp_ifp;
-	u_char *inp_cur;
-	int inp_rem;
-	int inp_errnum;
-	u_char inp_cksum_offload;
-	struct eth_hdr *inp_eh;
-	struct arp_hdr *inp_ah;
-	struct ip4_hdr *inp_ih;
-	int inp_ih_len;
-	uint16_t inp_ip_payload_len;
-	uint8_t inp_ipproto;
-	uint8_t inp_emb_ipproto;
-	int inp_th_len;
-	struct tcpcb inp_tcb;
+struct in_context {
+	struct route_if *in_ifp;
+	struct tcp_stat *in_tcps;
+	struct udp_stat *in_udps;
+	struct ip_stat *in_ips;
+	struct icmp_stat *in_icmps;
+	struct arp_stat *in_arps;
+	u_char *in_cur;
+	int in_rem;
+	int in_errnum;
+	u_char in_cksum_offload;
+	struct eth_hdr *in_eh;
+	struct arp_hdr *in_ah;
+	struct ip4_hdr *in_ih;
+	int in_ih_len;
+	uint16_t in_ip_payload_len;
+	uint8_t in_ipproto;
+	uint8_t in_emb_ipproto;
+	int in_th_len;
+	u_char in_events;
+	struct tcpcb in_tcb;
 	union {
-		struct udp_hdr *inp_uh;
-		struct tcp_hdr *inp_th;
-		struct icmp4_hdr *inp_icp;
+		struct udp_hdr *in_uh;
+		struct tcp_hdr *in_th;
+		struct icmp4_hdr *in_icp;
 	};
-	struct ip4_hdr *inp_emb_ih;
+	struct ip4_hdr *in_emb_ih;
 	union {
-		struct udp_hdr *inp_emb_uh;
-		struct tcp_hdr *inp_emb_th;
-		struct icmp4_hdr *inp_emb_icp;
+		struct udp_hdr *in_emb_uh;
+		struct tcp_hdr *in_emb_th;
+		struct icmp4_hdr *in_emb_icp;
 	};
-	void *inp_payload;
-	struct tcp_stat *inp_tcps;
-	struct udp_stat *inp_udps;
-	struct ip_stat *inp_ips;
-	struct icmp_stat *inp_icmps;
-	struct arp_stat *inp_arps;
+	u_char *in_payload;
 };
 
 #define IP4_HDR_LEN(ver_ihl) (((ver_ihl) & 0x0f) << 2)
@@ -226,11 +227,11 @@ struct inet_parser {
 
 int inet_mod_init(void **);
 int inet_mod_attach(void *);
-void inet_mod_deinit(void *);
+void inet_mod_deinit();
 void inet_mod_detach();
 
-void inet_parser_init(struct inet_parser *, void *, int);
-int eth_in(struct inet_parser *);
+void in_context_init(struct in_context *, void *, int);
+int eth_in(struct in_context *);
 void ip4_set_cksum(struct ip4_hdr *, void *);
 int tcp_opts_fill(struct tcp_opts *, void *);
 int tcp_opts_len(struct tcp_opts *);

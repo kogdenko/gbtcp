@@ -17,32 +17,31 @@ int
 controller_mod_init(void **pp)
 {
 	int rc;
-	struct controller_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (rc == 0) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "controller");
-		mod->log_scope.lgs_level = LOG_NOTICE;
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "controller");
+		curmod->log_scope.lgs_level = LOG_NOTICE;
 	}
 	return rc;
 }
 
 int
-controller_mod_attach(void *raw_mod)
+controller_mod_attach(void *p)
 {
-	curmod = raw_mod;
+	curmod = p;
 	return 0;
 }
 
 void
-controller_mod_deinit(void *raw_mod)
+controller_mod_deinit()
 {
-	struct controller_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	if (curmod != NULL) {
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void
@@ -575,7 +574,6 @@ controller_init(int daemonize, const char *service_comm)
 	if (rc != pid) {
 		goto err;
 	}	
-
 	rc = sysctl_root_init();
 	if (rc) {
 		goto err;
@@ -585,7 +583,7 @@ controller_init(int daemonize, const char *service_comm)
 		goto err;
 	}
 	memset(ih, 0, sizeof(*ih));
-	rc = mod_foreach_mod_init(ih);
+	rc = foreach_mod_init(ih);
 	if (rc) {
 		goto err;
 	}
@@ -594,29 +592,30 @@ controller_init(int daemonize, const char *service_comm)
 	ih->ih_version = IH_VERSION;
 	ih->ih_hz = hz;
 	ih->ih_rss_nq = 0;
+	rc = foreach_mod_attach(ih);
+	if (rc) {
+		goto err;
+	}
+	sysctl_read_file(1, service_comm);
 	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
 		s = ih->ih_services + i;
 		s->p_id = i;
-		mod_foreach_mod_service_init(s);
+		foreach_mod_service_init(s);
 	}
 	for (i = 0; i < ARRAY_SIZE(ih->ih_rss_table); ++i) {
 		ih->ih_rss_table[i] = -1;
 	}
 	current = ih->ih_services + 0;
 	current->p_pid = pid;
-	rc = mod_foreach_mod_attach(ih);
-	if (rc) {
-		goto err;
-	}
 	rc = service_init("controller");
 	if (rc) {
 		goto err;
 	}
-	sysctl_read_file(service_comm);
 	rc = controller_bind(pid);
 	if (rc) {
 		goto err;
 	}
+	sysctl_read_file(0, service_comm);
 	sysctl_add(SYSCTL_CONTROLLER_SERVICE_ATTACH, SYSCTL_WR, NULL, NULL,
 	           sysctl_controller_service_attach);
 	sysctl_add_list(GT_SYSCTL_CONTROLLER_SERVICE_LIST, SYSCTL_RD, NULL,
@@ -632,12 +631,12 @@ err:
 	if (ih != NULL) {
 		for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
 			s = ih->ih_services + i;
-			mod_foreach_mod_service_deinit(s);
+			foreach_mod_service_deinit(s);
 		}
 	}
 	service_deinit(0);
-	mod_foreach_mod_detach();
-	mod_foreach_mod_deinit(ih);
+	foreach_mod_detach();
+	foreach_mod_deinit(ih);
 	shm_deinit();
 	sysctl_root_deinit();
 	sys_close(controller_pid_fd);

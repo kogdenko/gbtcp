@@ -20,7 +20,7 @@ struct pid_wait {
 
 int pid_mod_init(void **);
 int pid_mod_attach(void *);
-void pid_mod_deinit(void *);
+void pid_mod_deinit();
 void pid_mod_detach();
 
 char *pid_file_path(char *, const char *);

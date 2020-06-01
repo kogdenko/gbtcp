@@ -38,32 +38,31 @@ int
 epoll_mod_init(void **pp)
 {
 	int rc;
-	struct epoll_mod *mod;
 
 	ASSERT(sizeof(struct epoll) <= sizeof(struct sock));
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (!rc) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "epoll");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "epoll");
 	}
 	return rc;
 }
 
 int
-epoll_mod_attach(void *raw_mod)
+epoll_mod_attach(void *p)
 {
-	curmod = raw_mod;
+	curmod = p;
 	return 0;
 }
 
 void
-epoll_mod_deinit(void *raw_mod)
+epoll_mod_deinit()
 {
-	struct epoll_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	if (curmod != NULL) {
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void
@@ -369,7 +368,7 @@ u_epoll_create(int ep_fd)
 	if (rc) {
 		return rc;
 	}
-	fp->fl_opened = 1;
+	fp->fl_referenced = 1;
 	ep = (struct epoll *)fp;
 	ep->ep_fd = ep_fd;
 	rc = shm_malloc((void **)&ep->ep_pool, sizeof(*ep->ep_pool));
@@ -422,6 +421,9 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 		return rc;
 	}
 	n = epoll_read_triggered(ep, buf, cnt);
+	//if (n) {
+	//	return n;
+	//}
 	pfds[0].fd = ep->ep_fd;
 	pfds[0].events = POLLIN;
 	fd_poll_init(&fd_poll);

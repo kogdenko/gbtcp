@@ -17,7 +17,7 @@ struct arp_advert_msg {
 int arp_mod_init(void **);
 int arp_mod_attach(void *);
 int arp_mod_service_init(struct service *);
-void arp_mod_deinit(void *);
+void arp_mod_deinit();
 void arp_mod_detach();
 void arp_mod_service_deinit(struct service *);
 

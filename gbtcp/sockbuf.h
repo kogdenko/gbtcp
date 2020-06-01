@@ -14,7 +14,7 @@ struct sockbuf {
 
 int sockbuf_mod_init(void **);
 int sockbuf_mod_attach(void *);
-void sockbuf_mod_deinit(void *);
+void sockbuf_mod_deinit();
 void sockbuf_mod_detach();
 
 void sockbuf_init(struct sockbuf *, int);

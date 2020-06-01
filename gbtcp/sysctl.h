@@ -34,14 +34,14 @@ typedef int (*sysctl_list_f)(void *, const char *,
 int sysctl_mod_init(void **);
 int sysctl_mod_attach(void *);
 int sysctl_root_init();
-void sysctl_mod_deinit(void *);
+void sysctl_mod_deinit();
 void sysctl_mod_detach();
 
 void sysctl_root_deinit();
 
 void sysctl_make_sockaddr_un(struct sockaddr_un *, int);
 
-int sysctl_read_file(const char *);
+int sysctl_read_file(int, const char *);
 
 int sysctl_conn_fd(struct sysctl_conn *);
 int sysctl_conn_open(struct sysctl_conn **, int);

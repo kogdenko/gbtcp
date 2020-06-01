@@ -15,12 +15,11 @@ int
 htable_mod_init(void **pp)
 {
 	int rc;
-	struct htable_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (!rc) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "htable");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "htable");
 	}
 	return rc;
 }
@@ -102,7 +101,37 @@ htable_bucket_get(struct htable *t, uint32_t h)
 }
 
 static int
-sysctl_htable_next(void *udata, const char *ident, struct strbuf *out)
+sysctl_htable_size(struct sysctl_conn *cp, void *udata,
+	const char *new, struct strbuf *out)
+{
+	int rc, new_size;
+	char *endptr;
+	struct htable *t, new_t;
+
+	t = udata;
+	strbuf_addf(out, "%d", t->ht_size);
+	if (new == NULL) {
+		return 0;
+	}
+	new_size = strtoul(new, &endptr, 10);
+	if (new_size == 0 || *endptr != '\0') {
+		return -EINVAL;
+	}
+	if (new_size == t->ht_size) {
+		return 0;
+	}
+	rc = htable_init(&new_t, new_size, t->ht_fn, t->ht_flags);
+	if (rc) {
+		return rc;
+	}
+	htable_deinit(t);
+	*t = new_t;
+	return 0;
+}
+
+
+static int
+sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 {
 	int rc, lo;
 	struct dlist *e;
@@ -137,8 +166,8 @@ sysctl_htable_next(void *udata, const char *ident, struct strbuf *out)
 }
 
 static int
-sysctl_htable(void *udata, const char *ident, const char *new,
-	struct strbuf *out)
+sysctl_htable_list(void *udata, const char *ident,
+	const char *new, struct strbuf *out)
 {
 	int rc, lo;
 	struct dlist *e;
@@ -173,11 +202,18 @@ sysctl_htable(void *udata, const char *ident, const char *new,
 }
 
 void
-sysctl_add_htable(const char *path, int mode, struct htable *t,
+sysctl_add_htable(const char *path0, int mode, struct htable *t,
 	htable_sysctl_f fn)
 {
+	char path[PATH_MAX];
+
 	ASSERT(t->ht_sysctl_fn == NULL);
 	ASSERT(fn != NULL);
 	t->ht_sysctl_fn = fn;
-	sysctl_add_list(path, mode, t, sysctl_htable_next, sysctl_htable);
+	snprintf(path, sizeof(path), "%s.size", path0);
+	sysctl_add(path, SYSCTL_LD, t, NULL, sysctl_htable_size);
+	snprintf(path, sizeof(path), "%s.list", path0);
+	sysctl_add_list(path, mode, t,
+	                sysctl_htable_list_next,
+	                sysctl_htable_list);
 }

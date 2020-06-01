@@ -26,12 +26,11 @@ int
 mbuf_mod_init(void **pp)
 {
 	int rc;
-	struct mbuf_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (!rc) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "mbuf");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "mbuf");
 	}
 	return rc;
 }
@@ -44,13 +43,13 @@ mbuf_mod_attach(void *raw_mod)
 }
 
 void
-mbuf_mod_deinit(void *raw_mod)
+mbuf_mod_deinit()
 {
-	struct mbuf_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	if (curmod != NULL) {
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void
@@ -117,6 +116,7 @@ mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 void
 mbuf_pool_init(struct mbuf_pool *p, u_char service_id, int mbuf_size)
 {
+	ASSERT(mbuf_size >= sizeof(struct mbuf));
 	memset(p, 0, sizeof(*p));
 	p->mbp_service_id = service_id;
 	p->mbp_mbuf_size = mbuf_size;

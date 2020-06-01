@@ -59,12 +59,11 @@ int
 api_mod_init(void **pp)
 {
 	int rc;
-	struct api_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (rc == 0) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "api");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "api");
 	}
 	return rc;
 }
@@ -77,13 +76,13 @@ api_mod_attach(void *raw_mod)
 }
 
 void
-api_mod_deinit(void *raw_mod)
+api_mod_deinit()
 {
-	struct api_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	if (curmod != NULL) {
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void
@@ -111,6 +110,7 @@ int
 api_socket(int domain, int type, int proto)
 {
 	int rc, flags, type_noflags, use, use_tcp, use_udp;
+	struct sock *so;
 
 	use_tcp = 1; // TODO: in ctl
 	use_udp = 0;
@@ -128,7 +128,7 @@ api_socket(int domain, int type, int proto)
 		break;
 	}
 	if (domain == AF_INET && use) {
-		rc = so_socket(domain, type_noflags, flags, proto);
+		rc = so_socket(&so, domain, type_noflags, flags, proto);
 		if (rc < 0) {
 			DBG(-rc, "failed; type=%s, flags=%s",
 			    log_add_socket_type(type_noflags),
@@ -284,18 +284,18 @@ int
 api_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
 	int rc;
-	struct sock *so;
+	struct sock *so, *lso;
 
-	rc = so_get(lfd, &so);
+	rc = so_get(lfd, &lso);
 	if (rc) {
 		return rc;
 	}
 	DBG(0, "hit; lfd=%d, flags=%s)", lfd, log_add_socket_flags(flags));
 restart:
-	rc = so_accept(so, addr, addrlen, flags);
-	if (rc == -EAGAIN && so->so_blocked) {
-		file_wait(&so->so_file, POLLIN);
-		rc = so_get(lfd, &so);
+	rc = so_accept(&so, lso, addr, addrlen, flags);
+	if (rc == -EAGAIN && lso->so_blocked) {
+		file_wait(&lso->so_file, POLLIN);
+		rc = so_get(lfd, &lso);
 		if (rc == 0) {
 			goto restart;
 		}

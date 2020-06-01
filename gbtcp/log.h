@@ -21,7 +21,7 @@ struct log_scope {
 #else /* LOG_DISABLED */
 #define LOGF(level, err, fmt, ...) \
 do { \
-	if (log_is_enabled(&curmod->log_scope, level, 0)) { \
+	if (log_is_enabled((struct log_scope *)curmod, level, 0)) { \
 		log_buf_init(); \
 		log_printf(level, __func__, err, fmt, ##__VA_ARGS__); \
 	} \
@@ -67,7 +67,7 @@ void log_init_early();
 
 int log_mod_init(void **);
 int log_mod_attach(void *);
-void log_mod_deinit(void *);
+void log_mod_deinit();
 void log_mod_detach();
 
 void log_scope_init_early(struct log_scope *, const char *);

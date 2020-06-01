@@ -22,12 +22,11 @@ int
 fd_event_mod_init(void **pp)
 {
 	int rc;
-	struct fd_event_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (!rc) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "fd_event");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "fd_event");
 	}
 	return rc;
 }
@@ -35,16 +34,7 @@ fd_event_mod_init(void **pp)
 int
 fd_event_mod_attach(void *raw_mod)
 {
-	int i;
-	struct fd_event *e;
-
 	curmod = raw_mod;
-	fd_event_nused = 0;
-	memset(fd_event_buf, 0, sizeof(fd_event_buf));
-	for (i = 0; i < ARRAY_SIZE(fd_event_buf); ++i) {
-		e = fd_event_buf + i;
-		e->fde_fd = -1;
-	}
 	return 0;
 }
 
@@ -61,23 +51,28 @@ fd_event_mod_deinit(void *raw_mod)
 void
 fd_event_mod_detach()
 {
+	fd_event_nused = 0;
+	memset(fd_event_buf, 0, sizeof(fd_event_buf));
 	curmod = NULL;
 }
 
-void
-check_fd_events()
+static void
+wait_for_fd_events2(int force, uint64_t to)
 {
 	int throttled;
 	uint64_t elapsed;
 	struct fd_poll fd_poll;
 	struct pollfd pfds[FD_EVENTS_MAX];
 
-	elapsed = nanoseconds - fd_event_last_check_time;
-	if (elapsed < fd_event_timeout) {
-		return;
+	if (!force) {
+		elapsed = nanoseconds - fd_event_last_check_time;
+		if (elapsed < fd_event_timeout) {
+			return;
+		}
 	}
 	throttled = -1;
 	fd_poll_init(&fd_poll);
+	fd_poll.fdes_to = to;
 	do {
 		fd_poll_set(&fd_poll, pfds);
 		sys_ppoll(pfds, fd_poll.fdes_nr_used, &fd_poll.fdes_ts, NULL);
@@ -95,8 +90,17 @@ check_fd_events()
 }
 
 void
+check_fd_events()
+{
+	wait_for_fd_events2(0, 0);
+}
+
+void
 wait_for_fd_events()
 {
+#if 1
+	wait_for_fd_events2(1, TIMER_TIMO);
+#else
 	struct fd_poll fd_poll;
 	struct pollfd pfds[FD_EVENTS_MAX];
 
@@ -107,6 +111,7 @@ wait_for_fd_events()
 	sys_ppoll(pfds, fd_poll.fdes_nr_used, &fd_poll.fdes_ts, NULL);
 	SERVICE_LOCK;
 	fd_poll_call(&fd_poll, pfds);
+#endif
 }
 
 int
@@ -116,7 +121,6 @@ fd_event_add(struct fd_event **pe, int fd, const char *name,
 	int i, id;
 	struct fd_event *e;
 
-	ASSERT(fd != -1);
 	ASSERT(fn != NULL);
 	if (fd_event_nused == ARRAY_SIZE(fd_event_used)) {
 		ERR(ENOMEM, "failed; fd=%d, event='%s', limit=%zu",
@@ -126,17 +130,15 @@ fd_event_add(struct fd_event **pe, int fd, const char *name,
 	id = -1;
 	for (i = 0; i < ARRAY_SIZE(fd_event_buf); ++i) {
 		e = fd_event_buf + i;
-		if (e->fde_fd != -1) {
+		if (e->fde_ref_cnt) {
 			if (e->fde_fd == fd) {
 				ERR(EEXIST, "failed; fd=%d, event='%s'",
-				    fd, name);
+			    	    fd, name);
 				return -EEXIST;
 			}
 		} else {
-			if (e->fde_ref_cnt == 0) {
-				if (id == -1) {
-					id = i;
-				}
+			if (id == -1) {
+				id = i;
 			}
 		}
 	}
@@ -184,10 +186,10 @@ fd_event_del(struct fd_event *e)
 	if (e != NULL) {
 		INFO(0, "hit; fd=%d", e->fde_fd);
 		ASSERT(fd_event_nused);
-		ASSERT(e->fde_fd != -1);
+		ASSERT(e->fde_fn != NULL);
 		ASSERT(e->fde_id < fd_event_nused);
 		ASSERT(e == fd_event_used[e->fde_id]);
-		e->fde_fd = -1;
+		e->fde_fn = NULL;
 		fd_event_unref(e);
 	}
 }
@@ -198,7 +200,7 @@ fd_event_set(struct fd_event *e, short events)
 	ASSERT(events);
 	ASSERT((events & ~(POLLIN|POLLOUT)) == 0);
 	ASSERT(e != NULL);
-	ASSERT(e->fde_fd != -1);
+	ASSERT(e->fde_ref_cnt);
 	ASSERT(e->fde_id < fd_event_nused);
 	ASSERT(e == fd_event_used[e->fde_id]);
 	e->fde_events |= events;
@@ -245,7 +247,7 @@ fd_poll_set(struct fd_poll *p, struct pollfd *pfds)
 	sock_tx_flush();
 	for (i = 0; i < fd_event_nused; ++i) {
 		e = fd_event_used[i];
-		if (e->fde_fd == -1 || e->fde_events == 0) {
+		if (e->fde_fn == NULL || e->fde_events == 0) {
 			continue;
 		}
 		e->fde_ref_cnt++;
@@ -296,7 +298,7 @@ fd_poll_call(struct fd_poll *p, struct pollfd *pfds)
 		e = p->fdes_used[i];
 		if (pfds[i].revents) {
 			n++;
-			if (e->fde_fd != -1) {
+			if (e->fde_fn != NULL) {
 				ASSERT(pfds[i].fd == e->fde_fd);
 				rc = fd_event_call(e, pfds[i].revents);
 				if (rc) {

@@ -28,7 +28,7 @@ struct file {
 		uint32_t fl_flags;
 		struct {
 			unsigned int fl_type : 3;
-			unsigned int fl_opened : 1;
+			unsigned int fl_referenced : 1;
 			unsigned int fl_blocked : 1;
 		};
 	};
@@ -46,10 +46,12 @@ struct file {
 	     ((tmp_fd = file_get_fd(fp) + 1), 1); \
 	     GT_UNIQV(fd) = tmp_fd)
 
+extern int file_sizeof;
+
 int file_mod_init(void **);
 int file_mod_attach(void *);
 int file_mod_service_init(struct service *);
-void file_mod_deinit(void *);
+void file_mod_deinit();
 void file_mod_detach();
 void file_mod_service_deinit(struct service *);
 

@@ -33,42 +33,41 @@ int
 file_mod_init(void **pp)
 {
 	int rc;
-	struct file_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (rc == 0) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "file");
-		mod->file_first_fd = FD_SETSIZE / 2;
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "file");
+		curmod->file_first_fd = FD_SETSIZE / 2;
 		sysctl_add_int(GT_SYSCTL_FILE_FIRST_FD, SYSCTL_LD,
-			       &mod->file_first_fd, 3, 1024 * 1024);
+			       &curmod->file_first_fd, 3, 1024 * 1024);
 	}
 	return rc;
 }
 
 int
-file_mod_attach(void *raw_mod)
+file_mod_attach(void *p)
 {
-	curmod = raw_mod;
+	curmod = p;
 	return 0;
 }
 
 int
 file_mod_service_init(struct service *s)
 {
-	mbuf_pool_init(&s->p_file_pool, s->p_id, sizeof(struct sock));
+	mbuf_pool_init(&s->p_file_pool, s->p_id, sizeof(struct sock) + sizeof(struct file_aio));
 	return 0;
 }
 
 void
-file_mod_deinit(void *raw_mod)
+file_mod_deinit()
 {
-	struct file_mod *mod;
-
-	mod = raw_mod;
-	sysctl_del(GT_SYSCTL_FILE_FIRST_FD);
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	if (curmod != NULL) {
+		sysctl_del(GT_SYSCTL_FILE_FIRST_FD);
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void
@@ -143,7 +142,7 @@ file_get(int fd, struct file **fpp)
 	if (fp == NULL) {
 		return -EBADF;
 	}
-	if (fp->fl_opened == 0) {
+	if (fp->fl_referenced == 0) {
 		return -EBADF;
 	}
 	*fpp = fp;
@@ -160,7 +159,7 @@ file_free(struct file *fp)
 void
 file_close(struct file *fp)
 {
-	fp->fl_opened = 0;
+	fp->fl_referenced = 0;
 	file_wakeup(fp, POLLNVAL);
 	ASSERT(dlist_is_empty(&fp->fl_aioq));
 	switch (fp->fl_type) {

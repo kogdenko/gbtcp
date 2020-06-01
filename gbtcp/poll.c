@@ -28,12 +28,11 @@ int
 poll_mod_init(void **pp)
 {
 	int rc;
-	struct poll_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (rc == 0) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "poll");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "poll");
 	}
 	return rc;
 }
@@ -46,13 +45,13 @@ poll_mod_attach(void *raw_mod)
 }
 
 void
-poll_mod_deinit(void *raw_mod)
+poll_mod_deinit()
 {
-	struct poll_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	if (curmod != NULL) {
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void

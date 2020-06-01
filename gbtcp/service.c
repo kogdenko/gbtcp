@@ -26,31 +26,30 @@ int
 service_mod_init(void **pp)
 {
 	int rc;
-	struct service_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (rc == 0) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "service");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "service");
 	}
 	return rc;
 }
 
 int
-service_mod_attach(void *raw_mod)
+service_mod_attach(void *p)
 {
-	curmod = raw_mod;
+	curmod = p;
 	return 0;
 }
 
 void
-service_mod_deinit(void *raw_mod)
+service_mod_deinit()
 {
-	struct service_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	if (curmod != NULL) {
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void
@@ -150,7 +149,7 @@ service_start_controller(const char *p_comm)
 }
 
 static int
-service_in(struct inet_parser *p)
+service_in(struct in_context *p)
 {
 	int rc, ipproto;
 
@@ -159,19 +158,17 @@ service_in(struct inet_parser *p)
 	if (rc != IN_OK) {
 		return rc;
 	}
-	ipproto = p->inp_ipproto;
+	ipproto = p->in_ipproto;
 	if (ipproto == IPPROTO_UDP || ipproto == IPPROTO_TCP) {
-		rc = so_in(ipproto,
-		           p->inp_ih->ih_daddr, p->inp_ih->ih_saddr,
-		           p->inp_uh->uh_dport, p->inp_uh->uh_sport,
-		           &p->inp_tcb, p->inp_payload);
-	} else if (ipproto == IPPROTO_ICMP && p->inp_errnum &&
-	           (p->inp_emb_ipproto == IPPROTO_UDP ||
-	            p->inp_emb_ipproto == IPPROTO_TCP)) {
-		rc = so_in_err(p->inp_emb_ipproto,
-		               p->inp_ih->ih_daddr, p->inp_ih->ih_saddr,
-		               p->inp_uh->uh_dport, p->inp_uh->uh_sport,
-		               p->inp_errnum);
+		rc = so_in(ipproto, p,
+		           p->in_ih->ih_daddr, p->in_ih->ih_saddr,
+		           p->in_uh->uh_dport, p->in_uh->uh_sport);
+	} else if (ipproto == IPPROTO_ICMP && p->in_errnum &&
+	           (p->in_emb_ipproto == IPPROTO_UDP ||
+	            p->in_emb_ipproto == IPPROTO_TCP)) {
+		rc = so_in_err(p->in_emb_ipproto, p,
+		               p->in_ih->ih_daddr, p->in_ih->ih_saddr,
+		               p->in_uh->uh_dport, p->in_uh->uh_sport);
 	}
 	return rc;
 }
@@ -182,16 +179,16 @@ service_rssq_rxtx_one(struct route_if *ifp, void *data, int len)
 	int rc;
 	struct eth_hdr *eh;
 	struct dev_pkt pkt;
-	struct inet_parser p;
+	struct in_context p;
 	struct service_msg *msg;
 
-	inet_parser_init(&p, data, len);
-	p.inp_ifp = ifp;
-	p.inp_tcps = &current->p_tcps;
-	p.inp_udps = &current->p_udps;
-	p.inp_ips = &current->p_ips;
-	p.inp_icmps = &current->p_icmps;
-	p.inp_arps = &current->p_arps;
+	in_context_init(&p, data, len);
+	p.in_ifp = ifp;
+	p.in_tcps = &current->p_tcps;
+	p.in_udps = &current->p_udps;
+	p.in_ips = &current->p_ips;
+	p.in_icmps = &current->p_icmps;
+	p.in_arps = &current->p_arps;
 	rc = service_in(&p);
 	if (rc >= 0) {
 		dbg("redir");
@@ -269,7 +266,7 @@ service_detach(int forked)
 		current = NULL;
 	}
 	shm_detach();
-	mod_foreach_mod_detach();
+	foreach_mod_detach();
 }
 
 int
@@ -312,7 +309,7 @@ service_attach()
 	gt_init();
 	ERR(0, "hit;");
 	pid = getpid();
-	rc = proc_get_comm(p_comm, pid);
+	rc = read_comm(p_comm, pid);
 	if (rc) {
 		goto err;
 	}
@@ -361,7 +358,7 @@ service_attach()
 		rc = -ENOENT;
 		goto err;
 	}
-	mod_foreach_mod_attach(ih);
+	foreach_mod_attach(ih);
 	snprintf(pid_filename, sizeof(pid_filename), "%d.pid", current->p_id);
 	rc = pid_file_open(pid_filename);
 	if (rc < 0) {

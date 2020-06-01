@@ -12,7 +12,7 @@ typedef struct kevent epoll_event_t;
 
 int epoll_mod_init(void **);
 int epoll_mod_attach(void *);
-void epoll_mod_deinit(void *);
+void epoll_mod_deinit();
 void epoll_mod_detach();
 
 int u_epoll_create(int);

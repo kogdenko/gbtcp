@@ -71,12 +71,11 @@ int
 timer_mod_init(void **pp)
 {
 	int rc;
-	struct timer_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (!rc) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "timer");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "timer");
 	}
 	return rc;
 }

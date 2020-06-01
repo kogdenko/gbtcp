@@ -67,12 +67,11 @@ int
 lptree_mod_init(void **pp)
 {
 	int rc;
-	struct lptree_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (!rc) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "lptree");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "lptree");
 	}
 	return rc;
 }

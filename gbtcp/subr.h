@@ -4,7 +4,7 @@
 
 #ifdef __linux__
 #define _GNU_SOURCE
-#endif /* __linux__ */
+#endif // __linux__
 #include <stdint.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -52,7 +52,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
-#else /* __linux__ */
+#else // __linux__
 #include <net/if_dl.h>
 #include <net/route.h>
 #include <execinfo.h>
@@ -67,7 +67,7 @@
 #include <pthread_np.h>
 #include <netinet/in_pcb.h>
 #include <netinet/tcp_var.h>
-#endif /* __linux__ */
+#endif // __linux__
 
 #define NETMAP_WITH_LIBS
 #include <net/netmap_user.h>
@@ -77,10 +77,11 @@
 #ifdef __linux__
 #define GT_POLLRDHUP POLLRDHUP
 #define GT_TCP_CORK TCP_CORK
-#else /* __linux__ */
+#else // __linux__
 #define GT_POLLRDHUP 0
 #define GT_TCP_CORK TCP_NOPUSH
-#endif /* __linux__ */
+typedef cpuset_t cpu_set_t;
+#endif // __linux__
 
 #define CACHE_LINE_SIZE 64
 #define PAGE_SHIFT 12
@@ -143,28 +144,28 @@ struct profiler {
 
 #ifndef field_off
 #define field_off(type, field) ((intptr_t)&((type *)0)->field)
-#endif /* field_off */
+#endif // field_off
 
 #ifndef container_of
 #define container_of(ptr, type, field) \
 	((type *)((intptr_t)(ptr) - field_off(type, field)))
-#endif /* container_of */
+#endif // container_of
 
 #ifndef UNUSED
 #define UNUSED(x) (void)(x)
-#endif /* UNUSED */
+#endif // UNUSED
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif /* MIN */
+#endif // MIN
 
 #ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-#endif /* MAX */
+#endif // MAX
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
-#endif /* ARRAY_SIZE */
+#endif // ARRAY_SIZE
 
 #define STRSZ(s) (s), (sizeof(s) - 1)
 
@@ -197,7 +198,6 @@ struct profiler {
 #define ntoh32(x) ((uint32_t)BSWAP32(x))
 #endif // __BIG_ENDIAN
 
-
 #define UNIQV_CAT3(x, res) res
 #define UNIQV_CAT2(x, y, z) UNIQV_CAT3(~, x##y##z)
 #define UNIQV_CAT(x, y, z) UNIQV_CAT2(x, y, z)
@@ -225,19 +225,15 @@ do { \
 	} \
 } while (0)
 
-#if 0
-#define GT_PRF_INIT(x) 
-#define GT_PRF_ENTER(x)
-#define GT_PRF_LEAVE(x)
-#else
-#define GT_PRF_INIT(x) \
+#define PRF_INIT(x) \
 	static struct profiler prf_##x = { .prf_name = #x };
-#define GT_PRF_ENTER(x) profiler_enter(&prf_##x)
-#define GT_PRF_LEAVE(x) profiler_leave(&prf_##x)
-#endif
+#define PRF_ENTER(x) profiler_enter(&prf_##x)
+#define PRF_LEAVE(x) profiler_leave(&prf_##x)
 
 #define dbg gt_dbg
 #define dbg0 dbg("D")
+#define D_TRUE 1
+#define D_FALSE 0
 
 #define barrier() __asm__ __volatile__("": : :"memory")
 #define mb _mm_mfence
@@ -280,7 +276,7 @@ extern __thread int api_locked;
 
 int subr_mod_init(void **);
 int subr_mod_attach(void *);
-void subr_mod_deinit(void *);
+void subr_mod_deinit();
 void subr_mod_detach();
 
 int eth_addr_aton(struct eth_addr *, const char *);
@@ -314,8 +310,6 @@ uint32_t custom_hash(const void *data, size_t cnt, uint32_t val);
 uint32_t toeplitz_hash(const u_char *, int, const u_char *);
 uint32_t rss_hash4(be32_t, be32_t, be16_t, be16_t, u_char *);
 
-int proc_get_comm(char *, int);
-
 uint32_t upper_pow2_32(uint32_t x);
 uint64_t upper_pow2_64(uint64_t x);
 uint32_t lower_pow2_32(uint32_t x);
@@ -333,6 +327,7 @@ ssize_t send_full_buf(int, const void *, size_t, int);
 int read_rss_key(const char *, u_char *);
 
 long gettid();
+int read_comm(char *, int);
 
 uint64_t rdtsc();
 
@@ -355,8 +350,8 @@ const char *sigprocmask_how_str(int how);
 
 #ifdef __linux__
 const char *epoll_op_str(int op);
-#else /* __linux__ */
-#endif /* __linux__ */
+#else // __linux__
+#endif // __linux__
 
 int iovec_len(const struct iovec *, int);
 void print_backtrace(int);

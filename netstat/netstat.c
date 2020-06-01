@@ -439,7 +439,7 @@ pr_socket(void *udata, const char *buf)
 void
 pr_sockets(struct proto *p)
 {
-	sysctl_list_foreach(GT_SYSCTL_SOCKET_HTABLE, p, pr_socket);
+	sysctl_list_foreach(GT_SYSCTL_SOCKET_HTABLE".list", p, pr_socket);
 }
 
 struct stat_entry {

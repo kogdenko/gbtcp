@@ -343,31 +343,30 @@ int
 sockbuf_mod_init(void **pp)
 {
 	int rc;
-	struct sockbuf_mod *mod;
 
-	rc = shm_malloc(pp, sizeof(*mod));
+	rc = shm_malloc(pp, sizeof(*curmod));
 	if (rc == 0) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "sockbuf");
+		curmod = *pp;
+		log_scope_init(&curmod->log_scope, "sockbuf");
 	}
 	return rc;
 }
 
 int
-sockbuf_mod_attach(void *raw_mod)
+sockbuf_mod_attach(void *p)
 {
-	curmod = raw_mod;
+	curmod = p;
 	return 0;
 }
 
 void
-sockbuf_mod_deinit(void *raw_mod)
+sockbuf_mod_deinit()
 {
-	struct sockbuf_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	if (curmod != NULL) {
+		log_scope_deinit(&curmod->log_scope);
+		shm_free(curmod);
+		curmod = NULL;
+	}
 }
 
 void

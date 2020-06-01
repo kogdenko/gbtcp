@@ -26,6 +26,7 @@ struct sock {
 	struct file so_file;
 #define so_list so_file.fl_mbuf.mb_list
 #define so_blocked so_file.fl_blocked
+#define so_referenced so_file.fl_referenced
 #define so_service_id so_file.fl_mbuf.mb_service_id
 	union {
 		uint64_t so_flags;
@@ -33,6 +34,7 @@ struct sock {
 			u_int so_err : 4;
 			u_int so_ipproto : 2;
 			u_int so_binded : 1;
+			u_int so_processing : 1;
 			// TCP
 			u_int so_is_listen : 1;
 			u_int so_passive_open : 1;
@@ -44,9 +46,9 @@ struct sock {
 			u_int so_state : 4;
 			u_int so_wprobe : 1;
 			u_int so_retx : 1;
-			u_int so_retxed : 1;
+			u_int so_tx_timo : 1;
 			u_int so_swndup : 1;
-			u_int so_ntx_tries : 3;
+			u_int so_ntries : 3;
 			u_int so_dont_frag : 1;
 			u_int so_wshut : 1;
 			u_int so_rshut : 1;
@@ -102,7 +104,7 @@ struct sock {
 int tcp_mod_init(void **);
 int tcp_mod_attach(void *);
 int tcp_mod_service_init(struct service *);
-void tcp_mod_deinit(void *);
+void tcp_mod_deinit();
 void tcp_mod_detach();
 void tcp_mod_service_deinit(struct service *);
 
@@ -117,12 +119,12 @@ void so_get_socb(struct sock *so, struct socb *);
 
 int sock_nread(struct file *fp);
 
-int so_in(int, be32_t, be32_t, be16_t, be16_t, struct tcpcb *, void *);
-int so_in_err(int, be32_t, be32_t, be16_t, be16_t, int);
+int so_in(int, struct in_context *, be32_t, be32_t, be16_t, be16_t);
+int so_in_err(int, struct in_context *, be32_t, be32_t, be16_t, be16_t);
 
 void sock_tx_flush();
 
-int so_socket(int domain, int type, int flags, int proto);
+int so_socket(struct sock **, int, int, int, int);
 
 int so_connect(struct sock *so, const struct sockaddr_in *f_addr_in,
 	struct sockaddr_in *l_addr_in);
@@ -131,7 +133,8 @@ int so_bind(struct sock *, const struct sockaddr_in *);
 
 int so_listen(struct sock *, int);
 
-int so_accept(struct sock *, struct sockaddr *, socklen_t *, int);
+int so_accept(struct sock **, struct sock *,
+	struct sockaddr *, socklen_t *, int);
 
 void so_close(struct sock *);
 
