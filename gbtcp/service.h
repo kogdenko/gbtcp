@@ -24,7 +24,7 @@
 } while (0)
 
 #define SERVICE_UNLOCK \
-	spinlock_unlock(&current->p_lock)
+	service_unlock()
 
 #define SERVICE_FOREACH(s) \
 	for ((s) = ih->ih_services; \
@@ -37,6 +37,7 @@ struct service {
 	u_char p_dirty;
 	u_char p_rss_nq;
 	int p_fd;
+	u_int p_epoch;
 	uint32_t p_kpps;
 	uint64_t p_pkts;
 	uint64_t p_pkts_time;
@@ -72,6 +73,7 @@ int service_attach();
 void service_update();
 void service_inc_pkts();
 int service_can_connect(struct route_if *, be32_t, be32_t, be16_t, be16_t);
+void service_unlock();
 
 int service_fork();
 

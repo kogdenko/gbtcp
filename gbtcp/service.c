@@ -19,6 +19,10 @@ static struct spinlock service_attach_lock;
 static int service_sysctl_fd = -1;
 static int service_pid_fd = -1;
 static struct dev service_vale;
+static int service_rcu_max;
+static struct dlist service_rcu_active_head;
+static struct dlist service_rcu_shadow_head;
+static u_int service_rcu[GT_SERVICES_MAX];
 
 struct service *current;
 
@@ -280,6 +284,10 @@ service_init(const char *p_comm)
 	current->p_pkts_time = nanoseconds;
 	strzcpy(current->p_comm, p_comm, sizeof(current->p_comm));
 	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_id);
+	dlist_init(&service_rcu_active_head);
+	dlist_init(&service_rcu_shadow_head);
+	service_rcu_max = 0;
+	memset(service_rcu, 0, sizeof(service_rcu));
 	rc = dev_init(&service_vale, buf, service_vale_rxtx);
 	return rc;
 }
@@ -418,6 +426,55 @@ service_update()
 		}
 	}
 	current->p_dirty = 0;
+}
+
+static void
+service_rcu_free()
+{
+	int i;
+	struct service *s;
+
+	for (i = 0; i < GT_SERVICES_MAX; ++i) {
+		s = ih->ih_services + i;
+		if (s != current) {
+			__atomic_load(&s->p_epoch, service_rcu + i, __ATOMIC_SEQ_CST);
+			if (service_rcu[i]) {
+				service_rcu_max = i + 1;
+			}
+		}
+	}
+	printf_rl(NANOSECONDS_SECOND, "rcu free %d\n", service_rcu_max);
+}
+
+void
+service_unlock()
+{
+	u_int i, epoch, rcu_max;
+	struct service *s;
+
+	epoch = current->p_epoch;
+	epoch++;
+	if (epoch == 0) {
+		epoch = 1;
+	}
+	__atomic_store(&current->p_epoch, &epoch, __ATOMIC_SEQ_CST);
+	rcu_max = 0;
+	for (i = 0; i < service_rcu_max; ++i) {
+		s = ih->ih_services + i;
+		if (service_rcu[i]) {
+			__atomic_load(&s->p_epoch, &epoch, __ATOMIC_SEQ_CST);
+			if (service_rcu[i] != epoch) {
+				service_rcu[i] = 0;
+			} else {
+				rcu_max = i + 1;
+			}
+		}
+	}
+	service_rcu_max = rcu_max;
+	if (service_rcu_max == 0) {
+		service_rcu_free();
+	}
+	spinlock_unlock(&current->p_lock);
 }
 
 void
