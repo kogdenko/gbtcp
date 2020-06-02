@@ -333,6 +333,8 @@ uint64_t rdtsc();
 
 uint64_t sleep_compute_hz();
 
+int set_affinity(int);
+
 uint64_t rand64();
 uint32_t rand32();
 
@@ -353,7 +355,7 @@ const char *epoll_op_str(int op);
 #else // __linux__
 #endif // __linux__
 
-int iovec_len(const struct iovec *, int);
+int iovec_accum_len(const struct iovec *, int);
 void print_backtrace(int);
 
 void set_hz(uint64_t);

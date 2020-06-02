@@ -207,7 +207,16 @@ struct in_context {
 	uint8_t in_emb_ipproto;
 	int in_th_len;
 	u_char in_events;
-	struct tcpcb in_tcb;
+//	struct tcpcb in_tcb;
+
+	uint16_t in_tcp_win;
+	uint16_t in_len;
+	uint8_t in_tcp_flags;
+	uint32_t in_tcp_seq;
+	uint32_t in_tcp_ack;
+	struct tcp_opts in_tcp_opts;
+
+
 	union {
 		struct udp_hdr *in_uh;
 		struct tcp_hdr *in_th;

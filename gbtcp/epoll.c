@@ -427,14 +427,15 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 	pfds[0].fd = ep->ep_fd;
 	pfds[0].events = POLLIN;
 	fd_poll_init(&fd_poll);
+	fd_poll.fdp_to = to;
 	do {
 		fd_poll_set(&fd_poll, pfds + 1);
 		SERVICE_UNLOCK;
 		if (n) {
-			fd_poll.fdes_ts.tv_nsec = 0;
+			fd_poll.fdp_to_ts.tv_nsec = 0;
 		}
-		rc = sys_ppoll(pfds, fd_poll.fdes_nr_used + 1,
-		               &fd_poll.fdes_ts, sigmask);
+		rc = sys_ppoll(pfds, fd_poll.fdp_nused + 1,
+		               &fd_poll.fdp_to_ts, sigmask);
 		SERVICE_LOCK;
 		fd_poll_call(&fd_poll, pfds + 1);
 		if (rc < 0) {
@@ -455,7 +456,7 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 			}
 		}
 		n += epoll_read_triggered(ep, buf + n, cnt - n);
-	} while (n == 0 && fd_poll.fdes_to > 0);
+	} while (n == 0 && fd_poll.fdp_to > 0);
 	return n;
 }
 

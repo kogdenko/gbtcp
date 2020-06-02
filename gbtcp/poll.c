@@ -77,7 +77,7 @@ poll_trigger(struct file_aio *aio, int fd, short revents)
 }
 
 static int
-poll_init(struct poll *poll, struct pollfd *pfds, int npfds, uint64_t to)
+poll_init(struct poll *poll, struct pollfd *pfds, int npfds)
 {
 	int i, n, rc, fd;
 	struct pollfd *pfd;
@@ -149,17 +149,18 @@ u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 	if (npfds > FD_SETSIZE) {
 		return -EINVAL;
 	}
-	sys = poll_init(&poll, pfds, npfds, to);
+	sys = poll_init(&poll, pfds, npfds);
 	fd_poll_init(&fd_poll);
+	fd_poll.fdp_to = to;
 	do {
 		fd_poll_set(&fd_poll, poll.p_pfds + sys);
 		SERVICE_UNLOCK;
 		if (poll.p_ntriggered) {
-			fd_poll.fdes_ts.tv_nsec = 0;
+			fd_poll.fdp_to_ts.tv_nsec = 0;
 		}
 		rc = sys_ppoll(poll.p_pfds,
-		               sys + fd_poll.fdes_nr_used,
-		               &fd_poll.fdes_ts, sigmask);
+		               sys + fd_poll.fdp_nused,
+		               &fd_poll.fdp_to_ts, sigmask);
 		SERVICE_LOCK;
 		m = fd_poll_call(&fd_poll, poll.p_pfds + sys);
 		if (rc < 0) {
@@ -168,7 +169,7 @@ u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 		n = rc - m;
 		a = n;
 		n += poll.p_ntriggered;
-	} while (n == 0 && fd_poll.fdes_to > 0);
+	} while (n == 0 && fd_poll.fdp_to > 0);
 	b = poll_read_events(&poll, pfds, npfds);
 	ASSERT3(0, a == b, "%d, %d", a, b);
 	return n;

@@ -5,7 +5,7 @@ struct api_mod {
 	struct log_scope log_scope;
 };
 
-__thread int api_locked;
+__thread int api_passthru;
 static struct api_mod *curmod;
 
 
@@ -27,16 +27,14 @@ api_lock()
 		// Called from signal handler
 		API_RETURN(-EBADF);
 	}
-	if (api_locked) {
-		// Called inside api function.
-		// netmap call ioctl inside nm_open.
+	if (api_passthru) {
 		API_RETURN(-EBADF);
 	}
-	api_locked++;
+	api_passthru = 1;
 	if (current == NULL) {
 		rc = service_attach();
 		if (rc) {
-			api_locked--;
+			api_passthru = 0;
 			API_RETURN(-ECANCELED);
 		}
 	}
@@ -47,7 +45,7 @@ api_lock()
 static inline void
 api_unlock()
 {
-	api_locked--;
+	api_passthru = 0;
 	if (current != NULL) {
 		check_fd_events();
 		SERVICE_UNLOCK;
@@ -463,7 +461,7 @@ api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
 	if (rc) {
 		return rc;
 	}
-	DBG(0, "hit; fd=%d, count=%d", fd, iovec_len(iov, iovcnt));
+	DBG(0, "hit; fd=%d, count=%d", fd, iovec_accum_len(iov, iovcnt));
 restart:
 	rc = so_sendto(so, iov, iovcnt, flags, faddr, fport);
 	if (rc == -EAGAIN && so->so_blocked) {

@@ -28,10 +28,10 @@ struct tcp_opt_info tcp_opt_info[TCP_OPT_MAX] = {
 
 static struct inet_mod *curmod;
 
-#define SHIFT(p, size) \
+#define SHIFT(in, size) \
 	do { \
-		p->in_cur += size; \
-		p->in_rem -= size; \
+		in->in_cur += size; \
+		in->in_rem -= size; \
 	} while (0)
 
 static int
@@ -169,15 +169,15 @@ inet_mod_detach()
 }
 
 void
-in_context_init(struct in_context *p, void *data, int len)
+in_context_init(struct in_context *in, void *data, int len)
 {
-	p->in_ifp = NULL;
-	p->in_cur = data;
-	p->in_rem = len;
-	p->in_errnum = 0;
-	p->in_ipproto = 0;
-	p->in_emb_ipproto = 0;
-	p->in_cksum_offload = curmod->inet_cksum_offload_rx;
+	in->in_ifp = NULL;
+	in->in_cur = data;
+	in->in_rem = len;
+	in->in_errnum = 0;
+	in->in_ipproto = 0;
+	in->in_emb_ipproto = 0;
+	in->in_cksum_offload = curmod->inet_cksum_offload_rx;
 }
 
 static uint8_t *
@@ -396,67 +396,67 @@ tcp_opt_len(int kind)
 }
 
 static int
-arp_in(struct in_context *p)
+arp_in(struct in_context *in)
 {
 	int i, is_req;
 	be32_t sip, tip;
 	struct route_if_addr *ifa;
 	struct arp_advert_msg msg;
 
-	p->in_arps->arps_received++;
-	if (p->in_rem < sizeof(struct arp_hdr)) {
-		p->in_arps->arps_toosmall++;
+	in->in_arps->arps_received++;
+	if (in->in_rem < sizeof(struct arp_hdr)) {
+		in->in_arps->arps_toosmall++;
 		return IN_DROP;
 	}
-	p->in_ah = (struct arp_hdr *)p->in_cur;
-	SHIFT(p, sizeof(struct arp_hdr));
-	if (p->in_ah->ah_hrd != ARP_HRD_ETH_BE) {
-		p->in_arps->arps_badhrd++;
+	in->in_ah = (struct arp_hdr *)in->in_cur;
+	SHIFT(in, sizeof(struct arp_hdr));
+	if (in->in_ah->ah_hrd != ARP_HRD_ETH_BE) {
+		in->in_arps->arps_badhrd++;
 		return IN_DROP;
 	}
-	if (p->in_ah->ah_pro != ETH_TYPE_IP4_BE) {
-		p->in_arps->arps_badpro++;
+	if (in->in_ah->ah_pro != ETH_TYPE_IP4_BE) {
+		in->in_arps->arps_badpro++;
 		return IN_DROP;
 	}
-	tip = p->in_ah->ah_data.aip_tip;
-	sip = p->in_ah->ah_data.aip_sip;
+	tip = in->in_ah->ah_data.aip_tip;
+	sip = in->in_ah->ah_data.aip_sip;
 	ifa = route_ifaddr_get4(tip);
 	if (ifa == NULL) {
-		p->in_arps->arps_bypassed++;
+		in->in_arps->arps_bypassed++;
 		return IN_BYPASS;
 	}
-	ASSERT(p->in_ifp != NULL);
-	for (i = 0; i < p->in_ifp->rif_naddrs; ++i) {
-		if (ifa == p->in_ifp->rif_addrs[i]) {
+	ASSERT(in->in_ifp != NULL);
+	for (i = 0; i < in->in_ifp->rif_naddrs; ++i) {
+		if (ifa == in->in_ifp->rif_addrs[i]) {
 			break;		
 		}
 	}
-	if (i == p->in_ifp->rif_naddrs) {
-		p->in_arps->arps_filtered++;
+	if (i == in->in_ifp->rif_naddrs) {
+		in->in_arps->arps_filtered++;
 		return IN_DROP;
 	}
-	if (p->in_ah->ah_hlen != sizeof(struct eth_addr)) {
-		p->in_arps->arps_badhlen++;
+	if (in->in_ah->ah_hlen != sizeof(struct eth_addr)) {
+		in->in_arps->arps_badhlen++;
 		return IN_DROP;
 	}
-	if (p->in_ah->ah_plen != sizeof(be32_t)) {
-		p->in_arps->arps_badplen++;
+	if (in->in_ah->ah_plen != sizeof(be32_t)) {
+		in->in_arps->arps_badplen++;
 		return IN_DROP;
 	}
 	if (ipaddr4_is_loopback(tip)) {
-		p->in_arps->arps_badaddr++;
+		in->in_arps->arps_badaddr++;
 		return IN_DROP;
 	}
 	if (ipaddr4_is_bcast(tip)) {
-		p->in_arps->arps_badaddr++;
+		in->in_arps->arps_badaddr++;
 		return IN_DROP;
 	}
 	if (ipaddr4_is_loopback(sip)) {
-		p->in_arps->arps_badaddr++;
+		in->in_arps->arps_badaddr++;
 		return IN_DROP;
 	}
 	if (ipaddr4_is_bcast(sip)) {
-		p->in_arps->arps_badaddr++;
+		in->in_arps->arps_badaddr++;
 		return IN_DROP;
 	}
 	// IP4 duplicate address detection
@@ -464,26 +464,26 @@ arp_in(struct in_context *p)
 		// TODO: reply
 		return IN_OK;
 	}
-	switch (p->in_ah->ah_op) {
+	switch (in->in_ah->ah_op) {
 	case ARP_OP_REQUEST_BE:
-		p->in_arps->arps_rxrequests++;
+		in->in_arps->arps_rxrequests++;
 		is_req = 1;
-		arp_reply(p->in_ifp, p->in_ah);
+		arp_reply(in->in_ifp, in->in_ah);
 		break;
 	case ARP_OP_REPLY_BE:
-		p->in_arps->arps_rxreplies++;
+		in->in_arps->arps_rxreplies++;
 		is_req = 0;
 		break;
 	default:
-		p->in_arps->arps_badop++;
+		in->in_arps->arps_badop++;
 		return IN_DROP;
 	}
 	msg.arpam_af = AF_INET;
 	msg.arpam_advert = !is_req;
 	msg.arpam_solicited = !is_req;
 	msg.arpam_override = !is_req;
-	msg.arpam_next_hop = p->in_ah->ah_data.aip_sip;
-	msg.arpam_addr = p->in_ah->ah_data.aip_sha;
+	msg.arpam_next_hop = in->in_ah->ah_data.aip_sip;
+	msg.arpam_addr = in->in_ah->ah_data.aip_sha;
 	arp_update(&msg);
 	return IN_OK;
 }
@@ -554,66 +554,66 @@ tcp_opts_in(struct tcp_opts *opts, u_char *opts_buf, int opts_len)
 
 
 static int
-tcp_in(struct in_context *p)
+tcp_in(struct in_context *in)
 {
 	int rc, len, win, cksum;
 
-	if (p->in_rem < sizeof(struct tcp_hdr)) {
-		p->in_tcps->tcps_rcvshort++;
+	if (in->in_rem < sizeof(struct tcp_hdr)) {
+		in->in_tcps->tcps_rcvshort++;
 		return IN_DROP;
 	}
-	p->in_th = (struct tcp_hdr *)p->in_cur;
-	p->in_th_len = TCP_HDR_LEN(p->in_th->th_data_off);
-	if (p->in_rem < p->in_th_len) {
-		p->in_tcps->tcps_rcvshort++;
+	in->in_th = (struct tcp_hdr *)in->in_cur;
+	in->in_th_len = TCP_HDR_LEN(in->in_th->th_data_off);
+	if (in->in_rem < in->in_th_len) {
+		in->in_tcps->tcps_rcvshort++;
 		return IN_DROP;
 	}
-	SHIFT(p, p->in_th_len);
-	win = ntoh16(p->in_th->th_win_size);
-	len = p->in_ip_payload_len - p->in_th_len;
-	p->in_tcb.tcb_win = win;
-	p->in_tcb.tcb_len = len;
-	p->in_tcb.tcb_flags = p->in_th->th_flags;
-	p->in_tcb.tcb_seq = ntoh32(p->in_th->th_seq);
-	p->in_tcb.tcb_ack = ntoh32(p->in_th->th_ack);
-	p->in_payload = (u_char *)p->in_th + p->in_th_len;
-	p->in_tcb.tcb_opts.tcp_opt_flags = 0;
-	cksum = p->in_th->th_cksum;
-	p->in_th->th_cksum = 0;
-	if (p->in_cksum_offload == 0) {
-		if (cksum != ip4_udp_calc_cksum(p->in_ih)) {
-			p->in_tcps->tcps_rcvbadsum++;
+	SHIFT(in, in->in_th_len);
+	win = ntoh16(in->in_th->th_win_size);
+	len = in->in_ip_payload_len - in->in_th_len;
+	in->in_tcp_win = win;
+	in->in_len = len;
+	in->in_tcp_flags = in->in_th->th_flags;
+	in->in_tcp_seq = ntoh32(in->in_th->th_seq);
+	in->in_tcp_ack = ntoh32(in->in_th->th_ack);
+	in->in_payload = (u_char *)in->in_th + in->in_th_len;
+	in->in_tcp_opts.tcp_opt_flags = 0;
+	cksum = in->in_th->th_cksum;
+	in->in_th->th_cksum = 0;
+	if (in->in_cksum_offload == 0) {
+		if (cksum != ip4_udp_calc_cksum(in->in_ih)) {
+			in->in_tcps->tcps_rcvbadsum++;
 			return IN_DROP;
 		}
 	}
-	p->in_th->th_cksum = cksum;
-	rc = tcp_opts_in(&p->in_tcb.tcb_opts,
-	                 (void *)(p->in_th + 1),
-	                 p->in_th_len - sizeof(*p->in_th));
+	in->in_th->th_cksum = cksum;
+	rc = tcp_opts_in(&in->in_tcp_opts,
+	                 (void *)(in->in_th + 1),
+	                 in->in_th_len - sizeof(*in->in_th));
 	if (rc) {
-		p->in_tcps->tcps_rcvbadoff++;
+		in->in_tcps->tcps_rcvbadoff++;
 		return IN_DROP;
 	}
 	return IN_OK;
 }
 
 static int
-icmp4_in(struct in_context *p)
+icmp4_in(struct in_context *in)
 {
 	int ih_len, type, code;
 
-	if (p->in_rem < sizeof(struct icmp4_hdr)) {
-		p->in_icmps->icmps_tooshort++;
+	if (in->in_rem < sizeof(struct icmp4_hdr)) {
+		in->in_icmps->icmps_tooshort++;
 		return IN_DROP;
 	}
-	p->in_icp = (struct icmp4_hdr *)p->in_cur;
-	SHIFT(p, sizeof(struct icmp4_hdr));
-	type = p->in_icp->icmp_type;
-	code = p->in_icp->icmp_code;	
+	in->in_icp = (struct icmp4_hdr *)in->in_cur;
+	SHIFT(in, sizeof(struct icmp4_hdr));
+	type = in->in_icp->icmp_type;
+	code = in->in_icp->icmp_code;	
 	if (type > ICMP_MAXTYPE) {
 		return IN_DROP;
 	}
-	p->in_icmps->icmps_inhist[type]++;
+	in->in_icmps->icmps_inhist[type]++;
 	switch (type) {
 	case ICMP_UNREACH:
 		switch (code) {
@@ -629,40 +629,40 @@ icmp4_in(struct in_context *p)
 		case ICMP_UNREACH_ISOLATED:
 		case ICMP_UNREACH_HOST_PROHIB:
 		case ICMP_UNREACH_TOSHOST:
-			p->in_errnum = EHOSTUNREACH;
+			in->in_errnum = EHOSTUNREACH;
 			break;
 		case ICMP_UNREACH_NEEDFRAG:
-			p->in_errnum = EMSGSIZE;
+			in->in_errnum = EMSGSIZE;
 			break;
 		default:
-			p->in_icmps->icmps_badcode++;
+			in->in_icmps->icmps_badcode++;
 			return IN_DROP;
 		}
 		break;
 	case ICMP_TIMXCEED:
 		if (code > 1) {
-			p->in_icmps->icmps_badcode++;
+			in->in_icmps->icmps_badcode++;
 			return IN_DROP;
 		}
 		// TODO:
 		break;
 	case ICMP_PARAMPROB:
 		if (code > 1) {
-			p->in_icmps->icmps_badcode++;
+			in->in_icmps->icmps_badcode++;
 			return IN_DROP;
 		}
-		p->in_errnum = ENOPROTOOPT;
+		in->in_errnum = ENOPROTOOPT;
 		break;
 	case ICMP_SOURCEQUENCH:
 		if (code) {
-			p->in_icmps->icmps_badcode++;
+			in->in_icmps->icmps_badcode++;
 			return IN_DROP;
 		}
 		// TODO:
 		break;
 	case ICMP_REDIRECT:
 		if (code > 3) {
-			p->in_icmps->icmps_badcode++;
+			in->in_icmps->icmps_badcode++;
 			return IN_DROP;
 		}
 		// TODO:
@@ -670,41 +670,41 @@ icmp4_in(struct in_context *p)
 	default:
 		return IN_BYPASS;
 	}
-	p->in_emb_ih = NULL;
-	p->in_emb_th = NULL;
-	if (p->in_rem < sizeof(*p->in_emb_ih)) {
-		p->in_icmps->icmps_badlen++;
+	in->in_emb_ih = NULL;
+	in->in_emb_th = NULL;
+	if (in->in_rem < sizeof(*in->in_emb_ih)) {
+		in->in_icmps->icmps_badlen++;
 		return IN_DROP;
 	}
-	p->in_emb_ih = (struct ip4_hdr *)p->in_cur;
-	ih_len = IP4_HDR_LEN(p->in_emb_ih->ih_ver_ihl);
-	if (ih_len < sizeof(*p->in_emb_ih)) {
-		p->in_icmps->icmps_badlen++;
+	in->in_emb_ih = (struct ip4_hdr *)in->in_cur;
+	ih_len = IP4_HDR_LEN(in->in_emb_ih->ih_ver_ihl);
+	if (ih_len < sizeof(*in->in_emb_ih)) {
+		in->in_icmps->icmps_badlen++;
 		return IN_DROP;
 	}
-	SHIFT(p, ih_len);
-	p->in_emb_ipproto = p->in_emb_ih->ih_proto;
-	switch (p->in_emb_ipproto) {
+	SHIFT(in, ih_len);
+	in->in_emb_ipproto = in->in_emb_ih->ih_proto;
+	switch (in->in_emb_ipproto) {
 	case IPPROTO_UDP:
-		if (p->in_rem < sizeof(*p->in_emb_uh)) {
-			p->in_icmps->icmps_badlen++;
+		if (in->in_rem < sizeof(*in->in_emb_uh)) {
+			in->in_icmps->icmps_badlen++;
 			return IN_DROP;
 		}
-		p->in_emb_uh = (struct udp_hdr *)p->in_cur;
+		in->in_emb_uh = (struct udp_hdr *)in->in_cur;
 		return IN_OK;
 	case IPPROTO_TCP:
-		if (p->in_rem < sizeof(*p->in_emb_th)) {
-			p->in_icmps->icmps_badlen++;
+		if (in->in_rem < sizeof(*in->in_emb_th)) {
+			in->in_icmps->icmps_badlen++;
 			return IN_BYPASS;
 		}
-		p->in_emb_th = (struct tcp_hdr *)p->in_cur;
+		in->in_emb_th = (struct tcp_hdr *)in->in_cur;
 		return IN_OK;
 	case IPPROTO_ICMP:
-		if (p->in_rem < sizeof(*p->in_emb_icp)) {
-			p->in_icmps->icmps_badlen++;
+		if (in->in_rem < sizeof(*in->in_emb_icp)) {
+			in->in_icmps->icmps_badlen++;
 			return IN_DROP;
 		}
-		p->in_emb_icp = (struct icmp4_hdr *)p->in_cur;
+		in->in_emb_icp = (struct icmp4_hdr *)in->in_cur;
 		return IN_BYPASS;
 	default:
 		return IN_BYPASS;
@@ -712,79 +712,81 @@ icmp4_in(struct in_context *p)
 }
 
 static int
-ip_in(struct in_context *p)
+ip_in(struct in_context *in)
 {
 	int rc, total_len, cksum;
 
-	p->in_ips->ips_total++;
-	p->in_ips->ips_delivered++;
-	if (p->in_rem < sizeof(struct ip4_hdr)) {
-		p->in_ips->ips_toosmall++;
+	in->in_ips->ips_total++;
+	in->in_ips->ips_delivered++;
+	if (in->in_rem < sizeof(struct ip4_hdr)) {
+		in->in_ips->ips_toosmall++;
 		return IN_DROP;
 	}
-	p->in_ih = (struct ip4_hdr *)(p->in_eh + 1);
-	if (p->in_ih->ih_ttl < 1) {
+	in->in_ih = (struct ip4_hdr *)(in->in_eh + 1);
+	if (in->in_ih->ih_ttl < 1) {
 		return IN_DROP;
 	}
-	if (ipaddr4_is_mcast(p->in_ih->ih_saddr)) {
+	if (ipaddr4_is_mcast(in->in_ih->ih_saddr)) {
 		return IN_BYPASS;
 	}
-	if (p->in_ih->ih_frag_off & IP4_FRAG_MASK) {
-		p->in_ips->ips_fragments++;
-		p->in_ips->ips_fragdropped++;
+	if (in->in_ih->ih_frag_off & IP4_FRAG_MASK) {
+		in->in_ips->ips_fragments++;
+		in->in_ips->ips_fragdropped++;
 		return IN_BYPASS;
 	}
-	p->in_ih_len = IP4_HDR_LEN(p->in_ih->ih_ver_ihl);
-	if (p->in_ih_len < sizeof(*p->in_ih)) {
-		p->in_ips->ips_badhlen++;
+	in->in_ih_len = IP4_HDR_LEN(in->in_ih->ih_ver_ihl);
+	if (in->in_ih_len < sizeof(*in->in_ih)) {
+		in->in_ips->ips_badhlen++;
 		return IN_DROP;
 	}
-	if (p->in_rem < p->in_ih_len) {
-		p->in_ips->ips_badhlen++;
+	if (in->in_rem < in->in_ih_len) {
+		in->in_ips->ips_badhlen++;
 		return IN_DROP;
 	}
-	SHIFT(p, p->in_ih_len);
-	total_len = ntoh16(p->in_ih->ih_total_len);
+	SHIFT(in, in->in_ih_len);
+	total_len = ntoh16(in->in_ih->ih_total_len);
 	if (total_len > 65535) {
-		p->in_ips->ips_toolong++;
+		in->in_ips->ips_toolong++;
 		return IN_DROP;
 	}
-	if (total_len < p->in_ih_len) {
-		p->in_ips->ips_badlen++;
+	if (total_len < in->in_ih_len) {
+		in->in_ips->ips_badlen++;
 		return IN_DROP;
 	}
-	p->in_ip_payload_len = total_len - p->in_ih_len;
-	if (p->in_ip_payload_len > p->in_rem) {
-		p->in_ips->ips_tooshort++;
+	in->in_ip_payload_len = total_len - in->in_ih_len;
+	if (in->in_ip_payload_len > in->in_rem) {
+		in->in_ips->ips_tooshort++;
 		return IN_DROP;
 	}
-	p->in_ipproto = p->in_ih->ih_proto;
-	cksum = p->in_ih->ih_cksum;
-	p->in_ih->ih_cksum = 0;
-	if (p->in_cksum_offload == 0) {
-		if (cksum != ip4_calc_cksum(p->in_ih)) {
-			p->in_ips->ips_badsum++;
+	in->in_ipproto = in->in_ih->ih_proto;
+	cksum = in->in_ih->ih_cksum;
+	in->in_ih->ih_cksum = 0;
+	if (in->in_cksum_offload == 0) {
+		if (cksum != ip4_calc_cksum(in->in_ih)) {
+			in->in_ips->ips_badsum++;
 			return IN_DROP;
 		}
 	}
-	p->in_ih->ih_cksum = cksum;
-	switch (p->in_ipproto) {
+	in->in_ih->ih_cksum = cksum;
+	switch (in->in_ipproto) {
 	case IPPROTO_UDP:
-		if (p->in_rem < sizeof(struct udp_hdr)) {
-			p->in_udps->udps_badlen++;
+		if (in->in_rem < sizeof(struct udp_hdr)) {
+			in->in_udps->udps_badlen++;
 			return IN_DROP;
 		}
-		p->in_uh = (struct udp_hdr *)p->in_cur;
-		SHIFT(p, sizeof(struct udp_hdr));
+		in->in_uh = (struct udp_hdr *)in->in_cur;
+		SHIFT(in, sizeof(struct udp_hdr));
+		in->in_payload = in->in_cur;
+		in->in_len = in->in_rem;
 		return IN_OK;
 	case IPPROTO_TCP:
-		rc = tcp_in(p);
+		rc = tcp_in(in);
 		break;
 	case IPPROTO_ICMP:
-		rc = icmp4_in(p);
+		rc = icmp4_in(in);
 		return rc;
 	default:
-		p->in_ips->ips_noproto++;
+		in->in_ips->ips_noproto++;
 		rc = IN_BYPASS;
 		break;
 	}
@@ -792,19 +794,19 @@ ip_in(struct in_context *p)
 }
 
 int
-eth_in(struct in_context *p)
+eth_in(struct in_context *in)
 {
 	int rc;
 
-	p->in_eh = (struct eth_hdr *)p->in_cur;
-	SHIFT(p, sizeof(struct eth_hdr));
-	switch (p->in_eh->eh_type) {
+	in->in_eh = (struct eth_hdr *)in->in_cur;
+	SHIFT(in, sizeof(struct eth_hdr));
+	switch (in->in_eh->eh_type) {
 	case ETH_TYPE_IP4_BE:
-		p->in_ipproto = IPPROTO_IP;
-		rc = ip_in(p);
+		in->in_ipproto = IPPROTO_IP;
+		rc = ip_in(in);
 		break;
 	case ETH_TYPE_ARP_BE:
-		rc = arp_in(p);
+		rc = arp_in(in);
 		break;
 	default:
 		rc = IN_BYPASS;

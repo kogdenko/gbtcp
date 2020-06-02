@@ -61,7 +61,7 @@ wait_for_fd_events2(int force, uint64_t to)
 {
 	int throttled;
 	uint64_t elapsed;
-	struct fd_poll fd_poll;
+	struct fd_poll p;
 	struct pollfd pfds[FD_EVENTS_MAX];
 
 	if (!force) {
@@ -70,15 +70,21 @@ wait_for_fd_events2(int force, uint64_t to)
 			return;
 		}
 	}
-	throttled = -1;
-	fd_poll_init(&fd_poll);
-	fd_poll.fdes_to = to;
-	do {
-		fd_poll_set(&fd_poll, pfds);
-		sys_ppoll(pfds, fd_poll.fdes_nr_used, &fd_poll.fdes_ts, NULL);
-		fd_poll_call(&fd_poll, pfds);
-		throttled++;
-	} while (fd_poll.fdes_again);
+	throttled = 0;
+	fd_poll_init(&p);
+	p.fdp_to = to;
+	while (1) {
+		fd_poll_set(&p, pfds);
+		SERVICE_UNLOCK;
+		sys_ppoll(pfds, p.fdp_nused, &p.fdp_to_ts, NULL);
+		SERVICE_LOCK;
+		fd_poll_call(&p, pfds);
+		if (p.fdp_throttled) {
+			throttled = 1;
+		} else {
+			break;
+		}
+	}
 	if (throttled) {
 		fd_event_timeout >>= 1;
 		if (fd_event_timeout < FD_EVENT_TIMEOUT_MIN) {
@@ -226,24 +232,24 @@ fd_event_is_set(struct fd_event *e, short events)
 void
 fd_poll_init(struct fd_poll *p)
 {
-	p->fdes_to = 0;
-	p->fdes_first = 1;
+	p->fdp_to = 0;
+	p->fdp_first = 1;
 }
 
 void
 fd_poll_set(struct fd_poll *p, struct pollfd *pfds)
 {
-	int i, idx;
+	int i;
 	struct fd_event *e;
 
 	ASSERT3(0, fd_event_in_cb == 0, "recursive wait");
-	p->fdes_again = 0;
-	if (!p->fdes_first) {
-		rd_nanoseconds();
-	}
-	p->fdes_first = 0;
-	p->fdes_time = nanoseconds;
-	p->fdes_nr_used = 0;
+	p->fdp_throttled = 0;
+//	if (!p->fdp_first) {
+//		rd_nanoseconds();
+//	}
+//	p->fdp_first = 0;
+	p->fdp_time = nanoseconds;
+	p->fdp_nused = 0;
 	sock_tx_flush();
 	for (i = 0; i < fd_event_nused; ++i) {
 		e = fd_event_used[i];
@@ -251,19 +257,17 @@ fd_poll_set(struct fd_poll *p, struct pollfd *pfds)
 			continue;
 		}
 		e->fde_ref_cnt++;
-		idx = p->fdes_nr_used;
-		pfds[idx].fd = e->fde_fd;
-		pfds[idx].events = e->fde_events;
-		p->fdes_used[idx] = e;
-		p->fdes_nr_used++;
+		pfds[p->fdp_nused].fd = e->fde_fd;
+		pfds[p->fdp_nused].events = e->fde_events;
+		p->fdp_used[p->fdp_nused++] = e;
 	}
-	p->fdes_ts.tv_sec = 0;
-	if (p->fdes_to == 0) {
-		p->fdes_ts.tv_nsec = 0;
-	} else if (p->fdes_to >= TIMER_TIMO) {
-		p->fdes_ts.tv_nsec = TIMER_TIMO;
+	p->fdp_to_ts.tv_sec = 0;
+	if (p->fdp_to == 0) {
+		p->fdp_to_ts.tv_nsec = 0;
+	} else if (p->fdp_to >= TIMER_TIMO) {
+		p->fdp_to_ts.tv_nsec = TIMER_TIMO;
 	} else {
-		p->fdes_ts.tv_nsec = p->fdes_to;
+		p->fdp_to_ts.tv_nsec = p->fdp_to;
 	}
 }
 
@@ -280,22 +284,22 @@ int
 fd_poll_call(struct fd_poll *p, struct pollfd *pfds)
 {
 	int i, n, rc;
-	uint64_t dt;
+	uint64_t elapsed;
 	struct fd_event *e;
 
 	fd_poll_epoch++;
 	rd_nanoseconds();
-	dt = nanoseconds - p->fdes_time;
-	if (dt > p->fdes_to) {
-		p->fdes_to = 0;
+	elapsed = nanoseconds - p->fdp_time;
+	if (elapsed > p->fdp_to) {
+		p->fdp_to = 0;
 	} else {
-		p->fdes_to -= dt;
+		p->fdp_to -= elapsed;
 	}
 	check_timers();
 	n = 0;
 	fd_event_in_cb = 1;
-	for (i = 0; i < p->fdes_nr_used; ++i) {
-		e = p->fdes_used[i];
+	for (i = 0; i < p->fdp_nused; ++i) {
+		e = p->fdp_used[i];
 		if (pfds[i].revents) {
 			n++;
 			if (e->fde_fn != NULL) {
@@ -303,14 +307,14 @@ fd_poll_call(struct fd_poll *p, struct pollfd *pfds)
 				rc = fd_event_call(e, pfds[i].revents);
 				if (rc) {
 					ASSERT(rc == -EAGAIN);
-					p->fdes_again = 1;
+					p->fdp_throttled = 1;
 				}
 			}
 		}
 		fd_event_unref(e);
 	}
 	fd_event_in_cb = 0;
-	if (p->fdes_again == 0) {
+	if (p->fdp_throttled == 0) {
 		fd_event_last_check_time = nanoseconds;
 	}
 	return n;

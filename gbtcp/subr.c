@@ -796,6 +796,21 @@ restart:
 	return hz;
 }
 
+int
+set_affinity(int cpu_id)
+{
+	int rc;
+	cpu_set_t cpumask;
+
+	CPU_ZERO(&cpumask);
+	CPU_SET(cpu_id, &cpumask);
+	rc = pthread_setaffinity_np(pthread_self(), sizeof(cpumask), &cpumask);
+	if (rc != 0) {
+		ERR(rc, "failed; cpu_id=%d", cpu_id);
+	}
+	return -rc;
+}
+
 uint64_t
 rand64()
 {
@@ -987,15 +1002,15 @@ epoll_op_str(int op)
 #endif /* __linux__ */
 
 int
-iovec_len(const struct iovec *iov, int iovcnt)
+iovec_accum_len(const struct iovec *iov, int iovcnt)
 {
-	int i, len;
+	int i, accum_len;
 
-	len = 0;
+	accum_len = 0;
 	for (i = 0; i < iovcnt; ++i) {
-		len += iov[i].iov_len;
+		accum_len += iov[i].iov_len;
 	}
-	return len;
+	return accum_len;
 }
 
 void

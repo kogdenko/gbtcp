@@ -373,7 +373,7 @@ service_attach()
 	if (rc) {
 		goto err;
 	}
-	service_update(current);
+//	service_update(current);
 	ERR(0, "ok; current=%p", current);
 	spinlock_unlock(&service_attach_lock);
 	return 0;

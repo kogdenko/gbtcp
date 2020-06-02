@@ -164,7 +164,7 @@ controller_service_lock(struct service *s)
 			cpu_pause();
 		}
 		rc = sys_recv(s->p_fd, &b, sizeof(b), MSG_PEEK|MSG_DONTWAIT);
-		if (rc < 0 && rc != -EAGAIN) {
+		if (rc == 0 || (rc < 0 && rc != -EAGAIN)) {
 			// Connection closed
 			controller_service_lock_detached(s);
 			return;

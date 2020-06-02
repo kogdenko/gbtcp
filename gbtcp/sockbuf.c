@@ -122,7 +122,7 @@ sockbuf_free_n(struct sockbuf *b, int nr_chunks)
 	}
 }
 
-static int
+int
 sockbuf_space(struct sockbuf *b)
 {
 	return b->sob_max < b->sob_len ? 0 : b->sob_max - b->sob_len;
@@ -153,8 +153,7 @@ sockbuf_write(struct sockbuf *b, struct sbchunk *pos,
 }
 
 int
-sockbuf_add(struct mbuf_pool *p, struct sockbuf *b,
-	const void *buf, int cnt, int atomic)
+sockbuf_add(struct mbuf_pool *p, struct sockbuf *b, const void *buf, int cnt)
 {
 	int n, rem, space, added;
 	struct sbchunk *chunk, *pos;
@@ -165,11 +164,6 @@ sockbuf_add(struct mbuf_pool *p, struct sockbuf *b,
 	added = MIN(cnt, space);
 	if (added <= 0) {
 		return 0;
-	}
-	if (atomic) {
-		if (added < cnt) {
-			return 0;
-		}
 	}
 	n = 0;
 	if (dlist_is_empty(&b->sob_head)) {
@@ -225,8 +219,8 @@ sockbuf_copy(struct sockbuf *b, int off, u_char *dst, int cnt)
 }
 
 int
-sockbuf_readv(struct sockbuf *b, const struct iovec *iov, int iovcnt, int cnt,
-	int peek)
+sockbuf_readv(struct sockbuf *b, const struct iovec *iov, int iovcnt,
+	int accum_len_max, int peek)
 {
 	int n, off;
 	u_char *ptr;
@@ -242,8 +236,8 @@ sockbuf_readv(struct sockbuf *b, const struct iovec *iov, int iovcnt, int cnt,
 		ASSERT(b->sob_len >= pos->ch_len);
 		ptr = sockbuf_chunk_data(pos);
 		n = pos->ch_len;
-		if (n > cnt - off) {
-			n = cnt - off;
+		if (n > accum_len_max - off) {
+			n = accum_len_max - off;
 			if (n == 0) {
 				break;
 			}
@@ -268,6 +262,20 @@ sockbuf_readv(struct sockbuf *b, const struct iovec *iov, int iovcnt, int cnt,
 }
 
 int
+sockbuf_read_zerocopy(struct sockbuf *b, void **pbuf)
+{
+	struct sbchunk *c;
+
+	if (dlist_is_empty(&b->sob_head)) {
+		return 0;
+	}
+	c = DLIST_FIRST(&b->sob_head, struct sbchunk, ch_list);
+	ASSERT(c->ch_len);
+	*pbuf = sockbuf_chunk_data(c);
+	return c->ch_len;
+}
+
+int
 sockbuf_readv4(struct sockbuf *b, const struct iovec *iov, int iovcnt, int peek)
 {
 	int rc;
@@ -277,7 +285,7 @@ sockbuf_readv4(struct sockbuf *b, const struct iovec *iov, int iovcnt, int peek)
 }
 
 int
-sockbuf_recv(struct sockbuf *b, void *buf, int cnt, int peek)
+sockbuf_read(struct sockbuf *b, void *buf, int cnt, int peek)
 {
 	int rc;
 	struct iovec iov;
@@ -289,7 +297,7 @@ sockbuf_recv(struct sockbuf *b, void *buf, int cnt, int peek)
 }
 
 int
-sockbuf_drop(struct sockbuf *b, int cnt)
+sockbuf_drain(struct sockbuf *b, int cnt)
 {
 	int n, off;
 	struct sbchunk *pos, *tmp;

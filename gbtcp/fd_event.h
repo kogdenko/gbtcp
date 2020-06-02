@@ -21,13 +21,13 @@ struct fd_event {
 };
 
 struct fd_poll {
-	uint64_t fdes_to;
-	uint64_t fdes_time;
-	struct timespec fdes_ts;
-	int fdes_nr_used;
-	int fdes_first;
-	int fdes_again; // For repeted `rxtx` call
-	struct fd_event *fdes_used[FD_EVENTS_MAX];
+	uint64_t fdp_to;
+	uint64_t fdp_time;
+	struct timespec fdp_to_ts;
+	int fdp_nused;
+	int fdp_first;
+	int fdp_throttled; // For repeted `rxtx` call
+	struct fd_event *fdp_used[FD_EVENTS_MAX];
 };
 
 extern int fd_poll_epoch;
