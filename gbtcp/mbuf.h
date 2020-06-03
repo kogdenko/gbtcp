@@ -43,6 +43,7 @@ int mbuf_pool_is_empty(struct mbuf_pool *);
 int mbuf_alloc(struct mbuf_pool *, struct mbuf **);
 void mbuf_init(struct mbuf *);
 void mbuf_free(struct mbuf *);
+void mbuf_free_rcu(struct mbuf *);
 struct mbuf *mbuf_get(struct mbuf_pool *, uint32_t);
 struct mbuf *mbuf_next(struct mbuf_pool *, uint32_t);
 int mbuf_get_id(struct mbuf *);

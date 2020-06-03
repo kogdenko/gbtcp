@@ -18,8 +18,6 @@
 #define udps current->p_udps
 #define ips current->p_ips
 
-static int my_locked;
-
 enum so_error {
 	SO_OK,
 	SO_EINPROGRESS,
@@ -147,7 +145,7 @@ static void sock_open(struct sock *so);
 
 static struct sock *so_new(int);
 
-static int so_unref(struct sock *);
+static int so_unref(struct sock *, struct in_context *);
 
 //static int sock_on_rcv(struct sock *, struct in_context *, be32_t, be16_t);
 
@@ -650,7 +648,7 @@ so_close(struct sock *so)
 	so->so_referenced = 0;
 	switch (so->so_state) {
 	case GT_TCP_S_CLOSED:
-		so_unref(so);
+		so_unref(so, NULL);
 		break;
 	case GT_TCP_S_LISTEN:
 		gt_tcp_close_not_accepted(&so->so_incompleteq);
@@ -1093,7 +1091,7 @@ tcp_set_state(struct sock *so, struct in_context *in, int state)
 		break;
 	case GT_TCP_S_CLOSED:
 		gt_tcp_close(so);
-		rc = so_unref(so);
+		rc = so_unref(so, in);
 		return rc;
 	}
 	return 0;
@@ -1182,7 +1180,7 @@ tcp_reset(struct sock *so, struct in_context *in)
 	so->so_sack = in->in_tcp_ack;
 	so->so_rseq = in->in_tcp_seq;
 	tcp_into_rstq(so);
-	so_unref(so);
+	so_unref(so, in);
 }
 
 static void
@@ -1415,7 +1413,8 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 	h = so_hash(so);
 	b = htable_bucket_get(&curmod->htable, h);
 	BUCKET_LOCK(b);
-	dlist_insert_tail_rcu(&b->htb_head, &so->so_list);
+	so->so_is_attached = 1;
+	dlist_insert_tail_rcu(&b->htb_head, &so->so_hash_list);
 	BUCKET_UNLOCK(b);
 }
 
@@ -1990,7 +1989,7 @@ sock_tx_flush_if(struct route_if *ifp)
 			n++;
 		} while (rc == 0);
 		sock_del_txq(so);
-		so_unref(so);
+		so_unref(so, NULL);
 	}
 }
 
@@ -2268,7 +2267,7 @@ so_find(struct htable_bucket *b, int so_ipproto,
 {
 	struct sock *so;
 
-	DLIST_FOREACH_RCU(so, &b->htb_head, so_list) {
+	DLIST_FOREACH_RCU(so, &b->htb_head, so_hash_list) {
 		if (so->so_ipproto == so_ipproto &&
 		    so->so_laddr == laddr && so->so_faddr == faddr &&
 		    so->so_lport == lport && so->so_fport == fport) {
@@ -2329,7 +2328,8 @@ so_bind_ephemeral_port(struct sock *so, struct route_entry *r)
 			tmp = so_find(b, so->so_ipproto, so->so_laddr, so->so_faddr,
 			              so->so_lport, so->so_fport);
 			if (tmp == NULL) {
-				dlist_insert_tail_rcu(&b->htb_head, &so->so_list);
+				so->so_is_attached = 1;
+				dlist_insert_tail_rcu(&b->htb_head, &so->so_hash_list);
 				BUCKET_UNLOCK(b);
 				return 0;
 			}
@@ -2399,7 +2399,6 @@ so_new(int so_ipproto)
 	}
 	so = (struct sock *)fp;
 	DBG(0, "hit; fd=%d", so_get_fd(so));
-	so->so_list.dls_next = NULL;
 	so->so_flags = 0;
 	so->so_ipproto = so_ipproto;
 	so->so_laddr = 0;
@@ -2427,7 +2426,7 @@ so_new(int so_ipproto)
 }
 
 static int
-so_unref(struct sock *so)
+so_unref(struct sock *so, struct in_context *in)
 {
 	int lport;
 	uint32_t h;
@@ -2437,16 +2436,16 @@ so_unref(struct sock *so)
 	if (so->so_state != GT_TCP_S_CLOSED || so->so_referenced) {
 		return 0;
 	}
-	if (so->so_list.dls_next != NULL) {
+	if (so->so_is_attached) {
+		so->so_is_attached = 0;
 		b = NULL;
-		if (!my_locked) {
+		if (in == NULL) {
 			h = so_hash(so);
 			b = htable_bucket_get(&curmod->htable, h);
 			BUCKET_LOCK(b);
 		}
-		dlist_remove_rcu(&so->so_list);
-		so->so_list.dls_next = NULL;
-		if (!my_locked) {
+		dlist_remove_rcu(&so->so_hash_list);
+		if (b != NULL) {
 			BUCKET_UNLOCK(b);
 		}
 	}
@@ -2612,7 +2611,7 @@ sysctl_socket(void *udata, const char *new, struct strbuf *out)
 	struct sock *so;
 	struct socb cb;
 
-	so = container_of(udata, struct sock, so_list);
+	so = container_of(udata, struct sock, so_hash_list);
 	so_get_socb(so, &cb);
 	strbuf_addf(out, "%d,%d,%d,%x,%hu,%x,%hu,%d,%d,%d",
 		cb.socb_fd,
@@ -2649,11 +2648,10 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 	h = SO_HASH(faddr, lport, fport);
 	b = htable_bucket_get(&curmod->htable, h);
 	BUCKET_LOCK(b);
-	my_locked = 1;
 	so = so_find(b, so_ipproto, laddr, faddr, lport, fport);
 	if (so == NULL) {
-		my_locked = 0;
 		BUCKET_UNLOCK(b);
+		b = NULL;
 		i = hton16(lport);
 		if (i >= ARRAY_SIZE(curmod->binded)) {
 			return IN_BYPASS;
@@ -2668,9 +2666,9 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 	}
 	if (so->so_service_id != current->p_id) {
 		ASSERT(0);
-		if (my_locked) {
-			my_locked = 0;
+		if (b != NULL) {
 			BUCKET_UNLOCK(b);
+			b = NULL;
 		}
 		return so->so_service_id;
 	}
@@ -2733,8 +2731,7 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 			}
 		}
 	}
-	if (my_locked) {
-		my_locked = 0;
+	if (b != NULL) {
 		BUCKET_UNLOCK(b);
 	}
 	return IN_OK;

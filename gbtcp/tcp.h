@@ -24,7 +24,6 @@ struct socb {
 
 struct sock {
 	struct file so_file;
-#define so_list so_file.fl_mbuf.mb_list
 #define so_blocked so_file.fl_blocked
 #define so_referenced so_file.fl_referenced
 #define so_service_id so_file.fl_mbuf.mb_service_id
@@ -34,6 +33,7 @@ struct sock {
 			u_int so_err : 4;
 			u_int so_ipproto : 2;
 			u_int so_binded : 1;
+			u_int so_is_attached : 1;
 			u_int so_processing : 1;
 			// TCP
 			u_int so_is_listen : 1;
@@ -63,6 +63,7 @@ struct sock {
 			u_int so_nagle_acked : 1;
 		};
 	};
+	struct dlist so_hash_list;
 	struct dlist so_bind_list;
 	be32_t so_laddr;
 	be32_t so_faddr;

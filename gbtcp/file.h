@@ -58,6 +58,7 @@ void file_mod_service_deinit(struct service *);
 struct file *file_next(int);
 int file_alloc(struct file **, int);
 void file_free(struct file *);
+void file_free_rcu(struct file *);
 void file_close(struct file *);
 int file_fcntl(struct file *, int, uintptr_t);
 int file_ioctl(struct file *, unsigned long, uintptr_t);

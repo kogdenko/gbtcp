@@ -157,6 +157,13 @@ file_free(struct file *fp)
 }
 
 void
+file_free_rcu(struct file *fp)
+{
+	DBG(0, "hit; fp=%p, fd=%d", fp, file_get_fd(fp));
+	mbuf_free_rcu(&fp->fl_mbuf);
+}
+
+void
 file_close(struct file *fp)
 {
 	fp->fl_referenced = 0;

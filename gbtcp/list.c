@@ -96,7 +96,7 @@ dlist_remove_rcu(struct dlist *list)
 }
 
 void
-dlist_replace(struct dlist *old, struct dlist *new)
+dlist_replace(struct dlist *new, struct dlist *old)
 {
 	new->dls_next = old->dls_next;
 	new->dls_next->dls_prev = new;
@@ -105,8 +105,8 @@ dlist_replace(struct dlist *old, struct dlist *new)
 }
 
 void
-dlist_replace_init(struct dlist *old, struct dlist *new)
+dlist_replace_init(struct dlist *new, struct dlist *old)
 {
-	dlist_replace(old, new);
+	dlist_replace(new, old);
 	dlist_init(old);	
 }

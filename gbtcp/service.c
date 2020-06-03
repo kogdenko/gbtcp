@@ -428,12 +428,15 @@ service_update()
 	current->p_dirty = 0;
 }
 
+//static void service_rcu_free();
+
 static void
-service_rcu_free()
+service_rcu_reload()
 {
 	int i;
 	struct service *s;
 
+	dlist_replace_init(&service_rcu_active_head, &service_rcu_shadow_head);
 	for (i = 0; i < GT_SERVICES_MAX; ++i) {
 		s = ih->ih_services + i;
 		if (s != current) {
@@ -443,26 +446,53 @@ service_rcu_free()
 			}
 		}
 	}
-	printf_rl(NANOSECONDS_SECOND, "rcu free %d\n", service_rcu_max);
+	//if (service_rcu_max == 0) {
+	//	service_rcu_free();
+	//}
 }
 
 void
-service_unlock()
+mbuf_free_rcu(struct mbuf *m)
+{
+	DLIST_INSERT_TAIL(&service_rcu_shadow_head, m, mb_list);
+	if (service_rcu_max == 0) {
+		ASSERT(dlist_is_empty(&service_rcu_active_head));
+		service_rcu_reload();
+	}
+}
+
+static void
+service_rcu_free()
+{
+	struct dlist *head;
+	struct mbuf *m;
+
+	head = &service_rcu_active_head;
+	while (!dlist_is_empty(head)) {
+		m = DLIST_FIRST(head, struct mbuf, mb_list);
+		DLIST_REMOVE(m, mb_list);
+		mbuf_free(m);
+	}
+}
+
+#define service_ld_epoch(s) \
+({ \
+	u_int epoch; \
+	__atomic_load(&(s)->p_epoch, &epoch, __ATOMIC_SEQ_CST); \
+	epoch; \
+})
+
+static void
+service_rcu_check()
 {
 	u_int i, epoch, rcu_max;
 	struct service *s;
 
-	epoch = current->p_epoch;
-	epoch++;
-	if (epoch == 0) {
-		epoch = 1;
-	}
-	__atomic_store(&current->p_epoch, &epoch, __ATOMIC_SEQ_CST);
 	rcu_max = 0;
 	for (i = 0; i < service_rcu_max; ++i) {
 		s = ih->ih_services + i;
 		if (service_rcu[i]) {
-			__atomic_load(&s->p_epoch, &epoch, __ATOMIC_SEQ_CST);
+			epoch = service_ld_epoch(s);
 			if (service_rcu[i] != epoch) {
 				service_rcu[i] = 0;
 			} else {
@@ -473,7 +503,24 @@ service_unlock()
 	service_rcu_max = rcu_max;
 	if (service_rcu_max == 0) {
 		service_rcu_free();
+		if (!dlist_is_empty(&service_rcu_shadow_head)) {
+			service_rcu_reload();
+		}
 	}
+}
+
+void
+service_unlock()
+{
+	u_int epoch;
+
+	epoch = current->p_epoch;
+	epoch++;
+	if (epoch == 0) {
+		epoch = 1;
+	}
+	__atomic_store(&current->p_epoch, &epoch, __ATOMIC_SEQ_CST);
+	service_rcu_check();
 	spinlock_unlock(&current->p_lock);
 }
 
