@@ -1,6 +1,8 @@
 // GPL2 license
 #include "internals.h"
 
+#define LOG_LEVEL_DEFAULT LOG_NOTICE
+
 struct log_mod {
 	int log_stdout;
 	int log_level;
@@ -14,7 +16,7 @@ static struct strbuf log_sb;
 static int log_early = 1;
 static int log_early_stdout = 1;
 static int log_early_level_changed;
-static int log_early_level = LOG_ERR;
+static int log_early_level = LOG_LEVEL_DEFAULT;
 static int log_fd = -1;
 static int log_stdout_fd = -1;
 static struct log_mod *curmod;
@@ -146,7 +148,7 @@ log_mod_init(void **pp)
 		return rc;
 	}
 	curmod = *pp;
-	curmod->log_level = LOG_ERR;
+	curmod->log_level = LOG_LEVEL_DEFAULT;
 	if (log_early_level_changed) {
 		curmod->log_level = log_early_level;
 	}
@@ -191,7 +193,7 @@ void
 log_scope_init_early(struct log_scope *scope, const char *name)
 {
 	memset(scope, 0, sizeof(*scope));
-	scope->lgs_level = LOG_ERR;
+	scope->lgs_level = LOG_LEVEL_DEFAULT;
 	strzcpy(scope->lgs_name, name, sizeof(scope->lgs_name));
 	scope->lgs_name_len = strlen(scope->lgs_name);
 	ASSERT(scope->lgs_name_len);

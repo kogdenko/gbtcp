@@ -38,9 +38,9 @@ struct service {
 	u_char p_rss_nq;
 	int p_fd;
 	u_int p_epoch;
-	uint32_t p_kpps;
-	uint64_t p_pkts;
-	uint64_t p_pkts_time;
+	u_int p_tx_kpps;
+	uint64_t p_tx_kpps_time;
+	uint64_t p_tx_pkts;
 	struct tcp_stat p_tcps;
 	struct udp_stat p_udps;
 	struct ip_stat p_ips;
@@ -68,12 +68,14 @@ void service_mod_deinit();
 void service_mod_detach();
 
 int service_init(const char *);
-void service_deinit();
 int service_attach();
-void service_update();
-void service_inc_pkts();
-int service_can_connect(struct route_if *, be32_t, be32_t, be16_t, be16_t);
+void service_deinit();
+void service_detach(int);
+void service_clean(struct service *);
 void service_unlock();
+void service_account_tx_pkt();
+void service_update();
+int service_can_connect(struct route_if *, be32_t, be32_t, be16_t, be16_t);
 
 int service_fork();
 

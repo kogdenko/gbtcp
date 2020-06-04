@@ -45,12 +45,11 @@ api_lock()
 static inline void
 api_unlock()
 {
-	api_passthru = 0;
 	if (current != NULL) {
 		check_fd_events();
 		SERVICE_UNLOCK;
 	}
-	
+	api_passthru = 0;
 }
 
 int
@@ -87,6 +86,15 @@ void
 api_mod_detach()
 {
 	curmod = NULL;
+}
+
+void
+gt_init()
+{
+	dlsym_all();
+	rd_nanoseconds();
+	srand48(time(NULL));
+	log_init_early();
 }
 
 pid_t
@@ -215,15 +223,15 @@ api_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	const struct sockaddr_in *addr_in;
 	struct sock *so;
 
+	rc = so_get(fd, &so);
+	if (rc) {
+		return rc;
+	}
 	if (addr->sa_family != AF_INET) {
 		return -EAFNOSUPPORT;
 	}
 	if (addrlen < sizeof(*addr_in)) {
 		return -EINVAL;
-	}
-	rc = so_get(fd, &so);
-	if (rc) {
-		return rc;
 	}
 	addr_in = (const struct sockaddr_in *)addr;
 	INFO(0, "hit; fd=%d, laddr=%s", fd, log_add_sockaddr_in(addr_in));
@@ -851,7 +859,7 @@ gt_epoll_create1(int flags)
 	if (rc < 0) {
 		INFO(-rc, "failed;");
 	} else {
-		INFO(0, "ok; fd=%d", rc);
+		INFO(0, "ok; ep_fd=%d", rc);
 	}
 	API_UNLOCK;
 	API_RETURN(rc);
@@ -926,6 +934,7 @@ gt_kqueue()
 	API_UNLOCK;
 	API_RETURN(rc);
 }
+
 int
 gt_kevent(int kq, const struct kevent *changelist, int nchanges,
 	struct kevent *eventlist, int nevents, const struct timespec *timeout)

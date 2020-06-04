@@ -72,7 +72,7 @@ static void gt_tcp_rcvbuf_set_max(struct sock *so, int max);
 
 static void gt_tcp_open(struct sock *so);
 
-static void gt_tcp_close(struct sock *so);
+static void tcp_close(struct sock *so);
 
 static void gt_tcp_close_not_accepted(struct dlist *q);
 
@@ -293,8 +293,7 @@ so_get(int fd, struct sock **pso)
 	rc = file_get(fd, &fp);
 	if (rc) {
 		return rc;
-	}
-	if (fp->fl_type != FILE_SOCK) {
+	} else if (fp->fl_type != FILE_SOCK) {
 		return -ENOTSOCK;
 	} else {
 		*pso = (struct sock *)fp;
@@ -651,6 +650,7 @@ so_close(struct sock *so)
 		so_unref(so, NULL);
 		break;
 	case GT_TCP_S_LISTEN:
+		dbg("!!!!");
 		gt_tcp_close_not_accepted(&so->so_incompleteq);
 		gt_tcp_close_not_accepted(&so->so_completeq);
 		tcp_set_state(so, NULL, GT_TCP_S_CLOSED);
@@ -1090,7 +1090,7 @@ tcp_set_state(struct sock *so, struct in_context *in, int state)
 		tcp_set_state_ESTABLISHED(so, in);
 		break;
 	case GT_TCP_S_CLOSED:
-		gt_tcp_close(so);
+		tcp_close(so);
 		rc = so_unref(so, in);
 		return rc;
 	}
@@ -1143,7 +1143,7 @@ gt_tcp_open(struct sock *so)
 }
 
 static void
-gt_tcp_close(struct sock *so)
+tcp_close(struct sock *so)
 {
 	so->so_ssnt = 0;
 	timer_del(&so->so_timer);
@@ -2400,6 +2400,7 @@ so_new(int so_ipproto)
 	so = (struct sock *)fp;
 	DBG(0, "hit; fd=%d", so_get_fd(so));
 	so->so_flags = 0;
+	so->so_service_id = current->p_id;
 	so->so_ipproto = so_ipproto;
 	so->so_laddr = 0;
 	so->so_lport = 0;
@@ -2450,7 +2451,7 @@ so_unref(struct sock *so, struct in_context *in)
 		}
 	}
 	if (so->so_binded) {
-		so->so_binded = 1;
+		so->so_binded = 0;
 		lport = ntoh16(so->so_lport);
 		if (lport > 0 && lport < ARRAY_SIZE(curmod->binded)) {
 			b = curmod->binded + lport;
@@ -2582,6 +2583,7 @@ tcp_tx_data(struct route_if *ifp, struct dev_pkt *pkt,
 	DBG(0, "hit; if='%s', flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
 	    ifp->rif_name, log_add_tcp_flags(so->so_ipproto, tcb.tcb_flags),
 	    tcb.tcb_len, tcb.tcb_seq, tcb.tcb_ack, so_get_fd(so));
+	service_account_tx_pkt();
 	arp_resolve(ifp, so->so_next_hop, pkt);
 }
 
@@ -2712,7 +2714,6 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 		so_wakeup(so, NULL, in->in_events);
 		cur_zerocopy_in = NULL;
 		if (in->in_len) {
-			printf_rl(NANOSECONDS_SECOND, "!!!\n");
 			rc = so_rcvbuf_add(so, in->in_payload, in->in_len);
 			if (rc < 0) {
 				tcps.tcps_rcvmemdrop++;
@@ -2731,6 +2732,7 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 			}
 		}
 	}
+	so_unref(so, in);
 	if (b != NULL) {
 		BUCKET_UNLOCK(b);
 	}

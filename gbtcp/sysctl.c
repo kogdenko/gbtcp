@@ -276,7 +276,7 @@ sysctl_parse_line(int loader, char *s)
 }
 
 int
-sysctl_read_file(int loader, const char *proc_name)
+sysctl_read_file(int loader, const char *comm)
 {
 	int rc, line;
 	const char *path;
@@ -289,13 +289,15 @@ sysctl_read_file(int loader, const char *proc_name)
 	if (path != NULL) { 
 		rc = sys_realpath(path, path_buf);
 		if (rc) {
-			return rc;
+			path = NULL;
 		}
-	} else {
+	}
+	if (path == NULL) {
 		snprintf(path_buf, sizeof(path_buf), "%s/%s.conf",
-		         SYSCTL_CONFIG_PATH, proc_name);
+		         SYSCTL_CONFIG_PATH, comm);
 	}
 	path = path_buf;
+	NOTICE(0, "hit; path='%s'", path);
 	rc = sys_fopen(&file, path, "r");
 	if (rc) {
 		return rc;

@@ -58,7 +58,7 @@ pid_file_open(const char *filename)
 	pid_file_path(path, filename);
 	rc = sys_open(path, O_CREAT|O_RDWR, 0666);
 	if (rc >= 0) {
-		NOTICE(0, "ok; fd=%d, filename='%s'", rc, filename);
+		INFO(0, "ok; fd=%d, filename='%s'", rc, filename);
 	}
 	return rc;
 }

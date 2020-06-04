@@ -33,7 +33,6 @@ union my_data {
 	uint64_t u64;
 };
 
-static int dflag;
 static int lflag;
 static int proc_idx;
 static char reqbuf[] =
@@ -588,7 +587,7 @@ sighandler(int signum)
 static void
 loop(int idx, int affinity)
 {
-	int rc, eq_fd, to_ms;
+	int rc, eq_fd;
 
 	if (affinity != -1) {
 		set_affinity(affinity + idx);
@@ -608,12 +607,11 @@ loop(int idx, int affinity)
 		sys_close(eq_fd);
 		return;
 	}
-	to_ms = dflag ? -1 : 200;
 	gettimeofday(&tv, NULL);
 	signal(SIGALRM, sighandler);
 	alarm(1);
 	do {
-		rc = event_queue_wait(eq_fd, to_ms);
+		rc = event_queue_wait(eq_fd, -1);
 	} while (rc == 0);
 }
 
@@ -625,7 +623,6 @@ usage()
 	"\n"
 	"\tOptions:\n"
 	"\t-h              Print this help\n"
-	"\t-d              Debugging mode\n"
 	"\t-p port         Port number (default: 80)\n"
 	"\t-l              Listen incoming connections\n"
 	"\t-c concurrency  Number of parallel connections (default: 1)\n"
@@ -647,13 +644,10 @@ main(int argc, char **argv)
 	conf_addr.sin_family = AF_INET;
 	conf_addr.sin_port = htons(80);
 	conf_addr.sin_addr.s_addr = INADDR_ANY;
-	while ((opt = getopt(argc, argv, "hdp:lc:CP:a:")) != -1) {
+	while ((opt = getopt(argc, argv, "hp:lc:CP:a:")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
-			break;
-		case 'd':
-			dflag = 1;
 			break;
 		case 'p':
 			conf_addr.sin_port = htons(strtoul(optarg, NULL, 10));

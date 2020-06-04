@@ -27,24 +27,25 @@ struct file {
 	union {
 		uint32_t fl_flags;
 		struct {
-			unsigned int fl_type : 3;
-			unsigned int fl_referenced : 1;
-			unsigned int fl_blocked : 1;
+			u_int fl_type : 3;
+			u_int fl_referenced : 1;
+			u_int fl_blocked : 1;
+			u_int fl_service_id : 8;
 		};
 	};
 	struct dlist fl_aioq;
 };
 
-#define FILE_FOREACH(fp) \
-	for (int GT_UNIQV(fd) = 0; \
-	     (fp = file_next(GT_UNIQV(fd))) != NULL; \
-	     GT_UNIQV(fd) = file_get_fd(fp) + 1)
+#define FILE_FOREACH2(s, fp) \
+	for (int UNIQV(fd) = 0; \
+	     (fp = file_next(s, UNIQV(fd))) != NULL; \
+	     UNIQV(fd) = file_get_fd(fp) + 1)
 
-#define FILE_FOREACH_SAFE(fp, tmp_fd) \
-	for (int GT_UNIQV(fd) = 0; \
-	     ((fp = file_next(GT_UNIQV(fd))) != NULL) && \
+#define FILE_FOREACH_SAFE3(s, fp, tmp_fd) \
+	for (int UNIQV(fd) = 0; \
+	     ((fp = file_next(s, UNIQV(fd))) != NULL) && \
 	     ((tmp_fd = file_get_fd(fp) + 1), 1); \
-	     GT_UNIQV(fd) = tmp_fd)
+	     UNIQV(fd) = tmp_fd)
 
 extern int file_sizeof;
 
@@ -54,8 +55,9 @@ int file_mod_service_init(struct service *);
 void file_mod_deinit();
 void file_mod_detach();
 void file_mod_service_deinit(struct service *);
+void file_mod_service_clean(struct service *);
 
-struct file *file_next(int);
+struct file *file_next(struct service *, int);
 int file_alloc(struct file **, int);
 void file_free(struct file *);
 void file_free_rcu(struct file *);

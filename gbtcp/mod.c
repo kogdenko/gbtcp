@@ -1,32 +1,37 @@
 #include "internals.h"
 
 struct mod {
-	int (*m_init)(void **);
-	int (*m_attach)(void *);
-	int (*m_service_init)(struct service *);
-	void (*m_deinit)();
-	void (*m_detach)();
-	void (*m_service_deinit)(struct service *);
+	int (*mod_init)(void **);
+	int (*mod_attach)(void *);
+	int (*mod_service_init)(struct service *);
+	void (*mod_deinit)();
+	void (*mod_detach)();
+	void (*mod_service_deinit)(struct service *);
 };
 
 #define MOD4(name) { \
-	.m_init = name##_mod_init, \
-	.m_attach = name##_mod_attach, \
-	.m_deinit = name##_mod_deinit, \
-	.m_detach = name##_mod_detach, \
+	.mod_init = name##_mod_init, \
+	.mod_attach = name##_mod_attach, \
+	.mod_deinit = name##_mod_deinit, \
+	.mod_detach = name##_mod_detach, \
 },
 
 #define MOD6(name) { \
-	.m_init = name##_mod_init, \
-	.m_attach = name##_mod_attach, \
-	.m_deinit = name##_mod_deinit, \
-	.m_detach = name##_mod_detach, \
-	.m_service_init = name##_mod_service_init, \
-	.m_service_deinit = name##_mod_service_deinit, \
+	.mod_init = name##_mod_init, \
+	.mod_attach = name##_mod_attach, \
+	.mod_deinit = name##_mod_deinit, \
+	.mod_detach = name##_mod_detach, \
+	.mod_service_init = name##_mod_service_init, \
+	.mod_service_deinit = name##_mod_service_deinit, \
 },
 
 struct mod mods[MODS_MAX] = {
-	MOD4(sysctl)
+	{
+		.mod_init = sysctl_mod_init,
+		.mod_attach = sysctl_mod_attach,
+		.mod_deinit = sysctl_mod_deinit,
+		.mod_detach = sysctl_mod_detach,
+	},
 	MOD4(log)
 	MOD4(sys)
 	MOD4(subr)
@@ -53,7 +58,7 @@ struct mod mods[MODS_MAX] = {
 
 #define FOREACH_MOD(i, mod) \
 	for (i = 0, mod = mods; \
-	     i < ARRAY_SIZE(mods) && mod->m_init != NULL; \
+	     i < ARRAY_SIZE(mods) && mod->mod_init != NULL; \
 	     ++i, ++mod)
 
 int
@@ -64,7 +69,7 @@ foreach_mod_init(struct init_hdr *ih)
 
 	rc = 0;
 	FOREACH_MOD(i, mod) {
-		rc = (*mod->m_init)(ih->ih_mods + i);
+		rc = (*mod->mod_init)(ih->ih_mods + i);
 		if (rc) {
 			return rc;
 		}
@@ -80,7 +85,7 @@ foreach_mod_attach(struct init_hdr *ih)
 
 	rc = 0;
 	FOREACH_MOD(i, mod) {
-		rc = (*mod->m_attach)(ih->ih_mods[i]);
+		rc = (*mod->mod_attach)(ih->ih_mods[i]);
 		if (rc) {
 			return rc;
 		}
@@ -96,8 +101,8 @@ foreach_mod_service_init(struct service *s)
 
 	rc = 0;
 	FOREACH_MOD(i, mod) {
-		if (mod->m_service_init != NULL) {
-			rc = (*mod->m_service_init)(s);
+		if (mod->mod_service_init != NULL) {
+			rc = (*mod->mod_service_init)(s);
 			if (rc) {
 				return rc;
 			}
@@ -114,7 +119,7 @@ foreach_mod_deinit(struct init_hdr *ih)
 
 	if (ih != NULL) {
 		FOREACH_MOD(i, mod) {
-			(*mod->m_deinit)();
+			(*mod->mod_deinit)();
 		}
 	}
 }
@@ -126,7 +131,7 @@ foreach_mod_detach()
 	struct mod *mod;
 
 	FOREACH_MOD(i, mod) {
-		(*mod->m_detach)();
+		(*mod->mod_detach)();
 	}
 }
 
@@ -137,8 +142,8 @@ foreach_mod_service_deinit(struct service *s)
 	struct mod *mod;
 
 	FOREACH_MOD(i, mod) {
-		if (mod->m_service_deinit != NULL) {
-			(*mod->m_service_deinit)(s);
+		if (mod->mod_service_deinit != NULL) {
+			(*mod->mod_service_deinit)(s);
 		}
 	}
 }

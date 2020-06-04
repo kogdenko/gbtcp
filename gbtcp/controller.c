@@ -22,7 +22,6 @@ controller_mod_init(void **pp)
 	if (rc == 0) {
 		curmod = *pp;
 		log_scope_init(&curmod->log_scope, "controller");
-		curmod->log_scope.lgs_level = LOG_NOTICE;
 	}
 	return rc;
 }
@@ -213,14 +212,14 @@ controller_balance_get(struct service **ppoor, struct service **prich)
 		if (poor->p_rss_nq > s->p_rss_nq) {
 			poor = s;
 		} else if (poor->p_rss_nq == s->p_rss_nq) {
-			if (poor->p_kpps < s->p_kpps) {
+			if (poor->p_tx_kpps < s->p_tx_kpps) {
 				poor = s;
 			}
 		}
 		if (rich->p_rss_nq < s->p_rss_nq) {
 			rich = s;
 		} else if (rich->p_rss_nq == s->p_rss_nq) {
-			if (rich->p_kpps > s->p_kpps) {
+			if (rich->p_tx_kpps > s->p_tx_kpps) {
 				rich = s;
 			}
 		}
@@ -300,7 +299,7 @@ controller_service_del(struct service *s)
 		ASSERT(i < nservices);
 		services[i] = services[--nservices];
 		if (!nservices) {
-			controller_done = 1;
+			//controller_done = 1;
 		}
 	}
 	if (s->p_rss_nq) {
@@ -462,6 +461,7 @@ sysctl_controller_service_list(void *udata, const char *ident, const char *new,
 	struct strbuf *out)
 {
 	int i;
+	u_int tx_kpps;
 	struct service *s;
 
 	if (ident == NULL) {
@@ -476,27 +476,12 @@ sysctl_controller_service_list(void *udata, const char *ident, const char *new,
 	if (!s->p_pid) {
 		return -ENOENT;
 	} else {
-		strbuf_addf(out, "%d,%d,%u", s->p_pid, s->p_rss_nq, s->p_kpps);
+		tx_kpps = READ_ONCE(s->p_tx_kpps);
+		strbuf_addf(out, "%d,%d,%u", s->p_pid, s->p_rss_nq, tx_kpps);
 		return 0;
 	}
 }
 
-static void
-controller_service_clean(struct service *s)
-{
-	int i;
-	struct dev *dev;
-	struct route_if *ifp;
-
-	NOTICE(0, "hit; pid=%d", s->p_pid);
-	ROUTE_IF_FOREACH(ifp) {
-		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
-			dev = &(ifp->rif_dev[s->p_id][i]);
-			dev_clean(dev);
-		}
-	}
-	s->p_pid = 0;
-}
 
 static void
 controller_service_conn_close(struct sysctl_conn *cp)
@@ -512,7 +497,8 @@ controller_service_conn_close(struct sysctl_conn *cp)
 	if (s != NULL) {
 		controller_service_check_deadlock(s);
 		controller_service_del(s);
-		controller_service_clean(s);
+		dbg("clean!!");
+		service_clean(s);
 	}
 }
 

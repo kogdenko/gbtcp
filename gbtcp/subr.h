@@ -169,7 +169,7 @@ struct profiler {
 
 #define STRSZ(s) (s), (sizeof(s) - 1)
 
-#define ALIGNMENT sizeof(unsigned long)
+#define ALIGNMENT sizeof(void *)
 #define ALIGN(x, a) (((x) + (a - 1)) & ~(a - 1))
 #define ALIGN_PTR(x) ALIGN(x, ALIGNMENT)
 

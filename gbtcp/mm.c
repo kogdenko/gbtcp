@@ -1,11 +1,13 @@
 #include "internals.h"
 
-#define NAME "gbtcp"
+#define SHM_OPEN_NAME "gbtcp"
+#define SHM_MEMORY_SIZE (1024*1024*1204) // 1 Gb
+#define SHM_MMAP_SUGGEST (void *)(0x7fffffffffff - 8llu * 1024 * 1024 * 1024)
 
 struct shm_hdr {
 	uintptr_t shm_addr;
 	struct spinlock shm_lock;
-	struct dlist shm_free_region_head;
+	struct dlist shm_heap;
 	int shm_npages;
 	u_char *shm_pageset;
 };
@@ -17,6 +19,10 @@ struct shm_region {
 
 static int shm_fd = -1;
 static struct shm_hdr *shm;
+//static void *curmod;
+
+#define SHM_LOCK  spinlock_lock(&shm->shm_lock)
+#define SHM_UNLOCK spinlock_unlock(&shm->shm_lock); 
 
 static int
 roundup_page(int size)
@@ -37,9 +43,9 @@ shm_init(void **pp, int size)
 	void *ptr, *suggest;
 
 	npages = 256000;
-	rc = shm_open(NAME, O_CREAT|O_RDWR, 0666);
-	if (rc == -1) {
-		return -errno;
+	rc = sys_shm_open(SHM_OPEN_NAME, O_CREAT|O_RDWR, 0666);
+	if (rc < 0) {
+		return rc;
 	}
 	shm_fd = rc;
 	ftruncate(shm_fd, npages * PAGE_SIZE);
@@ -51,11 +57,11 @@ shm_init(void **pp, int size)
 		rc = -errno;
 		goto err;
 	}
-	assert(!(((uintptr_t)ptr) & (PAGE_SIZE - 1)));
+	ASSERT(!(((uintptr_t)ptr) & (PAGE_SIZE - 1)));
 	shm = ptr;
 	shm->shm_addr = (uintptr_t)ptr;
 	spinlock_init(&shm->shm_lock);
-	dlist_init(&shm->shm_free_region_head);
+	dlist_init(&shm->shm_heap);
 	shm->shm_npages = npages;
 	shm->shm_pageset = (u_char *)(shm + 1);
 	memset(shm->shm_pageset, 0, npages);
@@ -77,9 +83,9 @@ shm_attach(void **pp)
 	int rc, size;
 	void *ptr, *addr;
 
-	rc = shm_open(NAME, O_RDWR, 0666);
-	if (rc == -1) {
-		return -errno;
+	rc = sys_shm_open(SHM_OPEN_NAME, O_RDWR, 0666);
+	if (rc < 0) {
+		return rc;
 	}
 	shm_fd = rc;
 	ptr = mmap(NULL, sizeof(*shm), PROT_READ|PROT_WRITE,
@@ -124,7 +130,7 @@ void
 shm_deinit()
 {
 	shm_detach();
-	shm_unlink(NAME);
+	shm_unlink(SHM_OPEN_NAME);
 }
 
 int
@@ -132,6 +138,7 @@ shm_alloc_page_locked(void **pp, int alignment, int size)
 {
 	int i, j, alignment_n, size_n;
 	uintptr_t addr;
+
 	if (alignment & (PAGE_SIZE - 1)) {
 		return -EINVAL;
 	}
@@ -168,9 +175,10 @@ shm_malloc_locked(void **pp, size_t size)
 {
 	int rc, rem, size2, size3;
 	struct shm_region *r, *r2;
+
 	r2 = NULL;
 	size2 = size + sizeof(*r2);
-	DLIST_FOREACH(r, &shm->shm_free_region_head, shmr_list) {
+	DLIST_FOREACH(r, &shm->shm_heap, shmr_list) {
 		if (r->shmr_size >= size2) {
 			if (r2 == NULL || r2->shmr_size > r->shmr_size) {
 				r2 = r;
@@ -194,26 +202,21 @@ out:
 		r->shmr_size = size2;
 		r2 = (struct shm_region *)(((u_char *)r) + r->shmr_size);
 		r2->shmr_size = rem;
-		DLIST_INSERT_HEAD(&shm->shm_free_region_head, r2, shmr_list);
+		DLIST_INSERT_HEAD(&shm->shm_heap, r2, shmr_list);
 	}
 	*pp = r + 1;
 	return 0;
 }
-#define SHM_LOCK  spinlock_lock(&shm->shm_lock)
-#define SHM_UNLOCK spinlock_unlock(&shm->shm_lock);
- 
+
 
 int
 shm_malloc(void **pp, size_t size)
 {
 	int rc;
+
 	SHM_LOCK;
 	rc = shm_malloc_locked(pp, size);
 	SHM_UNLOCK;
-	if (rc) {
-	} else {
-		memset(*pp, 0, size);
-	}
 	return rc;
 }
 
@@ -239,6 +242,7 @@ shm_realloc(void **pp, int size)
 	*pp = new;
 	return 0;
 }
+
 void
 shm_free(void *p)
 {
@@ -248,13 +252,10 @@ int
 shm_alloc_page(void **pp, int alignment, int size)
 {
 	int rc;
-	//return -posix_memalign(pp, alignment, size);
+
 	SHM_LOCK;
 	rc = shm_alloc_page_locked(pp, alignment, size);
 	SHM_UNLOCK;
-	if (rc) {
-	} else {
-	}
 	return rc;
 }
 

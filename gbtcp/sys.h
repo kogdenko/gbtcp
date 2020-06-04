@@ -171,6 +171,7 @@ int sys_daemon(int, int);
 int sys_inotify_init1(int);
 int sys_inotify_add_watch(int, const char *, uint32_t);
 int sys_inotify_rm_watch(int, int);
+int sys_shm_open(const char *, int, mode_t);
 
 #ifdef __linux__
 int sys_epoll_create1(int);

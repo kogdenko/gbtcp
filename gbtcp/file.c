@@ -13,6 +13,7 @@ file_init(struct file *fp, int type)
 	fp->fl_flags = 0;
 	fp->fl_type = type;
 	fp->fl_blocked = 1;
+	fp->fl_service_id = current->p_id;
 	dlist_init(&fp->fl_aioq);
 }
 
@@ -82,6 +83,18 @@ file_mod_service_deinit(struct service *s)
 	mbuf_pool_deinit(&s->p_file_pool);
 }
 
+void
+file_mod_service_clean(struct service *s)
+{
+	int tmp_fd;
+	struct file *fp;
+
+	FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
+		fp->fl_service_id = current->p_id;
+		file_close(fp);
+	}
+}
+
 int
 file_get_fd(struct file *fp)
 {
@@ -92,7 +105,7 @@ file_get_fd(struct file *fp)
 }
 
 struct file *
-file_next(int fd)
+file_next(struct service *s, int fd)
 {
 	int m_id;
 	struct mbuf *m;
@@ -103,7 +116,7 @@ file_next(int fd)
 	} else {
 		m_id = fd - curmod->file_first_fd;
 	}
-	m = mbuf_next(&current->p_file_pool, m_id);
+	m = mbuf_next(&s->p_file_pool, m_id);
 	fp = (struct file *)m;
 	return fp;
 }

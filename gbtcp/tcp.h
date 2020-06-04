@@ -6,8 +6,6 @@
 #include "sockbuf.h"
 #include "htable.h"
 
-struct gt_tcpcb;
-
 struct socb {
 	int socb_fd;
 	int socb_flags;
@@ -26,7 +24,7 @@ struct sock {
 	struct file so_file;
 #define so_blocked so_file.fl_blocked
 #define so_referenced so_file.fl_referenced
-#define so_service_id so_file.fl_mbuf.mb_service_id
+#define so_service_id so_file.fl_service_id
 	union {
 		uint64_t so_flags;
 		struct {

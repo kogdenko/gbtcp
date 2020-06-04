@@ -890,7 +890,6 @@ route_if_rxr_next(struct route_if *ifp, struct netmap_ring *rxr)
 void
 route_if_tx(struct route_if *ifp, struct dev_pkt *pkt)
 {
-	service_inc_pkts(); // ?????
 	counter64_inc(&ifp->rif_tx_pkts);
 	counter64_add(&ifp->rif_tx_bytes, pkt->pkt_len);
 	dev_tx(pkt);

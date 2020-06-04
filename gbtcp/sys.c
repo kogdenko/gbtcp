@@ -947,6 +947,22 @@ sys_inotify_rm_watch(int fd, int wd)
 	return rc;
 }
 
+int
+sys_shm_open(const char *name, int oflag, mode_t mode)
+{
+	int rc;
+
+	rc = shm_open(name, oflag, mode);
+	if (rc == -1) {
+		rc = -errno;
+		ASSERT(rc);
+		ERR(-rc, "failed; name='%s'", name);
+	} else {
+		INFO(0, "ok; name='%s', fd=%d", name, rc);
+	}
+	return rc;
+}
+
 #ifdef __linux__
 int
 sys_epoll_create1(int flags)

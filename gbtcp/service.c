@@ -26,6 +26,19 @@ static u_int service_rcu[GT_SERVICES_MAX];
 
 struct service *current;
 
+#define service_load_epoch(s) \
+({ \
+	u_int epoch; \
+	__atomic_load(&(s)->p_epoch, &epoch, __ATOMIC_SEQ_CST); \
+	epoch; \
+})
+
+#define service_store_epoch(s, epoch) \
+do { \
+	u_int tmp = epoch; \
+	__atomic_store(&(s)->p_epoch, &tmp, __ATOMIC_SEQ_CST); \
+} while (0)
+
 int
 service_mod_init(void **pp)
 {
@@ -60,41 +73,6 @@ void
 service_mod_detach()
 {
 	curmod = NULL;
-}
-
-void
-gt_init()
-{
-	dlsym_all();
-	rd_nanoseconds();
-	srand48(time(NULL));
-	log_init_early();
-}
-
-int
-service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
-	be16_t lport, be16_t fport)
-{
-	int i, rss_qid;
-	uint32_t h;
-
-	if (ifp->rif_rss_nq == 1) {
-		return 1;
-	}
-	rss_qid = -1;
-	for (i = 0; i < ifp->rif_rss_nq; ++i) {
-		if (ih->ih_rss_table[i] == current->p_id) {
-			if (rss_qid == -1) {
-				h = rss_hash4(laddr, faddr, lport, fport,
-				              ifp->rif_rss_key);
-				rss_qid = h % ifp->rif_rss_nq;
-			}
-			if (i == rss_qid) {
-				return 1;
-			}
-		}
-	}
-	return 0;
 }
 
 static int
@@ -248,40 +226,15 @@ service_vale_rxtx(struct dev *dev, short revents)
 	}
 }
 
-static void
-service_detach(int forked)
-{
-	int i;
-	struct dev *dev;
-	struct route_if *ifp;
-
-	service_deinit(forked);
-	sys_close(service_sysctl_fd);
-	service_sysctl_fd = -1;
-	sys_close(service_pid_fd);
-	service_pid_fd = -1;
-	if (current != NULL) {
-		ROUTE_IF_FOREACH(ifp) {
-			for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
-				dev = &(ifp->rif_dev[current->p_id][i]);
-				dev_deinit(dev, forked);
-			}
-		}
-		current = NULL;
-	}
-	shm_detach();
-	foreach_mod_detach();
-}
-
 int
 service_init(const char *p_comm)
 {
 	int rc;
 	char buf[NM_IFNAMSIZ];
 
-	current->p_kpps = 0;
-	current->p_pkts = 0;
-	current->p_pkts_time = nanoseconds;
+	current->p_tx_kpps = 0;
+	current->p_tx_kpps_time = nanoseconds;
+	current->p_tx_pkts = 0;
 	strzcpy(current->p_comm, p_comm, sizeof(current->p_comm));
 	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_id);
 	dlist_init(&service_rcu_active_head);
@@ -290,12 +243,6 @@ service_init(const char *p_comm)
 	memset(service_rcu, 0, sizeof(service_rcu));
 	rc = dev_init(&service_vale, buf, service_vale_rxtx);
 	return rc;
-}
-
-void
-service_deinit()
-{
-	dev_deinit(&service_vale, 0);
 }
 
 int
@@ -392,43 +339,55 @@ err:
 	return rc;
 }
 
-static void
-service_update_dev(struct route_if *ifp, int rss_qid)
+void
+service_deinit()
 {
-	int id, ifflags;
-	char dev_name[NM_IFNAMSIZ];
-	struct dev *dev;
-
-	ifflags = READ_ONCE(ifp->rif_flags);
-	id = READ_ONCE(ih->ih_rss_table[rss_qid]);
-	dev = &(ifp->rif_dev[current->p_id][rss_qid]);
-	if ((ifflags & IFF_UP) && id == current->p_id) {
-		if (!dev_is_inited(dev)) {
-			snprintf(dev_name, sizeof(dev_name), "%s-%d",
-			         ifp->rif_name, rss_qid);
-			dev_init(dev, dev_name, service_rssq_rxtx);
-			dev->dev_ifp = ifp;
-		}
-	} else {
-		dev_deinit(dev, 0);
-	}
+	dev_deinit(&service_vale, 0);
 }
 
 void
-service_update()
+service_detach(int forked)
 {
 	int i;
+	struct dev *dev;
 	struct route_if *ifp;
 
-	ROUTE_IF_FOREACH(ifp) {
-		for (i = 0; i < ifp->rif_rss_nq; ++i) {
-			service_update_dev(ifp, i);
+	service_deinit(forked);
+	sys_close(service_sysctl_fd);
+	service_sysctl_fd = -1;
+	sys_close(service_pid_fd);
+	service_pid_fd = -1;
+	if (current != NULL) {
+		ROUTE_IF_FOREACH(ifp) {
+			for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
+				dev = &(ifp->rif_dev[current->p_id][i]);
+				dev_deinit(dev, forked);
+			}
 		}
+		current = NULL;
 	}
-	current->p_dirty = 0;
+	shm_detach();
+	foreach_mod_detach();
 }
 
-//static void service_rcu_free();
+void
+service_clean(struct service *s)
+{
+	int i;
+	struct dev *dev;
+	struct route_if *ifp;
+
+	NOTICE(0, "hit; pid=%d", s->p_pid);
+	ROUTE_IF_FOREACH(ifp) {
+		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
+			dev = &(ifp->rif_dev[s->p_id][i]);
+			dev_clean(dev);
+		}
+	}
+	file_mod_service_clean(s);
+	s->p_pid = 0;
+	service_store_epoch(s, 0);
+}
 
 static void
 service_rcu_reload()
@@ -475,13 +434,6 @@ service_rcu_free()
 	}
 }
 
-#define service_ld_epoch(s) \
-({ \
-	u_int epoch; \
-	__atomic_load(&(s)->p_epoch, &epoch, __ATOMIC_SEQ_CST); \
-	epoch; \
-})
-
 static void
 service_rcu_check()
 {
@@ -492,7 +444,7 @@ service_rcu_check()
 	for (i = 0; i < service_rcu_max; ++i) {
 		s = ih->ih_services + i;
 		if (service_rcu[i]) {
-			epoch = service_ld_epoch(s);
+			epoch = service_load_epoch(s);
 			if (service_rcu[i] != epoch) {
 				service_rcu[i] = 0;
 			} else {
@@ -519,27 +471,92 @@ service_unlock()
 	if (epoch == 0) {
 		epoch = 1;
 	}
-	__atomic_store(&current->p_epoch, &epoch, __ATOMIC_SEQ_CST);
+	service_store_epoch(current, epoch);
 	service_rcu_check();
 	spinlock_unlock(&current->p_lock);
 }
 
 void
-service_inc_pkts()
+service_account_tx_pkt()
 {
 	uint64_t dt;
 
-	current->p_pkts++;
-	dt = nanoseconds - current->p_pkts_time;
+	current->p_tx_pkts++;
+	dt = nanoseconds - current->p_tx_kpps_time;
 	if (dt >= NANOSECONDS_MILLISECOND) {
-		current->p_kpps = current->p_pkts;
-		current->p_pkts_time = nanoseconds;
-		current->p_pkts = 0;
 		if (dt > 2 * NANOSECONDS_MILLISECOND) {
 			// Gap in more then 1 millisecond
-			current->p_kpps = 1;
+			WRITE_ONCE(current->p_tx_kpps, 1);
+		} else {
+			WRITE_ONCE(current->p_tx_kpps, current->p_tx_pkts);
+		}
+		current->p_tx_kpps_time = nanoseconds;
+		current->p_tx_pkts = 0;
+	}
+}
+
+static void
+service_update_dev(struct route_if *ifp, int rss_qid)
+{
+	int id, ifflags;
+	char dev_name[NM_IFNAMSIZ];
+	struct dev *dev;
+
+	ifflags = READ_ONCE(ifp->rif_flags);
+	id = READ_ONCE(ih->ih_rss_table[rss_qid]);
+	dev = &(ifp->rif_dev[current->p_id][rss_qid]);
+	if ((ifflags & IFF_UP) && id == current->p_id) {
+		if (!dev_is_inited(dev)) {
+			snprintf(dev_name, sizeof(dev_name), "%s-%d",
+			         ifp->rif_name, rss_qid);
+			dev_init(dev, dev_name, service_rssq_rxtx);
+			dev->dev_ifp = ifp;
+		}
+	} else {
+		dev_deinit(dev, 0);
+	}
+}
+
+void
+service_update()
+{
+	int i;
+	struct route_if *ifp;
+
+	ROUTE_IF_FOREACH(ifp) {
+		for (i = 0; i < ifp->rif_rss_nq; ++i) {
+			service_update_dev(ifp, i);
 		}
 	}
+	current->p_dirty = 0;
+}
+
+
+
+int
+service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
+	be16_t lport, be16_t fport)
+{
+	int i, rss_qid;
+	uint32_t h;
+
+	if (ifp->rif_rss_nq == 1) {
+		return 1;
+	}
+	rss_qid = -1;
+	for (i = 0; i < ifp->rif_rss_nq; ++i) {
+		if (ih->ih_rss_table[i] == current->p_id) {
+			if (rss_qid == -1) {
+				h = rss_hash4(laddr, faddr, lport, fport,
+				              ifp->rif_rss_key);
+				rss_qid = h % ifp->rif_rss_nq;
+			}
+			if (i == rss_qid) {
+				return 1;
+			}
+		}
+	}
+	return 0;
 }
 
 static void
