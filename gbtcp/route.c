@@ -11,9 +11,8 @@ struct route_entry_long {
 };
 
 static struct route_mod *curmod;
-
 static struct fd_event *route_monitor_event;
-static int route_monfd = -1;
+static int route_monitor_fd = -1;
 
 static int route_ifaddr_del(struct route_if *, const struct ipaddr *);
 
@@ -171,7 +170,7 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 	ifp->rif_flags |= IFF_UP;
 	controller_update_rss_table();
 //	sched_link_up();
-	if (route_monfd != -1) {
+	if (route_monitor_fd != -1) {
 		// TODO: DELETE OLD ROUTES...
 		route_dump(route_on_msg);
 	}
@@ -468,21 +467,21 @@ route_on_msg(struct route_msg *msg)
 static int
 route_monitor_handler(void *udata, short revent)
 {
-	route_read(route_monfd, route_on_msg);
+	route_read(route_monitor_fd, route_on_msg);
 	return 0;
 }
 
-static int
+static void
 route_monitor_stop()
 {
-	if (route_monfd == -1) {
-		return -EALREADY;
+	if (route_monitor_fd != -1) {
+		sys_close(route_monitor_fd);
+		route_monitor_fd = -1;
 	}
-	fd_event_del(route_monitor_event);
-	sys_close(route_monfd);
-	route_monfd = -1;
-	route_monitor_event = NULL;
-	return 0;
+	if (route_monitor_event != NULL) {
+		fd_event_del(route_monitor_event);
+		route_monitor_event = NULL;
+	}
 }
 
 static int
@@ -490,25 +489,25 @@ route_monitor_start()
 {
 	int rc;
 
-	if (route_monfd != -1) {
+	if (route_monitor_fd != -1) {
 		return -EALREADY;
 	}
 	rc = route_open(curmod);
 	if (rc < 0) {
 		return rc;
 	}
-	route_monfd = rc;
-	rc = fcntl_setfl_nonblock2(route_monfd);
+	route_monitor_fd = rc;
+	rc = fcntl_setfl_nonblock2(route_monitor_fd);
 	if (rc < 0) {
 		goto err;
 	}
-	rc = fd_event_add(&route_monitor_event, route_monfd,
+	rc = fd_event_add(&route_monitor_event, route_monitor_fd,
 	                  "route_monitor", NULL, route_monitor_handler);
 	if (rc) {
 		goto err;
 	}
 	fd_event_set(route_monitor_event, POLLIN);
-	INFO(0, "ok; fd=%d", route_monfd);
+	INFO(0, "ok; fd=%d", route_monitor_fd);
 	route_dump(route_on_msg);
 	return 0;
 err:
@@ -679,11 +678,7 @@ sysctl_route_list(void *udata, const char *ident, const char *new,
 	struct mbuf *m;
 	struct route_entry_long *route;
 
-	if (ident == NULL) {
-		id = 0;
-	} else {
-		id = strtoul(ident, NULL, 10) + 1;
-	}
+	id = strtoul(ident, NULL, 10);
 	m = mbuf_get(&curmod->route_pool, id);
 	route = (struct route_entry_long *)m;
 	if (route == NULL) {
@@ -697,25 +692,6 @@ sysctl_route_list(void *udata, const char *ident, const char *new,
 	strbuf_addf(out, "/%u,%s,", pfx, route->rtl_ifp->rif_name);
 	strbuf_add_ipaddr(out, AF_INET, &route->rtl_via);
 	return 0;
-}
-
-static int
-sysctl_route_monitor(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *out)
-{
-	int rc, flag;
-
-	strbuf_addf(out, "%d", route_monfd == -1 ? 0 : 1);
-	if (new == NULL) { 
-		return 0;
-	}
-	flag = strtoul(new, NULL, 10);
-	if (flag) {
-		rc = route_monitor_start();
-	} else {
-		rc = route_monitor_stop();
-	}
-	return rc;
 }
 
 int
@@ -735,8 +711,11 @@ route_mod_init(void **pp)
 	lptree_init(&curmod->route_lptree);
 	mbuf_pool_init(&curmod->route_pool, 0,
 	               sizeof(struct route_entry_long));
-	sysctl_add(SYSCTL_ROUTE_MONITOR, SYSCTL_WR,
-	           NULL, NULL, sysctl_route_monitor);
+	rc = route_monitor_start();
+	if (rc) {
+		route_mod_deinit(curmod);
+		return rc;
+	}
 	sysctl_add_list(GT_SYSCTL_ROUTE_IF_LIST, SYSCTL_WR, NULL,
 	                sysctl_route_if_list_next,
 	                sysctl_route_if_list);
@@ -767,6 +746,7 @@ route_mod_deinit(void *raw_mod)
 
 	mod = raw_mod;
 	sysctl_del(GT_SYSCTL_ROUTE);
+	route_monitor_stop();
 	lptree_deinit(&mod->route_lptree);
 	log_scope_deinit(&mod->log_scope);
 	shm_free(mod);

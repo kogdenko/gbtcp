@@ -132,6 +132,7 @@ inet_mod_init(void **pp)
 		return rc;
 	}
 	curmod = *pp;
+	memset(curmod, 0, sizeof(*curmod));
 	log_scope_init(&curmod->log_scope, "inet");
 	sysctl_add_inet_stat_tcp();
 	sysctl_add_inet_stat_udp();

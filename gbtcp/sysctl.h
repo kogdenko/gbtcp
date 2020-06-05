@@ -14,7 +14,6 @@
 #define SYSCTL_CONTROLLER_PATH SYSCTL_SOCK_PATH"/controller.sock"
 
 #define SYSCTL_CONTROLLER_SERVICE_ATTACH "controller.service.attach"
-#define SYSCTL_ROUTE_MONITOR "route.monitor"
 
 struct sysctl_conn {
 	void (*sccn_close_fn)(struct sysctl_conn *);

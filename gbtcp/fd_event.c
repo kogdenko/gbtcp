@@ -191,7 +191,6 @@ fd_event_del(struct fd_event *e)
 {
 	if (e != NULL) {
 		INFO(0, "hit; fd=%d", e->fde_fd);
-		ASSERT(fd_event_nused);
 		ASSERT(e->fde_fn != NULL);
 		ASSERT(e->fde_id < fd_event_nused);
 		ASSERT(e == fd_event_used[e->fde_id]);

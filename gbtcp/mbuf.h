@@ -33,6 +33,7 @@ struct mbuf_pool {
 
 int mbuf_mod_init(void **);
 int mbuf_mod_attach(void *);
+int mbuf_mod_service_init(struct service *);
 void mbuf_mod_deinit();
 void mbuf_mod_detach();
 

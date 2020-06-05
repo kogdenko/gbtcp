@@ -66,7 +66,7 @@ dlist_insert_tail_rcu(struct dlist *head, struct dlist *l)
 }
 
 void
-dlist_insert_before(struct dlist *b, struct dlist *l)
+dlist_insert_before(struct dlist *l, struct dlist *b)
 {
 	l->dls_next = b;
 	l->dls_prev = b->dls_prev;
@@ -109,4 +109,21 @@ dlist_replace_init(struct dlist *new, struct dlist *old)
 {
 	dlist_replace(new, old);
 	dlist_init(old);	
+}
+
+void
+dlist_splice_tail(struct dlist *dst, struct dlist *src)
+{
+	dst->dls_prev->dls_next = src->dls_next;
+	src->dls_next->dls_prev = dst->dls_prev;
+	src->dls_prev->dls_next = dst->dls_next;
+	dst->dls_next->dls_prev = src->dls_prev;
+}
+
+void
+dlist_splice_tail_init(struct dlist *dst, struct dlist *src)
+{
+	ASSERT(!dlist_is_empty(src));
+	dlist_splice_tail(dst, src);
+	dlist_init(src);
 }

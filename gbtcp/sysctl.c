@@ -384,9 +384,11 @@ sysctl_node_find(const char *path, struct sysctl_node **pnode, char **ptail)
 			*pnode = node;
 			if (ptail == NULL) {
 				return -ENOENT;
-			} else {
+			} else 	if (i == path_iovcnt - 1) {
 				*ptail = path_iov[i].iov_base;
-				return 0;
+				return 0;	
+			} else {
+				return -ENOENT;
 			}
 		}
 		node = child;
@@ -480,7 +482,11 @@ sysctl_process_node(struct sysctl_conn *cp,
 	if (new != NULL) {
 		switch (node->n_mode) {
 		case SYSCTL_RD:
-			return -EACCES;
+			if (node->n_fn == NULL) {
+				return -ENOENT;
+			} else {
+				return -EACCES;
+			}
 		case SYSCTL_LD:
 			if (loader == 0) {
 				if (cp == NULL) {
@@ -517,12 +523,12 @@ static int
 sysctl_list_handler(struct sysctl_node *node, const char *tail,
 	const char *new, struct strbuf *out)
 {
-	int rc, len;
+	int rc, tail_len;
 	struct sysctl_list_udata *udata;
 
 	udata = &node->n_list_udata;
-	len = strzlen(tail);
-	if (len == 0 || tail[len - 1] == '+') {
+	tail_len = strzlen(tail);
+	if (tail_len == 0 || tail[tail_len - 1] == '+') {
 		strbuf_add_ch(out, ',');
 		rc = (*udata->l_next_fn)(node->n_udata, tail, out);
 		if (rc) {

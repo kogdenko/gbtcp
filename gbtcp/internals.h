@@ -9,7 +9,7 @@
 #include "ip_addr.h"
 #include "sys.h"
 #include "pid.h"
-#include "mm.h"
+#include "shm.h"
 #include "mbuf.h"
 #include "timer.h"
 #include "htable.h"

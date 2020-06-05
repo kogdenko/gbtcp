@@ -1,8 +1,35 @@
-// GPL2 license
+// gpl2 license
 #ifndef GBTCP_MOD_H
 #define GBTCP_MOD_H
 
 #include "subr.h"
+
+enum {
+	MOD_SYSCTL,
+	MOD_LOG,
+	MOD_SYS,
+	MOD_SUBR,
+	MOD_PID,
+	MOD_POLL,
+	MOD_EPOLL,
+	MOD_MBUF,
+	MOD_HTABLE,
+	MOD_TIMER,
+	MOD_FD_EVENT,
+	MOD_SIGNAL,
+	MOD_DEV,
+	MOD_API,
+	MOD_LPTREE,
+	MOD_ROUTE,
+	MOD_ARP,
+	MOD_FILE,
+	MOD_INET,
+	MOD_SOCKBUF,
+	MOD_TCP,
+	MOD_SERVICE,
+	MOD_CONTROLLER,
+	MOD_N
+};
 
 int foreach_mod_init(struct init_hdr *);
 int foreach_mod_service_init(struct service *);

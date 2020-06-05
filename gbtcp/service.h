@@ -10,8 +10,6 @@
 
 #define PROC_COMM_MAX 32
 
-#define MODS_MAX 32
-
 //#define P_SERVICE 0
 //#define P_CONTROLLER 1
 
@@ -50,13 +48,15 @@ struct service {
 	struct mbuf_pool p_sockbuf_pool;
 	struct mbuf_pool p_arp_entry_pool;
 	struct mbuf_pool p_arp_incomplete_pool;
+	int p_mbuf_free_indirect_n;
+	struct dlist p_mbuf_free_indirect_head[GT_SERVICES_MAX];
 	char p_comm[PROC_COMM_MAX];
 };
 
 struct init_hdr {
 	int ih_version;
 	uint64_t ih_hz;
-	void *ih_mods[MODS_MAX];
+	void *ih_mods[MOD_N];
 	struct service ih_services[GT_SERVICES_MAX];
 	int ih_rss_nq;
 	int ih_rss_table[GT_RSS_NQ_MAX];

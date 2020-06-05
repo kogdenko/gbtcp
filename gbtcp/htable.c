@@ -64,6 +64,7 @@ htable_init(struct htable *t, int size, htable_f fn, int flags)
 	t->ht_mask = t->ht_size - 1;
 	t->ht_flags = flags;
 	t->ht_fn = fn;
+	t->ht_sysctl_fn = NULL;
 	if (flags & HTABLE_SHARED) {
 		malloc_fn = shm_malloc;
 	} else {
@@ -129,6 +130,7 @@ sysctl_htable_size(struct sysctl_conn *cp, void *udata,
 	return 0;
 }
 
+#define HTABLE_ID_FMT "%d/%d"
 
 static int
 sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
@@ -141,7 +143,7 @@ sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 
 	id.hi = id.lo = 0;
 	if (ident != NULL) {
-		rc = sscanf(ident, "%d.%d", &id.hi, &id.lo);
+		rc = sscanf(ident, HTABLE_ID_FMT, &id.hi, &id.lo);
 		if (rc == 2) {
 			id.lo++;
 		}
@@ -154,7 +156,7 @@ sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 		dlist_foreach(e, &b->htb_head) {
 			if (lo == id.lo) {
 				spinlock_unlock(&b->htb_lock);
-				strbuf_addf(out, "%d.%d", id.hi, id.lo);
+				strbuf_addf(out, HTABLE_ID_FMT, id.hi, id.lo);
 				return 0;
 			}
 			lo++;
@@ -175,7 +177,7 @@ sysctl_htable_list(void *udata, const char *ident,
 	struct htable_id id;
 	struct htable_bucket *b;
 
-	rc = sscanf(ident, "%d.%d", &id.hi, &id.lo);
+	rc = sscanf(ident, HTABLE_ID_FMT, &id.hi, &id.lo);
 	if (rc != 2) {
 		return -EPROTO;
 	}

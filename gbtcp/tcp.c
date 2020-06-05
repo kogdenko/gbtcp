@@ -650,7 +650,6 @@ so_close(struct sock *so)
 		so_unref(so, NULL);
 		break;
 	case GT_TCP_S_LISTEN:
-		dbg("!!!!");
 		gt_tcp_close_not_accepted(&so->so_incompleteq);
 		gt_tcp_close_not_accepted(&so->so_completeq);
 		tcp_set_state(so, NULL, GT_TCP_S_CLOSED);
@@ -2285,7 +2284,6 @@ so_find_binded(struct htable_bucket *b, int so_ipproto,
 
 	// TODO: rcu
 	found = NULL;
-	//dbg(">>>>");
 	DLIST_FOREACH_RCU(so, &b->htb_head, so_bind_list) {
 		//dbg("! %d  current=%d", so->so_service_id, current->p_id);
 		if (so->so_ipproto == so_ipproto &&

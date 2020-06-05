@@ -91,6 +91,7 @@ file_mod_service_clean(struct service *s)
 
 	FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
 		fp->fl_service_id = current->p_id;
+		fp->fl_referenced = 0;
 		file_close(fp);
 	}
 }
@@ -179,9 +180,8 @@ file_free_rcu(struct file *fp)
 void
 file_close(struct file *fp)
 {
-	fp->fl_referenced = 0;
 	file_wakeup(fp, POLLNVAL);
-	ASSERT(dlist_is_empty(&fp->fl_aioq));
+	fp->fl_referenced = 0;
 	switch (fp->fl_type) {
 	case FILE_SOCK:
 		so_close((struct sock *)fp);
@@ -267,6 +267,9 @@ file_wakeup(struct file *fp, short events)
 	ASSERT(events);
 	DBG(0, "hit; fd=%d, events=%s",
 	    file_get_fd(fp), log_add_poll_events(events));
+	if (!fp->fl_referenced) {
+		return;
+	}
 	DLIST_FOREACH_SAFE(aio, &fp->fl_aioq, faio_list, tmp) {
 		ASSERT(aio->faio_filter);
 		revents = (events & aio->faio_filter);
@@ -274,6 +277,7 @@ file_wakeup(struct file *fp, short events)
 			file_aio_call(aio, revents);
 		}
 	}
+	ASSERT((events & POLLNVAL) == 0 || dlist_is_empty(&fp->fl_aioq));
 }
 
 struct file_wait_data {
