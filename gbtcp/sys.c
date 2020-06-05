@@ -667,6 +667,60 @@ sys_posix_memalign(void **memptr, size_t alignment, size_t size)
 }
 
 int
+sys_mmap(void **res, void *addr, size_t size, int prot, int flags,
+	int fd, off_t offset)
+{
+	int rc;
+	void *ptr;
+
+	ptr = mmap(addr, size, prot, flags, fd, offset);
+	if (ptr == MAP_FAILED) {
+		rc = -errno;
+		ASSERT(rc);
+		ERR(-rc, "failed; fd=%d, size=%zu", fd, size);
+	} else {
+		rc = 0;
+		INFO(0, "ok; fd=%d, ptr=%p, size=%zu", fd, ptr, size);
+	}
+	if (res != NULL) {
+		*res = ptr;
+	}
+	return rc;
+}
+
+int
+sys_munmap(void *ptr, size_t size)
+{
+	int rc;
+
+	rc = munmap(ptr, size);
+	if (rc == -1) {
+		rc = -errno;
+		ASSERT(rc);
+		ERR(-rc, "failed; ptr=%p, size=%zu", ptr, size);
+	} else {
+		INFO(0, "ok; ptr=%p, size=%zu", ptr, size);
+	}
+	return rc;
+}
+
+int
+sys_mprotect(void *ptr, size_t size, int prot)
+{
+	int rc;
+
+	rc = mprotect(ptr, size, prot);
+	if (rc == -1) {
+		rc = -errno;
+		ASSERT(rc);
+		ERR(-rc, "failed; ptr=%p, size=%zu", ptr, size);
+	} else {
+		INFO(0, "ok; ptr=%p, size=%zu", ptr, size);
+	}
+	return rc;
+}
+
+int
 sys_fopen(FILE **file, const char *path, const char *mode)
 {
 	int rc;
@@ -710,6 +764,25 @@ restart:
 			goto restart;
 		} else {
 			ERR(-rc, "failed; path='%s'", path);
+		}
+	}
+	return rc;
+}
+
+int
+sys_ftruncate(int fd, off_t off)
+{
+	int rc;
+
+restart:
+	rc = ftruncate(fd, off);
+	if (rc == -1) {
+		rc = -errno;
+		ASSERT(rc);
+		if (rc == -EINTR) {
+			goto restart;
+		} else {
+			ERR(-rc, "failed; fd=%d, off=%zu", fd, off);
 		}
 	}
 	return rc;

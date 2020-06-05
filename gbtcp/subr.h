@@ -86,6 +86,7 @@ typedef cpuset_t cpu_set_t;
 #define CACHE_LINE_SIZE 64
 #define PAGE_SHIFT 12
 #define PAGE_SIZE (1 << PAGE_SHIFT)
+#define PAGE_MASK (PAGE_SIZE - 1)
 
 #define ETHADDR_STRLEN 18
 #define ETHADDR_LEN 6

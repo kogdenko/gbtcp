@@ -154,9 +154,13 @@ int sys_malloc(void **, size_t);
 #define sys_free free
 int sys_realloc(void **, size_t);
 int sys_posix_memalign(void **, size_t, size_t);
+int sys_mmap(void **, void *, size_t, int, int, int, off_t);
+int sys_munmap(void *addr, size_t);
+int sys_mprotect(void *, size_t, int);
 int sys_fopen(FILE **, const char *, const char *);
 int sys_opendir(DIR **, const char *);
 int sys_stat(const char *, struct stat *);
+int sys_ftruncate(int, off_t);
 int sys_realpath(const char *, char *);
 int sys_flock(int, int);
 int sys_getgrnam(const char *, struct group **);

@@ -78,8 +78,8 @@ mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 		ERR(0, "no chunk slots;");
 		return -ENOMEM;
 	}
-	rc = shm_alloc_page((void **)pchunk,
-	                    MBUF_CHUNK_SIZE, MBUF_CHUNK_SIZE);
+	rc = shm_alloc_pages((void **)pchunk,
+	                     MBUF_CHUNK_SIZE, MBUF_CHUNK_SIZE);
 	if (rc) {
 		return rc;
 	}
@@ -110,7 +110,7 @@ static void
 mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 {
 	DLIST_REMOVE(chunk, c_list);
-	shm_free_page(chunk, MBUF_CHUNK_SIZE);
+	shm_free_pages(chunk, MBUF_CHUNK_SIZE);
 }
 
 void

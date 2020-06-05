@@ -22,7 +22,7 @@ struct mbuf_pool {
 	u_char mbp_service_id;
 	struct dlist mbp_avail_chunkq;
 	struct dlist mbp_empty_chunkq;
-	struct mbuf_chunk *mbp_chunks[MBUF_CHUNKS_MAX];
+	struct mbuf_chunk *mbp_chunks[MBUF_CHUNKS_MAX]; // FIXME: allocate exact size
 	int mbp_nr_chunks;
 };
 
