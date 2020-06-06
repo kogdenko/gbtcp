@@ -1,121 +1,113 @@
 #include "internals.h"
 
-struct mod {
-	int (*mod_init)(void **);
-	int (*mod_attach)(void *);
-	int (*mod_service_init)(struct service *);
-	void (*mod_deinit)();
-	void (*mod_detach)();
-	void (*mod_service_deinit)(struct service *);
-};
-
-#define MOD4(name) { \
-	.mod_init = name##_mod_init, \
-	.mod_attach = name##_mod_attach, \
-	.mod_deinit = name##_mod_deinit, \
-	.mod_detach = name##_mod_detach, \
-},
-
-#define MOD6(name) { \
-	.mod_init = name##_mod_init, \
-	.mod_attach = name##_mod_attach, \
-	.mod_deinit = name##_mod_deinit, \
-	.mod_detach = name##_mod_detach, \
-	.mod_service_init = name##_mod_service_init, \
-	.mod_service_deinit = name##_mod_service_deinit, \
-},
-
-struct mod mods[MOD_N] = {
-	[MOD_SYSCTL] = {
-		.mod_init = sysctl_mod_init,
-		.mod_attach = sysctl_mod_attach,
-		.mod_deinit = sysctl_mod_deinit,
-		.mod_detach = sysctl_mod_detach,
+struct mod mods[MODS_NUM] = {
+	[MOD_log] = {
+		.mod_init = log_mod_init,
+		.mod_deinit = log_mod_deinit,
 	},
-	MOD4(log)
-	MOD4(sys)
-	MOD4(subr)
-	MOD4(pid)
-	MOD4(poll)
-	MOD4(epoll)
-	[MOD_MBUF] = {
-		.mod_init = mbuf_mod_init,
-		.mod_attach = mbuf_mod_attach,
+	[MOD_mbuf] = {
 		.mod_service_init = mbuf_mod_service_init,
-		.mod_deinit = mbuf_mod_deinit,
-		.mod_detach = mbuf_mod_detach,
 	},
-	MOD4(htable)
-	MOD4(timer)
-	MOD4(fd_event)
-	MOD4(signal)
-	MOD4(dev)
-	MOD4(api)
-	MOD4(lptree)
-	MOD4(route)
-	[MOD_ARP] = {
+	[MOD_timer] = {
+		.mod_service_init = timer_mod_service_init,
+		.mod_service_deinit = timer_mod_service_deinit,
+	},
+	[MOD_route] = {
+		.mod_init = route_mod_init,
+		.mod_deinit = route_mod_deinit,
+	},
+	[MOD_arp] = {
 		.mod_init = arp_mod_init,
-		.mod_attach = arp_mod_attach,
 		.mod_service_init = arp_mod_service_init,
 		.mod_deinit = arp_mod_deinit,
-		.mod_detach = arp_mod_detach,
 		.mod_service_deinit = arp_mod_service_deinit,
 	},
-	MOD6(file)
-	MOD4(inet)
-	MOD4(sockbuf)
-	MOD6(tcp)
-	MOD4(service)
-	MOD4(controller)
+	[MOD_file] = {
+		.mod_init = file_mod_init,
+		.mod_service_init = file_mod_service_init,
+		.mod_deinit = file_mod_deinit,
+		.mod_service_deinit = file_mod_service_deinit,
+	},
+	[MOD_inet] = {
+		.mod_init = inet_mod_init,
+		.mod_deinit = inet_mod_deinit,
+	},
+	[MOD_tcp] = {
+		.mod_init = tcp_mod_init,
+		.mod_service_init = tcp_mod_service_init,
+		.mod_deinit = tcp_mod_deinit,
+		.mod_service_deinit = tcp_mod_service_deinit,
+	},
 };
 
-#define FOREACH_MOD(i) \
-	for (i = 0; i < ARRAY_SIZE(mods); ++i)
-
-#define FOREACH_MOD_R(i) \
-	for (i = ARRAY_SIZE(mods) - 1; i >= 0; --i)
-
-int
-foreach_mod_init(struct init_hdr *ih)
+const char *
+mod_name(int mod_id)
 {
-	int i, rc;
-
-	rc = 0;
-	FOREACH_MOD(i) {
-		rc = (*mods[i].mod_init)(ih->ih_mods + i);
-		if (rc) {
-			return rc;
-		}
+#define MOD_ID2NAME(name) case MOD_##name: return #name;
+	switch (mod_id) {
+	MOD_FOREACH(MOD_ID2NAME)
+	default:
+		assert(!"bad mod_id");
+		return NULL;
 	}
-	return 0;
+#undef MOD_ID2NAME
 }
 
 int
-foreach_mod_attach(struct init_hdr *ih)
+mod_init1(int mod_id)
 {
-	int i, rc;
+	int rc;
+	struct log_scope *scope;
 
-	rc = 0;
-	FOREACH_MOD(i) {
-		rc = (*mods[i].mod_attach)(ih->ih_mods[i]);
-		if (rc) {
-			return rc;
-		}
+	assert(shm_ih->ih_mods[mod_id] == NULL);
+	rc = shm_malloc((void **)&scope, sizeof(*scope));
+	if (rc == 0) {
+		log_scope_init(scope, mod_name(mod_id));
+		shm_ih->ih_mods[mod_id] = scope;
 	}
-	return 0;
+	return rc;
+}
+
+void
+mod_deinit1(int mod_id)
+{
+	struct log_scope *scope;
+
+	scope = shm_ih->ih_mods[mod_id];
+	log_scope_deinit(scope);
+	shm_free(scope);
 }
 
 int
-foreach_mod_service_init(struct service *s)
+mods_init()
 {
 	int i, rc;
 
 	rc = 0;
-	FOREACH_MOD(i) {
+	for (i = 0; i < MODS_NUM; ++i) {
+		if (mods[i].mod_init == NULL) {
+			rc = mod_init1(i);
+		} else {
+			rc = (*mods[i].mod_init)();
+		}
+		if (rc) {
+			break;
+		}
+	}
+	return rc;
+}
+
+int
+mods_service_init(struct service *s)
+{
+	int i, rc;
+
+	rc = 0;
+	for (i = 0; i < MODS_NUM; ++i) {
 		if (mods[i].mod_service_init != NULL) {
 			rc = (*mods[i].mod_service_init)(s);
 			if (rc) {
-				return rc;
+				break;
 			}
 		}
 	}
@@ -123,33 +115,28 @@ foreach_mod_service_init(struct service *s)
 }
 
 void
-foreach_mod_deinit(struct init_hdr *ih)
+mods_deinit()
 {
 	int i;
 
-	if (ih != NULL) {
-		FOREACH_MOD_R(i) {
-			(*mods[i].mod_deinit)();
+	for (i = MODS_NUM - 1; i >= 0; --i) {
+		if (shm_ih->ih_mods[i] != NULL) {
+			if (mods[i].mod_deinit == NULL) {
+				mod_deinit1(i);
+			} else {
+				(*mods[i].mod_deinit)();
+			}
+			shm_ih->ih_mods[i] = NULL;
 		}
 	}
 }
 
 void
-foreach_mod_detach()
+mods_service_deinit(struct service *s)
 {
 	int i;
 
-	FOREACH_MOD_R(i) {
-		(*mods[i].mod_detach)();
-	}
-}
-
-void
-foreach_mod_service_deinit(struct service *s)
-{
-	int i;
-
-	FOREACH_MOD_R(i) {
+	for (i = MODS_NUM - 1; i >= 0; --i) {
 		if (mods[i].mod_service_deinit != NULL) {
 			(*mods[i].mod_service_deinit)(s);
 		}

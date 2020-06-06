@@ -1,4 +1,4 @@
-// GPL2 License
+// gpl2 license
 #ifndef GBTCP_LOG_H
 #define GBTCP_LOG_H
 
@@ -21,7 +21,7 @@ struct log_scope {
 #else /* LOG_DISABLED */
 #define LOGF(level, err, fmt, ...) \
 do { \
-	if (log_is_enabled((struct log_scope *)curmod, level, 0)) { \
+	if (log_is_enabled(CAT2(MOD_, CURMOD), level, 0)) { \
 		log_buf_init(); \
 		log_printf(level, __func__, err, fmt, ##__VA_ARGS__); \
 	} \
@@ -33,28 +33,10 @@ do { \
 #ifdef NDEBUG
 #define DBG(...)
 #define INFO(...)
-#define ASSERT3(err, expr, fmt, ...) \
-	do { \
-	} while (0)
-#define BUG2(err, fmt, ...) \
-	do { \
-	} while (0)
 #else /*NDEBUG */
 #define DBG(err, ...) LOGF(LOG_DEBUG, err, __VA_ARGS__)
 #define INFO(err, ...) LOGF(LOG_INFO, err, __VA_ARGS__)
-#define ASSERT3(err, expr, fmt, ...) \
-	((expr) ? \
-	(void)(0) : \
-	log_abort(__FILE__, __LINE__, err, #expr, fmt, ##__VA_ARGS__))
-#define BUG2(err, fmt, ...) \
-	log_abort(__FILE__, __LINE__, err, NULL, fmt, ##__VA_ARGS__)
 #endif /* NDEBUG */
-
-#define ASSERT2(err, expr) ASSERT3(err, expr, NULL)
-#define ASSERT(expr) ASSERT2(0, expr)
-
-#define BUG1(fmt, ...) BUG2(0, fmt, ##__VA_ARGS__)
-#define BUG BUG1(NULL)
 
 #define die(errnum, fmt, ...) \
 	log_abort(__FILE__, __LINE__, errnum, NULL, fmt, ##__VA_ARGS__)
@@ -66,17 +48,17 @@ do { \
 void log_init_early();
 
 int log_mod_init(void **);
-int log_mod_attach(void *);
 void log_mod_deinit();
-void log_mod_detach();
 
-void log_scope_init_early(struct log_scope *, const char *);
 void log_scope_init(struct log_scope *, const char *);
 void log_scope_deinit(struct log_scope *);
 
+int log_file_open(int);
+void log_file_close();
+
 void log_set_level(int);
 
-int log_is_enabled(struct log_scope *, int, int);
+int log_is_enabled(int, int, int);
 void log_vprintf(int, const char *, int, const char *, va_list);
 void log_printf(int, const char *, int, const char *, ...)
 	__attribute__((format(printf, 4, 5)));

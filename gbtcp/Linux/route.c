@@ -1,13 +1,13 @@
 #include "../internals.h"
 
+#define CURMOD route
+
 struct route_dump_req {
 	struct nlmsghdr rdmp_nlh;
 	struct ifinfomsg rdmp_ifm;
 	struct rtattr rdmp_ext_req __attribute__((aligned(NLMSG_ALIGNTO)));
 	uint32_t rdmp_ext_filter_mask;
 };
-
-static struct route_mod *curmod;
 
 const char *
 route_nlmsg_type_str(int nlmsg_type)
@@ -355,7 +355,6 @@ route_open(struct route_mod *mod)
 {
 	int rc, g;
 
-	curmod = mod;
 	g = 0;
 	g |= RTMGRP_LINK;
 	g |= RTMGRP_IPV4_IFADDR;

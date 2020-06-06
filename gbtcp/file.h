@@ -49,11 +49,9 @@ struct file {
 
 extern int file_sizeof;
 
-int file_mod_init(void **);
-int file_mod_attach(void *);
+int file_mod_init();
 int file_mod_service_init(struct service *);
 void file_mod_deinit();
-void file_mod_detach();
 void file_mod_service_deinit(struct service *);
 void file_mod_service_clean(struct service *);
 

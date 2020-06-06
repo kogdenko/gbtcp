@@ -39,8 +39,8 @@ strbuf_cstr(struct strbuf *sb)
 void
 strbuf_remove(struct strbuf *sb, int pos, int len)
 {
-	ASSERT(pos + len <= sb->sb_len);
-	ASSERT(sb->sb_len <= sb->sb_cap);
+	assert(pos + len <= sb->sb_len);
+	assert(sb->sb_len <= sb->sb_cap);
 	memmove(sb->sb_buf + pos,
 	        sb->sb_buf + pos + len,
 	        sb->sb_len - (pos + len));
@@ -52,7 +52,7 @@ strbuf_insert(struct strbuf *sb, int pos, const void *data, int len)
 {
 	int excess;
 
-	ASSERT(pos <= sb->sb_len);
+	assert(pos <= sb->sb_len);
 	if (pos >= sb->sb_cap) {
 		/* Nothing to copy */
 	} else if (pos + len >= sb->sb_cap) {
@@ -143,7 +143,7 @@ strbuf_add_ipaddr(struct strbuf *sb, int af, const void *ip)
 {
 	char buf[INET6_ADDRSTRLEN];
 
-	ASSERT(af == AF_INET || af == AF_INET6);
+	assert(af == AF_INET || af == AF_INET6);
 	inet_ntop(af, ip, buf, sizeof(buf));
 	strbuf_add_str(sb, buf);
 }

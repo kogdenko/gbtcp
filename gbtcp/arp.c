@@ -1,5 +1,7 @@
 #include "internals.h"
 
+#define CURMOD arp
+
 #define GT_ARP_REACHABLE_TIME (30 * NANOSECONDS_SECOND)
 #define GT_ARP_RETRANS_TIMER NANOSECONDS_SECOND
 #define GT_ARP_MAX_UNICAST_SOLICIT 3
@@ -35,8 +37,6 @@ struct arp_entry {
 	struct eth_addr ae_addr;
 	struct dev_pkt *ae_incomplete_q;
 };
-
-static struct arp_mod *curmod;
 
 static void arp_probe_timeout(struct timer *timer);
 
@@ -180,7 +180,7 @@ arp_tx_req(struct arp_entry *e)
 		len = arp_fill_probe4(eh, route.rt_ifa->ria_addr.ipa_4,
 		                      e->ae_next_hop);
 	} else {
-		BUG;
+		assert(0);
 	}
 	pkt.pkt_len = len;
 	route_if_tx(route.rt_ifp, &pkt);
@@ -207,8 +207,8 @@ arp_calc_reachable_time()
 	max = GT_ARP_REACHABLE_TIME * GT_ARP_MAX_RANDOM_FACTOR;
 	x = rand64();
 	x = min + (max - min) * x / UINT64_MAX;
-	ASSERT(x >= min);
-	ASSERT(x <= max);
+	assert(x >= min);
+	assert(x <= max);
 	return x;
 }
 
@@ -263,32 +263,22 @@ arp_ctl_list(void *udata, int id, const char *new, struct strbuf *out)
 #endif
 
 int
-arp_mod_init(void **pp)
+arp_mod_init()
 {
 	int rc;
 
-	rc = shm_malloc(pp, sizeof(*curmod));
+	rc = curmod_init();
 	if (rc) {
 		return rc;
 	}
-	curmod = *pp;
 	rc = htable_init(&curmod->arp_htable, 32,
 	                 arp_entry_hash, HTABLE_SHARED);
 	if (rc) {
 		shm_free(curmod);
-		curmod = NULL;
 		return rc;
 	}
-	log_scope_init(&curmod->log_scope, "arp");
 	sysctl_add(GT_SYSCTL_ARP_ADD, SYSCTL_WR, NULL, NULL, sysctl_arp_add);
 	curmod->arp_reachable_time = arp_calc_reachable_time();
-	return 0;
-}
-
-int
-arp_mod_attach(void *p)
-{
-	curmod = p;
 	return 0;
 }
 
@@ -303,20 +293,10 @@ arp_mod_service_init(struct service *s)
 void
 arp_mod_deinit()
 {
-	if (curmod != NULL) {
-		sysctl_del("arp.add");
-		sysctl_del("arp.list");
-		htable_deinit(&curmod->arp_htable);
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-arp_mod_detach()
-{
-	curmod = NULL;
+	sysctl_del("arp.add");
+	sysctl_del("arp.list");
+	htable_deinit(&curmod->arp_htable);
+	curmod_deinit();
 }
 
 void
@@ -445,7 +425,7 @@ arp_resolve(struct route_if *ifp, be32_t next_hop,
 				arp_entry_add_incomplete(e, pkt);
 				return;
 			}
-			ASSERT(e->ae_incomplete_q == NULL);
+			assert(e->ae_incomplete_q == NULL);
 			arp_set_eth_hdr(e, ifp, pkt->pkt_data);
 			route_if_tx(ifp, pkt);
 			if (e->ae_state == ARP_STALE) {

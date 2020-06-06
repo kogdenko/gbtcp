@@ -1,12 +1,11 @@
-// GPL2 license
+// gpl2 license
 #include "internals.h"
 
-struct api_mod {
-	struct log_scope log_scope;
-};
+#define CURMOD api
 
-__thread int api_passthru;
-static struct api_mod *curmod;
+static __thread int api_passthru;
+
+__thread int gt_errno;
 
 
 #define API_LOCK \
@@ -20,13 +19,7 @@ static inline int
 api_lock()
 {
 	int rc;
-	ptrdiff_t stack_off;
 
-	stack_off = (u_char *)&rc - (u_char *)gt_signal_stack;
-	if (stack_off < gt_signal_stack_size) {
-		// Called from signal handler
-		API_RETURN(-EBADF);
-	}
 	if (api_passthru) {
 		API_RETURN(-EBADF);
 	}
@@ -50,42 +43,6 @@ api_unlock()
 		SERVICE_UNLOCK;
 	}
 	api_passthru = 0;
-}
-
-int
-api_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (rc == 0) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "api");
-	}
-	return rc;
-}
-
-int
-api_mod_attach(void *raw_mod)
-{
-	curmod = raw_mod;
-	return 0;
-}
-
-void
-api_mod_deinit()
-{
-	if (curmod != NULL) {
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-api_mod_detach()
-{
-	curmod = NULL;
 }
 
 void
@@ -191,7 +148,7 @@ restart:
 			optlen = sizeof(error);
 			rc = so_getsockopt(so, SOL_SOCKET, SO_ERROR,
 			                   &error, &optlen);
-			ASSERT(rc == 0);
+			assert(rc == 0 && "so_getsockopt");
 			rc = -error;
 			goto restart;
 		}
@@ -445,7 +402,7 @@ gt_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *addr,
 ssize_t
 gt_recvmsg(int fd, struct msghdr *msg, int flags)
 {
-	BUG;
+	assert(!"not implemented");
 	API_RETURN(-ENOTSUP);
 }
 
@@ -778,33 +735,6 @@ gt_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 	} else {
 		DBG(0, "ok; rc=%d, revents={%s}",
 		    rc, log_add_pollfds_revents(fds, nfds));
-	}
-	API_UNLOCK;
-	API_RETURN(rc);
-}
-
-int
-gt_sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
-{
-	int rc;
-	void *fn;
-
-	API_LOCK;
-	if (act == NULL) {
-		fn = NULL;
-	} else if (act->sa_flags & SA_SIGINFO) {
-		fn = act->sa_sigaction;
-	} else {
-		fn = act->sa_handler;
-	}
-	UNUSED(fn);
-	DBG(0, "hit; signum=%d, handler=%s",
-	    signum, log_add_sighandler(fn));
-	rc = gt_signal_sigaction(signum, act, oldact);
-	if (rc < 0) {
-		DBG(-rc, "failed;");
-	} else {
-		DBG(0, "ok;");
 	}
 	API_UNLOCK;
 	API_RETURN(rc);

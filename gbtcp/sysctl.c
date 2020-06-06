@@ -1,5 +1,7 @@
 #include "internals.h"
 
+#define CURMOD sysctl
+
 #define SYSCTL_DEPTH_MAX 32
 #define SYSCTL_NODE_NAME_MAX 128
 #define SYSCTL_NTOKENS_MAX 3
@@ -52,7 +54,6 @@ struct sysctl_node {
 };
 
 static struct sysctl_node *sysctl_root;
-static struct sysctl_mod *curmod;
 
 static int sysctl_node_alloc(struct sysctl_node **,
 	struct sysctl_node *, const char *, int);
@@ -103,26 +104,6 @@ sysctl_verify(const char *s)
 }
 
 int
-sysctl_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (rc == 0) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "sysctl");
-	}
-	return rc;
-}
-
-int
-sysctl_mod_attach(void *p)
-{
-	curmod = p;
-	return 0;
-}
-
-int
 sysctl_root_init()
 {
 	int rc;
@@ -132,22 +113,6 @@ sysctl_root_init()
 		sysctl_root->n_is_added = 1;
 	}
 	return rc;
-}
-
-void
-sysctl_mod_deinit()
-{
-	if (curmod != NULL) {
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-sysctl_mod_detach()
-{
-	curmod = NULL;
 }
 
 void
@@ -192,11 +157,11 @@ strbuf_add_sysctl_node(struct strbuf *sb, struct sysctl_node *node)
 	int i, n;
 	struct sysctl_node *path[SYSCTL_DEPTH_MAX];
 
-	ASSERT(node != NULL);
+	assert(node != NULL);
 	n = 0;
 	for (; node != sysctl_root; node = node->n_parent) {
-		ASSERT(node != NULL);
-		ASSERT(n < ARRAY_SIZE(path));
+		assert(node != NULL);
+		assert(n < ARRAY_SIZE(path));
 		path[n++] = node;
 	}
 	for (i = n - 1; i >= 0; --i) {
@@ -328,7 +293,7 @@ sysctl_node_alloc(struct sysctl_node **pnode, struct sysctl_node *parent,
 		return rc;
 	}
 	node = *pnode;
-	ASSERT(name_len < SYSCTL_NODE_NAME_MAX);
+	assert(name_len < SYSCTL_NODE_NAME_MAX);
 	memset(node, 0, sizeof(*node));
 	node->n_name_len = name_len;
 	memcpy(node->n_name, name, name_len);
@@ -410,7 +375,7 @@ sysctl_node_add(const char *path, int mode,
 	struct iovec path_iov[SYSCTL_DEPTH_MAX];
 	struct sysctl_node *child, *node;
 
-	ASSERT(mode == SYSCTL_RD || mode == SYSCTL_LD || mode == SYSCTL_WR);
+	assert(mode == SYSCTL_RD || mode == SYSCTL_LD || mode == SYSCTL_WR);
 	node = sysctl_root;
 	path_len = strlen(path);
 	if (path_len >= PATH_MAX) {
@@ -502,7 +467,7 @@ sysctl_process_node(struct sysctl_conn *cp,
 			}
 			break;
 		default:
-			BUG;
+			assert(!"unknown mode");
 		}
 	}
 	if (node->n_is_list) {
@@ -618,7 +583,7 @@ sysctl_node_in_int(struct sysctl_conn *cp, void *udata,
 			old = *data->i_ptr_int64;
 			break;
 		default:
-			BUG;
+			assert(!"bad int sizeof");
 		}
 	} else {
 		x = strtoll(new, &endptr, 10);
@@ -641,7 +606,7 @@ sysctl_node_in_int(struct sysctl_conn *cp, void *udata,
 			*data->i_ptr_int64 = x;
 			break;
 		default:
-			BUG;
+			assert(!"bad int sizeof");
 		}
 	}
 	strbuf_addf(out, "%lld", old);
@@ -697,7 +662,7 @@ sysctl_conn_accept(struct sysctl_conn *cp)
 	peer_pid = 0;
 	if (sa_len >= sizeof(sa_family_t)) {
 		sa_len -= sizeof(sa_family_t);
-		ASSERT(sa_len < sizeof(a.sun_path));
+		assert(sa_len < sizeof(a.sun_path));
 		a.sun_path[sa_len] = '\0';
 		filename = basename(a.sun_path);
 		rc = strtoul(filename, &endptr, 10);
@@ -868,7 +833,7 @@ sysctl_add_int_union(const char *path, int mode, void *ptr,
 	struct sysctl_int_data *data;
 	struct sysctl_node *node;
 	
-	ASSERT(min <= max);
+	assert(min <= max);
 	sysctl_add6(path, mode, NULL, NULL,
 	            sysctl_node_in_int, &node);
 	data = &node->n_int_udata;
@@ -1089,7 +1054,7 @@ sysctl_req_safe(const char *path, char *old, const char *new)
 {
 	int rc, fd, path_len;
 
-	ASSERT(path != NULL);
+	assert(path != NULL);
 	path_len = strlen(path);
 	if (path_len >= PATH_MAX) {
 		return -EINVAL;

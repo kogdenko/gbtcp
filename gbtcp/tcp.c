@@ -3,6 +3,8 @@
 //    ACK responses must be sent for every second segment.
 #include "internals.h"
 
+#define CURMOD tcp
+
 #define SO_IPPROTO_UDP 0
 #define SO_IPPROTO_TCP 1
 
@@ -45,9 +47,6 @@ struct tcp_mod {
 	struct htable htable;
 	struct htable_bucket binded[EPHEMERAL_PORT_MIN];
 };
-
-
-static struct tcp_mod *curmod;
 
 int gt_so_udata_size;
 
@@ -202,22 +201,19 @@ sysctl_tcp_fin_timeout(const long long *new, long long *old)
 }
 
 int
-tcp_mod_init( void **pp)
+tcp_mod_init()
 {
 	int i, rc;
 	struct htable_bucket *b;
 
-	rc = shm_malloc(pp, sizeof(*curmod));
+	rc = curmod_init();
 	if (rc) {
 		return rc;
 	}
-	curmod = *pp;
-	log_scope_init(&curmod->log_scope, "tcp");
 	rc = htable_init(&curmod->htable, 2048, so_hash, HTABLE_SHARED);
 	if (rc) {
 		log_scope_deinit(&curmod->log_scope);
 		shm_free(curmod);
-		curmod = NULL;
 		return rc;
 	}
 	for (i = 0; i < ARRAY_SIZE(curmod->binded); ++i) {
@@ -233,13 +229,6 @@ tcp_mod_init( void **pp)
 }
 
 int
-tcp_mod_attach(void *p)
-{
-	curmod = p;
-	return 0;
-}
-
-int
 tcp_mod_service_init(struct service *s)
 {
 	mbuf_pool_init(&s->p_sockbuf_pool, s->p_id, SOCKBUF_CHUNK_SIZE);
@@ -249,21 +238,11 @@ tcp_mod_service_init(struct service *s)
 void
 tcp_mod_deinit()
 {
-	if (curmod != NULL) {
-		sysctl_del(GT_SYSCTL_TCP_FIN_TIMEOUT);
-		sysctl_del(GT_SYSCTL_SOCKET_HTABLE);
-		mbuf_pool_deinit(&current->p_sockbuf_pool);
-		htable_deinit(&curmod->htable);
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-tcp_mod_detach()
-{
-	curmod = NULL;
+	sysctl_del(GT_SYSCTL_TCP_FIN_TIMEOUT);
+	sysctl_del(GT_SYSCTL_SOCKET_HTABLE);
+	mbuf_pool_deinit(&current->p_sockbuf_pool);
+	htable_deinit(&curmod->htable);
+	curmod_deinit();
 }
 
 void
@@ -305,7 +284,7 @@ static void
 so_wakeup(struct sock *so, struct in_context *p, short revents)
 {
 	if (so->so_processing) {
-		ASSERT(p != NULL);
+		assert(p != NULL);
 		p->in_events |= revents;
 	} else {
 		file_wakeup(&so->so_file, revents);
@@ -423,7 +402,7 @@ so_get_events(struct file *fp)
 		}
 		break;
 	default:
-		BUG;
+		assert(0);
 	}	
 	return events;
 }
@@ -524,7 +503,7 @@ so_connect(struct sock *so, const struct sockaddr_in *faddr_in,
 			return -EISCONN;
 		}
 	}
-	ASSERT(!sock_in_txq(so));
+	assert(!sock_in_txq(so));
 	if (so->so_lport) {
 		return -ENOTSUP;
 	}
@@ -623,10 +602,10 @@ so_accept(struct sock **pso, struct sock *lso,
 	if (dlist_is_empty(&lso->so_completeq)) {
 		return -EAGAIN;
 	}
-	ASSERT(lso->so_acceptq_len);
+	assert(lso->so_acceptq_len);
 	so = DLIST_FIRST(&lso->so_completeq, struct sock, so_accept_list);
-	ASSERT(so->so_state >= GT_TCP_S_ESTABLISHED);
-	ASSERT(so->so_accepted == 0);
+	assert(so->so_state >= GT_TCP_S_ESTABLISHED);
+	assert(so->so_accepted == 0);
 	so->so_accepted = 1;
 	DLIST_REMOVE(so, so_accept_list);
 	lso->so_acceptq_len--;
@@ -723,7 +702,7 @@ so_recvfrom(struct sock *so, const struct iovec *iov, int iovcnt,
 		break;
 	default:
 		rc = 0;
-		BUG;
+		assert(0);
 		break;
 	}
 	return rc;
@@ -747,7 +726,7 @@ so_recvfrom_zerocopy(struct sock *so, struct iovec *iov, int flags,
 	if (rc <= 0) {
 		return rc;
 	}
-	ASSERT(so->so_ipproto == SO_IPPROTO_TCP); // TODO:
+	assert(so->so_ipproto == SO_IPPROTO_TCP); // TODO:
 	if (so->so_rcvbuf.sob_len == 0) {
 		if (cur_zerocopy_in->in_len == 0) {
 			if (so->so_rfin) {
@@ -762,7 +741,7 @@ so_recvfrom_zerocopy(struct sock *so, struct iovec *iov, int flags,
 		}
 	} else {
 		rc = sockbuf_read_zerocopy(&so->so_rcvbuf, &iov->iov_base);
-		ASSERT(rc);
+		assert(rc);
 		iov->iov_len = rc;
 		return rc;
 	}
@@ -990,10 +969,10 @@ tcp_emss(struct sock *so)
 {
 	uint16_t emss;
 
-	ASSERT(so->so_rmss);
-	ASSERT(so->so_lmss);
+	assert(so->so_rmss);
+	assert(so->so_lmss);
 	emss = MIN(so->so_lmss, so->so_rmss);
-	ASSERT(emss >= IP4_MTU_MIN - 40);
+	assert(emss >= IP4_MTU_MIN - 40);
 	return emss;
 }
 
@@ -1057,7 +1036,7 @@ tcp_set_state_ESTABLISHED(struct sock *so, struct in_context *in)
 	}
 	if (so->so_passive_open && so->so_listen != NULL) {
 		lso = so->so_listen;
-		ASSERT(lso->so_acceptq_len);
+		assert(lso->so_acceptq_len);
 		DLIST_REMOVE(so, so_accept_list);
 		DLIST_INSERT_HEAD(&lso->so_completeq, so, so_accept_list);
 		so_wakeup(lso, in, POLLIN);
@@ -1071,13 +1050,13 @@ tcp_set_state(struct sock *so, struct in_context *in, int state)
 {
 	int rc;
 
-	ASSERT(GT_SOCK_ALIVE(so));
-	ASSERT(state < GT_TCP_NSTATES);
-	ASSERT(state != so->so_state);	
+	assert(GT_SOCK_ALIVE(so));
+	assert(state < GT_TCP_NSTATES);
+	assert(state != so->so_state);	
 	DBG(0, "hit; state %s->%s, fd=%d",
 	    tcp_state_str(so->so_state), tcp_state_str(state), so_get_fd(so));
 	if (state != GT_TCP_S_CLOSED) {
-		ASSERT(state > so->so_state);
+		assert(state > so->so_state);
 		tcps.tcps_states[state]++;
 	}
 	if (so->so_state != GT_TCP_S_CLOSED) {
@@ -1151,7 +1130,7 @@ tcp_close(struct sock *so)
 	sockbuf_free(&so->so_sndbuf);
 	if (so->so_passive_open) {
 		if (so->so_accepted == 0) { 
-			ASSERT(so->so_listen != NULL);
+			assert(so->so_listen != NULL);
 			so->so_listen->so_acceptq_len--;
 			DLIST_REMOVE(so, so_accept_list);
 			so->so_listen = NULL;
@@ -1166,7 +1145,7 @@ gt_tcp_close_not_accepted(struct dlist *q)
 
 	while (!dlist_is_empty(q)) {
 		so = DLIST_FIRST(q, struct sock, so_accept_list);
-		ASSERT(so->so_referenced == 0);
+		assert(so->so_referenced == 0);
 		so->so_listen = NULL;
 		so_close(so);
 	}
@@ -1185,7 +1164,7 @@ tcp_reset(struct sock *so, struct in_context *in)
 static void
 tcp_wshut(struct sock *so, struct in_context *in)
 {
-	ASSERT(so->so_state >= GT_TCP_S_ESTABLISHED);
+	assert(so->so_state >= GT_TCP_S_ESTABLISHED);
 	if (so->so_sfin) {
 		return;
 	}
@@ -1197,7 +1176,7 @@ tcp_wshut(struct sock *so, struct in_context *in)
 		tcp_set_state(so, in, GT_TCP_S_LAST_ACK);
 		break;
 	default:
-		BUG;
+		assert(0);
 		break;
 	}
 	so->so_sfin = 1;
@@ -1231,7 +1210,7 @@ tcp_tx_timer_set(struct sock *so)
 {
 	uint64_t expires;
 
-	ASSERT(so->so_sfin_acked == 0);
+	assert(so->so_sfin_acked == 0);
 	if (so->so_retx == 0) {
 		so->so_retx = 1;
 		so->so_wprobe = 0;
@@ -1265,9 +1244,9 @@ tcp_wprobe_timer_set(struct sock *so)
 static void
 gt_tcp_timer_set_tcp_fin_timeout(struct sock *so)
 {
-	ASSERT(so->so_retx == 0);
-	ASSERT(so->so_wprobe == 0);
-	ASSERT(!timer_is_running(&so->so_timer));
+	assert(so->so_retx == 0);
+	assert(so->so_wprobe == 0);
+	assert(!timer_is_running(&so->so_timer));
 	timer_set(&so->so_timer, curmod->tcp_fin_timeout,
 	             gt_tcp_timeout_tcp_fin_timeout); 
 }
@@ -1287,9 +1266,9 @@ tcp_tx_timo(struct timer *timer)
 	struct sock *so;
 
 	so = container_of(timer, struct sock, so_timer);
-	ASSERT(GT_SOCK_ALIVE(so));
-	ASSERT(so->so_sfin_acked == 0);
-	ASSERT(so->so_retx);
+	assert(GT_SOCK_ALIVE(so));
+	assert(so->so_sfin_acked == 0);
+	assert(so->so_retx);
 	so->so_ssnt = 0;
 	so->so_sfin_sent = 0;
 	tcps.tcps_rexmttimeo++;
@@ -1316,10 +1295,10 @@ tcp_wprobe_timo(struct timer *timer)
 	struct sock *so;
 
 	so = container_of(timer, struct sock, so_timer);
-	ASSERT(GT_SOCK_ALIVE(so));
-	ASSERT(so->so_sfin_acked == 0);
-	ASSERT(so->so_retx == 0);
-	ASSERT(so->so_wprobe);
+	assert(GT_SOCK_ALIVE(so));
+	assert(so->so_sfin_acked == 0);
+	assert(so->so_retx == 0);
+	assert(so->so_wprobe);
 	tcps.tcps_sndprobe++;
 	tcp_into_ackq(so);
 	tcp_wprobe_timer_set(so);
@@ -1362,7 +1341,7 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 	struct htable_bucket *b;
 	struct sock *so;
 
-	//ASSERT(lso->so_acceptq_len <= lso->so_backlog);
+	//assert(lso->so_acceptq_len <= lso->so_backlog);
 	if (0 && lso->so_acceptq_len == lso->so_backlog) {
 		tcps.tcps_listendrop++;
 		return;
@@ -1458,7 +1437,7 @@ tcp_rcv_established(struct sock *so, struct in_context *in)
 {
 	int rc;
 
-	ASSERT(so->so_state >= GT_TCP_S_ESTABLISHED);
+	assert(so->so_state >= GT_TCP_S_ESTABLISHED);
 	if (so->so_rfin) {
 		if (in->in_len || (in->in_tcp_flags & TCP_FLAG_FIN)) {
 			tcp_into_ackq(so);
@@ -1535,7 +1514,7 @@ tcp_rcv_open(struct sock *so, struct in_context *in)
 	case GT_TCP_S_SYN_RCVD:
 		break;
 	default:
-		ASSERT(so->so_rsyn);
+		assert(so->so_rsyn);
 		tcp_rcv_established(so, in);
 		break;
 	}
@@ -1681,7 +1660,7 @@ tcp_process_ack_complete(struct sock *so, struct in_context *in)
 			tcp_set_state(so, in, GT_TCP_S_CLOSED);
 			return -1;
 		default:
-			BUG;
+			assert(0);
 			break;
 		}
 	}
@@ -1694,11 +1673,11 @@ tcp_into_sndq(struct sock *so)
 	int rc;
 	struct route_entry r;
 
-	ASSERT(GT_SOCK_ALIVE(so));
+	assert(GT_SOCK_ALIVE(so));
 	if (!sock_in_txq(so)) {
 		rc = sock_route(so, &r);
 		if (rc != 0) {
-			ASSERT(0); // TODO: v0.1
+			assert(0); // TODO: v0.1
 			return;
 		}
 		sock_add_txq(r.rt_ifp, so);
@@ -1774,7 +1753,7 @@ tcp_sender(struct sock *so, int cnt)
 {
 	int can, emss;
 
-	ASSERT(cnt);
+	assert(cnt);
 //	return GT_MIN(cnt, tcp_emss(so));
 	if (so->so_rwnd <= so->so_ssnt) {
 		return 0;
@@ -1881,7 +1860,7 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcpcb *tcb,
 	struct ip4_hdr *ih;
 	struct tcp_hdr *th;
 
-	ASSERT(so->so_ssnt + len <= so->so_sndbuf.sob_len);
+	assert(so->so_ssnt + len <= so->so_sndbuf.sob_len);
 	ih = (struct ip4_hdr *)(eh + 1);
 	th = (struct tcp_hdr *)(ih + 1);
 	tcb->tcb_opts.tcp_opt_flags = 0;
@@ -1898,8 +1877,8 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcpcb *tcb,
 		}
 	}
 	if (len) {
-		ASSERT(len <= cnt);
-		ASSERT(len <= so->so_rwnd - so->so_ssnt);
+		assert(len <= cnt);
+		assert(len <= so->so_rwnd - so->so_ssnt);
 		if (so->so_ssnt + len == so->so_sndbuf.sob_len ||
 		    (so->so_rwnd - so->so_ssnt) - len <= tcp_emss(so)) {
 			tcp_flags |= TCP_FLAG_PSH;
@@ -1920,7 +1899,7 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcpcb *tcb,
 	tcp_opts_len = tcp_opts_fill(&tcb->tcb_opts, th + 1);
 	if (tcb->tcb_len) {
 		emss = tcp_emss(so);
-		ASSERT(tcp_opts_len <= emss);
+		assert(tcp_opts_len <= emss);
 		if (tcb->tcb_len + tcp_opts_len > emss) {
 			tcb->tcb_len = emss - tcp_opts_len;
 		}
@@ -1953,7 +1932,7 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcpcb *tcb,
 	so->so_ssnt += tcb->tcb_len;
 	if (tcp_flags & TCP_FLAG_SYN) {
 		so->so_ssyn = 1;
-		ASSERT(so->so_ssyn_acked == 0);
+		assert(so->so_ssyn_acked == 0);
 	}
 	if (tcb->tcb_len || (tcp_flags & (TCP_FLAG_SYN|TCP_FLAG_FIN))) {
 		if (so->so_tx_timo) {
@@ -2014,12 +1993,12 @@ gt_udp_rcvbuf_recv(struct sock *so, const struct iovec *iov, int iovcnt,
 	}
 	rc = sockbuf_read(&so->so_msgbuf, &msg, sizeof(msg), 1);
 	if (rc == 0) {
-		ASSERT(so->so_rcvbuf.sob_len == 0);
+		assert(so->so_rcvbuf.sob_len == 0);
 		return 0;
 	}
-	ASSERT(rc == sizeof(msg));
-	ASSERT(msg.sobm_len);
-	ASSERT(so->so_rcvbuf.sob_len >= msg.sobm_len);
+	assert(rc == sizeof(msg));
+	assert(msg.sobm_len);
+	assert(so->so_rcvbuf.sob_len >= msg.sobm_len);
 	gt_set_sockaddr(addr, addrlen, msg.sobm_faddr, msg.sobm_fport);
 	cnt = sockbuf_readv(&so->so_rcvbuf, iov, iovcnt,
 	                     msg.sobm_len, peek);
@@ -2030,7 +2009,7 @@ gt_udp_rcvbuf_recv(struct sock *so, const struct iovec *iov, int iovcnt,
 			msg.sobm_len -= cnt;
 			rc = sockbuf_rewrite(&so->so_msgbuf,
 			                     &msg, sizeof(msg));
-			ASSERT(rc == sizeof(msg));
+			assert(rc == sizeof(msg));
 		} else {
 			sockbuf_drain(&so->so_msgbuf, sizeof(msg));
 		}
@@ -2080,7 +2059,7 @@ gt_udp_sendto(struct sock *so, const struct iovec *iov, int iovcnt,
 	if (txr == NULL) {
 		return -ENOBUFS;
 	}
-	ASSERT(so->so_lmss == 1460);
+	assert(so->so_lmss == 1460);
 	n = 0;
 	off = 0;
 	mtu = so->so_lmss + 40;
@@ -2098,10 +2077,10 @@ gt_udp_sendto(struct sock *so, const struct iovec *iov, int iovcnt,
 	}
 	off = 0;
 	for (i = 0; i < n; ++i) {
-		ASSERT(cnt > off);
+		assert(cnt > off);
 		txr_slot(&pkt, txr);
 		hdr = (struct msg_hdr *)pkt.data;
-		ASSERT(hdr != NULL);
+		assert(hdr != NULL);
 		hdr->msg = MSG_DATA;
 		hdr->flags = 0;
 		hdr->proto = FILE_IPPROTO_UDP;
@@ -2370,7 +2349,7 @@ sock_add_txq(struct route_if *ifp, struct sock *so)
 static void
 sock_del_txq(struct sock *so)
 {
-	ASSERT(sock_in_txq(so));
+	assert(sock_in_txq(so));
 	DLIST_REMOVE(so, so_tx_list);
 	so->so_tx_list.dls_next = NULL;
 }
@@ -2378,7 +2357,7 @@ sock_del_txq(struct sock *so)
 static void
 sock_open(struct sock *so)
 {
-	ASSERT(so->so_state == GT_TCP_S_CLOSED);
+	assert(so->so_state == GT_TCP_S_CLOSED);
 	so->so_dont_frag = 1;
 	so->so_rmss = 0;
 	so->so_lmss = 1460; // TODO:!!!!
@@ -2417,7 +2396,7 @@ so_new(int so_ipproto)
 		sockbuf_init(&so->so_sndbuf, 16384);
 		break;
 	default:
-		BUG;
+		assert(0);
 		break;
 	}
 	sockbuf_init(&so->so_rcvbuf, 16384);
@@ -2431,7 +2410,7 @@ so_unref(struct sock *so, struct in_context *in)
 	uint32_t h;
 	struct htable_bucket *b;
 
-	ASSERT(GT_SOCK_ALIVE(so));
+	assert(GT_SOCK_ALIVE(so));
 	if (so->so_state != GT_TCP_S_CLOSED || so->so_referenced) {
 		return 0;
 	}
@@ -2506,8 +2485,8 @@ so_rcvbuf_add(struct sock *so, void *buf, int len/*, be32_t faddr, be16_t fport*
 	}*/
 
 	// TODO: UDP
-/*		ASSERT(rc >= 0);
-		ASSERT(rc <= rem);
+/*		assert(rc >= 0);
+		assert(rc <= rem);
 		if (so->so_ipproto == SO_IPPROTO_UDP && rc > 0) {
 			msg.sobm_trunc = rc < rem;
 			msg.sobm_faddr = faddr;
@@ -2558,7 +2537,7 @@ tcp_tx_data(struct route_if *ifp, struct dev_pkt *pkt,
 	struct tcpcb tcb;
 	struct eth_hdr *eh;
 
-	ASSERT(tcp_flags);
+	assert(tcp_flags);
 	ips.ips_localout++;
 	tcps.tcps_sndtotal++;
 	delack = timer_is_running(&so->so_timer_delack);
@@ -2665,7 +2644,7 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 		return IN_BYPASS;
 	}
 	if (so->so_service_id != current->p_id) {
-		ASSERT(0);
+		assert(0);
 		if (b != NULL) {
 			BUCKET_UNLOCK(b);
 			b = NULL;
@@ -2716,7 +2695,7 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 			if (rc < 0) {
 				tcps.tcps_rcvmemdrop++;
 			} else {
-				ASSERT(rc <= in->in_len);
+				assert(rc <= in->in_len);
 				len -= in->in_len - rc;
 			}
 		}

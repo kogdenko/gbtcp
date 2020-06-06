@@ -1,11 +1,11 @@
 #include "internals.h"
 
+#define CURMOD file
+
 struct file_mod {
 	struct log_scope log_scope;
 	int file_first_fd;
 };
-
-static struct file_mod *curmod;
 
 static void
 file_init(struct file *fp, int type)
@@ -31,14 +31,12 @@ file_aio_call(struct file_aio *aio, short revents)
 }
 
 int
-file_mod_init(void **pp)
+file_mod_init()
 {
 	int rc;
 
-	rc = shm_malloc(pp, sizeof(*curmod));
+	rc = curmod_init();
 	if (rc == 0) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "file");
 		curmod->file_first_fd = FD_SETSIZE / 2;
 		sysctl_add_int(GT_SYSCTL_FILE_FIRST_FD, SYSCTL_LD,
 			       &curmod->file_first_fd, 3, 1024 * 1024);
@@ -47,34 +45,17 @@ file_mod_init(void **pp)
 }
 
 int
-file_mod_attach(void *p)
-{
-	curmod = p;
-	return 0;
-}
-
-int
 file_mod_service_init(struct service *s)
 {
-	mbuf_pool_init(&s->p_file_pool, s->p_id, sizeof(struct sock) + sizeof(struct file_aio));
+	mbuf_pool_init(&s->p_file_pool, s->p_id, sizeof(struct sock) + sizeof(struct file_aio)); // FIXME:!!!!!!
 	return 0;
 }
 
 void
 file_mod_deinit()
 {
-	if (curmod != NULL) {
-		sysctl_del(GT_SYSCTL_FILE_FIRST_FD);
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-file_mod_detach()
-{
-	curmod = NULL;
+	sysctl_del(GT_SYSCTL_FILE_FIRST_FD);
+	curmod_deinit();
 }
 
 void
@@ -190,7 +171,7 @@ file_close(struct file *fp)
 		u_epoll_close(fp);
 		break;
 	default:
-		BUG;
+		assert(!"bad fl_type");
 	}
 }
 
@@ -264,20 +245,20 @@ file_wakeup(struct file *fp, short events)
 	short revents;
 	struct file_aio *aio, *tmp;
 
-	ASSERT(events);
+	assert(events);
 	DBG(0, "hit; fd=%d, events=%s",
 	    file_get_fd(fp), log_add_poll_events(events));
 	if (!fp->fl_referenced) {
 		return;
 	}
 	DLIST_FOREACH_SAFE(aio, &fp->fl_aioq, faio_list, tmp) {
-		ASSERT(aio->faio_filter);
+		assert(aio->faio_filter);
 		revents = (events & aio->faio_filter);
 		if (revents) {
 			file_aio_call(aio, revents);
 		}
 	}
-	ASSERT((events & POLLNVAL) == 0 || dlist_is_empty(&fp->fl_aioq));
+	assert((events & POLLNVAL) == 0 || dlist_is_empty(&fp->fl_aioq));
 }
 
 struct file_wait_data {
@@ -344,7 +325,7 @@ file_aio_set(struct file *fp, struct file_aio *aio, short events,
 	const char *action;
 	short filter, revents;
 
-	ASSERT(fp->fl_type == FILE_SOCK);
+	assert(fp->fl_type == FILE_SOCK);
 	filter = events|POLLERR|POLLNVAL;
 	if (aio->faio_filter == filter) {
 		return;

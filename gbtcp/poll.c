@@ -2,10 +2,6 @@
 
 struct poll;
 
-struct poll_mod {
-	struct log_scope log_scope;
-};
-
 struct poll_entry {
 	struct file_aio e_aio;
 #define e_mbuf e_aio.faio_mbuf
@@ -21,44 +17,6 @@ struct poll {
 	int p_npfds;
 	int p_ntriggered;
 };
-
-static struct poll_mod *curmod;
-
-int
-poll_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (rc == 0) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "poll");
-	}
-	return rc;
-}
-
-int
-poll_mod_attach(void *raw_mod)
-{
-	curmod = raw_mod;
-	return 0;
-}
-
-void
-poll_mod_deinit()
-{
-	if (curmod != NULL) {
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-poll_mod_detach()
-{
-	curmod = NULL;
-}
 
 static void
 poll_trigger(struct file_aio *aio, int fd, short revents)
@@ -171,6 +129,6 @@ u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 		n += poll.p_ntriggered;
 	} while (n == 0 && fd_poll.fdp_to > 0);
 	b = poll_read_events(&poll, pfds, npfds);
-	ASSERT3(0, a == b, "%d, %d", a, b);
+	assert(a == b);
 	return n;
 }

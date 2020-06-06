@@ -1,46 +1,6 @@
 #include "internals.h"
 
-struct pid_mod {
-	struct log_scope log_scope;
-};
-
-static struct pid_mod *curmod;
-
-int
-pid_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (!rc) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "pid");
-	}
-	return rc;
-}
-
-int
-pid_mod_attach(void *p)
-{
-	curmod = p;
-	return 0;
-}
-
-void
-pid_mod_deinit()
-{
-	if (curmod != NULL) {
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-pid_mod_detach()
-{
-	curmod = NULL;
-}
+#define CURMOD pid
 
 char *
 pid_file_path(char *path, const char *filename)
@@ -98,7 +58,7 @@ pid_file_write(int fd, int pid)
 	int rc, len;
 	char buf[32];
 
-	ASSERT(pid >= 0);
+	assert(pid >= 0);
 	len = snprintf(buf, sizeof(buf), "%d", pid);
 	rc = write_full_buf(fd, buf, len);
 	return rc;
@@ -156,7 +116,7 @@ pid_wait_add(struct pid_wait *pw, int pid)
 	int i, rc;
 	char path[32];
 
-	ASSERT(pw->pw_fd >= 0);
+	assert(pw->pw_fd >= 0);
 	for (i = 0; i < pw->pw_nentries; ++i) {
 		if (pw->pw_entries[i].pid == pid) {
 			rc = -EEXIST;
@@ -215,14 +175,14 @@ pid_wait_read(struct pid_wait *pw, uint64_t *to, int *pids, int npids)
 	int i, n, rc;
 	struct inotify_event ev;
 
-	ASSERT(npids);
+	assert(npids);
 	n = 0;
 	while (!pid_wait_is_empty(pw)) {
 		rc = read_timed(pw->pw_fd, &ev, sizeof(ev), to);
 		if (rc < 0) {
 			return n ? n : rc;
 		}
-		ASSERT(rc == sizeof(ev));
+		assert(rc == sizeof(ev));
 		for (i = 0; i < pw->pw_nentries; ++i) {
 			if (pw->pw_entries[i].wd == ev.wd) {
 				if (n < npids) {

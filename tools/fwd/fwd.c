@@ -1,6 +1,7 @@
 #include <gbtcp/internals.h>
 
-static void *curmod;
+#define CURMOD app
+
 static struct sock *lso;
 static int http_len;
 static const char *http =

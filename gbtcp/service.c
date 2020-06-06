@@ -1,9 +1,7 @@
 // gpl2 license
 #include "internals.h"
 
-struct service_mod {
-	struct log_scope log_scope;
-};
+#define CURMOD service
 
 #define SERVICE_RX 0
 #define SERVICE_TX 1
@@ -14,7 +12,6 @@ struct service_msg {
 	uint16_t msg_ifindex;
 };
 
-static struct service_mod *curmod;
 static struct spinlock service_attach_lock;
 static int service_sysctl_fd = -1;
 static int service_pid_fd = -1;
@@ -24,6 +21,7 @@ static struct dlist service_rcu_active_head;
 static struct dlist service_rcu_shadow_head;
 static u_int service_rcu[GT_SERVICES_MAX];
 
+struct shm_init_hdr *shm_ih;
 struct service *current;
 
 #define service_load_epoch(s) \
@@ -38,42 +36,6 @@ do { \
 	u_int tmp = epoch; \
 	__atomic_store(&(s)->p_epoch, &tmp, __ATOMIC_SEQ_CST); \
 } while (0)
-
-int
-service_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (rc == 0) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "service");
-	}
-	return rc;
-}
-
-int
-service_mod_attach(void *p)
-{
-	curmod = p;
-	return 0;
-}
-
-void
-service_mod_deinit()
-{
-	if (curmod != NULL) {
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-service_mod_detach()
-{
-	curmod = NULL;
-}
 
 static int
 service_read_pipe(int fd)
@@ -136,7 +98,7 @@ service_in(struct in_context *p)
 	int rc, ipproto;
 
 	rc = eth_in(p);
-	ASSERT(rc < 0);
+	assert(rc < 0);
 	if (rc != IN_OK) {
 		return rc;
 	}
@@ -174,7 +136,7 @@ service_rssq_rxtx_one(struct route_if *ifp, void *data, int len)
 	rc = service_in(&p);
 	if (rc >= 0) {
 		dbg("redir");
-		ASSERT(rc < GT_SERVICES_MAX);
+		assert(rc < GT_SERVICES_MAX);
 		eh = data;
 		eh->eh_saddr.ea_bytes[5] = current->p_id;
 		eh->eh_daddr.ea_bytes[5] = rc;
@@ -248,7 +210,7 @@ service_init(const char *p_comm)
 int
 service_attach()
 {
-	int i, rc, pid;
+	int rc, pid;
 	struct sockaddr_un a;
 	char pid_filename[32];
 	char p_comm[PROC_COMM_MAX];
@@ -293,17 +255,17 @@ service_attach()
 		}
 		goto err;
 	}
-	rc = shm_attach((void **)&ih);
+	rc = shm_attach((void **)&shm_ih);
 	if (rc) {
 		goto err;
 	}
-	if (ih->ih_version != IH_VERSION) {
+	if (shm_ih->ih_version != IH_VERSION) {
 		rc = -EPROTO;
 		goto err;
 	}
-	set_hz(ih->ih_hz);
-	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
-		s = ih->ih_services + i;
+	log_file_open(O_TRUNC);
+	set_hz(shm_ih->ih_hz);
+	SERVICE_FOREACH(s) {
 		if (s->p_pid == pid) {
 			current = s;
 			break;
@@ -313,7 +275,6 @@ service_attach()
 		rc = -ENOENT;
 		goto err;
 	}
-	foreach_mod_attach(ih);
 	snprintf(pid_filename, sizeof(pid_filename), "%d.pid", current->p_id);
 	rc = pid_file_open(pid_filename);
 	if (rc < 0) {
@@ -328,7 +289,6 @@ service_attach()
 	if (rc) {
 		goto err;
 	}
-//	service_update(current);
 	ERR(0, "ok; current=%p", current);
 	spinlock_unlock(&service_attach_lock);
 	return 0;
@@ -366,8 +326,8 @@ service_detach(int forked)
 		}
 		current = NULL;
 	}
+	shm_ih = NULL;
 	shm_detach();
-	foreach_mod_detach();
 }
 
 void
@@ -397,7 +357,7 @@ service_rcu_reload()
 
 	dlist_replace_init(&service_rcu_active_head, &service_rcu_shadow_head);
 	for (i = 0; i < GT_SERVICES_MAX; ++i) {
-		s = ih->ih_services + i;
+		s = shm_ih->ih_services + i;
 		if (s != current) {
 			__atomic_load(&s->p_epoch, service_rcu + i, __ATOMIC_SEQ_CST);
 			if (service_rcu[i]) {
@@ -415,7 +375,7 @@ mbuf_free_rcu(struct mbuf *m)
 {
 	DLIST_INSERT_TAIL(&service_rcu_shadow_head, m, mb_list);
 	if (service_rcu_max == 0) {
-		ASSERT(dlist_is_empty(&service_rcu_active_head));
+		assert(dlist_is_empty(&service_rcu_active_head));
 		service_rcu_reload();
 	}
 }
@@ -442,7 +402,7 @@ service_rcu_check()
 
 	rcu_max = 0;
 	for (i = 0; i < service_rcu_max; ++i) {
-		s = ih->ih_services + i;
+		s = shm_ih->ih_services + i;
 		if (service_rcu[i]) {
 			epoch = service_load_epoch(s);
 			if (service_rcu[i] != epoch) {
@@ -503,7 +463,7 @@ service_update_dev(struct route_if *ifp, int rss_qid)
 	struct dev *dev;
 
 	ifflags = READ_ONCE(ifp->rif_flags);
-	id = READ_ONCE(ih->ih_rss_table[rss_qid]);
+	id = READ_ONCE(shm_ih->ih_rss_table[rss_qid]);
 	dev = &(ifp->rif_dev[current->p_id][rss_qid]);
 	if ((ifflags & IFF_UP) && id == current->p_id) {
 		if (!dev_is_inited(dev)) {
@@ -545,7 +505,7 @@ service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
 	}
 	rss_qid = -1;
 	for (i = 0; i < ifp->rif_rss_nq; ++i) {
-		if (ih->ih_rss_table[i] == current->p_id) {
+		if (shm_ih->ih_rss_table[i] == current->p_id) {
 			if (rss_qid == -1) {
 				h = rss_hash4(laddr, faddr, lport, fport,
 				              ifp->rif_rss_key);

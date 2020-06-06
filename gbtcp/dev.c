@@ -1,49 +1,8 @@
 #include "internals.h"
 
+#define CURMOD dev
+
 #define DEV_BURST_SIZE 256
-
-struct dev_mod {
-	struct log_scope log_scope;
-};
-
-static struct dev_mod *curmod;
-
-int
-dev_mod_init(void **pp)
-{
-	int rc;
-	struct dev_mod *mod;
-
-	rc = shm_malloc(pp, sizeof(*mod));
-	if (!rc) {
-		mod = *pp;
-		log_scope_init(&mod->log_scope, "dev");
-	}
-	return rc;
-}
-
-int
-dev_mod_attach(void *raw_mod)
-{
-	curmod = raw_mod;
-	return 0;
-}
-
-void
-dev_mod_deinit(void *raw_mod)
-{
-	struct dev_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
-}
-
-void
-dev_mod_detach()
-{
-	curmod = NULL;
-}
 
 static int
 dev_rxtx(void *udata, short revents)
@@ -87,7 +46,7 @@ dev_nm_open(struct dev *dev, const char *dev_name)
 	flags = 0;
 	dev->dev_nmd = nm_open(dev_name, &nmr, flags, NULL);
 	if (dev->dev_nmd != NULL) {
-		ASSERT(dev->dev_nmd->nifp != NULL);
+		assert(dev->dev_nmd->nifp != NULL);
 		sys_fcntl(dev->dev_nmd->fd, F_SETFD, FD_CLOEXEC);
 		nmr = dev->dev_nmd->req;
 		NOTICE(0, "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
@@ -97,7 +56,7 @@ dev_nm_open(struct dev *dev, const char *dev_name)
 		return 0;
 	} else {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; dev='%s'", dev_name);
 		return rc;
 	}
@@ -109,7 +68,7 @@ dev_init(struct dev *dev, const char *ifname, dev_f dev_fn)
 	int rc;
 	char dev_name[NM_IFNAMSIZ];
 
-	ASSERT(!dev_is_inited(dev));
+	assert(!dev_is_inited(dev));
 	memset(dev, 0, sizeof(*dev));
 	snprintf(dev_name, sizeof(dev_name), "%s%s", NETMAP_PFX, ifname);
 	rc = dev_nm_open(dev, dev_name);
@@ -184,7 +143,7 @@ dev_not_empty_txr(struct dev *dev, struct dev_pkt *pkt)
 	}
 	DEV_FOREACH_TXRING_CONTINUE(dev->dev_cur_tx_ring, txr, dev) {
 		if (!nm_ring_empty(txr)) {
-			ASSERT(txr != NULL);
+			assert(txr != NULL);
 			pkt->pkt_flags = 0;
 			pkt->pkt_txr = txr;
 			slot = txr->slot + txr->cur;
@@ -217,7 +176,7 @@ dev_tx(struct dev_pkt *pkt)
 	struct netmap_ring *txr;
 
 	txr = pkt->pkt_txr;
-	ASSERT(txr != NULL);
+	assert(txr != NULL);
 	dst = txr->slot + txr->cur;
 	dst->len = pkt->pkt_len;
 	txr->head = txr->cur = nm_ring_next(txr, txr->cur);

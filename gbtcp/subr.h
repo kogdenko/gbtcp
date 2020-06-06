@@ -2,77 +2,7 @@
 #ifndef GBTCP_SUBR_H
 #define GBTCP_SUBR_H
 
-#ifdef __linux__
-#define _GNU_SOURCE
-#endif // __linux__
-#include <stdint.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <math.h>
-#include <time.h>
-#include <limits.h>
-#include <ctype.h>
-#include <assert.h>
-#include <getopt.h>
-#include <string.h>
-#include <stdarg.h>
-#include <stddef.h>
-#include <strings.h>
-#include <inttypes.h>
-#include <ifaddrs.h>
-#include <poll.h>
-#include <dlfcn.h>
-#include <grp.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <emmintrin.h>
-#include <ucontext.h>
-#include <dirent.h>
-#include <sys/resource.h>
-#include <sys/wait.h>
-#include <netinet/ip.h>
-#include <netinet/ip_icmp.h>
-#include <syslog.h>
-#include <pthread.h>
-
-#ifdef __linux__
-#include <sched.h>
-#include <syscall.h>
-#include <execinfo.h>
-#include <sys/epoll.h>
-#include <sys/inotify.h>
-#include <asm/types.h>
-#include <linux/netlink.h>
-#include <linux/rtnetlink.h>
-#include <linux/ethtool.h>
-#include <linux/sockios.h>
-#else // __linux__
-#include <net/if_dl.h>
-#include <net/route.h>
-#include <execinfo.h>
-#include <sys/thr.h>
-#include <sys/types.h>
-#include <sys/user.h>
-#include <sys/sysctl.h>
-#include <sys/socketvar.h>
-#include <sys/param.h>
-#include <sys/ucred.h>
-#include <libutil.h>
-#include <pthread_np.h>
-#include <netinet/in_pcb.h>
-#include <netinet/tcp_var.h>
-#endif // __linux__
-
-#define NETMAP_WITH_LIBS
-#include <net/netmap_user.h>
-
-#include "gbtcp.h"
+#include "global.h"
 
 #ifdef __linux__
 #define GT_POLLRDHUP POLLRDHUP
@@ -110,14 +40,6 @@ typedef cpuset_t cpu_set_t;
 typedef uint16_t be16_t;
 typedef uint32_t be32_t;
 typedef uint64_t be64_t;
-
-struct strbuf;
-struct arp_hdr;
-struct service;
-struct dev;
-struct route_if;
-struct route_entry_long;
-struct init_hdr;
 
 typedef int (*malloc_f)(void **, size_t);
 typedef void (*free_f)(void *);
@@ -198,6 +120,10 @@ struct profiler {
 #define ntoh16(x) ((uint16_t)BSWAP16(x))
 #define ntoh32(x) ((uint32_t)BSWAP32(x))
 #endif // __BIG_ENDIAN
+
+#define CAT2_RES(_, res) res
+#define CAT2_MED(x, y) CAT2_RES(~, x##y)
+#define CAT2(x, y) CAT2_MED(x, y)
 
 #define UNIQV_CAT3(x, res) res
 #define UNIQV_CAT2(x, y, z) UNIQV_CAT3(~, x##y##z)

@@ -1,10 +1,6 @@
 /* GPL2 license */
 #include "internals.h"
 
-struct lptree_mod {
-	struct log_scope log_scope;
-};
-
 struct lptree_node {
 	struct mbuf lpn_mbuf;
 	struct dlist lpn_rules;
@@ -13,8 +9,6 @@ struct lptree_node {
 	void *lpn_children[UINT8_MAX];
 };
 
-static struct lptree_mod *curmod;
-	
 #define IS_LPTREE_NODE(tree, m) \
 	(mbuf_get_pool(m) == &(tree)->lpt_pool)
 
@@ -59,44 +53,8 @@ lptree_node_is_empty(struct lptree_node *node)
 static void
 lptree_node_free(struct lptree_node *node)
 {
-	ASSERT(lptree_node_is_empty(node));
+	assert(lptree_node_is_empty(node));
 	mbuf_free(&node->lpn_mbuf);
-}
-
-int
-lptree_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (!rc) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "lptree");
-	}
-	return rc;
-}
-
-int
-lptree_mod_attach(void *raw_mod)
-{
-	curmod = raw_mod;
-	return 0;
-}
-
-void
-lptree_mod_deinit(void *raw_mod)
-{
-	struct lptree_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
-}
-
-void
-lptree_mod_detach()
-{
-	curmod = NULL;
 }
 
 void
@@ -110,7 +68,7 @@ void
 lptree_deinit(struct lptree *tree)
 {
 	if (tree->lpt_root != NULL) {
-		ASSERT(lptree_node_is_empty(tree->lpt_root));
+		assert(lptree_node_is_empty(tree->lpt_root));
 		lptree_node_free(tree->lpt_root);
 		tree->lpt_root = NULL;
 	}
@@ -207,7 +165,7 @@ lptree_rule_set(struct lptree *tree, struct lptree_rule *rule)
 	struct lptree_rule *tmp;
 
 	n = 1 << (8 - rule->lpr_depth_rem);
-	ASSERT(rule->lpr_key_rem + n <= UINT8_MAX);
+	assert(rule->lpr_key_rem + n <= UINT8_MAX);
 	for (i = 0; i < n; ++i) {
 		id = rule->lpr_key_rem + i;
 		slot = rule->lpr_parent->lpn_children + id;
@@ -290,8 +248,8 @@ lptree_traverse(struct lptree *tree, struct lptree_rule **prule,
 	struct lptree_node *node, *parent;
 	struct lptree_rule *rule, *after;
 
-	ASSERT(depth > 0);
-	ASSERT(depth <= 32);
+	assert(depth > 0);
+	assert(depth <= 32);
 	if (tree->lpt_root == NULL) {
 		rc = lptree_node_alloc(tree, NULL, &tree->lpt_root);
 		if (rc) {
@@ -302,8 +260,8 @@ lptree_traverse(struct lptree *tree, struct lptree_rule **prule,
 	for (i = 0; i < 4; ++i) {
 		k = (key >> ((3 - i) << 3)) & 0x000000FF;
 		d = depth - (i << 3);
-		ASSERT(d);
-		ASSERT(k < UINT8_MAX);
+		assert(d);
+		assert(k < UINT8_MAX);
 		if (d > 8) {
 			if (*prule == NULL) {
 				node = parent->lpn_children[k];
@@ -363,7 +321,7 @@ lptree_get(struct lptree *tree, uint32_t key, int depth)
 
 	rule = NULL;
 	rc = lptree_traverse(tree, &rule, key, depth);
-	ASSERT(rc);
+	assert(rc);
 	if (rc == -EEXIST) {
 		return rule;
 	} else {

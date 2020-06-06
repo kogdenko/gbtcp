@@ -1,11 +1,9 @@
 #include "internals.h"
 
+#define CURMOD sockbuf
+
 #define SOCKBUF_CHUNK_DATA_SIZE \
 	(SOCKBUF_CHUNK_SIZE - sizeof(struct sbchunk))
-
-struct sockbuf_mod {
-	struct log_scope log_scope;
-};
 
 struct uio {
 	struct iovec *uio_iov;
@@ -20,8 +18,6 @@ struct sbchunk {
 	int ch_off;
 };
 
-static struct sockbuf_mod *curmod;
-
 static int
 uio_copyin(struct uio *uio, void *buf, int cnt)
 {
@@ -30,7 +26,7 @@ uio_copyin(struct uio *uio, void *buf, int cnt)
 	u_char *dst;
 
 	for (off = 0; uio->uio_iovcnt && off < cnt; off += n) {
-		ASSERT(uio->uio_iov->iov_len >= uio->uio_off);
+		assert(uio->uio_iov->iov_len >= uio->uio_off);
 		n = uio->uio_iov->iov_len - uio->uio_off;
 		dst = (u_char *)uio->uio_iov->iov_base + uio->uio_off;
 		if (n > cnt - off) {
@@ -50,7 +46,7 @@ uio_copyin(struct uio *uio, void *buf, int cnt)
 static int
 sockbuf_chunk_space(struct sbchunk *chunk)
 {
-	ASSERT(chunk->ch_off + chunk->ch_len <= SOCKBUF_CHUNK_DATA_SIZE);
+	assert(chunk->ch_off + chunk->ch_len <= SOCKBUF_CHUNK_DATA_SIZE);
 	return SOCKBUF_CHUNK_DATA_SIZE - (chunk->ch_off + chunk->ch_len);
 }
 
@@ -115,7 +111,7 @@ sockbuf_free_n(struct sockbuf *b, int nr_chunks)
 	struct sbchunk *chunk;
 
 	for (i = 0; i < nr_chunks; ++i) {
-		ASSERT(!dlist_is_empty(&b->sob_head));
+		assert(!dlist_is_empty(&b->sob_head));
 		chunk = DLIST_LAST(&b->sob_head, struct sbchunk, ch_list);
 		DLIST_REMOVE(chunk, ch_list);
 		mbuf_free(&chunk->ch_mbuf);
@@ -139,7 +135,7 @@ sockbuf_write(struct sockbuf *b, struct sbchunk *pos,
 	ptr = src;
 	rem = cnt;
 	DLIST_FOREACH_CONTINUE(pos, &b->sob_head, ch_list) {
-		ASSERT(rem > 0);
+		assert(rem > 0);
 		space = sockbuf_chunk_space(pos);
 		n = MIN(rem, space);
 		data = sockbuf_chunk_data(pos);
@@ -149,7 +145,7 @@ sockbuf_write(struct sockbuf *b, struct sbchunk *pos,
 		ptr += n;
 		rem -= n;
 	}
-	ASSERT(rem == 0);
+	assert(rem == 0);
 }
 
 int
@@ -158,8 +154,8 @@ sockbuf_add(struct mbuf_pool *p, struct sockbuf *b, const void *buf, int cnt)
 	int n, rem, space, added;
 	struct sbchunk *chunk, *pos;
 
-	ASSERT(cnt >= 0);
-	ASSERT(cnt <= UINT16_MAX);
+	assert(cnt >= 0);
+	assert(cnt <= UINT16_MAX);
 	space = sockbuf_space(b);
 	added = MIN(cnt, space);
 	if (added <= 0) {
@@ -201,14 +197,14 @@ sockbuf_copy(struct sockbuf *b, int off, u_char *dst, int cnt)
 	struct sbchunk *chunk;
 
 	DLIST_FOREACH(chunk, &b->sob_head, ch_list) {
-		ASSERT(chunk->ch_len);
+		assert(chunk->ch_len);
 		if (off < chunk->ch_len) {
 			break;
 		}
 		off -= chunk->ch_len;
 	}
 	for (; cnt != 0; chunk = DLIST_NEXT(chunk, ch_list)) {
-		ASSERT(&chunk->ch_list != &b->sob_head);
+		assert(&chunk->ch_list != &b->sob_head);
 		n = MIN(cnt, chunk->ch_len - off);
 		data = sockbuf_chunk_data(chunk);
 		memcpy(dst, data + chunk->ch_off + off, n);
@@ -232,8 +228,8 @@ sockbuf_readv(struct sockbuf *b, const struct iovec *iov, int iovcnt,
 	uio.uio_off = 0;
 	off = 0;
 	DLIST_FOREACH_SAFE(pos, &b->sob_head, ch_list, tmp) {
-		ASSERT(pos->ch_len);
-		ASSERT(b->sob_len >= pos->ch_len);
+		assert(pos->ch_len);
+		assert(b->sob_len >= pos->ch_len);
 		ptr = sockbuf_chunk_data(pos);
 		n = pos->ch_len;
 		if (n > accum_len_max - off) {
@@ -270,7 +266,7 @@ sockbuf_read_zerocopy(struct sockbuf *b, void **pbuf)
 		return 0;
 	}
 	c = DLIST_FIRST(&b->sob_head, struct sbchunk, ch_list);
-	ASSERT(c->ch_len);
+	assert(c->ch_len);
 	*pbuf = sockbuf_chunk_data(c);
 	return c->ch_len;
 }
@@ -304,8 +300,8 @@ sockbuf_drain(struct sockbuf *b, int cnt)
 
 	off = 0;
 	DLIST_FOREACH_SAFE(pos, &b->sob_head, ch_list, tmp) {
-		ASSERT(pos->ch_len);
-		ASSERT(b->sob_len >= pos->ch_len);
+		assert(pos->ch_len);
+		assert(b->sob_len >= pos->ch_len);
 		n = pos->ch_len;
 		if (n > cnt - off) {
 			n = cnt - off;
@@ -334,8 +330,8 @@ sockbuf_rewrite(struct sockbuf *b, const void *dst, int cnt)
 
 	pos = 0;
 	DLIST_FOREACH(chunk, &b->sob_head, ch_list) {
-		ASSERT(chunk->ch_len);
-		ASSERT(b->sob_len <= chunk->ch_len);
+		assert(chunk->ch_len);
+		assert(b->sob_len <= chunk->ch_len);
 		n = MIN(cnt - pos, chunk->ch_len);
 		data = sockbuf_chunk_data(chunk);
 		memcpy(data + chunk->ch_off, (u_char *)dst + pos, n);
@@ -345,40 +341,4 @@ sockbuf_rewrite(struct sockbuf *b, const void *dst, int cnt)
 		}
 	}
 	return pos;
-}
-
-int
-sockbuf_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (rc == 0) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "sockbuf");
-	}
-	return rc;
-}
-
-int
-sockbuf_mod_attach(void *p)
-{
-	curmod = p;
-	return 0;
-}
-
-void
-sockbuf_mod_deinit()
-{
-	if (curmod != NULL) {
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-sockbuf_mod_detach()
-{
-	curmod = NULL;
 }

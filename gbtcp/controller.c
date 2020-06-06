@@ -1,53 +1,12 @@
 #include "internals.h"
 
-struct controller_mod {
-	struct log_scope log_scope;
-};
+#define CURMOD controller
 
-static struct controller_mod *curmod;
 static struct service *services[GT_SERVICES_MAX];
 static int nservices;
 static struct sysctl_conn *controller_listen;
 static int controller_pid_fd = -1;
 static int controller_done;
-
-struct init_hdr *ih;
-
-int
-controller_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (rc == 0) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "controller");
-	}
-	return rc;
-}
-
-int
-controller_mod_attach(void *p)
-{
-	curmod = p;
-	return 0;
-}
-
-void
-controller_mod_deinit()
-{
-	if (curmod != NULL) {
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-controller_mod_detach()
-{
-	curmod = NULL;
-}
 
 static int
 controller_terminate()
@@ -235,17 +194,17 @@ controller_balance_get(struct service **ppoor, struct service **prich)
 static void
 controller_rss_table_set(u_int rss_qid, int service_id)
 {
-	ASSERT(rss_qid < GT_RSS_NQ_MAX);
-	ASSERT(service_id == -1 || service_id < GT_SERVICES_MAX);
-	if (ih->ih_rss_table[rss_qid] != service_id) {
+	assert(rss_qid < GT_RSS_NQ_MAX);
+	assert(service_id == -1 || service_id < GT_SERVICES_MAX);
+	if (shm_ih->ih_rss_table[rss_qid] != service_id) {
 		if (service_id == -1) {
 			NOTICE(0, "clear; rss_qid=%d", rss_qid);
 		} else {
 			NOTICE(0, "hit; rss_qid=%d, pid=%d",
-			       rss_qid, ih->ih_services[service_id].p_pid);
+			       rss_qid, shm_ih->ih_services[service_id].p_pid);
 		}
 	}
-	WRITE_ONCE(ih->ih_rss_table[rss_qid], service_id);
+	WRITE_ONCE(shm_ih->ih_rss_table[rss_qid], service_id);
 }
 
 static void
@@ -271,8 +230,8 @@ controller_balance()
 //		return;
 //	}
 	// TODO: find best quited qid
-	for (i = 0; ih->ih_rss_nq; ++i) {
-		if (ih->ih_rss_table[i] == rich->p_id) {
+	for (i = 0; shm_ih->ih_rss_nq; ++i) {
+		if (shm_ih->ih_rss_table[i] == rich->p_id) {
 			controller_rss_table_set(i, poor->p_id);
 			rich->p_rss_nq--;
 			poor->p_rss_nq++;
@@ -296,7 +255,7 @@ controller_service_del(struct service *s)
 				break;
 			}
 		}
-		ASSERT(i < nservices);
+		assert(i < nservices);
 		services[i] = services[--nservices];
 		if (!nservices) {
 			//controller_done = 1;
@@ -304,15 +263,15 @@ controller_service_del(struct service *s)
 	}
 	if (s->p_rss_nq) {
 		controller_balance_get(&new, NULL);
-		for (i = 0; i < ih->ih_rss_nq; ++i) {
-			if (ih->ih_rss_table[i] == s->p_id) {
+		for (i = 0; i < shm_ih->ih_rss_nq; ++i) {
+			if (shm_ih->ih_rss_table[i] == s->p_id) {
 				controller_rss_table_set(i, new->p_id);
-				ASSERT(s->p_rss_nq > 0);
+				assert(s->p_rss_nq > 0);
 				s->p_rss_nq--;
 				new->p_rss_nq++;
 			}
 		}
-		ASSERT(s->p_rss_nq == 0);
+		assert(s->p_rss_nq == 0);
 		controller_service_update(s);
 		controller_service_update(new);
 	}
@@ -323,8 +282,8 @@ controller_service_add(struct service *s, int pid, struct sysctl_conn *cp)
 {
 	int fd;
 
-	ASSERT(s != current);
-	ASSERT(nservices < ARRAY_SIZE(services));
+	assert(s != current);
+	assert(nservices < ARRAY_SIZE(services));
 	fd = sysctl_conn_fd(cp);
 	NOTICE(0, "hit; pid=%d, fd=%d", pid, fd);
 	services[nservices++] = s;
@@ -333,7 +292,7 @@ controller_service_add(struct service *s, int pid, struct sysctl_conn *cp)
 	s->p_rss_nq = 0;
 	s->p_fd = fd;
 	if (current->p_rss_nq) {
-		ASSERT(nservices == 1);
+		assert(nservices == 1);
 		controller_service_del(current);
 	}
 }
@@ -345,14 +304,14 @@ controller_rss_table_reduce(int rss_nq)
 	u_char id;
 	struct service *s;
 
-	n = ih->ih_rss_nq;
-	WRITE_ONCE(ih->ih_rss_nq, rss_nq);
+	n = shm_ih->ih_rss_nq;
+	WRITE_ONCE(shm_ih->ih_rss_nq, rss_nq);
 	for (i = rss_nq; i < n; ++i) {
-		id = ih->ih_rss_table[i];
+		id = shm_ih->ih_rss_table[i];
 		controller_rss_table_set(i, -1);
-		ASSERT(id < GT_SERVICES_MAX);
-		s = ih->ih_services + id;
-		ASSERT(s->p_rss_nq > 0);
+		assert(id < GT_SERVICES_MAX);
+		s = shm_ih->ih_services + id;
+		assert(s->p_rss_nq > 0);
 		s->p_rss_nq--;
 		if (s->p_rss_nq == 0) {
 			controller_service_update(s);
@@ -367,11 +326,11 @@ controller_rss_table_expand(int rss_nq)
 	struct service *s;
 
 	controller_balance_get(&s, NULL);
-	for (i = ih->ih_rss_nq; i < rss_nq; ++i) {
+	for (i = shm_ih->ih_rss_nq; i < rss_nq; ++i) {
 		controller_rss_table_set(i, s->p_id);
 		s->p_rss_nq++;
 	}
-	WRITE_ONCE(ih->ih_rss_nq, rss_nq);
+	WRITE_ONCE(shm_ih->ih_rss_nq, rss_nq);
 }
 
 void
@@ -389,9 +348,9 @@ controller_update_rss_table()
 			}
 		}
 	}
-	if (ih->ih_rss_nq > rss_nq) {
+	if (shm_ih->ih_rss_nq > rss_nq) {
 		controller_rss_table_reduce(rss_nq);
-	} else if (ih->ih_rss_nq < rss_nq)  {
+	} else if (shm_ih->ih_rss_nq < rss_nq)  {
 		controller_rss_table_expand(rss_nq);
 	}
 	if (current->p_rss_nq) {
@@ -423,8 +382,8 @@ sysctl_controller_service_attach(struct sysctl_conn *cp, void *udata,
 	if (s != NULL) {
 		return -EEXIST;
 	}
-	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
-		s = ih->ih_services + i;
+	for (i = 0; i < ARRAY_SIZE(shm_ih->ih_services); ++i) {
+		s = shm_ih->ih_services + i;
 		if (s->p_pid == 0) {
 			controller_service_add(s, pid, cp);
 			return 0;
@@ -447,8 +406,8 @@ sysctl_controller_service_list_next(void *udata, const char *ident,
 			i = 1;
 		}
 	}
-	for (; i < ARRAY_SIZE(ih->ih_services); ++i) {
-		if (ih->ih_services[i].p_pid) {
+	for (; i < ARRAY_SIZE(shm_ih->ih_services); ++i) {
+		if (shm_ih->ih_services[i].p_pid) {
 			strbuf_addf(out, "%d", i);
 			return 0;
 		}
@@ -469,10 +428,10 @@ sysctl_controller_service_list(void *udata, const char *ident, const char *new,
 	} else {
 		i = strtoul(ident, NULL, 10);
 	}
-	if (i < 1 || i >= ARRAY_SIZE(ih->ih_services)) {
+	if (i < 1 || i >= ARRAY_SIZE(shm_ih->ih_services)) {
 		return -ENOENT;
 	}
-	s = ih->ih_services + i;
+	s = shm_ih->ih_services + i;
 	if (!s->p_pid) {
 		return -ENOENT;
 	} else {
@@ -537,7 +496,7 @@ controller_init(int daemonize, const char *service_comm)
 	struct service *s;
 
 	gt_preload_passthru = 1;
-	ih = NULL;
+	shm_ih = NULL;
 	if (daemonize) {
 		rc = sys_daemon(0, 1);
 		if (rc) {
@@ -564,34 +523,30 @@ controller_init(int daemonize, const char *service_comm)
 	if (rc) {
 		goto err;
 	}
-	rc = shm_init((void **)&ih, sizeof(*ih));
+	rc = shm_init((void **)&shm_ih, sizeof(*shm_ih));
 	if (rc) {
 		goto err;
 	}
-	memset(ih, 0, sizeof(*ih));
-	rc = foreach_mod_init(ih);
+	memset(shm_ih, 0, sizeof(*shm_ih));
+	rc = mods_init(shm_ih);
 	if (rc) {
 		goto err;
 	}
 	hz = sleep_compute_hz();
 	set_hz(hz);
-	ih->ih_version = IH_VERSION;
-	ih->ih_hz = hz;
-	ih->ih_rss_nq = 0;
-	rc = foreach_mod_attach(ih);
-	if (rc) {
-		goto err;
-	}
+	shm_ih->ih_version = IH_VERSION;
+	shm_ih->ih_hz = hz;
+	shm_ih->ih_rss_nq = 0;
 	sysctl_read_file(1, service_comm);
-	for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
-		s = ih->ih_services + i;
-		s->p_id = i;
-		foreach_mod_service_init(s);
+	log_file_open(O_TRUNC);
+	SERVICE_FOREACH(s) {
+		s->p_id = s - shm_ih->ih_services;
+		mods_service_init(s);
 	}
-	for (i = 0; i < ARRAY_SIZE(ih->ih_rss_table); ++i) {
-		ih->ih_rss_table[i] = -1;
+	for (i = 0; i < ARRAY_SIZE(shm_ih->ih_rss_table); ++i) {
+		shm_ih->ih_rss_table[i] = -1;
 	}
-	current = ih->ih_services + 0;
+	current = shm_ih->ih_services + 0;
 	current->p_pid = pid;
 	rc = service_init("controller");
 	if (rc) {
@@ -614,15 +569,13 @@ err:
 		current->p_pid = 0;
 		current = NULL;
 	}
-	if (ih != NULL) {
-		for (i = 0; i < ARRAY_SIZE(ih->ih_services); ++i) {
-			s = ih->ih_services + i;
-			foreach_mod_service_deinit(s);
+	if (shm_ih != NULL) {
+		SERVICE_FOREACH(s) {
+			mods_service_deinit(s);
 		}
 	}
 	service_deinit(0);
-	foreach_mod_detach();
-	foreach_mod_deinit(ih);
+	mods_deinit(shm_ih);
 	shm_deinit();
 	sysctl_root_deinit();
 	sys_close(controller_pid_fd);

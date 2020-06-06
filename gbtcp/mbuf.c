@@ -1,13 +1,11 @@
 #include "internals.h"
 
+#define CURMOD mbuf
+
 #define MBUF_MAGIC 0xcafe
 
 #define MBUF_CHUNK_SIZE (2 * 1024 * 1024)
 #define MBUF_CHUNK_DATA_SIZE  (MBUF_CHUNK_SIZE - sizeof(struct mbuf_chunk))
-
-struct mbuf_mod {
-	struct log_scope log_scope;
-};
 
 struct mbuf_chunk {
 	struct dlist c_list;
@@ -17,30 +15,8 @@ struct mbuf_chunk {
 	short c_id;
 };
 
-static struct mbuf_mod *curmod;
-
 #define MBUF_GET(p, chunk, i) \
 	(struct mbuf *)(((u_char *)(chunk + 1)) + i * p->mbp_mbuf_size);
-
-int
-mbuf_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (!rc) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "mbuf");
-	}
-	return rc;
-}
-
-int
-mbuf_mod_attach(void *raw_mod)
-{
-	curmod = raw_mod;
-	return 0;
-}
 
 int
 mbuf_mod_service_init(struct service *s)
@@ -51,22 +27,6 @@ mbuf_mod_service_init(struct service *s)
 		dlist_init(s->p_mbuf_free_indirect_head + i);
 	}
 	return 0;
-}
-
-void
-mbuf_mod_deinit()
-{
-	if (curmod != NULL) {
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-mbuf_mod_detach()
-{
-	curmod = NULL;
 }
 
 static struct mbuf_chunk *
@@ -127,7 +87,7 @@ mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 void
 mbuf_pool_init(struct mbuf_pool *p, u_char service_id, int mbuf_size)
 {
-	ASSERT(mbuf_size >= sizeof(struct mbuf));
+	assert(mbuf_size >= sizeof(struct mbuf));
 	memset(p, 0, sizeof(*p));
 	p->mbp_service_id = service_id;
 	p->mbp_mbuf_size = mbuf_size;
@@ -142,7 +102,7 @@ mbuf_pool_deinit(struct mbuf_pool *p)
 {
 	struct mbuf_chunk *chunk;
 
-	ASSERT(dlist_is_empty(&p->mbp_empty_chunkq));
+	assert(dlist_is_empty(&p->mbp_empty_chunkq));
 	while (!dlist_is_empty(&p->mbp_avail_chunkq)) {
 		chunk = DLIST_FIRST(&p->mbp_avail_chunkq,
 		                    struct mbuf_chunk,
@@ -177,7 +137,7 @@ mbuf_alloc(struct mbuf_pool *p, struct mbuf **mp)
 	struct mbuf *m;
 	struct mbuf_chunk *chunk;
 
-	ASSERT(current->p_id == p->mbp_service_id);
+	assert(current->p_id == p->mbp_service_id);
 	*mp = NULL;
 	if (dlist_is_empty(&p->mbp_avail_chunkq)) {
 		rc = mbuf_chunk_alloc(p, &chunk);
@@ -191,14 +151,14 @@ mbuf_alloc(struct mbuf_pool *p, struct mbuf **mp)
 				break;
 			}
 		}
-		ASSERT(i < ARRAY_SIZE(p->mbp_chunks));
+		assert(i < ARRAY_SIZE(p->mbp_chunks));
 	}
-	ASSERT(!dlist_is_empty(&p->mbp_avail_chunkq));
+	assert(!dlist_is_empty(&p->mbp_avail_chunkq));
 	chunk = DLIST_FIRST(&p->mbp_avail_chunkq,
 	                    struct mbuf_chunk, c_list);
-	ASSERT(chunk->c_freeq_size);
+	assert(chunk->c_freeq_size);
 	m = DLIST_FIRST(&chunk->c_freeq, struct mbuf, mb_list);
-	ASSERT(m->mb_used == 0);
+	assert(m->mb_used == 0);
 	DLIST_REMOVE(m, mb_list);
 	chunk->c_freeq_size--;
 	if (chunk->c_freeq_size == 0) {
@@ -238,8 +198,8 @@ mbuf_free(struct mbuf *m)
 	if (m == NULL) {
 		return;
 	}
-	ASSERT(m->mb_magic == MBUF_MAGIC);
-	ASSERT(m->mb_used == 1);
+	assert(m->mb_magic == MBUF_MAGIC);
+	assert(m->mb_used == 1);
 	if (!m->mb_allocated) {
 		return;
 	}
@@ -251,7 +211,7 @@ mbuf_free(struct mbuf *m)
 	chunk = mbuf_get_chunk(m);
 	p = chunk->c_pool;
 	DLIST_INSERT_HEAD(&chunk->c_freeq, m, mb_list);
-	ASSERT(chunk->c_freeq_size < p->mbp_mbufs_per_chunk);
+	assert(chunk->c_freeq_size < p->mbp_mbufs_per_chunk);
 	if (chunk->c_freeq_size == 0) {
 		DLIST_REMOVE(chunk, c_list);
 		DLIST_INSERT_TAIL(&p->mbp_avail_chunkq, chunk, c_list);
@@ -314,7 +274,7 @@ mbuf_get_id(struct mbuf *m)
 	struct mbuf_chunk *chunk;
 	struct mbuf_pool *p;
 
-	ASSERT(m->mb_magic == MBUF_MAGIC);
+	assert(m->mb_magic == MBUF_MAGIC);
 	chunk = mbuf_get_chunk(m);
 	p = chunk->c_pool;
 	i = ((u_char *)m - (uint8_t *)(chunk + 1)) / p->mbp_mbuf_size;

@@ -1,8 +1,6 @@
 #include "internals.h"
 
-struct subr_mod {
-	struct log_scope log_scope;
-};
+#define CURMOD subr
 
 union tsc {
 	uint64_t tsc_64;
@@ -15,9 +13,6 @@ union tsc {
 uint64_t nanoseconds;
 uint64_t ticks;
 uint64_t mHZ = 3000; // default cpu 3 ghz
-__thread int gt_errno;
-
-static struct subr_mod *curmod;
 
 #define MURMUR_MMIX(h,k) \
 do { \
@@ -61,43 +56,6 @@ murmur(const void * key, unsigned int len, uint32_t init_val)
 	h *= m;
 	h ^= h >> 15;
 	return h;
-}
-
-
-int
-subr_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (!rc) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "subr");
-	}
-	return rc;
-}
-
-int
-subr_mod_attach(void *p)
-{
-	curmod = p;
-	return 0;
-}
-
-void
-subr_mod_deinit()
-{
-	if (curmod != NULL) {
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-subr_mod_detach()
-{
-	curmod = NULL;
 }
 
 int

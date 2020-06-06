@@ -1,5 +1,7 @@
 #include "internals.h"
 
+#define CURMOD shm
+
 #define SHM_NAME "gbtcp"
 #define SHM_SIZE (1024*1024*1204) // 1 Gb
 #define SHM_ADDR (void *)(0x7fffffffffff - 8llu * 1024 * 1024 * 1024)
@@ -48,7 +50,6 @@ struct shm_region {
 	size_t r_size;
 };
 
-static void *curmod;
 static int shm_fd = -1;
 static struct shm_hdr *shm = MAP_FAILED;
 
@@ -58,14 +59,14 @@ static struct shm_hdr *shm = MAP_FAILED;
 static void
 shm_page_alloc(u_int page)
 {
-	ASSERT(page < shm->shm_npages);
+	assert(page < shm->shm_npages);
 	bitset_set(shm->shm_pages, page);
 }
 
 static void
 shm_page_free(u_int page)
 {
-	ASSERT(page < shm->shm_npages);
+	assert(page < shm->shm_npages);
 	bitset_clr(shm->shm_pages, page);
 }
 
@@ -74,7 +75,7 @@ shm_page_is_allocated(u_int page)
 {
 	int flag;
 
-	ASSERT(page < shm->shm_npages);
+	assert(page < shm->shm_npages);
 	flag = bitset_get(shm->shm_pages, page);
 	return flag;	
 }
@@ -82,7 +83,7 @@ shm_page_is_allocated(u_int page)
 static uintptr_t
 shm_page_to_virt(u_int page)
 {
-	ASSERT(page < shm->shm_npages);
+	assert(page < shm->shm_npages);
 	return shm->shm_base_addr + (page << PAGE_SHIFT);
 }
 
@@ -94,7 +95,7 @@ shm_virt_to_page(uintptr_t addr)
 
 	base_addr = ROUND_DOWN(addr, PAGE_SIZE);
 	page = (base_addr - shm->shm_base_addr) >> PAGE_SHIFT;
-	ASSERT(page < shm->shm_npages);
+	assert(page < shm->shm_npages);
 	return page;
 }
 
@@ -117,7 +118,7 @@ shm_unlock()
 		for (i = 0; i < n; ++i) {
 			src = current->p_mbuf_free_indirect_head + i;
 			if (!dlist_is_empty(src)) {
-				ASSERT(i != current->p_id);
+				assert(i != current->p_id);
 				dst = shm->shm_mbuf_free_indirect_head + i;
 				dlist_splice_tail_init(dst, src);
 			}
@@ -156,7 +157,7 @@ shm_init(void **pinit, int init_size)
 	if (rc) {
 		goto err;
 	}
-	ASSERT(!(((uintptr_t)shm) & PAGE_MASK));
+	assert(!(((uintptr_t)shm) & PAGE_MASK));
 	hdr_size = sizeof(*shm);
 	hdr_size += BITSET_WORD_ARRAY_SIZE(npages) * sizeof(bitset_word_t);
 	memset(shm, 0, hdr_size);
@@ -248,7 +249,7 @@ shm_alloc_pages_locked(void **pp, size_t alignment, size_t size)
 
 	alignment_n = alignment >> PAGE_SHIFT;
 	size_n = size >> PAGE_SHIFT;
-	ASSERT(size_n);
+	assert(size_n);
 	addr = ROUND_UP(shm->shm_base_addr, alignment);
 	i = shm_virt_to_page(addr);
 	n = shm->shm_npages - size_n;
@@ -294,7 +295,7 @@ shm_region_merge(struct shm_region *left, struct shm_region *right)
 
 	left_addr = (uintptr_t)left;
 	right_addr = (uintptr_t)right;
-	ASSERT(left_addr <= right_addr);
+	assert(left_addr <= right_addr);
 	if (left_addr + left->r_size > right_addr) {
 		die(0, "memory corrupted; left=(%p, %zu), right=(%p, %zu)",
 		    left, left->r_size, right, right->r_size);
@@ -435,8 +436,8 @@ shm_free_pages(void *ptr, size_t size)
 	uintptr_t addr;
 
 	addr = (uintptr_t)ptr;
-	ASSERT((addr & PAGE_MASK) == 0);
-	ASSERT((size & PAGE_MASK) == 0);
+	assert((addr & PAGE_MASK) == 0);
+	assert((size & PAGE_MASK) == 0);
 	shm_lock();
 	shm_free_pages_locked(addr, size);
 	shm_unlock();

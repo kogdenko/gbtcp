@@ -1,12 +1,10 @@
 #include "internals.h"
 
+#define CURMOD epoll
+
 #define EPOLL_FLAG_ENABLED (1 << 0)
 #define EPOLL_FLAG_ONESHOT (1 << 1)
 #define EPOLL_FLAG_ET (1 << 2)
-
-struct epoll_mod {
-	struct log_scope log_scope;
-};
 
 struct epoll {
 	struct file ep_file;
@@ -30,46 +28,7 @@ struct u_epoll_event {
 	};
 };
 
-static struct epoll_mod *curmod;
-
 static void epoll_event_set(struct u_epoll_event *, struct file *, short);
-
-int
-epoll_mod_init(void **pp)
-{
-	int rc;
-
-	ASSERT(sizeof(struct epoll) <= sizeof(struct sock));
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (!rc) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "epoll");
-	}
-	return rc;
-}
-
-int
-epoll_mod_attach(void *p)
-{
-	curmod = p;
-	return 0;
-}
-
-void
-epoll_mod_deinit()
-{
-	if (curmod != NULL) {
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-epoll_mod_detach()
-{
-	curmod = NULL;
-}
 
 static struct u_epoll_event *
 epoll_event_get(struct epoll *ep, struct file *fp)
@@ -115,7 +74,7 @@ epoll_event_alloc(struct epoll *ep, struct file *fp, short filter)
 static void
 epoll_event_untrigger(struct u_epoll_event *e)
 {
-	ASSERT(epoll_event_is_triggered(e));
+	assert(epoll_event_is_triggered(e));
 	DLIST_REMOVE(e, epev_list);
 	e->epev_list.dls_next = NULL;
 }
@@ -140,7 +99,7 @@ epoll_event_handler(struct file_aio *aio, int fd, short revents)
 	if (revents & POLLNVAL) {
 		epoll_event_free(e);
 	} else {
-		ASSERT(revents);
+		assert(revents);
 		if (!epoll_event_is_triggered(e)) {
 			ep = e->epev_epoll;
 			DLIST_INSERT_HEAD(&ep->ep_triggered, e, epev_list);
@@ -168,7 +127,7 @@ epoll_get_event(struct u_epoll_event *e, struct sock *so, epoll_event_t *event)
 	short x, y;
 
 	x = e->epev_revents;
-	ASSERT(x);
+	assert(x);
 	y = 0;
 	if (x & POLLERR) {
 		y |= EPOLLERR;
@@ -182,7 +141,7 @@ epoll_get_event(struct u_epoll_event *e, struct sock *so, epoll_event_t *event)
 	if (x & POLLOUT) {
 		y |= EPOLLOUT;
 	}
-	ASSERT(y);
+	assert(y);
 	event->events = y;
 	event->data.u64 = e->epev_udata_u64;
 }
@@ -209,7 +168,7 @@ epoll_get_event(struct u_epoll_event *e, struct sock *so, epoll_event_t *event)
 		flags |= EV_ERROR;
 		data = sock_get_eno((struct sock *)fp);
 	}
-	GT_ASSERT(filter || flags);
+	assert(filter || flags);
 	event->filter = filter;
 	event->flags = flags;
 	event->ident = e->epev_fd;
@@ -252,7 +211,7 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 		}
 		rc = so_get(e->epev_fd, &so);
 		UNUSED(rc);
-		ASSERT(rc == 0); // aio removed on file close, see POLLNVAL
+		assert(rc == 0); // aio removed on file close, see POLLNVAL
 		if (e->epev_revents == 0) {
 			revents = file_get_events(&so->so_file, &e->epev_aio);
 			if (revents == 0) {
@@ -397,7 +356,7 @@ u_epoll_close(struct file *fp)
 		e = (struct u_epoll_event *)m;
 		epoll_event_free(e);
 	}
-	ASSERT(mbuf_pool_is_empty(ep->ep_pool));
+	assert(mbuf_pool_is_empty(ep->ep_pool));
 	mbuf_pool_deinit(ep->ep_pool);
 	shm_free(ep->ep_pool);
 	file_free(fp);
@@ -558,7 +517,7 @@ u_kevent(int kq, const struct kevent *changelist, int nchanges,
 			                      NULL, 0, NULL);
 			if (rc == -1) {
 				rc = -errno;
-				GT_ASSERT(rc);
+				assert(rc);
 			}
 		} else {
 			rc = kevent_mod(ep, fp, event);

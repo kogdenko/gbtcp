@@ -147,7 +147,7 @@ ipaddr6_net_cmp(const uint8_t *a, const uint8_t *b, int len)
 	uint8_t m;
 
 	i = len >> 3;
-	ASSERT(i <= 16);
+	assert(i <= 16);
 	rc = memcmp(a, b, i);
 	if (rc != 0) {
 		return rc;

@@ -1,3 +1,4 @@
+// gpl2 license
 #ifndef GBTCP_SERVICE_H
 #define GBTCP_SERVICE_H
 
@@ -5,13 +6,11 @@
 #include "mod.h"
 #include "mbuf.h"
 #include "route.h"
+#include "timer.h"
 
 #define IH_VERSION 2
 
 #define PROC_COMM_MAX 32
-
-//#define P_SERVICE 0
-//#define P_CONTROLLER 1
 
 #define SERVICE_LOCK do { \
 	spinlock_lock(&current->p_lock); \
@@ -25,8 +24,9 @@
 	service_unlock()
 
 #define SERVICE_FOREACH(s) \
-	for ((s) = ih->ih_services; \
-	     (s) != ih->ih_services + ARRAY_SIZE(ih->ih_services); ++(s))
+	for ((s) = shm_ih->ih_services; \
+	     (s) != shm_ih->ih_services + ARRAY_SIZE(shm_ih->ih_services); \
+	     (s)++)
 
 struct service {
 	struct spinlock p_lock;
@@ -39,33 +39,34 @@ struct service {
 	u_int p_tx_kpps;
 	uint64_t p_tx_kpps_time;
 	uint64_t p_tx_pkts;
+	int p_timer_nrings;
+	struct timer_ring *p_timer_rings[TIMER_NRINGS_MAX];
+	struct mbuf_pool p_file_pool;
+	struct mbuf_pool p_sockbuf_pool;
+	struct mbuf_pool p_arp_entry_pool;
+	struct mbuf_pool p_arp_incomplete_pool;
 	struct tcp_stat p_tcps;
 	struct udp_stat p_udps;
 	struct ip_stat p_ips;
 	struct icmp_stat p_icmps;
 	struct arp_stat p_arps;
-	struct mbuf_pool p_file_pool;
-	struct mbuf_pool p_sockbuf_pool;
-	struct mbuf_pool p_arp_entry_pool;
-	struct mbuf_pool p_arp_incomplete_pool;
 	int p_mbuf_free_indirect_n;
 	struct dlist p_mbuf_free_indirect_head[GT_SERVICES_MAX];
 	char p_comm[PROC_COMM_MAX];
 };
 
-struct init_hdr {
+struct shm_init_hdr {
 	int ih_version;
 	uint64_t ih_hz;
-	void *ih_mods[MOD_N];
+	void *ih_mods[MODS_NUM];
 	struct service ih_services[GT_SERVICES_MAX];
 	int ih_rss_nq;
 	int ih_rss_table[GT_RSS_NQ_MAX];
 };
 
+
 int service_mod_init(void **);
-int service_mod_attach(void *);
 void service_mod_deinit();
-void service_mod_detach();
 
 int service_init(const char *);
 int service_attach();
@@ -83,9 +84,5 @@ int service_fork();
 int service_clone(int (*)(void *), void *, int, void *,
 	void *, void *, void *);
 #endif /* __linux__ */
-
-extern struct init_hdr *ih;
-extern struct service *current;
-uint64_t nanoseconds;
 
 #endif // GBTCP_SERVICE_H

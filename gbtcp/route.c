@@ -1,5 +1,7 @@
 #include "internals.h"
 
+#define CURMOD route
+
 struct route_entry_long {
 	struct lptree_rule rtl_rule;
 	struct dlist rtl_list;
@@ -10,7 +12,6 @@ struct route_entry_long {
 	struct route_if_addr **rtl_srcs;
 };
 
-static struct route_mod *curmod;
 static struct fd_event *route_monitor_event;
 static int route_monitor_fd = -1;
 
@@ -113,7 +114,7 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 		*ifpp = NULL;
 	}
 	ifname_nm_len = strlen(ifname_nm);
-	ASSERT(ifname_nm_len < IFNAMSIZ);
+	assert(ifname_nm_len < IFNAMSIZ);
 	ifp = route_if_get(ifname_nm, ifname_nm_len, ROUTE_IFNAME_NM);
 	if (ifp != NULL) {
 		*ifpp = ifp;
@@ -158,8 +159,8 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 		req = &ifp->rif_host_dev.dev_nmd->req;
 		nr_rx_rings = req->nr_rx_rings; 
 		nr_tx_rings = req->nr_tx_rings;
-		ASSERT(nr_rx_rings > 0);
-		ASSERT(nr_tx_rings <= nr_rx_rings);
+		assert(nr_rx_rings > 0);
+		assert(nr_tx_rings <= nr_rx_rings);
 	}
 	rss_nq = MIN(nr_rx_rings, nr_tx_rings);
 	ifp->rif_rss_nq = rss_nq;
@@ -322,8 +323,8 @@ route_add(struct route_entry *a)
 	struct lptree_rule *rule;
 	struct route_entry_long *route;
 
-	ASSERT(a->rt_af == AF_INET);
-	ASSERT(a->rt_ifp != NULL);
+	assert(a->rt_af == AF_INET);
+	assert(a->rt_ifp != NULL);
 	key = ntoh32(a->rt_dst.ipa_4);
 	if (a->rt_pfx > 32) {
 		rc = -EINVAL;
@@ -684,8 +685,8 @@ sysctl_route_list(void *udata, const char *ident, const char *new,
 	if (route == NULL) {
 		return -ENOENT;
 	}
-	ASSERT(route->rtl_ifp != NULL);
-	ASSERT(route->rtl_af == AF_INET);
+	assert(route->rtl_ifp != NULL);
+	assert(route->rtl_af == AF_INET);
 	pfx = route->rtl_rule.lpr_depth;
 	dst = hton32(route->rtl_rule.lpr_key);
 	strbuf_add_ipaddr(out, AF_INET, &dst);
@@ -695,16 +696,14 @@ sysctl_route_list(void *udata, const char *ident, const char *new,
 }
 
 int
-route_mod_init(void **pp)
+route_mod_init()
 {
 	int rc;
 
-	rc = shm_malloc(pp, sizeof(*curmod));
+	rc = curmod_init();
 	if (rc) {
 		return rc;
 	}
-	curmod = *pp;
-	log_scope_init(&curmod->log_scope, "route");
 	curmod->route_default = NULL;
 	dlist_init(&curmod->route_if_head);
 	dlist_init(&curmod->route_addr_head);
@@ -732,31 +731,15 @@ route_mod_init(void **pp)
 	return 0;
 }
 
-int
-route_mod_attach(void *raw_mod)
-{
-	curmod = raw_mod;
-	return 0;
-}
-
 void
-route_mod_deinit(void *raw_mod)
+route_mod_deinit()
 {
-	struct route_mod *mod;
-
-	mod = raw_mod;
 	sysctl_del(GT_SYSCTL_ROUTE);
 	route_monitor_stop();
-	lptree_deinit(&mod->route_lptree);
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
+	lptree_deinit(&curmod->route_lptree);
+	curmod_deinit();
 }
 
-void
-route_mod_detach()
-{
-	curmod = NULL;
-}
 
 struct route_if_addr *
 route_ifaddr_get(int af, const struct ipaddr *addr)
@@ -791,7 +774,7 @@ route_get(int af, struct ipaddr *src, struct route_entry *g)
 	struct route_entry_long *route;
 	struct route_if_addr *ifa;
 
-	ASSERT(af == AF_INET);
+	assert(af == AF_INET);
 	g->rt_af = AF_INET;
 	if (ipaddr4_is_loopback(g->rt_dst.ipa_4)) {
 		return -ENETUNREACH;

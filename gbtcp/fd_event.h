@@ -32,13 +32,9 @@ struct fd_poll {
 
 extern int fd_poll_epoch;
 
-int fd_event_mod_init(void **);
-int fd_event_mod_attach(void *);
-void fd_event_mod_deinit(void *);
-void fd_event_mod_detach();
-
-void check_fd_events();
-void wait_for_fd_events();
+void wait_for_fd_events2(int, uint64_t);
+#define check_fd_events() wait_for_fd_events2(0, 0)
+#define wait_for_fd_events() wait_for_fd_events2(1, TIMER_TIMEOUT)
 
 int fd_event_add(struct fd_event **, int, const char *, void *, fd_event_f);
 void fd_event_del(struct fd_event *);

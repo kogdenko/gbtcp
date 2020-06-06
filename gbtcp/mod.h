@@ -3,39 +3,42 @@
 #define GBTCP_MOD_H
 
 #include "subr.h"
+#include "service.h"
 
-enum {
-	MOD_SYSCTL,
-	MOD_LOG,
-	MOD_SYS,
-	MOD_SUBR,
-	MOD_PID,
-	MOD_POLL,
-	MOD_EPOLL,
-	MOD_MBUF,
-	MOD_HTABLE,
-	MOD_TIMER,
-	MOD_FD_EVENT,
-	MOD_SIGNAL,
-	MOD_DEV,
-	MOD_API,
-	MOD_LPTREE,
-	MOD_ROUTE,
-	MOD_ARP,
-	MOD_FILE,
-	MOD_INET,
-	MOD_SOCKBUF,
-	MOD_TCP,
-	MOD_SERVICE,
-	MOD_CONTROLLER,
-	MOD_N
+struct mod {
+	int (*mod_init)();
+	int (*mod_service_init)(struct service *);
+	void (*mod_deinit)();
+	void (*mod_service_deinit)(struct service *);
 };
 
-int foreach_mod_init(struct init_hdr *);
-int foreach_mod_service_init(struct service *);
-int foreach_mod_attach(struct init_hdr *);
-void foreach_mod_deinit(struct init_hdr *);
-void foreach_mod_detach();
-void foreach_mod_service_deinit(struct service *);
+extern struct mod mods[MODS_NUM];
+
+#define mod_get(id) \
+	(shm_ih == NULL ? NULL : shm_ih->ih_mods[id])
+
+#define curmod3(_, X, x) ((struct x *)(shm_ih->ih_mods[X]))
+#define curmod_cat(X, x, name) curmod3(~, X##name, name##x)
+#define curmod_med(X, x, name) curmod_cat(X, x, name)
+#define curmod curmod_med(MOD_, _mod, CURMOD)
+
+#define curmod_init() \
+({ \
+	int rc = 0; \
+	rc = mod_init1(CAT2(MOD_, CURMOD)); \
+	rc; \
+})
+
+#define curmod_deinit() \
+	mod_deinit1(CAT2(MOD_, CURMOD))
+
+int mod_init1(int);
+void mod_deinit1();
+const char *mod_name(int);
+
+int mods_init();
+int mods_service_init(struct service *);
+void mods_deinit();
+void mods_service_deinit(struct service *);
 
 #endif // GBTCP_MOD_H

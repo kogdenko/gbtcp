@@ -1,9 +1,7 @@
-/* GPL2 license */
+// gpl2 license
 #include "internals.h"
 
-struct sys_mod {
-	struct log_scope log_scope;
-};
+#define CURMOD sys
 
 sys_open_f sys_open_fn;
 sys_unlink_f sys_unlink_fn;
@@ -51,44 +49,6 @@ sys_dup3_f sys_dup3_fn;
 sys_kqueue_f sys_kqueue_fn;
 sys_kevent_f sys_kevent_fn;
 #endif /* __linux__ */
-
-static struct sys_mod *curmod;
-
-int
-sys_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (!rc) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "sys");
-	}
-	return rc;
-}
-
-int
-sys_mod_attach(void *raw_mod)
-{
-	curmod = raw_mod;
-	return 0;
-}
-
-void
-sys_mod_deinit(void *raw_mod)
-{
-	struct sys_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
-}
-
-void
-sys_mod_detach()
-{
-	curmod = NULL;
-}
 
 #ifdef __linux__
 static void
@@ -158,7 +118,7 @@ sys_fork()
 	rc = (*sys_fork_fn)();
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed;");
 	} else if (rc) {
 		NOTICE(0, "ok; pid=%d", rc);
@@ -175,7 +135,7 @@ restart:
 	rc = (*sys_open_fn)(path, flags, mode);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
@@ -193,7 +153,7 @@ sys_symlink(const char *oldpath, const char *newpath)
 	rc = symlink(oldpath, newpath);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; olpath=%s, newpath=%s",
 		     oldpath, newpath);
 	}
@@ -208,7 +168,7 @@ sys_unlink(const char *path)
 	rc = (*sys_unlink_fn)(path);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		switch (-rc) {
 		case ENOENT:
 			level = LOG_INFO;
@@ -230,7 +190,7 @@ sys_pipe(int pipefd[2])
 	rc = (*sys_pipe_fn)(pipefd);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed;");
 	} else {
 		INFO(0, "pipefd=[%d, %d]", pipefd[0], pipefd[1]);
@@ -246,7 +206,7 @@ sys_socket(int domain, int type, int protocol)
 	rc = (*sys_socket_fn)(domain, type, protocol);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc < 0);
+		assert(rc < 0);
 		ERR(-rc, "failed; domain=%s, type=%s",
 		    log_add_socket_domain(domain),
 		    log_add_socket_type(type));
@@ -262,7 +222,7 @@ sys_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	rc = (*sys_connect_fn)(fd, addr, addrlen);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc < 0);
+		assert(rc < 0);
 		ERR(-rc, "failed; fd=%d, addr=%s",
 		    fd, log_add_sockaddr(addr, addrlen));
 		return rc;
@@ -279,7 +239,7 @@ sys_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	rc = (*sys_bind_fn)(fd, addr, addrlen);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc < 0);
+		assert(rc < 0);
 		ERR(-rc, "failed; fd=%d, addr=%s",
 		    fd, log_add_sockaddr(addr, addrlen));
 		return rc;
@@ -296,7 +256,7 @@ sys_listen(int fd, int backlog)
 	rc = (*sys_listen_fn)(fd, backlog);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc < 0);
+		assert(rc < 0);
 		ERR(-rc, "failed; fd=%d, backlog=%d", fd, backlog);
 		return rc;
 	} else {
@@ -312,7 +272,7 @@ sys_accept4(int fd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 	rc = (*sys_accept4_fn)(fd, addr, addrlen, flags);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc != -EAGAIN) {
 			ERR(-rc, "failed; fd=%d", fd);
 		}
@@ -328,7 +288,7 @@ sys_shutdown(int fd, int how)
 	rc = (*sys_shutdown_fn)(fd, how);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; fd=%d, how=%s",
 		    fd, log_add_shutdown_how(how));
 	}
@@ -346,7 +306,7 @@ sys_close(int fd)
 	rc = (*sys_close_fn)(fd);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc < 0);
+		assert(rc < 0);
 		ERR(-rc, "failed; fd=%d", fd);
 	}
 	return rc;
@@ -361,7 +321,7 @@ restart:
 	rc = (*sys_read_fn)(fd, buf, count);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else if (rc != -EAGAIN) {
@@ -380,7 +340,7 @@ restart:
 	rc = (*sys_recv_fn)(fd, buf, len, flags);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else if (rc != -EAGAIN) {
@@ -399,7 +359,7 @@ restart:
 	rc = (*sys_recvmsg_fn)(fd, msg, flags);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else if (rc != -EAGAIN) {
@@ -418,7 +378,7 @@ restart:
 	rc = (*sys_write_fn)(fd, buf, count);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else if (rc == -EAGAIN) {
@@ -437,7 +397,7 @@ restart:
 	rc = (*sys_send_fn)(fd, buf, len, flags);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else  if (rc != -EAGAIN) {
@@ -455,7 +415,7 @@ sys_sendmsg(int fd, const struct msghdr *msg, int flags)
 	rc = (*sys_sendmsg_fn)(fd, msg, flags);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc != -EPIPE) {
 			ERR(-rc, "failed; fd=%d", fd);
 		}
@@ -471,7 +431,7 @@ sys_dup(int fd)
 	rc = (*sys_dup_fn)(fd);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc < 0);
+		assert(rc < 0);
 		ERR(-rc, "failed; fd=%d", fd);
 	}
 	return rc;
@@ -485,7 +445,7 @@ sys_fcntl(int fd, int cmd, uintptr_t arg)
 	rc = (*sys_fcntl_fn)(fd, cmd, arg);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; fd=%d, cmd=%s", fd, log_add_fcntl_cmd(cmd));
 	}
 	return rc;
@@ -499,7 +459,7 @@ sys_ioctl(int fd, unsigned long request, uintptr_t arg)
 	rc = (*sys_ioctl_fn)(fd, request, arg);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		switch (request) {
 		case SIOCGIFFLAGS:
 			ERR(-rc, "failed; fd=%d, req=SIOCGIFFLAGS, ifr_name='%s'",
@@ -521,7 +481,7 @@ sys_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
 	rc = (*sys_getsockopt_fn)(fd, level, optname, optval, optlen);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; fd=%d, level=%s, optname=%s",
 		    fd, log_add_sockopt_level(level),
 		    log_add_sockopt_optname(level, optname));
@@ -537,7 +497,7 @@ sys_setsockopt(int fd, int level, int optname, void *optval, socklen_t optlen)
 	rc = (*sys_setsockopt_fn)(fd, level, optname, optval, optlen);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; fd=%d, level=%s, optname=%s",
 		    fd, log_add_sockopt_level(level),
 		    log_add_sockopt_optname(level, optname));
@@ -550,12 +510,12 @@ sys_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
 
-	ASSERT(addr != NULL);
-	ASSERT(addrlen != NULL);
+	assert(addr != NULL);
+	assert(addrlen != NULL);
 	rc = (*sys_getpeername_fn)(fd, addr, addrlen);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; fd=%d", fd);
 	} else {
 		INFO(0, "ok; fd=%d, addr=%s",
@@ -573,7 +533,7 @@ sys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *to,
 	rc = (*sys_ppoll_fn)(fds, nfds, to, sigmask);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			INFO(-rc, "interrupted;");
 		} else {
@@ -592,7 +552,7 @@ sys_signal(int signum, void (*handler)())
 	res = (*sys_signal_fn)(signum, handler);
 	if (res == SIG_ERR) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; signum=%d, sighandler=%s",
 		    signum, log_add_sighandler(handler));
 	}
@@ -608,7 +568,7 @@ sys_sigaction(int signum, const struct sigaction *act,
 	rc = (*sys_sigaction_fn)(signum, act, oldact);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; signum=%d", signum);
 	}
 	return rc;
@@ -622,7 +582,7 @@ sys_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 	rc = (*sys_sigprocmask_fn)(how, set, oldset);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; how=%s", log_add_sigprocmask_how(how));
 	}
 	return rc;
@@ -676,7 +636,7 @@ sys_mmap(void **res, void *addr, size_t size, int prot, int flags,
 	ptr = mmap(addr, size, prot, flags, fd, offset);
 	if (ptr == MAP_FAILED) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; fd=%d, size=%zu", fd, size);
 	} else {
 		rc = 0;
@@ -696,7 +656,7 @@ sys_munmap(void *ptr, size_t size)
 	rc = munmap(ptr, size);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; ptr=%p, size=%zu", ptr, size);
 	} else {
 		INFO(0, "ok; ptr=%p, size=%zu", ptr, size);
@@ -712,7 +672,7 @@ sys_mprotect(void *ptr, size_t size, int prot)
 	rc = mprotect(ptr, size, prot);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; ptr=%p, size=%zu", ptr, size);
 	} else {
 		INFO(0, "ok; ptr=%p, size=%zu", ptr, size);
@@ -728,7 +688,7 @@ sys_fopen(FILE **file, const char *path, const char *mode)
 	*file = fopen(path, mode);
 	if (*file == NULL) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; path='%s', mode=%s", path, mode);
 		return rc;
 	}
@@ -743,7 +703,7 @@ sys_opendir(DIR **pdir, const char *name)
 	*pdir = opendir(name);
 	if (*pdir == NULL) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; name='%s'", name);
 		return rc;
 	}
@@ -759,7 +719,7 @@ restart:
 	rc = stat(path, buf);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(errno);
+		assert(errno);
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
@@ -778,7 +738,7 @@ restart:
 	rc = ftruncate(fd, off);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
@@ -797,7 +757,7 @@ sys_realpath(const char *path, char *resolved_path)
 	res = realpath(path, resolved_path);
 	if (res == NULL) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; path='%s'", path);
 	} else {
 		rc = 0;
@@ -814,7 +774,7 @@ restart:
 	rc = (*sys_flock_fn)(fd, operation);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
@@ -834,7 +794,7 @@ restart:
 	*pgroup = getgrnam(name);
 	if (*pgroup == NULL) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
@@ -853,7 +813,7 @@ restart:
 	rc = chown(path, owner, group);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
@@ -872,7 +832,7 @@ restart:
 	rc = chmod(path, mode);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
@@ -890,7 +850,7 @@ sys_getifaddrs(struct ifaddrs **ifap)
 	rc = getifaddrs(ifap);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed;");
 		return rc;
 	}
@@ -906,11 +866,11 @@ sys_if_indextoname(int ifindex, char *ifname)
 	s = if_indextoname(ifindex, ifname);
 	if (s == NULL) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; ifindex=%d", ifindex);
 		return rc;
 	}
-	ASSERT(s == ifname);
+	assert(s == ifname);
 	return 0;
 }
 
@@ -922,7 +882,7 @@ sys_if_nametoindex(const char *ifname)
 	rc = if_nametoindex(ifname);
 	if (rc == 0) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; ifname='%s'", ifname);
 	}
 	return rc;
@@ -936,7 +896,7 @@ sys_kill(int pid, int sig)
 	rc = kill(pid, sig);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; pid=%d, sig=%d", pid, sig);
 	}
 	return rc;
@@ -950,7 +910,7 @@ sys_waitpid(pid_t pid, int *status, int options)
 	rc = waitpid(pid, status, options);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; pid=%d", (int)pid);
 	}
 	return rc;
@@ -964,7 +924,7 @@ sys_daemon(int nochdir, int noclose)
 	rc = daemon(nochdir, noclose);
 	if (rc < 0) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed;");
 	} else {
 		ERR(0, "ok;");
@@ -980,7 +940,7 @@ sys_inotify_init1(int flags)
 	rc = inotify_init1(flags);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed;");
 	} else {
 		INFO(0, "ok; fd=%d", rc);
@@ -996,7 +956,7 @@ sys_inotify_add_watch(int fd, const char *path, uint32_t mask)
 	rc = inotify_add_watch(fd, path, mask);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; fd=%d, path='%s'", fd, path);
 	} else {
 		INFO(0, "ok; fd=%d, path='%s'", fd, path);
@@ -1012,7 +972,7 @@ sys_inotify_rm_watch(int fd, int wd)
 	rc = inotify_rm_watch(fd, wd);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; fd=%d, wd=%d", fd, wd);
 	} else {
 		INFO(0, "ok; fd=%d, wd=%d", fd, wd);
@@ -1028,7 +988,7 @@ sys_shm_open(const char *name, int oflag, mode_t mode)
 	rc = shm_open(name, oflag, mode);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; name='%s'", name);
 	} else {
 		INFO(0, "ok; name='%s', fd=%d", name, rc);
@@ -1045,7 +1005,7 @@ sys_epoll_create1(int flags)
 	rc = (*sys_epoll_create1_fn)(flags);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed;");	
 	}
 	return rc;
@@ -1061,7 +1021,7 @@ restart:
 	rc = (*sys_epoll_pwait_fn)(epfd, events, maxevents, timeout, sigmask);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
@@ -1079,7 +1039,7 @@ sys_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	rc = (*sys_epoll_ctl_fn)(epfd, op, fd, event);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; epfd=%d", epfd);
 	}
 	return rc;
@@ -1094,7 +1054,7 @@ sys_clone(int (*fn)(void *), void *child_stack,
 	rc = (*sys_clone_fn)(fn, child_stack, flags, arg, ptid, tls, ctid);
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed; flags=%s", log_add_clone_flags(flags));
 	}
 	return rc;
@@ -1108,7 +1068,7 @@ sys_kqueue()
 	rc = (*sys_kqueue_fn)();
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		ERR(-rc, "failed;");
 	}
 	return rc;

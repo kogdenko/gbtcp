@@ -114,10 +114,8 @@ typedef void (*route_msg_f)(struct route_msg *);
 #define ROUTE_IF_FOREACH(ifp) \
 	DLIST_FOREACH(ifp, route_if_head(), rif_list)
 
-int route_mod_init(void **);
-int route_mod_attach(void *);
-void route_mod_deinit(void *);
-void route_mod_detach();
+int route_mod_init();
+void route_mod_deinit();
 
 struct dlist *route_if_head();
 struct route_if *route_if_get_by_ifindex(int);

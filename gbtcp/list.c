@@ -123,7 +123,7 @@ dlist_splice_tail(struct dlist *dst, struct dlist *src)
 void
 dlist_splice_tail_init(struct dlist *dst, struct dlist *src)
 {
-	ASSERT(!dlist_is_empty(src));
+	assert(!dlist_is_empty(src));
 	dlist_splice_tail(dst, src);
 	dlist_init(src);
 }

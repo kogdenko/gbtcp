@@ -1,7 +1,9 @@
-// GPL2 license
+// gpl2 license
 #include "internals.h"
 
 #define LOG_LEVEL_DEFAULT LOG_NOTICE
+
+#define CURMOD log
 
 struct log_mod {
 	int log_stdout;
@@ -13,39 +15,30 @@ static char log_buf[LOG_BUFSIZ];
 static int log_tid;
 static int log_pidtid_width;
 static struct strbuf log_sb;
-static int log_early = 1;
 static int log_early_stdout = 1;
 static int log_early_level_changed;
 static int log_early_level = LOG_LEVEL_DEFAULT;
 static int log_fd = -1;
 static int log_stdout_fd = -1;
-static struct log_mod *curmod;
 
 #define ldbg(...) if (debug) dbg(__VA_ARGS__)
 
 static int
-log_is_stdout(int force_stdout, int debug)
+log_stdout_is_enabled(int force, int debug)
 {
 	if (log_stdout_fd < 0) {
 		ldbg("log_stdout_fd < 0");
 		return 0;
-	} else if (force_stdout) {
-		ldbg("force_stdout");
+	} else if (force) {
+		ldbg("force");
 		return 1;
-	} else if (log_early) {
+	} else if (mod_get(MOD_log) == NULL) {
 		ldbg("log_early_stdout=%d", log_early_stdout);
 		return log_early_stdout;
 	} else {
 		ldbg("curmod->log_stdout=%d", curmod->log_stdout);
 		return curmod->log_stdout;
 	}
-}
-
-static void
-log_fclose()
-{
-	sys_close(log_fd);
-	log_fd = -1;
 }
 
 // Log filename pattern:
@@ -83,18 +76,18 @@ log_expand_pattern(struct strbuf *path, const char *pattern)
 	return 0;
 }
 
-static int
-log_fopen(const char *pattern, int add_flags)
+int
+log_file_open(int add_flags)
 {
 	int rc;
 	char path_buf[PATH_MAX];
 	struct strbuf path;
 
-	if (!strcmp(pattern, "/dev/null")) {
+	if (!strcmp(curmod->log_pattern, "/dev/null")) {
 		return 0;
 	}
 	strbuf_init(&path, path_buf, sizeof(path_buf));
-	rc = log_expand_pattern(&path, pattern);
+	rc = log_expand_pattern(&path, curmod->log_pattern);
 	if (rc) {
 		return rc;
 	}
@@ -111,9 +104,16 @@ log_fopen(const char *pattern, int add_flags)
 	if (rc < 0) {
 		return rc;
 	}
-	log_fclose(log);
+	log_file_close(log);
 	log_fd = rc;
 	return 0;
+}
+
+void
+log_file_close()
+{
+	sys_close(log_fd);
+	log_fd = -1;
 }
 
 static int
@@ -133,7 +133,7 @@ log_sysctl_out(struct sysctl_conn *cp, void *udata,
 void
 log_init_early()
 {
-	if (log_stdout_fd < 0) {
+	if (log_early_stdout && log_stdout_fd < 0) {
 		log_stdout_fd = sys_open("/dev/stdout", O_WRONLY, 0);
 	}
 }
@@ -143,11 +143,10 @@ log_mod_init(void **pp)
 {
 	int rc;
 
-	rc = shm_malloc(pp, sizeof(*curmod));
+	rc = curmod_init();
 	if (rc) {
 		return rc;
 	}
-	curmod = *pp;
 	curmod->log_level = LOG_LEVEL_DEFAULT;
 	if (log_early_level_changed) {
 		curmod->log_level = log_early_level;
@@ -160,43 +159,20 @@ log_mod_init(void **pp)
 	return 0;
 }
 
-int
-log_mod_attach(void *p)
-{
-	curmod = p;
-	log_fopen(curmod->log_pattern, O_TRUNC);
-	log_early = 0;
-	return 0;
-}
+//int
+//log_mod_attach(void *p)
+//{
+//	log_file_open(curmod->log_pattern, O_TRUNC);
+//	return 0;
+//}
 
 void
 log_mod_deinit()
 {
-	if (curmod != NULL) {
-		sysctl_del("log.out");
-		sysctl_del("log.level");
-		sysctl_del("log.stdout");
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-log_mod_detach()
-{
-	log_fclose();
-	log_early = 1;
-	curmod = NULL;
-}
-
-void
-log_scope_init_early(struct log_scope *scope, const char *name)
-{
-	memset(scope, 0, sizeof(*scope));
-	scope->lgs_level = LOG_LEVEL_DEFAULT;
-	strzcpy(scope->lgs_name, name, sizeof(scope->lgs_name));
-	scope->lgs_name_len = strlen(scope->lgs_name);
-	ASSERT(scope->lgs_name_len);
+	sysctl_del("log.out");
+	sysctl_del("log.level");
+	sysctl_del("log.stdout");
+	curmod_deinit();;
 }
 
 void
@@ -204,7 +180,11 @@ log_scope_init(struct log_scope *scope, const char *name)
 {
 	char path[PATH_MAX];
 
-	log_scope_init_early(scope, name);
+	memset(scope, 0, sizeof(*scope));
+	scope->lgs_level = LOG_LEVEL_DEFAULT;
+	strzcpy(scope->lgs_name, name, sizeof(scope->lgs_name));
+	scope->lgs_name_len = strlen(scope->lgs_name);
+	assert(scope->lgs_name_len);
 	snprintf(path, sizeof(path), "log.scope.%s.level", name);
 	sysctl_add_int(path, SYSCTL_WR, &scope->lgs_level,
 	               LOG_EMERG, LOG_DEBUG);
@@ -220,7 +200,7 @@ log_scope_deinit(struct log_scope *scope)
 void
 log_set_level(int level)
 {
-	if (log_early) {
+	if (mod_get(MOD_log) == NULL) {
 		log_early_level = level;
 		log_early_level_changed = 1;
 	} else {
@@ -229,19 +209,21 @@ log_set_level(int level)
 }
 
 int
-log_is_enabled(struct log_scope *scope, int level, int debug)
+log_is_enabled(int mod_id, int level, int debug)
 {
-	int thresh, is_stdout;
+	int thresh, stdout_on;
+	struct log_scope *scope;
 
-	is_stdout = log_is_stdout(0, debug);
-	if (log_fd == -1 && is_stdout == 0) {
+	stdout_on = log_stdout_is_enabled(0, debug);
+	if (log_fd == -1 && !stdout_on) {
 		// Nowhere to write logs
 		return 0;
 	}
-	if (log_early) {
+	if (mod_get(MOD_log) == NULL) {
 		thresh = log_early_level;
 	} else {
 		thresh = curmod->log_level;
+		scope = mod_get(mod_id);
 		if (scope != NULL && thresh < scope->lgs_level) {
 			thresh = scope->lgs_level;
 		}
@@ -305,7 +287,7 @@ log_write(struct strbuf *sb, int force_stdout)
 	if (log_fd >= 0) {
 		write_full_buf(log_fd, sb->sb_buf, len);
 	}
-	if (log_is_stdout(force_stdout, 0)) {
+	if (log_stdout_is_enabled(force_stdout, 0)) {
 		write_full_buf(log_stdout_fd, sb->sb_buf, len);
 	}
 }

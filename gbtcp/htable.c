@@ -1,51 +1,11 @@
 #include "internals.h"
 
-struct htable_mod {
-	struct log_scope log_scope;
-};
+#define CURMOD htable
 
 struct htable_id {
 	uint32_t lo;
 	uint32_t hi;
 };
-
-static struct htable_mod *curmod;
-
-int
-htable_mod_init(void **pp)
-{
-	int rc;
-
-	rc = shm_malloc(pp, sizeof(*curmod));
-	if (!rc) {
-		curmod = *pp;
-		log_scope_init(&curmod->log_scope, "htable");
-	}
-	return rc;
-}
-
-int
-htable_mod_attach(void *raw_mod)
-{
-	curmod = raw_mod;
-	return 0;
-}
-
-void
-htable_mod_deinit(void *raw_mod)
-{
-	struct htable_mod *mod;
-
-	mod = raw_mod;
-	log_scope_deinit(&mod->log_scope);
-	shm_free(mod);
-}
-
-void
-htable_mod_detach()
-{
-	curmod = NULL;
-}
 
 void
 htable_bucket_init(struct htable_bucket *b)
@@ -209,8 +169,8 @@ sysctl_add_htable(const char *path0, int mode, struct htable *t,
 {
 	char path[PATH_MAX];
 
-	ASSERT(t->ht_sysctl_fn == NULL);
-	ASSERT(fn != NULL);
+	assert(t->ht_sysctl_fn == NULL);
+	assert(fn != NULL);
 	t->ht_sysctl_fn = fn;
 	snprintf(path, sizeof(path), "%s.size", path0);
 	sysctl_add(path, SYSCTL_LD, t, NULL, sysctl_htable_size);

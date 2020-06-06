@@ -68,8 +68,6 @@ int gt_preload_passthru;
 #define PRELOAD_POLL poll
 #define PRELOAD_PSELECT pselect
 #define PRELOAD_SELECT select
-#define PRELOAD_SIGNAL signal
-#define PRELOAD_SIGACTION sigaction
 
 #ifdef __linux__
 #define PRELOAD_CLONE clone
@@ -458,7 +456,7 @@ PRELOAD_GETPEERNAME(int fd, struct sockaddr *addr, socklen_t *addrlen)
 	return rc;
 }
 
-gt_sighandler_t 
+/*gt_sighandler_t 
 PRELOAD_SIGNAL(int signum, gt_sighandler_t fn)
 {
 	int rc;
@@ -489,7 +487,7 @@ PRELOAD_SIGACTION(int signum, const struct sigaction *act,
 		preload_set_errno(gt_errno);
 	}
 	return rc;
-}
+}*/
 
 #if 0
 int

@@ -1,5 +1,9 @@
 #include "internals.h"
 
+#define CURMOD inet
+
+//#define curmod ((struct inet_mod *)(curmod_ptr(MOD_inet)))
+
 struct inet_mod {
 	struct log_scope log_scope;
 	int inet_cksum_offload_rx;
@@ -25,8 +29,6 @@ struct tcp_opt_info tcp_opt_info[TCP_OPT_MAX] = {
 	{ TCP_OPT_SACK_PERMITED, 2 },
 	{ TCP_OPT_TIMESTAMPS, 10 }
 };
-
-static struct inet_mod *curmod;
 
 #define SHIFT(in, size) \
 	do { \
@@ -123,17 +125,14 @@ sysctl_add_inet_stat_arp()
 }
 
 int
-inet_mod_init(void **pp)
+inet_mod_init()
 {
 	int rc;
 
-	rc = shm_malloc(pp, sizeof(*curmod));
+	rc = curmod_init();
 	if (rc) {
 		return rc;
 	}
-	curmod = *pp;
-	memset(curmod, 0, sizeof(*curmod));
-	log_scope_init(&curmod->log_scope, "inet");
 	sysctl_add_inet_stat_tcp();
 	sysctl_add_inet_stat_udp();
 	sysctl_add_inet_stat_ip();
@@ -145,28 +144,11 @@ inet_mod_init(void **pp)
 	return 0;
 }
 
-int
-inet_mod_attach(void *raw_mod)
-{
-	curmod = raw_mod;
-	return 0;
-}
-
 void
 inet_mod_deinit()
 {
-	if (curmod != NULL) {
-		sysctl_del("inet");
-		log_scope_deinit(&curmod->log_scope);
-		shm_free(curmod);
-		curmod = NULL;
-	}
-}
-
-void
-inet_mod_detach()
-{
-	curmod = NULL;
+	sysctl_del("inet");
+	curmod_deinit();
 }
 
 void
@@ -426,7 +408,7 @@ arp_in(struct in_context *in)
 		in->in_arps->arps_bypassed++;
 		return IN_BYPASS;
 	}
-	ASSERT(in->in_ifp != NULL);
+	assert(in->in_ifp != NULL);
 	for (i = 0; i < in->in_ifp->rif_naddrs; ++i) {
 		if (ifa == in->in_ifp->rif_addrs[i]) {
 			break;		

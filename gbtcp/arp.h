@@ -14,11 +14,9 @@ struct arp_advert_msg {
 	int arpam_override;
 };
 
-int arp_mod_init(void **);
-int arp_mod_attach(void *);
+int arp_mod_init();
 int arp_mod_service_init(struct service *);
 void arp_mod_deinit();
-void arp_mod_detach();
 void arp_mod_service_deinit(struct service *);
 
 void arp_resolve(struct route_if *, be32_t, struct dev_pkt *);
