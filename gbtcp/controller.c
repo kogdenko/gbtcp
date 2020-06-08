@@ -399,12 +399,9 @@ sysctl_controller_service_list_next(void *udata, const char *ident,
 	int i;
 
 	if (ident == NULL) {
-		i = 1;
+		i = 0;
 	} else {
 		i = strtoul(ident, NULL, 10) + 1;
-		if (i < 1) {
-			i = 1;
-		}
 	}
 	for (; i < ARRAY_SIZE(shm_ih->ih_services); ++i) {
 		if (shm_ih->ih_services[i].p_pid) {
@@ -424,11 +421,11 @@ sysctl_controller_service_list(void *udata, const char *ident, const char *new,
 	struct service *s;
 
 	if (ident == NULL) {
-		i = 1;
+		i = 0;
 	} else {
 		i = strtoul(ident, NULL, 10);
 	}
-	if (i < 1 || i >= ARRAY_SIZE(shm_ih->ih_services)) {
+	if (i >= ARRAY_SIZE(shm_ih->ih_services)) {
 		return -ENOENT;
 	}
 	s = shm_ih->ih_services + i;
@@ -440,7 +437,6 @@ sysctl_controller_service_list(void *udata, const char *ident, const char *new,
 		return 0;
 	}
 }
-
 
 static void
 controller_service_conn_close(struct sysctl_conn *cp)
@@ -495,6 +491,7 @@ controller_init(int daemonize, const char *service_comm)
 	uint64_t hz;
 	struct service *s;
 
+	gt_init();
 	gt_preload_passthru = 1;
 	shm_ih = NULL;
 	if (daemonize) {

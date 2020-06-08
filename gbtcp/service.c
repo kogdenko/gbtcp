@@ -328,6 +328,7 @@ service_detach(int forked)
 	}
 	shm_ih = NULL;
 	shm_detach();
+	clean_fd_events();
 }
 
 void
@@ -527,13 +528,83 @@ service_in_parent(int pipe_fd[2])
 	sys_close(pipe_fd[0]);
 }
 
+static int
+service_dup_so(struct sock *oldso)
+{
+	int rc, fd, flags;
+	struct sockaddr_in a;
+	struct sock *newso;
+
+	fd = so_get_fd(oldso);
+	flags = oldso->so_blocked ? SOCK_NONBLOCK : 0;
+	rc = so_socket6(&newso, fd, AF_INET,
+	                SOCK_STREAM, flags, 0);
+	if (rc < 0) {
+		return rc;
+	}
+	a.sin_family = AF_INET;
+	a.sin_port = oldso->so_lport;
+	a.sin_addr.s_addr = oldso->so_laddr;
+	rc = so_bind(newso, &a);
+	if (rc) {
+		so_close(newso);
+		return rc;
+	}
+	rc = so_listen(newso, 0);
+	if (rc) {
+		so_close(newso);
+	}
+	return rc;
+}
+
+static void
+service_in_child0()
+{
+	int rc, has_listen, ppid;
+	struct sock *so;
+
+	ppid = getppid();
+	has_listen = 0;
+	SO_FOREACH_BINDED(so) {
+		if (so->so_service_id == ppid &&
+		    so->so_ipproto == SO_IPPROTO_TCP &&
+		    so->so_state == GT_TCP_S_LISTEN) {
+			has_listen = 1;
+			break;
+		}
+	};
+	service_detach(1);
+	if (!has_listen) {
+		return;
+	}
+	rc = service_attach();
+	if (rc) {
+		return;
+	}
+	has_listen = 0;
+	SO_FOREACH_BINDED(so) {
+		if (so->so_service_id == ppid &&
+		    so->so_ipproto == SO_IPPROTO_TCP &&
+		    so->so_state == GT_TCP_S_LISTEN) {
+			rc = service_dup_so(so);
+			if (rc == 0) {
+				has_listen = 1;
+			}
+		}
+	}
+	if (!has_listen) {
+		ERR(0, "no listen sockets");
+		service_detach(0);
+	}
+}
+
 static void
 service_in_child(int pipe_fd[2])
 {
 	int rc;
 
 	sys_close(pipe_fd[0]);
-	service_detach(1);
+	service_in_child0();
 	rc = 0;
 	write_full_buf(pipe_fd[1], &rc, sizeof(rc));
 	sys_close(pipe_fd[1]);

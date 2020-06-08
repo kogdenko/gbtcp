@@ -272,7 +272,7 @@ arp_mod_init()
 		return rc;
 	}
 	rc = htable_init(&curmod->arp_htable, 32,
-	                 arp_entry_hash, HTABLE_SHARED);
+	                 arp_entry_hash, HTABLE_SHARED|HTABLE_POWOF2);
 	if (rc) {
 		shm_free(curmod);
 		return rc;

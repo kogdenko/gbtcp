@@ -42,8 +42,10 @@ void mbuf_pool_deinit(struct mbuf_pool *);
 int mbuf_pool_is_empty(struct mbuf_pool *);
 
 int mbuf_alloc(struct mbuf_pool *, struct mbuf **);
+int mbuf_alloc3(struct mbuf_pool *, uint32_t, struct mbuf **);
 void mbuf_init(struct mbuf *);
 void mbuf_free(struct mbuf *);
+void mbuf_free_direct(struct mbuf *m);
 void mbuf_free_rcu(struct mbuf *);
 struct mbuf *mbuf_get(struct mbuf_pool *, uint32_t);
 struct mbuf *mbuf_next(struct mbuf_pool *, uint32_t);

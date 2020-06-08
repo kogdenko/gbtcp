@@ -104,12 +104,20 @@ file_next(struct service *s, int fd)
 }
 
 int
-file_alloc(struct file **fpp, int type)
+file_alloc3(struct file **fpp, int fd, int type)
 {
-	int rc;
+	int rc, m_id;
+	struct mbuf_pool *p;
 	struct file *fp;
 
-	rc = mbuf_alloc(&current->p_file_pool, (struct mbuf **)fpp);
+	p = &current->p_file_pool;
+	if (fd == 0) {
+		rc = mbuf_alloc(p, (struct mbuf **)fpp);
+	} else {
+		assert(fd >= curmod->file_first_fd);
+		m_id = fd - curmod->file_first_fd;
+		rc = mbuf_alloc3(p, m_id, (struct mbuf **)fpp);
+	}
 	if (rc == 0) {
 		fp = *fpp;
 		file_init(fp, type);

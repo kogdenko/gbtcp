@@ -54,14 +54,16 @@ mod_name(int mod_id)
 }
 
 int
-mod_init1(int mod_id)
+mod_init2(int mod_id, size_t size)
 {
 	int rc;
 	struct log_scope *scope;
 
 	assert(shm_ih->ih_mods[mod_id] == NULL);
-	rc = shm_malloc((void **)&scope, sizeof(*scope));
+	assert(size >= sizeof(*scope));
+	rc = shm_malloc((void **)&scope, size);
 	if (rc == 0) {
+		memset(scope, 0, size);
 		log_scope_init(scope, mod_name(mod_id));
 		shm_ih->ih_mods[mod_id] = scope;
 	}
@@ -86,7 +88,7 @@ mods_init()
 	rc = 0;
 	for (i = 0; i < MODS_NUM; ++i) {
 		if (mods[i].mod_init == NULL) {
-			rc = mod_init1(i);
+			rc = mod_init2(i, sizeof(struct log_scope));
 		} else {
 			rc = (*mods[i].mod_init)();
 		}

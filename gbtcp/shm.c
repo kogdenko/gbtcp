@@ -134,7 +134,7 @@ shm_unlock()
 	while (!dlist_is_empty(&tofree)) {
 		m = DLIST_FIRST(&tofree, struct mbuf, mb_list);
 		DLIST_REMOVE(m, mb_list);
-		mbuf_free(m);
+		mbuf_free_direct(m);
 	}
 }
 

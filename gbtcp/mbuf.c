@@ -8,11 +8,11 @@
 #define MBUF_CHUNK_DATA_SIZE  (MBUF_CHUNK_SIZE - sizeof(struct mbuf_chunk))
 
 struct mbuf_chunk {
-	struct dlist c_list;
-	struct dlist c_freeq;
-	struct mbuf_pool *c_pool;
-	int c_freeq_size;
-	short c_id;
+	struct dlist mbc_list;
+	struct dlist mbc_freeq;
+	struct mbuf_pool *mbc_pool;
+	int mbc_freeq_size;
+	short mbc_id;
 };
 
 #define MBUF_GET(p, chunk, i) \
@@ -46,7 +46,6 @@ mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 	struct mbuf *m;
 
 	if (p->mbp_nr_chunks == 0) {
-		ERR(0, "no chunk slots;");
 		return -ENOMEM;
 	}
 	rc = shm_alloc_pages((void **)pchunk,
@@ -56,31 +55,31 @@ mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 	}
 	p->mbp_nr_chunks--;
 	chunk = *pchunk;
-	chunk->c_pool = p;
-	dlist_init(&chunk->c_freeq);
-	chunk->c_freeq_size = p->mbp_mbufs_per_chunk;
-	for (i = 0; i < chunk->c_freeq_size; ++i) {
+	chunk->mbc_pool = p;
+	dlist_init(&chunk->mbc_freeq);
+	chunk->mbc_freeq_size = p->mbp_mbufs_per_chunk;
+	for (i = 0; i < chunk->mbc_freeq_size; ++i) {
 		m = MBUF_GET(p, chunk, i);
 		m->mb_magic = MBUF_MAGIC;
 		m->mb_used = 0;
 		m->mb_allocated = 1;
 		m->mb_service_id = p->mbp_service_id;
-		DLIST_INSERT_TAIL(&chunk->c_freeq, m, mb_list);
+		DLIST_INSERT_TAIL(&chunk->mbc_freeq, m, mb_list);
 	}
-	DLIST_INSERT_TAIL(&p->mbp_avail_chunkq, chunk, c_list);
+	DLIST_INSERT_TAIL(&p->mbp_avail_chunkq, chunk, mbc_list);
 	return 0;
 }
 
 static int
 mbuf_chunk_is_empty(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 {
-	return chunk->c_freeq_size == p->mbp_mbufs_per_chunk;
+	return chunk->mbc_freeq_size == p->mbp_mbufs_per_chunk;
 }
 
 static void
 mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 {
-	DLIST_REMOVE(chunk, c_list);
+	DLIST_REMOVE(chunk, mbc_list);
 	shm_free_pages(chunk, MBUF_CHUNK_SIZE);
 }
 
@@ -106,7 +105,7 @@ mbuf_pool_deinit(struct mbuf_pool *p)
 	while (!dlist_is_empty(&p->mbp_avail_chunkq)) {
 		chunk = DLIST_FIRST(&p->mbp_avail_chunkq,
 		                    struct mbuf_chunk,
-		                    c_list);
+		                    mbc_list);
 		mbuf_chunk_free(p, chunk);
 	}
 }
@@ -121,13 +120,30 @@ mbuf_pool_is_empty(struct mbuf_pool *p)
 	if (rc == 0) {
 		return 0;
 	}
-	DLIST_FOREACH(chunk, &p->mbp_avail_chunkq, c_list) {
+	DLIST_FOREACH(chunk, &p->mbp_avail_chunkq, mbc_list) {
 		rc = mbuf_chunk_is_empty(p, chunk);
 		if (rc == 0) {
 			return 0;
 		}
 	}
 	return 1;
+}
+
+static void
+mbuf_alloc2(struct mbuf *m, struct mbuf_chunk *chunk)
+{
+	struct mbuf_pool *p;
+
+	assert(m->mb_used == 0);
+	DLIST_REMOVE(m, mb_list);
+	p = chunk->mbc_pool;
+	chunk->mbc_freeq_size--;
+	if (chunk->mbc_freeq_size == 0) {
+		DLIST_REMOVE(chunk, mbc_list);
+		DLIST_INSERT_HEAD(&p->mbp_empty_chunkq, chunk, mbc_list);
+	}
+	m->mb_used = 1;
+	m->mb_allocated = 1;
 }
 
 int
@@ -146,7 +162,7 @@ mbuf_alloc(struct mbuf_pool *p, struct mbuf **mp)
 		}
 		for (i = 0; i < ARRAY_SIZE(p->mbp_chunks); ++i) {
 			if (p->mbp_chunks[i] == NULL) {
-				chunk->c_id = i;
+				chunk->mbc_id = i;
 				p->mbp_chunks[i] = chunk;
 				break;
 			}
@@ -155,20 +171,45 @@ mbuf_alloc(struct mbuf_pool *p, struct mbuf **mp)
 	}
 	assert(!dlist_is_empty(&p->mbp_avail_chunkq));
 	chunk = DLIST_FIRST(&p->mbp_avail_chunkq,
-	                    struct mbuf_chunk, c_list);
-	assert(chunk->c_freeq_size);
-	m = DLIST_FIRST(&chunk->c_freeq, struct mbuf, mb_list);
-	assert(m->mb_used == 0);
-	DLIST_REMOVE(m, mb_list);
-	chunk->c_freeq_size--;
-	if (chunk->c_freeq_size == 0) {
-		DLIST_REMOVE(chunk, c_list);
-		DLIST_INSERT_HEAD(&p->mbp_empty_chunkq, chunk, c_list);
-	}
-	m->mb_used = 1;
-	m->mb_allocated = 1;
+	                    struct mbuf_chunk, mbc_list);
+	assert(chunk->mbc_freeq_size);
+	m = DLIST_FIRST(&chunk->mbc_freeq, struct mbuf, mb_list);
+	mbuf_alloc2(m, chunk);
 	*mp = m;
 	return 0;
+}
+
+int
+mbuf_alloc3(struct mbuf_pool *p, uint32_t m_id, struct mbuf **mp)
+{
+	int i, rc, chunk_id;
+	struct mbuf *m;
+	struct mbuf_chunk *chunk;
+
+	assert(current->p_id == p->mbp_service_id);
+	*mp = NULL;
+	chunk_id = m_id / p->mbp_mbufs_per_chunk;
+	if (chunk_id >= ARRAY_SIZE(p->mbp_chunks)) {
+		return -ENFILE;
+	}
+	chunk = p->mbp_chunks[chunk_id];
+	if (chunk == NULL) {
+		rc = mbuf_chunk_alloc(p, &chunk);
+		if (rc) {
+			return rc;
+		}
+		p->mbp_chunks[chunk_id] = chunk;
+		chunk->mbc_id = chunk_id;
+	}
+	i = m_id % p->mbp_mbufs_per_chunk;
+	m = MBUF_GET(p, chunk, i);
+	if (m->mb_used) {
+		return -EBUSY;
+	} else {
+		mbuf_alloc2(m, chunk);
+		*mp = m;
+		return 0;
+	}
 }
 
 void
@@ -190,11 +231,26 @@ mbuf_free_indirect(struct mbuf *m)
 }
 
 void
-mbuf_free(struct mbuf *m)
+mbuf_free_direct(struct mbuf *m)
 {
 	struct mbuf_chunk *chunk;
 	struct mbuf_pool *p;
 
+	assert(m->mb_magic == MBUF_MAGIC);
+	chunk = mbuf_get_chunk(m);
+	p = chunk->mbc_pool;
+	DLIST_INSERT_HEAD(&chunk->mbc_freeq, m, mb_list);
+	assert(chunk->mbc_freeq_size < p->mbp_mbufs_per_chunk);
+	if (chunk->mbc_freeq_size == 0) {
+		DLIST_REMOVE(chunk, mbc_list);
+		DLIST_INSERT_TAIL(&p->mbp_avail_chunkq, chunk, mbc_list);
+	}
+	chunk->mbc_freeq_size++;
+}
+
+void
+mbuf_free(struct mbuf *m)
+{
 	if (m == NULL) {
 		return;
 	}
@@ -203,20 +259,12 @@ mbuf_free(struct mbuf *m)
 	if (!m->mb_allocated) {
 		return;
 	}
+	m->mb_used = 0;
 	if (m->mb_service_id != current->p_id) {
 		mbuf_free_indirect(m);
-		return;
+	} else {
+		mbuf_free_direct(m);
 	}
-	m->mb_used = 0;
-	chunk = mbuf_get_chunk(m);
-	p = chunk->c_pool;
-	DLIST_INSERT_HEAD(&chunk->c_freeq, m, mb_list);
-	assert(chunk->c_freeq_size < p->mbp_mbufs_per_chunk);
-	if (chunk->c_freeq_size == 0) {
-		DLIST_REMOVE(chunk, c_list);
-		DLIST_INSERT_TAIL(&p->mbp_avail_chunkq, chunk, c_list);
-	}
-	chunk->c_freeq_size++;
 }
 
 struct mbuf *
@@ -276,9 +324,9 @@ mbuf_get_id(struct mbuf *m)
 
 	assert(m->mb_magic == MBUF_MAGIC);
 	chunk = mbuf_get_chunk(m);
-	p = chunk->c_pool;
+	p = chunk->mbc_pool;
 	i = ((u_char *)m - (uint8_t *)(chunk + 1)) / p->mbp_mbuf_size;
-	m_id = chunk->c_id * p->mbp_mbufs_per_chunk + i;
+	m_id = chunk->mbc_id * p->mbp_mbufs_per_chunk + i;
 	return m_id;
 }
 
@@ -289,7 +337,7 @@ mbuf_get_pool(struct mbuf *m)
 
 	if (m->mb_allocated) {
 		chunk = mbuf_get_chunk(m);
-		return chunk->c_pool;
+		return chunk->mbc_pool;
 	} else {
 		return NULL;
 	}

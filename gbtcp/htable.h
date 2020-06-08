@@ -5,6 +5,7 @@
 #include "sysctl.h"
 
 #define HTABLE_SHARED (1 << 0)
+#define HTABLE_POWOF2 (1 << 1)
 
 typedef struct dlist htable_entry_t;
 
@@ -35,6 +36,8 @@ int htable_init(struct htable *, int, htable_f, int);
 void htable_deinit(struct htable *);
 struct htable_bucket *htable_bucket_get(struct htable *, uint32_t);
 
-void sysctl_add_htable(const char *, int, struct htable *, htable_sysctl_f);
+void sysctl_add_htable_list(const char *, int, struct htable *,
+	htable_sysctl_f);
+void sysctl_add_htable_size(const char *, struct htable *);
 
 #endif // GBTCP_HTABLE_H

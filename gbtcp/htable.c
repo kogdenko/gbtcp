@@ -20,8 +20,13 @@ htable_init(struct htable *t, int size, htable_f fn, int flags)
 	int i, rc;
 	malloc_f malloc_fn;
 
-	t->ht_size = upper_pow2_32(size);
-	t->ht_mask = t->ht_size - 1;
+	if (flags & HTABLE_POWOF2) {
+		t->ht_size = upper_pow2_32(size);
+		t->ht_mask = t->ht_size - 1;
+	} else {
+		t->ht_size = size;
+		t->ht_mask = 0;
+	}
 	t->ht_flags = flags;
 	t->ht_fn = fn;
 	t->ht_sysctl_fn = NULL;
@@ -31,7 +36,7 @@ htable_init(struct htable *t, int size, htable_f fn, int flags)
 		malloc_fn = sys_malloc;
 	}
 	rc = (*malloc_fn)((void **)&t->ht_array,
-	                  size * sizeof(struct htable_bucket));
+	                  t->ht_size * sizeof(struct htable_bucket));
 	if (rc) {
 		return rc;
 	}
@@ -58,7 +63,14 @@ htable_deinit(struct htable *t)
 struct htable_bucket *
 htable_bucket_get(struct htable *t, uint32_t h) 
 {
-	return t->ht_array + ((h) & (t)->ht_mask);
+	int i;
+
+	if (t->ht_flags & HTABLE_POWOF2) {
+		i = h & t->ht_mask;
+	} else {
+		i = h % t->ht_size;
+	}
+	return t->ht_array + i;
 }
 
 static int
@@ -90,8 +102,6 @@ sysctl_htable_size(struct sysctl_conn *cp, void *udata,
 	return 0;
 }
 
-#define HTABLE_ID_FMT "%d/%d"
-
 static int
 sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 {
@@ -103,7 +113,7 @@ sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 
 	id.hi = id.lo = 0;
 	if (ident != NULL) {
-		rc = sscanf(ident, HTABLE_ID_FMT, &id.hi, &id.lo);
+		rc = sscanf(ident, "%d.%d", &id.hi, &id.lo);
 		if (rc == 2) {
 			id.lo++;
 		}
@@ -116,7 +126,7 @@ sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 		dlist_foreach(e, &b->htb_head) {
 			if (lo == id.lo) {
 				spinlock_unlock(&b->htb_lock);
-				strbuf_addf(out, HTABLE_ID_FMT, id.hi, id.lo);
+				strbuf_addf(out, "%d.%d", id.hi, id.lo);
 				return 0;
 			}
 			lo++;
@@ -137,7 +147,7 @@ sysctl_htable_list(void *udata, const char *ident,
 	struct htable_id id;
 	struct htable_bucket *b;
 
-	rc = sscanf(ident, HTABLE_ID_FMT, &id.hi, &id.lo);
+	rc = sscanf(ident, "%d.%d", &id.hi, &id.lo);
 	if (rc != 2) {
 		return -EPROTO;
 	}
@@ -164,17 +174,19 @@ sysctl_htable_list(void *udata, const char *ident,
 }
 
 void
-sysctl_add_htable(const char *path0, int mode, struct htable *t,
+sysctl_add_htable_size(const char *path, struct htable *t)
+{
+	assert(t->ht_fn != NULL);
+	sysctl_add(path, SYSCTL_LD, t, NULL, sysctl_htable_size);
+}
+
+void
+sysctl_add_htable_list(const char *path, int mode, struct htable *t,
 	htable_sysctl_f fn)
 {
-	char path[PATH_MAX];
-
 	assert(t->ht_sysctl_fn == NULL);
 	assert(fn != NULL);
 	t->ht_sysctl_fn = fn;
-	snprintf(path, sizeof(path), "%s.size", path0);
-	sysctl_add(path, SYSCTL_LD, t, NULL, sysctl_htable_size);
-	snprintf(path, sizeof(path), "%s.list", path0);
 	sysctl_add_list(path, mode, t,
 	                sysctl_htable_list_next,
 	                sysctl_htable_list);

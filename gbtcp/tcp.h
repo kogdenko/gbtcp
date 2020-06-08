@@ -6,6 +6,9 @@
 #include "sockbuf.h"
 #include "htable.h"
 
+#define SO_IPPROTO_UDP 0
+#define SO_IPPROTO_TCP 1
+
 struct socb {
 	int socb_fd;
 	int socb_flags;
@@ -61,8 +64,8 @@ struct sock {
 			u_int so_nagle_acked : 1;
 		};
 	};
-	struct dlist so_hash_list;
-	struct dlist so_bind_list;
+	struct dlist so_attached_list;
+	struct dlist so_binded_list;
 	be32_t so_laddr;
 	be32_t so_faddr;
 	be32_t so_lport;
@@ -100,6 +103,12 @@ struct sock {
 	};
 };
 
+#define SO_FOREACH_BINDED(so) \
+	for (int UNIQV(i) = 0; UNIQV(i) < EPHEMERAL_PORT_MAX; ++UNIQV(i)) \
+		DLIST_FOREACH_RCU(so, \
+			&so_get_binded_bucket(UNIQV(i))->htb_head, \
+		        so_binded_list)
+
 int tcp_mod_init();
 int tcp_mod_service_init(struct service *);
 void tcp_mod_deinit();
@@ -107,6 +116,8 @@ void tcp_mod_service_deinit(struct service *);
 
 int so_get(int, struct sock **);
 int so_get_fd(struct sock *);
+
+struct htable_bucket *so_get_binded_bucket(uint16_t);
 
 int sock_get_eno(struct sock *so);
 
@@ -121,7 +132,9 @@ int so_in_err(int, struct in_context *, be32_t, be32_t, be16_t, be16_t);
 
 void sock_tx_flush();
 
-int so_socket(struct sock **, int, int, int, int);
+int so_socket6(struct sock **, int, int, int, int, int);
+#define so_socket(pso, domain, type, flags, ipproto) \
+	so_socket6(pso, 0, domain, type, flags, ipproto)
 
 int so_connect(struct sock *so, const struct sockaddr_in *f_addr_in,
 	struct sockaddr_in *l_addr_in);

@@ -56,7 +56,8 @@ void file_mod_service_deinit(struct service *);
 void file_mod_service_clean(struct service *);
 
 struct file *file_next(struct service *, int);
-int file_alloc(struct file **, int);
+int file_alloc3(struct file **, int, int);
+#define file_alloc(fpp, type) file_alloc3(fpp, 0, type)
 void file_free(struct file *);
 void file_free_rcu(struct file *);
 void file_close(struct file *);

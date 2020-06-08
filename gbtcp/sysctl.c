@@ -343,17 +343,12 @@ sysctl_node_find(const char *path, struct sysctl_node **pnode, char **ptail)
 		name_len = path_iov[i].iov_len;
 		child = sysctl_node_find_child(node, name, name_len);
 		if (child == NULL) {
-			if (i < path_iovcnt - 1) {
-				return -ENOENT;
-			}
 			*pnode = node;
 			if (ptail == NULL) {
 				return -ENOENT;
-			} else 	if (i == path_iovcnt - 1) {
-				*ptail = path_iov[i].iov_base;
-				return 0;	
 			} else {
-				return -ENOENT;
+				*ptail = path_iov[i].iov_base;
+				return 0;
 			}
 		}
 		node = child;
