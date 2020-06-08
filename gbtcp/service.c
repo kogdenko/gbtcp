@@ -213,7 +213,7 @@ service_attach()
 	int rc, pid;
 	struct sockaddr_un a;
 	char pid_filename[32];
-	char p_comm[PROC_COMM_MAX];
+	char p_comm[SERVICE_COMM_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
 	struct service *s;
 
@@ -223,13 +223,13 @@ service_attach()
 		spinlock_unlock(&service_attach_lock);
 		return 0;
 	}
-	gt_init();
 	ERR(0, "hit;");
 	pid = getpid();
 	rc = read_comm(p_comm, pid);
 	if (rc) {
 		goto err;
 	}
+	gt_init(p_comm);
 	sysctl_make_sockaddr_un(&a, pid);
 	rc = sysctl_bind(&a, 0);
 	if (rc < 0) {
@@ -263,7 +263,6 @@ service_attach()
 		rc = -EPROTO;
 		goto err;
 	}
-	log_file_open(O_TRUNC);
 	set_hz(shm_ih->ih_hz);
 	SERVICE_FOREACH(s) {
 		if (s->p_pid == pid) {

@@ -141,6 +141,8 @@ restart:
 		} else {
 			ERR(-rc, "failed; path='%s'", path);
 		}
+	} else {
+		INFO(0, "ok; path='%s'", path);
 	}
 	return rc;
 }

@@ -1005,7 +1005,7 @@ main(int argc, char **argv)
 	struct proto *proto, *p;
 	int opt, long_opt;
 
-	gt_init();
+	gt_init(NULL);
 	gt_preload_passthru = 1;
 	proto = NULL;
 	while ((opt = getopt_long(argc, argv, "habHI:iLnsw:z",

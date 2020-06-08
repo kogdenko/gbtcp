@@ -452,7 +452,6 @@ controller_service_conn_close(struct sysctl_conn *cp)
 	if (s != NULL) {
 		controller_service_check_deadlock(s);
 		controller_service_del(s);
-		dbg("clean!!");
 		service_clean(s);
 	}
 }
@@ -478,10 +477,11 @@ controller_bind(int pid)
 	rc = sys_symlink(a.sun_path, SYSCTL_CONTROLLER_PATH);
 	if (rc) {
 		sysctl_conn_close(controller_listen);
+		return rc;
 	}
 	controller_listen->sccn_accept_conn = 1;
 	controller_listen->sccn_close_fn = controller_service_conn_close;
-	return rc;
+	return 0;
 }
 
 int
@@ -491,7 +491,7 @@ controller_init(int daemonize, const char *service_comm)
 	uint64_t hz;
 	struct service *s;
 
-	gt_init();
+	gt_init("controller");
 	gt_preload_passthru = 1;
 	shm_ih = NULL;
 	if (daemonize) {
@@ -535,7 +535,6 @@ controller_init(int daemonize, const char *service_comm)
 	shm_ih->ih_hz = hz;
 	shm_ih->ih_rss_nq = 0;
 	sysctl_read_file(1, service_comm);
-	log_file_open(O_TRUNC);
 	SERVICE_FOREACH(s) {
 		s->p_id = s - shm_ih->ih_services;
 		mods_service_init(s);

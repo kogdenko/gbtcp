@@ -123,7 +123,7 @@ main(int argc, char **argv)
 	if (nprocs < 1) {
 		nprocs = 1;
 	}
-	gt_init();
+	gt_init(NULL);
 	gt_preload_passthru = 1;
 	for (i = 1; i < nprocs; ++i) {
 		rc = sys_fork();

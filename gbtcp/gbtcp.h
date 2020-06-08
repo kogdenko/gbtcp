@@ -201,7 +201,7 @@ int gt_poll(struct pollfd *, nfds_t, int);
 int gt_ppoll(struct pollfd *, nfds_t, const struct timespec *,
 	const sigset_t *);
 int gt_sysctl(const char *, char *, const char *);
-void gt_init();
+void gt_init(const char *);
 int gt_first_fd();
 int gt_sigaction(int, const struct sigaction *,	struct sigaction *);
 

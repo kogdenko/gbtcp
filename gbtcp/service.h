@@ -10,7 +10,7 @@
 
 #define IH_VERSION 2
 
-#define PROC_COMM_MAX 32
+#define SERVICE_COMM_MAX 32
 
 #define SERVICE_LOCK do { \
 	spinlock_lock(&current->p_lock); \
@@ -52,7 +52,7 @@ struct service {
 	struct arp_stat p_arps;
 	int p_mbuf_free_indirect_n;
 	struct dlist p_mbuf_free_indirect_head[GT_SERVICES_MAX];
-	char p_comm[PROC_COMM_MAX];
+	char p_comm[SERVICE_COMM_MAX];
 };
 
 struct shm_init_hdr {

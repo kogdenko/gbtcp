@@ -1,141 +1,36 @@
 // gpl2 license
 #include "internals.h"
 
+#ifdef NDEBUG
 #define LOG_LEVEL_DEFAULT LOG_NOTICE
+#else // NDEBUG
+#define LOG_LEVEL_DEFAULT LOG_DEBUG
+#endif // NDEBUG
 
 #define CURMOD log
 
 struct log_mod {
-	int log_stdout;
+	struct log_scope log_scope;
 	int log_level;
-	char log_pattern[PATH_MAX];
 };
 
 static char log_buf[LOG_BUFSIZ];
-static int log_tid;
-static int log_pidtid_width;
 static struct strbuf log_sb;
-static int log_early_stdout = 1;
-static int log_early_level_changed;
+static int log_early_level_set;
 static int log_early_level = LOG_LEVEL_DEFAULT;
-static int log_fd = -1;
-static int log_stdout_fd = -1;
+static char ident_buf[SERVICE_COMM_MAX + 7];
+static const char *ident;
 
-#define ldbg(...) if (debug) dbg(__VA_ARGS__)
-
-static int
-log_stdout_is_enabled(int force, int debug)
+void
+log_init_early(const char *comm)
 {
-	if (log_stdout_fd < 0) {
-		ldbg("log_stdout_fd < 0");
-		return 0;
-	} else if (force) {
-		ldbg("force");
-		return 1;
-	} else if (mod_get(MOD_log) == NULL) {
-		ldbg("log_early_stdout=%d", log_early_stdout);
-		return log_early_stdout;
+	if (comm == NULL) {
+		ident = NULL;
 	} else {
-		ldbg("curmod->log_stdout=%d", curmod->log_stdout);
-		return curmod->log_stdout;
+		snprintf(ident_buf, sizeof(ident_buf), "gbtcp: %s", comm);
+		ident = ident_buf;
 	}
-}
-
-// Log filename pattern:
-// %p - pid
-// %e - process name
-static int
-log_expand_pattern(struct strbuf *path, const char *pattern)
-{
-	int fmt;
-	const char *ptr;
-
-	ptr = pattern;
-	while (*ptr != '\0') {
-		if (*ptr == '%') {
-			fmt = *(ptr + 1);
-			switch (fmt) {
-			case 'p':
-				strbuf_addf(path, "%d", current->p_pid);
-				break;
-			case 'e':
-				strbuf_add_str(path, current->p_comm);
-				break;
-			case '%':
-				strbuf_add_ch(path, '%');
-				break;
-			default:
-				return -EINVAL;
-			}
-			ptr += 2;
-		} else {
-			strbuf_add_ch(path, *ptr);
-			ptr += 1;
-		}
-	}
-	return 0;
-}
-
-int
-log_file_open(int add_flags)
-{
-	int rc;
-	char path_buf[PATH_MAX];
-	struct strbuf path;
-
-	if (!strcmp(curmod->log_pattern, "/dev/null")) {
-		return 0;
-	}
-	strbuf_init(&path, path_buf, sizeof(path_buf));
-	rc = log_expand_pattern(&path, curmod->log_pattern);
-	if (rc) {
-		return rc;
-	}
-	if (path.sb_buf[0] != '/') {
-		// relative path
-		strbuf_insert(&path, 0, STRSZ(GT_PREFIX"/log/"));
-	}
-	if (strbuf_space(&path) == 0) {
-		return -ENAMETOOLONG;
-	}
-	rc = sys_open(strbuf_cstr(&path),
-	              O_RDWR|O_CLOEXEC|O_CREAT|add_flags,
-	              S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH);
-	if (rc < 0) {
-		return rc;
-	}
-	log_file_close(log);
-	log_fd = rc;
-	return 0;
-}
-
-void
-log_file_close()
-{
-	sys_close(log_fd);
-	log_fd = -1;
-}
-
-static int
-log_sysctl_out(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *out)
-{
-	struct log_mod *mod;
-
-	mod = udata;
-	strbuf_add(out, STRSZ("/dev/null"));
-	if (new != NULL) {
-		strzcpy(mod->log_pattern, new, sizeof(mod->log_pattern));
-	}
-	return 0;
-}
-
-void
-log_init_early()
-{
-	if (log_early_stdout && log_stdout_fd < 0) {
-		log_stdout_fd = sys_open("/dev/stdout", O_WRONLY, 0);
-	}
+	openlog(ident, LOG_PID, LOG_DAEMON);
 }
 
 int
@@ -147,32 +42,21 @@ log_mod_init(void **pp)
 	if (rc) {
 		return rc;
 	}
-	curmod->log_level = LOG_LEVEL_DEFAULT;
-	if (log_early_level_changed) {
+	if (log_early_level_set) {
 		curmod->log_level = log_early_level;
+	} else {
+		curmod->log_level = LOG_NOTICE;
 	}
-	strzcpy(curmod->log_pattern, "/dev/null", sizeof(curmod->log_pattern));
-	sysctl_add_int("log.stdout", SYSCTL_WR, &curmod->log_stdout, 0, 1);
 	sysctl_add_int("log.level", SYSCTL_WR,
 	               &curmod->log_level, LOG_EMERG, LOG_DEBUG);
-	sysctl_add("log.out", SYSCTL_LD, curmod, NULL, log_sysctl_out);
 	return 0;
 }
-
-//int
-//log_mod_attach(void *p)
-//{
-//	log_file_open(curmod->log_pattern, O_TRUNC);
-//	return 0;
-//}
 
 void
 log_mod_deinit()
 {
-	sysctl_del("log.out");
-	sysctl_del("log.level");
-	sysctl_del("log.stdout");
-	curmod_deinit();;
+	sysctl_del("log");
+	curmod_deinit();
 }
 
 void
@@ -181,7 +65,7 @@ log_scope_init(struct log_scope *scope, const char *name)
 	char path[PATH_MAX];
 
 	memset(scope, 0, sizeof(*scope));
-	scope->lgs_level = LOG_LEVEL_DEFAULT;
+	scope->lgs_level = LOG_NOTICE;
 	strzcpy(scope->lgs_name, name, sizeof(scope->lgs_name));
 	scope->lgs_name_len = strlen(scope->lgs_name);
 	assert(scope->lgs_name_len);
@@ -189,10 +73,12 @@ log_scope_init(struct log_scope *scope, const char *name)
 	sysctl_add_int(path, SYSCTL_WR, &scope->lgs_level,
 	               LOG_EMERG, LOG_DEBUG);
 }
+
 void
 log_scope_deinit(struct log_scope *scope)
 {
 	char path[PATH_MAX];
+
 	snprintf(path, sizeof(path), "log.scope.%s", scope->lgs_name);
 	sysctl_del(path);
 }
@@ -202,7 +88,7 @@ log_set_level(int level)
 {
 	if (mod_get(MOD_log) == NULL) {
 		log_early_level = level;
-		log_early_level_changed = 1;
+		log_early_level_set = 1;
 	} else {
 		curmod->log_level = level;
 	}
@@ -211,14 +97,9 @@ log_set_level(int level)
 int
 log_is_enabled(int mod_id, int level, int debug)
 {
-	int thresh, stdout_on;
+	int thresh;
 	struct log_scope *scope;
 
-	stdout_on = log_stdout_is_enabled(0, debug);
-	if (log_fd == -1 && !stdout_on) {
-		// Nowhere to write logs
-		return 0;
-	}
 	if (mod_get(MOD_log) == NULL) {
 		thresh = log_early_level;
 	} else {
@@ -232,98 +113,39 @@ log_is_enabled(int mod_id, int level, int debug)
 }
 
 static void
-log_fill_hdr(struct strbuf *sb)
-{
-	int pid, tid, len, width;
-	time_t t;
-	struct timeval tv;
-	struct tm tm;
-
-	gettimeofday(&tv, NULL);
-	t = tv.tv_sec;
-	localtime_r(&t, &tm);
-	pid = getpid();
-	len = sb->sb_len;
-	strbuf_addf(sb, "%d", pid);
-	if (log_tid) {
-		tid = gettid();
-		strbuf_addf(sb, ":%d", tid);
-	}
-	width = sb->sb_len - len;
-	if (log_pidtid_width <= width) {
-		log_pidtid_width = width;
-	} else {
-		strbuf_add_ch3(sb, ' ', log_pidtid_width - width);
-	}
-	strbuf_addf(sb, " %02d/%02d/%04d %02d:%02d:%02d.%06ld ",
-	            tm.tm_mday, tm.tm_mon, tm.tm_year + 1900,
-	            tm.tm_hour, tm.tm_min, tm.tm_sec, tv.tv_usec);
-}
-
-static void
-log_fill_pfx(u_int level, const char *func, struct strbuf *sb)
-{
-	static const char *L = "EACEWNID";
-
-	assert(level < 8);
-	strbuf_addf(sb, "[%c] [%s] ", L[level], func);
-}
-
-static void
-log_fill_sfx(struct strbuf *sb, int errnum)
+log_fill_errnum(struct strbuf *sb, int errnum)
 {
 	if (errnum) {
 		strbuf_addf(sb, " (%d:%s)", errnum, strerror(errnum));
 	}
-	strbuf_add_ch(sb, '\n');
-}
-
-static void
-log_write(struct strbuf *sb, int force_stdout)
-{
-	int len;
-
-	len = MIN(sb->sb_len, sb->sb_cap);
-	if (log_fd >= 0) {
-		write_full_buf(log_fd, sb->sb_buf, len);
-	}
-	if (log_stdout_is_enabled(force_stdout, 0)) {
-		write_full_buf(log_stdout_fd, sb->sb_buf, len);
-	}
 }
 
 void
-log_vprintf(int level, const char *func, int err, const char *fmt, va_list ap)
+log_vprintf(int level, const char *func, int errnum,
+	const char *fmt, va_list ap)
 {
 	char buf[LOG_BUFSIZ];
 	struct strbuf sb;
 
 	strbuf_init(&sb, buf, sizeof(buf));
-	log_fill_hdr(&sb);
-	log_fill_pfx(level, func, &sb);
+	strbuf_addf(&sb, "%s: ", func);
 	strbuf_vaddf(&sb, fmt, ap);
-	log_fill_sfx(&sb, err);
-	log_write(&sb, 0);
+	if (errnum) {
+		log_fill_errnum(&sb, errnum);
+	}
+	syslog(level, "%s", strbuf_cstr(&sb));
 }
 
 void
 log_printf(int level, const char *func, int err, const char *fmt, ...)
 {
 	va_list ap;
+
 	va_start(ap, fmt);
 	log_vprintf(level, func, err, fmt, ap);
 	va_end(ap);
 }
-void
-log_backtrace(int depth_off)
-{
-	char buf[LOG_BUFSIZ];
-	struct strbuf sb;
 
-	strbuf_init(&sb, buf, sizeof(buf));
-	strbuf_add_backtrace(&sb, depth_off);
-	log_write(&sb, 0);
-}
 void
 log_hexdump_ascii(uint8_t *data, int count)
 {
@@ -354,43 +176,16 @@ log_hexdump_ascii(uint8_t *data, int count)
 }
 
 void
-log_abort(const char *filename, int line, int errnum,
-	const char *expr, const char *fmt, ...)
-{
-	char buf[LOG_BUFSIZ];
-	va_list ap;
-	struct strbuf sb;
-
-	log_buf_init();
-	strbuf_init(&sb, buf, sizeof(buf));
-	log_fill_hdr(&sb);
-	if (expr != NULL) {
-		strbuf_addf(&sb, "assertion '%s' failed ", expr);
-	} else {
-		strbuf_add(&sb, STRSZ("bug "));
-	}
-	strbuf_addf(&sb, "at %s:%u", filename, line);
-	if (fmt != NULL && fmt[0] != '\0') {
-		strbuf_add(&sb, STRSZ(": "));
-		va_start(ap, fmt);
-		strbuf_vaddf(&sb, fmt, ap);
-		va_end(ap);
-	}
-	log_fill_sfx(&sb, errnum);
-	log_write(&sb, 1);
-	log_backtrace(1);
-	abort();
-}
-
-void
 log_buf_init()
 {
 	strbuf_init(&log_sb, log_buf, sizeof(log_buf));
 }
+
 struct strbuf *
 log_buf_alloc_space()
 {
 	int len, cap;
+
 	len = log_sb.sb_len;
 	cap = log_sb.sb_cap;
 	log_sb.sb_buf = log_sb.sb_buf + len + 1;
@@ -403,11 +198,13 @@ log_buf_alloc_space()
 	}
 	return &log_sb;
 }
+
 const char *
 log_add_ipaddr(int af, const void *ip)
 {
 	const char *ret;
 	struct strbuf *sb; 
+
 	sb = log_buf_alloc_space();
 	strbuf_add_ipaddr(sb, af, ip);
 	ret = strbuf_cstr(sb);
@@ -495,137 +292,164 @@ log_add_socket_flags(int flags)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_socket_flags(sb, flags);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_shutdown_how(int how)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_shutdown_how(sb, how);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_fcntl_cmd(int cmd)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_fcntl_cmd(sb, cmd);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_ioctl_req(unsigned long req)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_ioctl_req(sb, req);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_sockopt_level(int level)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_sockopt_level(sb, level);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_sockopt_optname(int level, int optname)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_sockopt_optname(sb, level, optname);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_poll_events(short events)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_poll_events(sb, events);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_pollfds_events(struct pollfd *pfds, int npfds)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_pollfds_events(sb, pfds, npfds);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_pollfds_revents(struct pollfd *pfds, int npfds)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_pollfds_revents(sb, pfds, npfds);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_sighandler(void *handler)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_sighandler(sb, handler);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_sigprocmask_how(int how)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_sigprocmask_how(sb, how);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 #ifdef __linux__
 const char *
 log_add_clone_flags(int flags)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_clone_flags(sb, flags);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_epoll_op(int op)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_epoll_op(sb, op);
 	ret = strbuf_cstr(sb);
 	return ret;
 }
+
 const char *
 log_add_epoll_event_events(short events)
 {
 	const char *ret;
 	struct strbuf *sb;
+
 	sb = log_buf_alloc_space();
 	strbuf_add_epoll_event_events(sb, events);
 	ret = strbuf_cstr(sb);

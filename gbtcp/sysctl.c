@@ -428,7 +428,7 @@ sysctl_node_del(struct sysctl_node *node)
 	if (node->n_free_fn != NULL) {
 		(*node->n_free_fn)(node->n_udata);
 	}
-	free(node);
+	sys_free(node);
 }
 
 
@@ -723,6 +723,7 @@ sysctl_conn_close(struct sysctl_conn *cp)
 	}
 	sys_close(sysctl_conn_fd(cp));
 	fd_event_del(cp->sccn_event);
+	sys_free(cp);
 }
 
 static int

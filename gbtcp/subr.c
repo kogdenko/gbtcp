@@ -682,8 +682,8 @@ read_comm(char *name, int pid)
 	if (memcmp(s, STRSZ("Name:"))) {
 		goto err;
 	}
-	len = strtrimcpy(name, s + 6, PROC_COMM_MAX);
-	if (len > 0 && len < PROC_COMM_MAX) {
+	len = strtrimcpy(name, s + 6, SERVICE_COMM_MAX);
+	if (len > 0 && len < SERVICE_COMM_MAX) {
 		return 0;
 	}
 err:

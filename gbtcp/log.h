@@ -14,16 +14,16 @@ struct log_scope {
 };
 
 #ifdef LOG_DISABLED
-#define LOGF(level, err, fmt, ...) \
+#define LOGF(level, errnum, fmt, ...) \
 	do { \
-		UNUSED(err); \
+		UNUSED(errnum); \
 	} while (0)
 #else /* LOG_DISABLED */
-#define LOGF(level, err, fmt, ...) \
+#define LOGF(level, errnum, fmt, ...) \
 do { \
 	if (log_is_enabled(CAT2(MOD_, CURMOD), level, 0)) { \
 		log_buf_init(); \
-		log_printf(level, __func__, err, fmt, ##__VA_ARGS__); \
+		log_printf(level, __func__, errnum, fmt, ##__VA_ARGS__); \
 	} \
 } while (0)
 #endif /* LOG_DISABLED */
@@ -39,13 +39,16 @@ do { \
 #endif /* NDEBUG */
 
 #define die(errnum, fmt, ...) \
-	log_abort(__FILE__, __LINE__, errnum, NULL, fmt, ##__VA_ARGS__)
+do { \
+	LOGF(LOG_EMERG, errnum, fmt, ##__VA_ARGS__); \
+	abort(); \
+} while (0)
 
 #define NOTICE(err, ...) LOGF(LOG_NOTICE, err, __VA_ARGS__)
 #define WARN(err, ...) LOGF(LOG_WARNING, err, __VA_ARGS__)
 #define ERR(err, ...) LOGF(LOG_ERR, err, __VA_ARGS__)
 
-void log_init_early();
+void log_init_early(const char *);
 
 int log_mod_init(void **);
 void log_mod_deinit();
@@ -53,21 +56,15 @@ void log_mod_deinit();
 void log_scope_init(struct log_scope *, const char *);
 void log_scope_deinit(struct log_scope *);
 
-int log_file_open(int);
-void log_file_close();
-
 void log_set_level(int);
 
 int log_is_enabled(int, int, int);
+
 void log_vprintf(int, const char *, int, const char *, va_list);
 void log_printf(int, const char *, int, const char *, ...)
 	__attribute__((format(printf, 4, 5)));
 
-void log_backtrace(int depth_off);
 void log_hexdump_ascii(uint8_t *data, int cnt);
-
-void log_abort(const char *, int, int, const char *,
-	const char *, ...) __attribute__((format(printf, 5, 6)));
 
 void log_buf_init();
 struct strbuf *log_buf_alloc_space();
