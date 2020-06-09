@@ -23,6 +23,7 @@ static u_int service_rcu[GT_SERVICES_MAX];
 
 struct shm_init_hdr *shm_ih;
 struct service *current;
+sigset_t service_sigprocmask;
 
 #define service_load_epoch(s) \
 ({ \
@@ -138,7 +139,7 @@ service_rssq_rxtx_one(struct route_if *ifp, void *data, int len)
 		dbg("redir");
 		assert(rc < GT_SERVICES_MAX);
 		eh = data;
-		eh->eh_saddr.ea_bytes[5] = current->p_id;
+		eh->eh_saddr.ea_bytes[5] = current->p_sid;
 		eh->eh_daddr.ea_bytes[5] = rc;
 		rc = dev_not_empty_txr(&service_vale, &pkt);
 		if (rc) {
@@ -198,13 +199,20 @@ service_init(const char *p_comm)
 	current->p_tx_kpps_time = nanoseconds;
 	current->p_tx_pkts = 0;
 	strzcpy(current->p_comm, p_comm, sizeof(current->p_comm));
-	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_id);
+	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_sid);
 	dlist_init(&service_rcu_active_head);
 	dlist_init(&service_rcu_shadow_head);
 	service_rcu_max = 0;
 	memset(service_rcu, 0, sizeof(service_rcu));
 	rc = dev_init(&service_vale, buf, service_vale_rxtx);
 	return rc;
+}
+
+struct service *
+service_get_by_sid(u_int sid)
+{
+	assert(sid < ARRAY_SIZE(shm_ih->ih_services));
+	return shm_ih->ih_services + sid;
 }
 
 int
@@ -229,7 +237,7 @@ service_attach()
 	if (rc) {
 		goto err;
 	}
-	gt_init(p_comm);
+	gt_init(p_comm, 0);
 	sysctl_make_sockaddr_un(&a, pid);
 	rc = sysctl_bind(&a, 0);
 	if (rc < 0) {
@@ -274,7 +282,7 @@ service_attach()
 		rc = -ENOENT;
 		goto err;
 	}
-	snprintf(pid_filename, sizeof(pid_filename), "%d.pid", current->p_id);
+	snprintf(pid_filename, sizeof(pid_filename), "%d.pid", current->p_sid);
 	rc = pid_file_open(pid_filename);
 	if (rc < 0) {
 		goto err;
@@ -319,7 +327,7 @@ service_detach(int forked)
 	if (current != NULL) {
 		ROUTE_IF_FOREACH(ifp) {
 			for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
-				dev = &(ifp->rif_dev[current->p_id][i]);
+				dev = &(ifp->rif_dev[current->p_sid][i]);
 				dev_deinit(dev, forked);
 			}
 		}
@@ -333,18 +341,21 @@ service_detach(int forked)
 void
 service_clean(struct service *s)
 {
-	int i;
+	int i, tmp_fd;
 	struct dev *dev;
+	struct file *fp;
 	struct route_if *ifp;
 
 	NOTICE(0, "hit; pid=%d", s->p_pid);
 	ROUTE_IF_FOREACH(ifp) {
 		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
-			dev = &(ifp->rif_dev[s->p_id][i]);
+			dev = &(ifp->rif_dev[s->p_sid][i]);
 			dev_clean(dev);
 		}
 	}
-	file_mod_service_clean(s);
+	FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
+		file_clean(fp);
+	}
 	s->p_pid = 0;
 	service_store_epoch(s, 0);
 }
@@ -464,8 +475,8 @@ service_update_dev(struct route_if *ifp, int rss_qid)
 
 	ifflags = READ_ONCE(ifp->rif_flags);
 	id = READ_ONCE(shm_ih->ih_rss_table[rss_qid]);
-	dev = &(ifp->rif_dev[current->p_id][rss_qid]);
-	if ((ifflags & IFF_UP) && id == current->p_id) {
+	dev = &(ifp->rif_dev[current->p_sid][rss_qid]);
+	if ((ifflags & IFF_UP) && id == current->p_sid) {
 		if (!dev_is_inited(dev)) {
 			snprintf(dev_name, sizeof(dev_name), "%s-%d",
 			         ifp->rif_name, rss_qid);
@@ -505,7 +516,7 @@ service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
 	}
 	rss_qid = -1;
 	for (i = 0; i < ifp->rif_rss_nq; ++i) {
-		if (shm_ih->ih_rss_table[i] == current->p_id) {
+		if (shm_ih->ih_rss_table[i] == current->p_sid) {
 			if (rss_qid == -1) {
 				h = rss_hash4(laddr, faddr, lport, fport,
 				              ifp->rif_rss_key);
@@ -546,53 +557,56 @@ service_dup_so(struct sock *oldso)
 	a.sin_addr.s_addr = oldso->so_laddr;
 	rc = so_bind(newso, &a);
 	if (rc) {
-		so_close(newso);
-		return rc;
+		goto err;
 	}
 	rc = so_listen(newso, 0);
 	if (rc) {
-		so_close(newso);
+		goto err;
 	}
+	INFO(0, "ok; fd=%d", fd);
+	return 0;
+err:
+	WARN(-rc, "failed; fd=%d", fd);
+	so_close(newso);
 	return rc;
 }
 
 static void
 service_in_child0()
 {
-	int rc, has_listen, ppid;
+	int rc, n, psid;
 	struct sock *so;
 
-	ppid = getppid();
-	has_listen = 0;
+	n = 0;
+	psid = current->p_sid;
 	SO_FOREACH_BINDED(so) {
-		if (so->so_service_id == ppid &&
+		if (so->so_sid == psid &&
 		    so->so_ipproto == SO_IPPROTO_TCP &&
-		    so->so_state == GT_TCP_S_LISTEN) {
-			has_listen = 1;
+		    so->so_state == GT_TCPS_LISTEN) {
+			n++;
 			break;
 		}
 	};
 	service_detach(1);
-	if (!has_listen) {
+	if (n == 0) {
 		return;
 	}
 	rc = service_attach();
 	if (rc) {
 		return;
 	}
-	has_listen = 0;
+	n = 0;
 	SO_FOREACH_BINDED(so) {
-		if (so->so_service_id == ppid &&
+		if (so->so_sid == psid &&
 		    so->so_ipproto == SO_IPPROTO_TCP &&
-		    so->so_state == GT_TCP_S_LISTEN) {
+		    so->so_state == GT_TCPS_LISTEN) {
 			rc = service_dup_so(so);
 			if (rc == 0) {
-				has_listen = 1;
+				n++;
 			}
 		}
 	}
-	if (!has_listen) {
-		ERR(0, "no listen sockets");
+	if (n == 0) {
 		service_detach(0);
 	}
 }
@@ -602,6 +616,7 @@ service_in_child(int pipe_fd[2])
 {
 	int rc;
 
+	NOTICE(0, "hit;");
 	sys_close(pipe_fd[0]);
 	service_in_child0();
 	rc = 0;

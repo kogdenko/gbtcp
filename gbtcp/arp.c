@@ -285,8 +285,9 @@ arp_mod_init()
 int
 arp_mod_service_init(struct service *s)
 {
-	mbuf_pool_init(&s->p_arp_entry_pool, s->p_id, sizeof(struct arp_entry));
-	mbuf_pool_init(&s->p_arp_incomplete_pool, s->p_id, DEV_PKT_SIZE_MAX);
+	mbuf_pool_init(&s->p_arp_entry_pool, s->p_sid,
+	               sizeof(struct arp_entry));
+	mbuf_pool_init(&s->p_arp_incomplete_pool, s->p_sid, DEV_PKT_SIZE_MAX);
 	return 0;
 }
 

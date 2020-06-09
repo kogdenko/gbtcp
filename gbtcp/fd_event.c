@@ -173,33 +173,33 @@ void
 fd_poll_init(struct fd_poll *p)
 {
 	p->fdp_to = 0;
-	p->fdp_first = 1;
+	p->fdp_n_added = 0;
+	p->fdp_n_events = 0;
 }
 
 void
-fd_poll_set(struct fd_poll *p, struct pollfd *pfds)
+fd_poll_add_fd_events(struct fd_poll *p)
 {
 	int i;
 	struct fd_event *e;
 
 	assert(fd_event_in_cb == 0 && "recursive wait");
 	p->fdp_throttled = 0;
-//	if (!p->fdp_first) {
-//		rd_nanoseconds();
-//	}
-//	p->fdp_first = 0;
 	p->fdp_time = nanoseconds;
-	p->fdp_nused = 0;
+	p->fdp_n_events = 0;
 	sock_tx_flush();
 	for (i = 0; i < fd_event_nused; ++i) {
+		if (p->fdp_n_added + p->fdp_n_events == FD_SETSIZE) {
+			break;
+		}
 		e = fd_event_used[i];
 		if (e->fde_fn == NULL || e->fde_events == 0) {
 			continue;
 		}
 		e->fde_ref_cnt++;
-		pfds[p->fdp_nused].fd = e->fde_fd;
-		pfds[p->fdp_nused].events = e->fde_events;
-		p->fdp_used[p->fdp_nused++] = e;
+		pfds[p->fdp_n_events].fd = e->fde_fd;
+		pfds[p->fdp_n_events].events = e->fde_events;
+		p->fdp_events[p->fdp_n_events++] = e;
 	}
 	p->fdp_to_ts.tv_sec = 0;
 	if (p->fdp_to == 0) {
@@ -221,14 +221,13 @@ fd_event_call(struct fd_event *e, short revents)
 }
 
 int
-fd_poll_call(struct fd_poll *p, struct pollfd *pfds)
+fd_poll_call(struct fd_poll *p)
 {
 	int i, n, rc;
 	uint64_t elapsed;
 	struct fd_event *e;
 
 	fd_poll_epoch++;
-	rd_nanoseconds();
 	elapsed = nanoseconds - p->fdp_time;
 	if (elapsed > p->fdp_to) {
 		p->fdp_to = 0;
@@ -238,7 +237,7 @@ fd_poll_call(struct fd_poll *p, struct pollfd *pfds)
 	check_timers();
 	n = 0;
 	fd_event_in_cb = 1;
-	for (i = 0; i < p->fdp_nused; ++i) {
+	for (i = 0; i < p->fdp_n_events; ++i) {
 		e = p->fdp_used[i];
 		if (pfds[i].revents) {
 			n++;

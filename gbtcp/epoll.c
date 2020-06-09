@@ -335,7 +335,7 @@ u_epoll_create(int ep_fd)
 		file_free(fp);
 		return rc;
 	}
-	mbuf_pool_init(ep->ep_pool, current->p_id,
+	mbuf_pool_init(ep->ep_pool, current->p_sid,
 	               sizeof(struct u_epoll_event));
 	dlist_init(&ep->ep_triggered);
 	fd = file_get_fd(fp);
@@ -351,12 +351,16 @@ u_epoll_close(struct file *fp)
 	struct u_epoll_event *e;
 
 	ep = (struct epoll *)fp;
-	rc = sys_close(ep->ep_fd);
+	if (ep->ep_pool->mbp_sid == current->p_sid) {
+		rc = sys_close(ep->ep_fd);	
+	} else {
+		// u_epoll_close called in controller (service_clean)
+		rc = 0;
+	}
 	MBUF_FOREACH_SAFE(m, ep->ep_pool, tmp) {
 		e = (struct u_epoll_event *)m;
 		epoll_event_free(e);
 	}
-	assert(mbuf_pool_is_empty(ep->ep_pool));
 	mbuf_pool_deinit(ep->ep_pool);
 	shm_free(ep->ep_pool);
 	file_free(fp);

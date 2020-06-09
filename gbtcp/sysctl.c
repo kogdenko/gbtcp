@@ -505,7 +505,7 @@ static int
 sysctl_branch_handler(struct sysctl_node *node, const char *tail,
 	struct strbuf *out)
 {
-	int len;
+	int tail_len;
 	struct sysctl_node *x, *first, *last;
 
 	if (dlist_is_empty(&node->n_children)) {
@@ -513,14 +513,13 @@ sysctl_branch_handler(struct sysctl_node *node, const char *tail,
 	}
 	first = DLIST_FIRST(&node->n_children, struct sysctl_node, n_list);
 	last = DLIST_LAST(&node->n_children, struct sysctl_node, n_list);
-	if (tail == NULL) {
+	tail_len = strzlen(tail);
+	if (tail_len == 0) {
 		x = first;
+	} else if (tail[tail_len - 1] != '+') {
+		return 0;
 	} else {
-		len = strlen(tail);
-		if (tail[len - 1] != '+') {
-			return 1;
-		}
-		x = sysctl_node_find_child(node, tail, len - 1);
+		x = sysctl_node_find_child(node, tail, tail_len - 1);
 		if (x == NULL || x == last) {
 			return 0;
 		}
@@ -611,7 +610,7 @@ sysctl_node_in_int(struct sysctl_conn *cp, void *udata,
 int
 sysctl_conn_fd(struct sysctl_conn *cp)
 {
-	return cp->sccn_event->fde_fd;
+	return cp->scc_event->fde_fd;
 }
 
 int
@@ -626,12 +625,12 @@ sysctl_conn_open(struct sysctl_conn **cpp, int fd)
 	}
 	cp = *cpp;
 	memset(cp, 0, sizeof(*cp));
-	rc = fd_event_add(&cp->sccn_event, fd, "sysctl",
+	rc = fd_event_add(&cp->scc_event, fd, "sysctl",
 	                  cp, sysctl_process_events);
 	if (rc < 0) {
 		sys_free(cp);
 	} else {
-		fd_event_set(cp->sccn_event, POLLIN);
+		fd_event_set(cp->scc_event, POLLIN);
 	}
 	return rc;
 }
@@ -665,7 +664,7 @@ sysctl_conn_accept(struct sysctl_conn *cp)
 			peer_pid = rc;
 		}
 	}
-	rc = sysctl_setsockopt(fd);
+	rc = sysctl_setsockopt(new_fd);
 	if (rc) {
 		goto err;
 	}
@@ -673,9 +672,9 @@ sysctl_conn_accept(struct sysctl_conn *cp)
 	if (rc) {
 		goto err;
 	}
-	new_cp->sccn_accept_conn = 0;
-	new_cp->sccn_peer_pid = peer_pid;
-	new_cp->sccn_close_fn = cp->sccn_close_fn;
+	new_cp->scc_accept_conn = 0;
+	new_cp->scc_peer_pid = peer_pid;
+	new_cp->scc_close_fn = cp->scc_close_fn;
 	return 0;
 err:
 	sys_close( fd);
@@ -718,11 +717,11 @@ sysctl_conn_close(struct sysctl_conn *cp)
 	if (cp == NULL) {
 		return;
 	}
-	if (cp->sccn_close_fn != NULL) {
-		(*cp->sccn_close_fn)(cp);
+	if (cp->scc_close_fn != NULL) {
+		(*cp->scc_close_fn)(cp);
 	}
 	sys_close(sysctl_conn_fd(cp));
-	fd_event_del(cp->sccn_event);
+	fd_event_del(cp->scc_event);
 	sys_free(cp);
 }
 
@@ -749,7 +748,7 @@ sysctl_process_events(void *udata, short revents)
 	struct sysctl_conn *cp;
 
 	cp = udata;
-	if (cp->sccn_accept_conn) {
+	if (cp->scc_accept_conn) {
 		do {
 			rc = sysctl_conn_accept(cp);
 		} while (rc == 0);
@@ -950,13 +949,15 @@ sysctl_bind(const struct sockaddr_un *a, int accept_conn)
 		sys_chmod(a->sun_path,
 		          stat.st_mode|S_IRGRP|S_IWGRP|S_IXGRP);
 	}
-	if (accept_conn) {
-		rc = sys_listen(fd, 5);
-	} else {
-		rc = sysctl_setsockopt(fd);
-	}
+	rc = sysctl_setsockopt(fd);
 	if (rc) {
 		goto err;
+	}
+	if (accept_conn) {
+		rc = sys_listen(fd, 5);
+		if (rc) {
+			goto err;
+		}
 	}
 	return fd;
 err:

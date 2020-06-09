@@ -5,10 +5,6 @@
 #include "subr.h"
 #include "list.h"
 
-#define FD_EVENTS_MAX FD_SETSIZE
-
-#define FD_EVENT_SLOW (1 << 0)
-
 typedef int (*fd_event_f)(void *, short);
 
 struct fd_event {
@@ -24,10 +20,11 @@ struct fd_poll {
 	uint64_t fdp_to;
 	uint64_t fdp_time;
 	struct timespec fdp_to_ts;
-	int fdp_nused;
-	int fdp_first;
+	int fdp_n_events;
+	int fdp_n_added;
 	int fdp_throttled; // For repeted `rxtx` call
-	struct fd_event *fdp_used[FD_EVENTS_MAX];
+	struct pollfd fdp_pfds[FD_SETSIZE];
+	struct fd_event *fdp_events[FD_SETSIZE];
 };
 
 extern int fd_poll_epoch;
@@ -44,7 +41,8 @@ void fd_event_clear(struct fd_event *, short);
 int fd_event_is_set(struct fd_event *, short);
 
 void fd_poll_init(struct fd_poll *);
-void fd_poll_set(struct fd_poll *, struct pollfd *);
+void fd_poll_add_fd_events(struct fd_poll *);
+int fd_poll_add(struct fd_poll *, struct pollfd *); 
 int fd_poll_call(struct fd_poll *, struct pollfd *);
 
 #endif // GBTCP_FD_EVENT_H

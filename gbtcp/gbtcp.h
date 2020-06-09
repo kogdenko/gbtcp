@@ -11,6 +11,7 @@
 #include <poll.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <syslog.h>
 #ifdef __linux__
 #include <sys/epoll.h>
 #else // __linux__
@@ -18,17 +19,17 @@
 #include <sys/time.h>
 #endif // __linux__
 
-#define GT_TCP_S_CLOSED 0
-#define GT_TCP_S_LISTEN 1
-#define GT_TCP_S_SYN_SENT 2
-#define GT_TCP_S_SYN_RCVD 3
-#define GT_TCP_S_ESTABLISHED 4
-#define GT_TCP_S_CLOSE_WAIT 5
-#define GT_TCP_S_FIN_WAIT_1 6
-#define GT_TCP_S_CLOSING 7
-#define GT_TCP_S_LAST_ACK 8
-#define GT_TCP_S_FIN_WAIT_2 9
-#define GT_TCP_S_TIME_WAIT 10
+#define GT_TCPS_CLOSED 0
+#define GT_TCPS_LISTEN 1
+#define GT_TCPS_SYN_SENT 2
+#define GT_TCPS_SYN_RCVD 3
+#define GT_TCPS_ESTABLISHED 4
+#define GT_TCPS_CLOSE_WAIT 5
+#define GT_TCPS_FIN_WAIT_1 6
+#define GT_TCPS_CLOSING 7
+#define GT_TCPS_LAST_ACK 8
+#define GT_TCPS_FIN_WAIT_2 9
+#define GT_TCPS_TIME_WAIT 10
 #define GT_TCP_NSTATES 11
 
 #define GT_SYSCTL_BUFSIZ 4096
@@ -201,7 +202,7 @@ int gt_poll(struct pollfd *, nfds_t, int);
 int gt_ppoll(struct pollfd *, nfds_t, const struct timespec *,
 	const sigset_t *);
 int gt_sysctl(const char *, char *, const char *);
-void gt_init(const char *);
+void gt_init(const char *, int);
 int gt_first_fd();
 int gt_sigaction(int, const struct sigaction *,	struct sigaction *);
 

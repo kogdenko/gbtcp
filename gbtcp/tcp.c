@@ -3,8 +3,6 @@
 //    ACK responses must be sent for every second segment.
 #include "internals.h"
 
-//#undef curmod
-//#define curmod ((struct tcp_mod *)(shm_ih->ih_mods[MOD_tcp]))
 #define CURMOD tcp
 
 #define TCP_FLAG_FOREACH(x) \
@@ -72,7 +70,7 @@ static void gt_tcp_open(struct sock *);
 
 static void tcp_close(struct sock *);
 
-static void gt_tcp_close_not_accepted(struct dlist *);
+static void tcp_close_not_accepted(struct dlist *);
 
 static void tcp_wshut(struct sock *, struct in_context *);
 
@@ -197,43 +195,26 @@ sysctl_tcp_fin_timeout(const long long *new, long long *old)
 	return 0;
 }
 
-void
-so_get_socb(struct sock *so, struct socb *cb)
-{
-	cb->socb_fd = so_get_fd(so);
-	cb->socb_flags = file_fcntl(&so->so_file, F_GETFL, 0);
-	cb->socb_state = so->so_state;
-	cb->socb_laddr = so->so_laddr;
-	cb->socb_faddr = so->so_faddr;
-	cb->socb_lport = so->so_lport;
-	cb->socb_fport = so->so_fport;
-	cb->socb_ipproto = so->so_ipproto == SO_IPPROTO_TCP ?
-	                                   IPPROTO_TCP : IPPROTO_UDP;
-	if (so->so_is_listen) {
-		cb->socb_acceptq_len = so->so_acceptq_len;
-		cb->socb_incompleteq_len = dlist_size(&so->so_incompleteq);
-		cb->socb_backlog = so->so_backlog;
-	} else {
-		cb->socb_acceptq_len = 0;
-		cb->socb_incompleteq_len = 0;
-		cb->socb_backlog = 0;
-	}
-}
-
 static void
 sysctl_socket(struct sock *so, struct strbuf *out)
 {
-	strbuf_addf(out, "%d,%d,%d,%x,%hu,%x,%hu,%d,%d,%d",
+	struct service *s;
+
+	s = service_get_by_sid(so->so_sid);
+	assert(s->p_pid);
+	strbuf_addf(out, "%d,%d,%d,%d,%x,%hu,%x,%hu,%d,%d,%d",
 		so_get_fd(so),
+		s->p_pid,
 		so->so_ipproto == SO_IPPROTO_TCP ? IPPROTO_TCP : IPPROTO_UDP,
 		so->so_state,
 		ntoh32(so->so_laddr),
 		ntoh16(so->so_lport),
 		ntoh32(so->so_faddr),
 		ntoh16(so->so_fport),
-		so->so_acceptq_len,
-		dlist_size(&so->so_incompleteq),
-		so->so_backlog);
+		0,//so->so_acceptq_len,
+		0,//dlist_size(&so->so_incompleteq),
+		0//so->so_backlog
+		);
 }
 
 static void
@@ -292,7 +273,7 @@ tcp_mod_init()
 int
 tcp_mod_service_init(struct service *s)
 {
-	mbuf_pool_init(&s->p_sockbuf_pool, s->p_id, SOCKBUF_CHUNK_SIZE);
+	mbuf_pool_init(&s->p_sockbuf_pool, s->p_sid, SOCKBUF_CHUNK_SIZE);
 	return 0;
 }
 
@@ -403,7 +384,7 @@ so_set_err(struct sock *so, struct in_context *in, int errnum)
 
 	DBG(0, "hit; fd=%d, err=%d", so_get_fd(so), errnum);
 	so->so_err = so_err_pack(errnum);
-	rc = tcp_set_state(so, in, GT_TCP_S_CLOSED);
+	rc = tcp_set_state(so, in, GT_TCPS_CLOSED);
 	if (rc == 0) {
 		so_wakeup(so, in, POLLERR);
 	}
@@ -436,9 +417,9 @@ so_get_events(struct file *fp)
 	switch (so->so_ipproto) {
 	case SO_IPPROTO_TCP:
 		switch (so->so_state) {
-		case GT_TCP_S_CLOSED:
+		case GT_TCPS_CLOSED:
 			break;
-		case GT_TCP_S_LISTEN:
+		case GT_TCPS_LISTEN:
 			if (!dlist_is_empty(&so->so_completeq)) {
 				events |= POLLIN;
 			}
@@ -447,7 +428,7 @@ so_get_events(struct file *fp)
 			if (so->so_rshut || so->so_rfin || sock_nread(fp)) {
 				events |= POLLIN;
 			}
-			if (so->so_state >= GT_TCP_S_ESTABLISHED &&
+			if (so->so_state >= GT_TCPS_ESTABLISHED &&
 			    !sockbuf_full(&so->so_sndbuf)) {
 				events |= POLLOUT;
 			}
@@ -478,7 +459,8 @@ sock_nread(struct file *fp)
 }
 
 int
-so_socket6(struct sock **pso, int fd, int domain, int type, int flags, int ipproto)
+so_socket6_(struct sock **pso,
+	int fd, int domain, int type, int flags, int ipproto)
 {
 	int so_fd, so_ipproto;
 	struct sock *so;
@@ -516,6 +498,24 @@ so_socket6(struct sock **pso, int fd, int domain, int type, int flags, int ippro
 }
 
 int
+so_socket6(struct sock **pso,
+	int fd, int domain, int type, int flags, int ipproto)
+{
+	int rc;
+
+	INFO(0, "hit; type=%s, flags=%s",
+	     log_add_socket_type(type),
+	     log_add_socket_flags(flags));
+	rc = so_socket6_(pso, fd, domain, type, flags, ipproto);
+	if (rc < 0) {
+		INFO(-rc, "failed;");
+	} else {
+		INFO(0, "ok; fd=%d", rc);
+	}
+	return rc;
+}
+
+int
 so_connect(struct sock *so, const struct sockaddr_in *faddr_in,
 	struct sockaddr_in *laddr_in)
 {
@@ -531,11 +531,11 @@ so_connect(struct sock *so, const struct sockaddr_in *faddr_in,
 		}
 	} else {
 		switch (so->so_state) {
-		case GT_TCP_S_CLOSED:
+		case GT_TCPS_CLOSED:
 			break;
-		case GT_TCP_S_LISTEN:
-		case GT_TCP_S_SYN_SENT:
-		case GT_TCP_S_SYN_RCVD:
+		case GT_TCPS_LISTEN:
+		case GT_TCPS_SYN_SENT:
+		case GT_TCPS_SYN_RCVD:
 			return -EALREADY;
 		default:
 			return -EISCONN;
@@ -569,7 +569,7 @@ so_connect(struct sock *so, const struct sockaddr_in *faddr_in,
 	}
 	gt_tcp_open(so);
 	tcp_set_swnd(so);
-	tcp_set_state(so, NULL, GT_TCP_S_SYN_SENT);
+	tcp_set_state(so, NULL, GT_TCPS_SYN_SENT);
 	tcp_into_sndq(so);
 	return -EINPROGRESS;
 }
@@ -580,7 +580,7 @@ so_bind(struct sock *so, const struct sockaddr_in *addr)
 	be16_t lport;
 	struct htable_bucket *b;
 
-	if (so->so_state != GT_TCP_S_CLOSED) {
+	if (so->so_state != GT_TCPS_CLOSED) {
 		return -EINVAL;
 	}
 	lport = hton16(addr->sin_port);
@@ -606,13 +606,13 @@ so_bind(struct sock *so, const struct sockaddr_in *addr)
 int 
 so_listen(struct sock *so, int backlog)
 {
-	if (so->so_state == GT_TCP_S_LISTEN) {
+	if (so->so_state == GT_TCPS_LISTEN) {
 		return 0;
 	}
 	if (so->so_ipproto != SO_IPPROTO_TCP) {
 		return -ENOTSUP;
 	}
-	if (so->so_state != GT_TCP_S_CLOSED) {
+	if (so->so_state != GT_TCPS_CLOSED) {
 		return -EINVAL;
 	}
 	if (so->so_lport == 0) {
@@ -622,7 +622,7 @@ so_listen(struct sock *so, int backlog)
 	dlist_init(&so->so_completeq);
 	so->so_acceptq_len = 0;
 	so->so_backlog = backlog > 0 ? backlog : 32;
-	tcp_set_state(so, NULL, GT_TCP_S_LISTEN);
+	tcp_set_state(so, NULL, GT_TCPS_LISTEN);
 	so->so_is_listen = 1;
 	return 0;
 }
@@ -634,7 +634,7 @@ so_accept(struct sock **pso, struct sock *lso,
 	int fd;
 	struct sock *so;
 
-	if (lso->so_state != GT_TCP_S_LISTEN) {
+	if (lso->so_state != GT_TCPS_LISTEN) {
 		return -EINVAL;
 	}
 	if (dlist_is_empty(&lso->so_completeq)) {
@@ -642,7 +642,7 @@ so_accept(struct sock **pso, struct sock *lso,
 	}
 	assert(lso->so_acceptq_len);
 	so = DLIST_FIRST(&lso->so_completeq, struct sock, so_accept_list);
-	assert(so->so_state >= GT_TCP_S_ESTABLISHED);
+	assert(so->so_state >= GT_TCPS_ESTABLISHED);
 	assert(so->so_accepted == 0);
 	so->so_accepted = 1;
 	DLIST_REMOVE(so, so_accept_list);
@@ -662,31 +662,33 @@ void
 so_close(struct sock *so)
 {
 	so->so_referenced = 0;
+	// so_close can be called from controller (service_clean)
+	so->so_sid = current->p_sid;
 	switch (so->so_state) {
-	case GT_TCP_S_CLOSED:
+	case GT_TCPS_CLOSED:
 		so_unref(so, NULL);
 		break;
-	case GT_TCP_S_LISTEN:
-		gt_tcp_close_not_accepted(&so->so_incompleteq);
-		gt_tcp_close_not_accepted(&so->so_completeq);
-		tcp_set_state(so, NULL, GT_TCP_S_CLOSED);
+	case GT_TCPS_LISTEN:
+		tcp_close_not_accepted(&so->so_incompleteq);
+		tcp_close_not_accepted(&so->so_completeq);
+		tcp_set_state(so, NULL, GT_TCPS_CLOSED);
 		break;
-	case GT_TCP_S_SYN_SENT:
+	case GT_TCPS_SYN_SENT:
 		if (sock_in_txq(so)) {
 			sock_del_txq(so);
 		}
-		tcp_set_state(so, NULL, GT_TCP_S_CLOSED);
+		tcp_set_state(so, NULL, GT_TCPS_CLOSED);
 		break;
 	default:
 		if (1) { // Gracefull
 			so->so_rshut = 1;
 			so->so_wshut = 1;
-			if (so->so_state >= GT_TCP_S_ESTABLISHED) {
+			if (so->so_state >= GT_TCPS_ESTABLISHED) {
 				tcp_wshut(so, NULL);	
 			}
 		} else {
 			tcp_into_rstq(so);
-			tcp_set_state(so, NULL, GT_TCP_S_CLOSED);
+			tcp_set_state(so, NULL, GT_TCPS_CLOSED);
 		}
 		break;
 	}
@@ -705,7 +707,7 @@ so_can_recv(struct sock *so)
 		return 0;
 	}
 	if (so->so_ipproto == SO_IPPROTO_TCP) {
-		if (so->so_state < GT_TCP_S_ESTABLISHED) {
+		if (so->so_state < GT_TCPS_ESTABLISHED) {
 			return -EAGAIN;
 		}
 	}
@@ -956,7 +958,7 @@ so_getpeername(struct sock *so, struct sockaddr *addr, socklen_t *addrlen)
 		return -ENOTCONN;
 	}
 	if (so->so_ipproto == SO_IPPROTO_TCP) {
-		if (so->so_state < GT_TCP_S_ESTABLISHED) {
+		if (so->so_state < GT_TCPS_ESTABLISHED) {
 			return -ENOTCONN;
 		}
 	}
@@ -1093,19 +1095,19 @@ tcp_set_state(struct sock *so, struct in_context *in, int state)
 	assert(state != so->so_state);	
 	DBG(0, "hit; state %s->%s, fd=%d",
 	    tcp_state_str(so->so_state), tcp_state_str(state), so_get_fd(so));
-	if (state != GT_TCP_S_CLOSED) {
+	if (state != GT_TCPS_CLOSED) {
 		assert(state > so->so_state);
 		tcps.tcps_states[state]++;
 	}
-	if (so->so_state != GT_TCP_S_CLOSED) {
+	if (so->so_state != GT_TCPS_CLOSED) {
 		tcps.tcps_states[so->so_state]--;
 	}
 	so->so_state = state;
 	switch (so->so_state) {
-	case GT_TCP_S_ESTABLISHED:
+	case GT_TCPS_ESTABLISHED:
 		tcp_set_state_ESTABLISHED(so, in);
 		break;
-	case GT_TCP_S_CLOSED:
+	case GT_TCPS_CLOSED:
 		tcp_close(so);
 		rc = so_unref(so, in);
 		return rc;
@@ -1177,12 +1179,11 @@ tcp_close(struct sock *so)
 }
 
 static void
-gt_tcp_close_not_accepted(struct dlist *q)
+tcp_close_not_accepted(struct dlist *q)
 {
-	struct sock *so;
+	struct sock *so, *tmp_so;
 
-	while (!dlist_is_empty(q)) {
-		so = DLIST_FIRST(q, struct sock, so_accept_list);
+	DLIST_FOREACH_SAFE(so, q, so_accept_list, tmp_so) {
 		assert(so->so_referenced == 0);
 		so->so_listen = NULL;
 		so_close(so);
@@ -1202,16 +1203,16 @@ tcp_reset(struct sock *so, struct in_context *in)
 static void
 tcp_wshut(struct sock *so, struct in_context *in)
 {
-	assert(so->so_state >= GT_TCP_S_ESTABLISHED);
+	assert(so->so_state >= GT_TCPS_ESTABLISHED);
 	if (so->so_sfin) {
 		return;
 	}
 	switch (so->so_state) {
-	case GT_TCP_S_ESTABLISHED:
-		tcp_set_state(so, in, GT_TCP_S_FIN_WAIT_1);
+	case GT_TCPS_ESTABLISHED:
+		tcp_set_state(so, in, GT_TCPS_FIN_WAIT_1);
 		break;
-	case GT_TCP_S_CLOSE_WAIT:
-		tcp_set_state(so, in, GT_TCP_S_LAST_ACK);
+	case GT_TCPS_CLOSE_WAIT:
+		tcp_set_state(so, in, GT_TCPS_LAST_ACK);
 		break;
 	default:
 		assert(0);
@@ -1239,7 +1240,7 @@ gt_tcp_timeout_TIME_WAIT(struct timer *timer)
 	struct sock *so;
 
 	so = gt_container_of(timer, struct sock, timer);
-	tcp_set_state(so, TCP_S_CLOSED);
+	tcp_set_state(so, TCPS_CLOSED);
 }
 #endif
 
@@ -1254,7 +1255,7 @@ tcp_tx_timer_set(struct sock *so)
 		so->so_wprobe = 0;
 		so->so_ntries = 0;
 	}
-	if (so->so_state < GT_TCP_S_ESTABLISHED) {
+	if (so->so_state < GT_TCPS_ESTABLISHED) {
 		expires = NANOSECONDS_SECOND;
 	} else {
 		expires = 500 * NANOSECONDS_MILLISECOND;
@@ -1318,7 +1319,7 @@ tcp_tx_timo(struct timer *timer)
 		return;
 	}
 	// TODO: 
-//	if (so->so_state == TCP_S_SYN_RCVD) {
+//	if (so->so_state == TCPS_SYN_RCVD) {
 //		cnt_tcp_timedout_syn_rcvd++;
 //		so_set_err(so, NULL, ETIMEDOUT);
 //		return;
@@ -1356,11 +1357,11 @@ tcp_rcv_SYN_SENT(struct sock *so, struct in_context *in)
 {
 	switch (in->in_tcp_flags) {
 	case TCP_FLAG_SYN|TCP_FLAG_ACK:
-		tcp_set_state(so, in, GT_TCP_S_ESTABLISHED);
+		tcp_set_state(so, in, GT_TCPS_ESTABLISHED);
 		so->so_ack = 1;
 		break;
 	case TCP_FLAG_SYN:
-		tcp_set_state(so, in, GT_TCP_S_SYN_RCVD);
+		tcp_set_state(so, in, GT_TCPS_SYN_RCVD);
 		break;
 	default:
 		return;
@@ -1424,7 +1425,7 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 	sockbuf_set_max(&so->so_sndbuf, lso->so_sndbuf.sob_max);
 	gt_tcp_rcvbuf_set_max(so, lso->so_rcvbuf.sob_max);
 	tcp_set_swnd(so);
-	tcp_set_state(so, in, GT_TCP_S_SYN_RCVD);
+	tcp_set_state(so, in, GT_TCPS_SYN_RCVD);
 	tcp_into_sndq(so);
 	h = so_hash(so);
 	b = htable_bucket_get(&curmod->attached, h);
@@ -1475,7 +1476,7 @@ tcp_rcv_established(struct sock *so, struct in_context *in)
 {
 	int rc;
 
-	assert(so->so_state >= GT_TCP_S_ESTABLISHED);
+	assert(so->so_state >= GT_TCPS_ESTABLISHED);
 	if (so->so_rfin) {
 		if (in->in_len || (in->in_tcp_flags & TCP_FLAG_FIN)) {
 			tcp_into_ackq(so);
@@ -1494,13 +1495,13 @@ tcp_rcv_established(struct sock *so, struct in_context *in)
 		so_wakeup(so, in, POLLIN|GT_POLLRDHUP);
 		tcp_into_ackq(so);
 		switch (so->so_state) {
-		case GT_TCP_S_ESTABLISHED:
-			tcp_set_state(so, in, GT_TCP_S_CLOSE_WAIT);
+		case GT_TCPS_ESTABLISHED:
+			tcp_set_state(so, in, GT_TCPS_CLOSE_WAIT);
 			break;
-		case GT_TCP_S_FIN_WAIT_1:
-			tcp_set_state(so, in, GT_TCP_S_CLOSING);
+		case GT_TCPS_FIN_WAIT_1:
+			tcp_set_state(so, in, GT_TCPS_CLOSING);
 			break;
-		case GT_TCP_S_FIN_WAIT_2:
+		case GT_TCPS_FIN_WAIT_2:
 			timer_del(&so->so_timer); // tcp_fin_timeout
 			rc = tcp_enter_TIME_WAIT(so, in);
 			if (rc) {
@@ -1519,7 +1520,7 @@ tcp_rcv_open(struct sock *so, struct in_context *in)
 	if (in->in_tcp_flags & TCP_FLAG_RST) {
 		// TODO: check seq
 		tcps.tcps_drops++;
-		if (so->so_state < GT_TCP_S_ESTABLISHED) {
+		if (so->so_state < GT_TCPS_ESTABLISHED) {
 			tcps.tcps_conndrops++;
 			so_set_err(so, in, ECONNREFUSED);
 		} else {
@@ -1543,13 +1544,13 @@ tcp_rcv_open(struct sock *so, struct in_context *in)
 		so->so_rwnd_max = MAX(so->so_rwnd_max, so->so_rwnd);
 	}
 	switch (so->so_state) {
-	case GT_TCP_S_SYN_SENT:
+	case GT_TCPS_SYN_SENT:
 		tcp_rcv_SYN_SENT(so, in);
 		return;
-	case GT_TCP_S_CLOSED:
+	case GT_TCPS_CLOSED:
 		tcps.tcps_rcvafterclose++;
 		return;
-	case GT_TCP_S_SYN_RCVD:
+	case GT_TCPS_SYN_RCVD:
 		break;
 	default:
 		assert(so->so_rsyn);
@@ -1586,7 +1587,7 @@ tcp_is_in_order(struct sock *so, struct in_context *in)
 static int
 gt_tcp_process_badack(struct sock *so, uint32_t acked)
 {
-	if (so->so_state >= GT_TCP_S_ESTABLISHED) {
+	if (so->so_state >= GT_TCPS_ESTABLISHED) {
 		so->so_ssnt = 0;
 	} else {
 		// TODO
@@ -1606,10 +1607,10 @@ tcp_enter_TIME_WAIT(struct sock *so, struct in_context *in)
 	int rc;
 
 #if 1
-	rc = tcp_set_state(so, in, GT_TCP_S_CLOSED);
+	rc = tcp_set_state(so, in, GT_TCPS_CLOSED);
 	return rc;
 #else
-	tcp_set_state(so, TCP_S_TIME_WAIT);
+	tcp_set_state(so, GT_TCPS_TIME_WAIT);
 	timer_set(&so->so_timer, 2 * MSL, gt_tcp_timeout_TIME_WAIT);
 #endif
 }
@@ -1645,8 +1646,8 @@ tcp_process_ack(struct sock *so, struct in_context *in)
 			return rc;
 		}
 	}
-	if (so->so_state == GT_TCP_S_SYN_RCVD) {
-		tcp_set_state(so, in, GT_TCP_S_ESTABLISHED);
+	if (so->so_state == GT_TCPS_SYN_RCVD) {
+		tcp_set_state(so, in, GT_TCPS_ESTABLISHED);
 	}
 	if (so->so_ssyn && so->so_ssyn_acked == 0) {
 		so->so_ssyn_acked = 1;
@@ -1684,18 +1685,18 @@ tcp_process_ack_complete(struct sock *so, struct in_context *in)
 	    so->so_sndbuf.sob_len == 0) {
 		so->so_sfin_acked = 1;
 		switch (so->so_state) {
-		case GT_TCP_S_FIN_WAIT_1:
+		case GT_TCPS_FIN_WAIT_1:
 			gt_tcp_timer_set_tcp_fin_timeout(so);
-			tcp_set_state(so, in, GT_TCP_S_FIN_WAIT_2);
+			tcp_set_state(so, in, GT_TCPS_FIN_WAIT_2);
 			break;
-		case GT_TCP_S_CLOSING:
+		case GT_TCPS_CLOSING:
 			rc = tcp_enter_TIME_WAIT(so, in);
 			if (rc) {
 				return rc;
 			}
 			break;
-		case GT_TCP_S_LAST_ACK:
-			tcp_set_state(so, in, GT_TCP_S_CLOSED);
+		case GT_TCPS_LAST_ACK:
+			tcp_set_state(so, in, GT_TCPS_CLOSED);
 			return -1;
 		default:
 			assert(0);
@@ -1748,10 +1749,10 @@ gt_tcp_send(struct sock *so, const struct iovec *iov, int iovcnt, int flags)
 	if (so->so_sfin) {
 		return -EPIPE;
 	}
-	if (so->so_state == GT_TCP_S_SYN_SENT ||
-	    so->so_state == GT_TCP_S_SYN_RCVD) {
+	if (so->so_state == GT_TCPS_SYN_SENT ||
+	    so->so_state == GT_TCPS_SYN_RCVD) {
 		return -EAGAIN;
-	} else if (so->so_state < GT_TCP_S_ESTABLISHED) {
+	} else if (so->so_state < GT_TCPS_ESTABLISHED) {
 		if ((flags & MSG_NOSIGNAL) == 0) {
 			raise(SIGPIPE);
 		}
@@ -1816,7 +1817,7 @@ tcp_tx_established(struct route_if *ifp, struct dev_pkt *pkt, struct sock *so)
 	int cnt, snt;
 	uint8_t tcp_flags;
 
-	if (so->so_state < GT_TCP_S_ESTABLISHED) {
+	if (so->so_state < GT_TCPS_ESTABLISHED) {
 		return 0;
 	}
 	if (so->so_sfin_acked || so->so_sfin_sent) {
@@ -1839,11 +1840,11 @@ tcp_tx_established(struct route_if *ifp, struct dev_pkt *pkt, struct sock *so)
 	}
 	if (snt == cnt && so->so_sfin) {
 		switch (so->so_state) {
-		case GT_TCP_S_ESTABLISHED:
-			tcp_set_state(so, NULL, GT_TCP_S_FIN_WAIT_1);
+		case GT_TCPS_ESTABLISHED:
+			tcp_set_state(so, NULL, GT_TCPS_FIN_WAIT_1);
 			break;
-		case GT_TCP_S_CLOSE_WAIT:
-			tcp_set_state(so, NULL, GT_TCP_S_LAST_ACK);
+		case GT_TCPS_CLOSE_WAIT:
+			tcp_set_state(so, NULL, GT_TCPS_LAST_ACK);
 			break;
 		}
 		so->so_sfin_sent = 1;
@@ -1865,13 +1866,13 @@ tcp_tx(struct route_if *ifp, struct dev_pkt *pkt, struct sock *so)
 	int rc;
 
 	switch (so->so_state) {
-	case GT_TCP_S_CLOSED:
-	case GT_TCP_S_LISTEN:
+	case GT_TCPS_CLOSED:
+	case GT_TCPS_LISTEN:
 		return 1;
-	case GT_TCP_S_SYN_SENT:
+	case GT_TCPS_SYN_SENT:
 		tcp_tx_data(ifp, pkt, so, TCP_FLAG_SYN, 0);
 		return 1;
-	case GT_TCP_S_SYN_RCVD:
+	case GT_TCPS_SYN_RCVD:
 		tcp_tx_data(ifp, pkt, so, TCP_FLAG_SYN|TCP_FLAG_ACK, 0);
 		return 1;
 	default:
@@ -1907,7 +1908,7 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcpcb *tcb,
 		tcb->tcb_opts.tcp_opt_mss = so->so_lmss;
 	}
 	cnt = so->so_sndbuf.sob_len - so->so_ssnt;
-	if (so->so_state >= GT_TCP_S_ESTABLISHED &&
+	if (so->so_state >= GT_TCPS_ESTABLISHED &&
 		(tcp_flags & TCP_FLAG_RST) == 0) {
 		tcp_flags |= TCP_FLAG_ACK;
 		if (len == 0 && cnt && so->so_rwnd > so->so_ssnt) {
@@ -1993,7 +1994,7 @@ sock_tx_flush_if(struct route_if *ifp)
 	struct dlist *txq;
 
 	n = 0;
-	txq = ifp->rif_txq + current->p_id;
+	txq = ifp->rif_txq + current->p_sid;
 	while (!dlist_is_empty(txq)) {
 		so = DLIST_FIRST(txq, struct sock, so_tx_list);
 		do {
@@ -2306,20 +2307,16 @@ so_find_binded(struct htable_bucket *b, int so_ipproto,
 {
 	struct sock *so, *found;
 
-	// TODO: rcu
 	found = NULL;
 	DLIST_FOREACH_RCU(so, &b->htb_head, so_binded_list) {
-		//dbg("! %d  current=%d", so->so_service_id, current->p_id);
 		if (so->so_ipproto == so_ipproto &&
 		    (so->so_laddr == 0 || so->so_laddr == laddr)) {
-			//dbg("+");
 			found = so;
-			if (so->so_service_id == current->p_id) {
+			if (so->so_sid == current->p_sid) {
 				break;
 			}
 		}
 	}
-	//dbg("<<<<");
 	return found;
 }
 
@@ -2389,7 +2386,7 @@ sock_add_txq(struct route_if *ifp, struct sock *so)
 {
 	struct dlist *txq;
 
-	txq = ifp->rif_txq + current->p_id;
+	txq = ifp->rif_txq + current->p_sid;
 	DLIST_INSERT_TAIL(txq, so, so_tx_list);
 }
 
@@ -2404,7 +2401,7 @@ sock_del_txq(struct sock *so)
 static void
 sock_open(struct sock *so)
 {
-	assert(so->so_state == GT_TCP_S_CLOSED);
+	assert(so->so_state == GT_TCPS_CLOSED);
 	so->so_dont_frag = 1;
 	so->so_rmss = 0;
 	so->so_lmss = 1460; // TODO:!!!!
@@ -2424,7 +2421,7 @@ so_new(int fd, int so_ipproto)
 	so = (struct sock *)fp;
 	DBG(0, "hit; fd=%d", so_get_fd(so));
 	so->so_flags = 0;
-	so->so_service_id = current->p_id;
+	so->so_sid = current->p_sid;
 	so->so_ipproto = so_ipproto;
 	so->so_laddr = 0;
 	so->so_lport = 0;
@@ -2458,7 +2455,7 @@ so_unref(struct sock *so, struct in_context *in)
 	struct htable_bucket *b;
 
 	assert(GT_SOCK_ALIVE(so));
-	if (so->so_state != GT_TCP_S_CLOSED || so->so_referenced) {
+	if (so->so_state != GT_TCPS_CLOSED || so->so_referenced) {
 		return 0;
 	}
 	if (so->so_is_attached) {
@@ -2558,7 +2555,7 @@ sock_tx(struct route_if *ifp, struct dev_pkt *pkt, struct sock *so)
 	int rc;
 	uint8_t tcp_flags;
 
-	if (so->so_state == GT_TCP_S_CLOSED && so->so_referenced == 0) { // ?????
+	if (so->so_state == GT_TCPS_CLOSED && so->so_referenced == 0) { // ?????
 		tcp_flags = 0;
 		if (so->so_ack) {
 			tcp_flags |= TCP_FLAG_ACK;
@@ -2663,19 +2660,17 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 		}
 		b = htable_bucket_get(&curmod->binded, i); // rcv_LISTEN
 		so = so_find_binded(b, so_ipproto, laddr, faddr, lport, fport);
-	} else {
-		//dbg("found %d cur=%d", so->so_service_id, current->p_id);
 	}
 	if (so == NULL) {
 		return IN_BYPASS;
 	}
-	if (so->so_service_id != current->p_id) {
+	if (so->so_sid != current->p_sid) {
 		assert(0);
 		if (b != NULL) {
 			BUCKET_UNLOCK(b);
 			b = NULL;
 		}
-		return so->so_service_id;
+		return so->so_sid;
 	}
 	if (so_ipproto == SO_IPPROTO_TCP) {
 		tcps.tcps_rcvtotal++;
@@ -2694,12 +2689,12 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 	}
 	if (so->so_ipproto == SO_IPPROTO_TCP) {
 		switch (so->so_state) {
-		case GT_TCP_S_CLOSED:
+		case GT_TCPS_CLOSED:
 			break;
-		case GT_TCP_S_LISTEN:
+		case GT_TCPS_LISTEN:
 			tcp_rcv_LISTEN(so, in, laddr, faddr, lport, fport);
 			break;
-		case GT_TCP_S_TIME_WAIT:
+		case GT_TCPS_TIME_WAIT:
 			tcp_rcv_TIME_WAIT(so);
 			break;
 		default:

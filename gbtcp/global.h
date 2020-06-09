@@ -117,6 +117,7 @@ enum {
 
 extern struct shm_init_hdr *shm_ih;
 extern struct service *current;
+extern sigset_t service_sigprocmask;
 extern uint64_t nanoseconds;
 
 #endif

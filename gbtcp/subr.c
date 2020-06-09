@@ -790,17 +790,17 @@ const char *
 tcp_state_str(int tcp_state)
 {
 	switch (tcp_state) {
-	case GT_TCP_S_CLOSED: return "CLOSED";
-	case GT_TCP_S_LISTEN: return "LISTEN";
-	case GT_TCP_S_SYN_SENT: return "SYN_SENT";
-	case GT_TCP_S_SYN_RCVD: return "SYN_RCVD";
-	case GT_TCP_S_ESTABLISHED: return "ESTABLISHED";
-	case GT_TCP_S_CLOSE_WAIT: return "CLOSE_WAIT";
-	case GT_TCP_S_LAST_ACK: return "LAST_ACK";
-	case GT_TCP_S_FIN_WAIT_1: return "FIN_WAIT_1";
-	case GT_TCP_S_FIN_WAIT_2: return "FIN_WAIT_2";
-	case GT_TCP_S_CLOSING: return "CLOSING";
-	case GT_TCP_S_TIME_WAIT: return "TIME_WAIT";
+	case GT_TCPS_CLOSED: return "CLOSED";
+	case GT_TCPS_LISTEN: return "LISTEN";
+	case GT_TCPS_SYN_SENT: return "SYN_SENT";
+	case GT_TCPS_SYN_RCVD: return "SYN_RCVD";
+	case GT_TCPS_ESTABLISHED: return "ESTABLISHED";
+	case GT_TCPS_CLOSE_WAIT: return "CLOSE_WAIT";
+	case GT_TCPS_LAST_ACK: return "LAST_ACK";
+	case GT_TCPS_FIN_WAIT_1: return "FIN_WAIT_1";
+	case GT_TCPS_FIN_WAIT_2: return "FIN_WAIT_2";
+	case GT_TCPS_CLOSING: return "CLOSING";
+	case GT_TCPS_TIME_WAIT: return "TIME_WAIT";
 	default: return NULL;
 	}
 }
@@ -897,15 +897,6 @@ fcntl_cmd_str(int cmd)
 	case F_SETFD: return "F_SETFD";
 	case F_GETFL: return "F_GETFL";
 	case F_SETFL: return "F_SETFL";
-	default: return NULL;
-	}
-}
-
-const char *
-ioctl_req_str(unsigned long req)
-{
-	switch (req) {
-	case FIONBIO: return "FIONBIO";
 	default: return NULL;
 	}
 }

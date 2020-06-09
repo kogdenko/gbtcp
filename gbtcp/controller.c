@@ -6,6 +6,7 @@ static struct service *services[GT_SERVICES_MAX];
 static int nservices;
 static struct sysctl_conn *controller_listen;
 static int controller_pid_fd = -1;
+static int controller_quit_no_services = 1;
 static int controller_done;
 
 static int
@@ -192,19 +193,19 @@ controller_balance_get(struct service **ppoor, struct service **prich)
 }
 
 static void
-controller_rss_table_set(u_int rss_qid, int service_id)
+controller_rss_table_set(u_int rss_qid, int sid)
 {
 	assert(rss_qid < GT_RSS_NQ_MAX);
-	assert(service_id == -1 || service_id < GT_SERVICES_MAX);
-	if (shm_ih->ih_rss_table[rss_qid] != service_id) {
-		if (service_id == -1) {
+	assert(sid == -1 || sid < GT_SERVICES_MAX);
+	if (shm_ih->ih_rss_table[rss_qid] != sid) {
+		if (sid == -1) {
 			NOTICE(0, "clear; rss_qid=%d", rss_qid);
 		} else {
 			NOTICE(0, "hit; rss_qid=%d, pid=%d",
-			       rss_qid, shm_ih->ih_services[service_id].p_pid);
+			       rss_qid, shm_ih->ih_services[sid].p_pid);
 		}
 	}
-	WRITE_ONCE(shm_ih->ih_rss_table[rss_qid], service_id);
+	WRITE_ONCE(shm_ih->ih_rss_table[rss_qid], sid);
 }
 
 static void
@@ -231,8 +232,8 @@ controller_balance()
 //	}
 	// TODO: find best quited qid
 	for (i = 0; shm_ih->ih_rss_nq; ++i) {
-		if (shm_ih->ih_rss_table[i] == rich->p_id) {
-			controller_rss_table_set(i, poor->p_id);
+		if (shm_ih->ih_rss_table[i] == rich->p_sid) {
+			controller_rss_table_set(i, poor->p_sid);
 			rich->p_rss_nq--;
 			poor->p_rss_nq++;
 			controller_service_update(rich);
@@ -258,14 +259,16 @@ controller_service_del(struct service *s)
 		assert(i < nservices);
 		services[i] = services[--nservices];
 		if (!nservices) {
-			//controller_done = 1;
+			if (controller_quit_no_services) {
+				controller_done = 1;
+			}
 		}
 	}
 	if (s->p_rss_nq) {
 		controller_balance_get(&new, NULL);
 		for (i = 0; i < shm_ih->ih_rss_nq; ++i) {
-			if (shm_ih->ih_rss_table[i] == s->p_id) {
-				controller_rss_table_set(i, new->p_id);
+			if (shm_ih->ih_rss_table[i] == s->p_sid) {
+				controller_rss_table_set(i, new->p_sid);
 				assert(s->p_rss_nq > 0);
 				s->p_rss_nq--;
 				new->p_rss_nq++;
@@ -327,7 +330,7 @@ controller_rss_table_expand(int rss_nq)
 
 	controller_balance_get(&s, NULL);
 	for (i = shm_ih->ih_rss_nq; i < rss_nq; ++i) {
-		controller_rss_table_set(i, s->p_id);
+		controller_rss_table_set(i, s->p_sid);
 		s->p_rss_nq++;
 	}
 	WRITE_ONCE(shm_ih->ih_rss_nq, rss_nq);
@@ -374,10 +377,10 @@ sysctl_controller_service_attach(struct sysctl_conn *cp, void *udata,
 	if (new == NULL) {
 		return 0;
 	}
-	if (cp == NULL || cp->sccn_peer_pid == 0) {
+	if (cp == NULL || cp->scc_peer_pid == 0) {
 		return -EPERM;
 	}
-	pid = cp->sccn_peer_pid;
+	pid = cp->scc_peer_pid;
 	s = controller_service_get(pid);
 	if (s != NULL) {
 		return -EEXIST;
@@ -444,7 +447,7 @@ controller_service_conn_close(struct sysctl_conn *cp)
 	int pid;
 	struct service *s;
 
-	pid = cp->sccn_peer_pid;
+	pid = cp->scc_peer_pid;
 	if (pid == 0) {
 		return;
 	}
@@ -455,6 +458,11 @@ controller_service_conn_close(struct sysctl_conn *cp)
 		service_clean(s);
 	}
 }
+
+/*struct fdesc {
+	u_short fd_fd;
+	u_short fd_pid;
+};*/
 
 static int
 controller_bind(int pid)
@@ -479,8 +487,8 @@ controller_bind(int pid)
 		sysctl_conn_close(controller_listen);
 		return rc;
 	}
-	controller_listen->sccn_accept_conn = 1;
-	controller_listen->sccn_close_fn = controller_service_conn_close;
+	controller_listen->scc_accept_conn = 1;
+	controller_listen->scc_close_fn = controller_service_conn_close;
 	return 0;
 }
 
@@ -491,11 +499,11 @@ controller_init(int daemonize, const char *service_comm)
 	uint64_t hz;
 	struct service *s;
 
-	gt_init("controller");
+	gt_init("controller", 0);
 	gt_preload_passthru = 1;
 	shm_ih = NULL;
 	if (daemonize) {
-		rc = sys_daemon(0, 1);
+		rc = sys_daemon(1, 1);
 		if (rc) {
 			goto err;
 		}
@@ -524,7 +532,6 @@ controller_init(int daemonize, const char *service_comm)
 	if (rc) {
 		goto err;
 	}
-	memset(shm_ih, 0, sizeof(*shm_ih));
 	rc = mods_init(shm_ih);
 	if (rc) {
 		goto err;
@@ -536,7 +543,7 @@ controller_init(int daemonize, const char *service_comm)
 	shm_ih->ih_rss_nq = 0;
 	sysctl_read_file(1, service_comm);
 	SERVICE_FOREACH(s) {
-		s->p_id = s - shm_ih->ih_services;
+		s->p_sid = s - shm_ih->ih_services;
 		mods_service_init(s);
 	}
 	for (i = 0; i < ARRAY_SIZE(shm_ih->ih_rss_table); ++i) {

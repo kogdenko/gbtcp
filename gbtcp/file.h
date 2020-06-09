@@ -30,7 +30,7 @@ struct file {
 			u_int fl_type : 3;
 			u_int fl_referenced : 1;
 			u_int fl_blocked : 1;
-			u_int fl_service_id : 8;
+			u_int fl_sid : 8;
 		};
 	};
 	struct dlist fl_aioq;
@@ -53,7 +53,6 @@ int file_mod_init();
 int file_mod_service_init(struct service *);
 void file_mod_deinit();
 void file_mod_service_deinit(struct service *);
-void file_mod_service_clean(struct service *);
 
 struct file *file_next(struct service *, int);
 int file_alloc3(struct file **, int, int);
@@ -61,6 +60,7 @@ int file_alloc3(struct file **, int, int);
 void file_free(struct file *);
 void file_free_rcu(struct file *);
 void file_close(struct file *);
+void file_clean(struct file *);
 int file_fcntl(struct file *, int, uintptr_t);
 int file_ioctl(struct file *, unsigned long, uintptr_t);
 int file_get(int, struct file **);

@@ -16,10 +16,10 @@
 #define SYSCTL_CONTROLLER_SERVICE_ATTACH "controller.service.attach"
 
 struct sysctl_conn {
-	void (*sccn_close_fn)(struct sysctl_conn *);
-	struct fd_event *sccn_event;
-	int sccn_accept_conn;
-	int sccn_peer_pid;
+	void (*scc_close_fn)(struct sysctl_conn *);
+	struct fd_event *scc_event;
+	int scc_accept_conn;
+	int scc_peer_pid;
 };
 
 typedef int (*sysctl_f)(struct sysctl_conn *, void *,

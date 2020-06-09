@@ -48,7 +48,7 @@ do { \
 #define WARN(err, ...) LOGF(LOG_WARNING, err, __VA_ARGS__)
 #define ERR(err, ...) LOGF(LOG_ERR, err, __VA_ARGS__)
 
-void log_init_early(const char *);
+void log_init_early(const char *, u_int);
 
 int log_mod_init(void **);
 void log_mod_deinit();
@@ -78,7 +78,7 @@ const char *log_add_socket_type(int);
 const char *log_add_socket_flags(int);
 const char *log_add_shutdown_how(int);
 const char *log_add_fcntl_cmd(int);
-const char *log_add_ioctl_req(unsigned long);
+const char *log_add_ioctl_req(u_long, uintptr_t);
 const char *log_add_sockopt_level(int);
 const char *log_add_sockopt_optname(int, int);
 const char *log_add_poll_events(short);

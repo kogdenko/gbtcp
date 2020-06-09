@@ -9,25 +9,11 @@
 #define SO_IPPROTO_UDP 0
 #define SO_IPPROTO_TCP 1
 
-struct socb {
-	int socb_fd;
-	int socb_flags;
-	int socb_ipproto;
-	int socb_state;
-	be32_t socb_laddr;
-	be32_t socb_faddr;
-	be16_t socb_lport;
-	be16_t socb_fport;
-	int socb_acceptq_len;
-	int socb_incompleteq_len;
-	int socb_backlog;
-};
-
 struct sock {
 	struct file so_file;
 #define so_blocked so_file.fl_blocked
 #define so_referenced so_file.fl_referenced
-#define so_service_id so_file.fl_service_id
+#define so_sid so_file.fl_sid
 	union {
 		uint64_t so_flags;
 		struct {
@@ -122,8 +108,6 @@ struct htable_bucket *so_get_binded_bucket(uint16_t);
 int sock_get_eno(struct sock *so);
 
 short so_get_events(struct file *fp);
-
-void so_get_socb(struct sock *so, struct socb *);
 
 int sock_nread(struct file *fp);
 

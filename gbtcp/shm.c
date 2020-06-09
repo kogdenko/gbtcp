@@ -118,7 +118,7 @@ shm_unlock()
 		for (i = 0; i < n; ++i) {
 			src = current->p_mbuf_free_indirect_head + i;
 			if (!dlist_is_empty(src)) {
-				assert(i != current->p_id);
+				assert(i != current->p_sid);
 				dst = shm->shm_mbuf_free_indirect_head + i;
 				dlist_splice_tail_init(dst, src);
 			}
@@ -127,7 +127,7 @@ shm_unlock()
 	if (current == NULL) {
 		dlist_init(&tofree);
 	} else {
-		src = shm->shm_mbuf_free_indirect_head + current->p_id;
+		src = shm->shm_mbuf_free_indirect_head + current->p_sid;
 		dlist_replace_init(&tofree, src);
 	}
 	spinlock_unlock(&shm->shm_lock);
@@ -160,7 +160,8 @@ shm_init(void **pinit, int init_size)
 	assert(!(((uintptr_t)shm) & PAGE_MASK));
 	hdr_size = sizeof(*shm);
 	hdr_size += BITSET_WORD_ARRAY_SIZE(npages) * sizeof(bitset_word_t);
-	memset(shm, 0, hdr_size);
+	superblock_size = ROUND_UP((hdr_size + init_size), PAGE_SIZE);
+	memset(shm, 0, superblock_size);
 	shm->shm_base_addr = (uintptr_t)shm;
 	spinlock_init(&shm->shm_lock);
 	dlist_init(&shm->shm_heap);
@@ -171,7 +172,6 @@ shm_init(void **pinit, int init_size)
 	for (i = 0; i < ARRAY_SIZE(shm->shm_mbuf_free_indirect_head); ++i) {
 		dlist_init(shm->shm_mbuf_free_indirect_head + i);
 	}
-	superblock_size = ROUND_UP((hdr_size + init_size), PAGE_SIZE);
 	superblock_npages = superblock_size >> PAGE_SHIFT;
 	for (i = 0; i < superblock_npages; ++i) {
 		shm_page_alloc(i);

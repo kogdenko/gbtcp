@@ -31,7 +31,7 @@
 struct service {
 	struct spinlock p_lock;
 	int p_pid;
-	u_char p_id;
+	u_char p_sid;
 	u_char p_dirty;
 	u_char p_rss_nq;
 	int p_fd;
@@ -69,6 +69,7 @@ int service_mod_init(void **);
 void service_mod_deinit();
 
 int service_init(const char *);
+struct service *service_get_by_sid(u_int);
 int service_attach();
 void service_deinit();
 void service_detach(int);

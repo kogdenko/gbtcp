@@ -301,7 +301,7 @@ main(int argc, char **argv)
 	int i, rc, opt;
 	const char *path;
 
-	gt_init(NULL);
+	gt_init("sysctl", LOG_ERR);
 	path = NULL;
 	while ((opt = getopt(argc, argv, "hf:aniQHL:")) != -1) {
 		switch (opt) {

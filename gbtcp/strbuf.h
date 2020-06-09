@@ -35,7 +35,7 @@ void strbuf_add_socket_flags(struct strbuf *, int);
 void strbuf_add_shutdown_how(struct strbuf *, int);
 void strbuf_add_fcntl_cmd(struct strbuf *, int);
 void strbuf_add_fcntl_setfl(struct strbuf *, int);
-void strbuf_add_ioctl_req(struct strbuf *, u_long);
+void strbuf_add_ioctl_req(struct strbuf *, u_long, uintptr_t);
 void strbuf_add_sockopt_level(struct strbuf *, int level);
 void strbuf_add_sockopt_optname(struct strbuf *, int, int);
 void strbuf_add_poll_events(struct strbuf *, short);

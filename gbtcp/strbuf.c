@@ -1,15 +1,20 @@
+// gpl2 license
 #include "strbuf.h"
 #include "log.h"
 
-#define STRBUF_ADD_FLAG(sb, flags, flag) \
+#define STRBUF_ADD_FLAG4(sb, flags, flag, first) \
 ({ \
 	if (flags & flag) { \
-		if ((sb)->sb_len) \
+		if (first) {\
 			strbuf_add_ch(sb, '|'); \
+		} \
 		strbuf_add_str(sb, #flag); \
 	} \
 	flags & ~flag; \
 })
+
+#define STRBUF_SET_FLAG(sb, flags, flag) STRBUF_ADD_FLAG4(sb, flags, flag, 1)
+#define STRBUF_ADD_FLAG(sb, flags, flag) STRBUF_ADD_FLAG4(sb, flags, flag, 0)
 
 void
 strbuf_init(struct strbuf *sb, void *buf, int cap)
@@ -203,7 +208,7 @@ strbuf_add_recv_flags_os(struct strbuf *sb, int flags)
 	int rem;
 
 	rem = flags;
-	STRBUF_ADD_FLAG(sb, rem, MSG_ERRQUEUE);
+	STRBUF_SET_FLAG(sb, rem, MSG_ERRQUEUE);
 	return rem;
 }
 
@@ -213,7 +218,7 @@ strbuf_add_send_flags_os(struct strbuf *sb, int flags)
 	int rem;
 
 	rem = flags;
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_CONFIRM);
+	rem = STRBUF_SET_FLAG(sb, rem, MSG_CONFIRM);
 	rem = STRBUF_ADD_FLAG(sb, rem, MSG_MORE);
 	return rem;
 }
@@ -223,7 +228,7 @@ strbuf_add_poll_events_os(struct strbuf *sb, short events)
 {
 	int rem;
 
-	rem = STRBUF_ADD_FLAG(sb, events, POLLRDHUP);
+	rem = STRBUF_SET_FLAG(sb, events, POLLRDHUP);
 	return rem;
 }
 #else /* __linux__ */
@@ -251,7 +256,7 @@ strbuf_add_recv_flags(struct strbuf *sb, int flags)
 	int rem;
 
 	rem = flags;
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_CMSG_CLOEXEC);
+	rem = STRBUF_SET_FLAG(sb, rem, MSG_CMSG_CLOEXEC);
 	rem = STRBUF_ADD_FLAG(sb, rem, MSG_DONTWAIT);
 	rem = STRBUF_ADD_FLAG(sb, rem, MSG_OOB);
 	rem = STRBUF_ADD_FLAG(sb, rem, MSG_PEEK);
@@ -267,7 +272,7 @@ strbuf_add_send_flags(struct strbuf *sb, int flags)
 	int rem;
 
 	rem = flags;
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_DONTROUTE);
+	rem = STRBUF_SET_FLAG(sb, rem, MSG_DONTROUTE);
 	rem = STRBUF_ADD_FLAG(sb, rem, MSG_DONTWAIT);
 	rem = STRBUF_ADD_FLAG(sb, rem, MSG_EOR);
 	rem = STRBUF_ADD_FLAG(sb, rem, MSG_NOSIGNAL);
@@ -321,7 +326,7 @@ strbuf_add_socket_flags(struct strbuf *sb, int flags)
 	int rem;
 
 	rem = flags;
-	rem = STRBUF_ADD_FLAG(sb, rem, SOCK_NONBLOCK);
+	rem = STRBUF_SET_FLAG(sb, rem, SOCK_NONBLOCK);
 	rem = STRBUF_ADD_FLAG(sb, rem, SOCK_CLOEXEC);
 	strbuf_add_flag_end(sb, rem);
 }
@@ -358,7 +363,7 @@ strbuf_add_fcntl_setfl(struct strbuf *sb, int flags)
 	int rem;
 
 	rem = flags;
-	rem = STRBUF_ADD_FLAG(sb, rem, O_RDONLY);
+	rem = STRBUF_SET_FLAG(sb, rem, O_RDONLY);
 	rem = STRBUF_ADD_FLAG(sb, rem, O_WRONLY);
 	rem = STRBUF_ADD_FLAG(sb, rem, O_RDWR);
 	rem = STRBUF_ADD_FLAG(sb, rem, O_CREAT);
@@ -372,15 +377,19 @@ strbuf_add_fcntl_setfl(struct strbuf *sb, int flags)
 }
 
 void
-strbuf_add_ioctl_req(struct strbuf *sb, unsigned long req)
+strbuf_add_ioctl_req(struct strbuf *sb, u_long req, uintptr_t arg)
 {
-	const char *s;
-
-	s = ioctl_req_str(req);
-	if (s != NULL) {
-		strbuf_add_str(sb, s);
-	} else {
+	switch (req) {
+	case FIONBIO:
+		strbuf_add_str(sb, "FIONBIO");
+		break;
+	case SIOCGIFFLAGS:
+		strbuf_addf(sb, "%s('%s')", "SIOCGIFFLAGS",
+		            ((struct ifreq *)arg)->ifr_name);
+		break;
+	default:
 		strbuf_addf(sb, "0x%lx", req);
+		break;
 	}
 }
 
@@ -416,7 +425,7 @@ strbuf_add_poll_events(struct strbuf *sb, short events)
 	int rem;
 
 	rem = events;
-	rem = STRBUF_ADD_FLAG(sb, rem, POLLIN);
+	rem = STRBUF_SET_FLAG(sb, rem, POLLIN);
 	rem = STRBUF_ADD_FLAG(sb, rem, POLLPRI);
 	rem = STRBUF_ADD_FLAG(sb, rem, POLLOUT);
 	rem = STRBUF_ADD_FLAG(sb, rem, POLLHUP);
@@ -495,7 +504,7 @@ strbuf_add_epoll_event_events(struct strbuf *sb, short events)
 	short rem;
 
 	rem = events;
-	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLIN);
+	rem = STRBUF_SET_FLAG(sb, rem, EPOLLIN);
 	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLOUT);
 	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLRDHUP);
 	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLPRI);
@@ -526,7 +535,7 @@ strbuf_add_clone_flags(struct strbuf *sb, int flags)
 	int rem;
 
 	rem = flags;
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_CHILD_CLEARTID);
+	rem = STRBUF_SET_FLAG(sb, rem, CLONE_CHILD_CLEARTID);
 	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_CHILD_SETTID);
 	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_FILES);
 	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_FS);

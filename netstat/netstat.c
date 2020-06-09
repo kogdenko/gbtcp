@@ -52,17 +52,17 @@ struct in_addr;
 char *inetname(be32_t);
 
 static const char *tcpstates[GT_TCP_NSTATES] = {
-	[GT_TCP_S_CLOSED] = "CLOSED",
-	[GT_TCP_S_LISTEN] = "LISTEN",
-	[GT_TCP_S_SYN_SENT] = "SYN_SENT",
-	[GT_TCP_S_SYN_RCVD] = "SYN_RCVD",
-	[GT_TCP_S_ESTABLISHED] = "ESTABLISHED",
-	[GT_TCP_S_CLOSE_WAIT] = "CLOSE_WAIT",
-	[GT_TCP_S_LAST_ACK] = "LAST_ACK",
-	[GT_TCP_S_FIN_WAIT_1] = "FIN_WAIT_1",
-	[GT_TCP_S_FIN_WAIT_2] = "FIN_WAIT_2",
-	[GT_TCP_S_CLOSING] = "CLOSING",
-	[GT_TCP_S_TIME_WAIT] = "TIME_WAIT"
+	[GT_TCPS_CLOSED] = "CLOSED",
+	[GT_TCPS_LISTEN] = "LISTEN",
+	[GT_TCPS_SYN_SENT] = "SYN_SENT",
+	[GT_TCPS_SYN_RCVD] = "SYN_RCVD",
+	[GT_TCPS_ESTABLISHED] = "ESTABLISHED",
+	[GT_TCPS_CLOSE_WAIT] = "CLOSE_WAIT",
+	[GT_TCPS_LAST_ACK] = "LAST_ACK",
+	[GT_TCPS_FIN_WAIT_1] = "FIN_WAIT_1",
+	[GT_TCPS_FIN_WAIT_2] = "FIN_WAIT_2",
+	[GT_TCPS_CLOSING] = "CLOSING",
+	[GT_TCPS_TIME_WAIT] = "TIME_WAIT"
 };
 
 void pr_sockaddr(be32_t, be16_t, const char *, int);
@@ -385,7 +385,7 @@ pr_sockets_banner()
 static int
 pr_socket(void *udata, const char *buf)
 {
-	int rc, fd, proto, state, q_len, inc_q_len, q_lim;
+	int rc, fd, pid, proto, state, q_len, inc_q_len, q_lim;
 	uint32_t laddr, faddr;
 	uint16_t lport, fport;
 	const char *name;
@@ -394,15 +394,15 @@ pr_socket(void *udata, const char *buf)
 
 	p = udata;
 	rc = sscanf(buf,
-	            "%d,%d,%d,"
+	            "%d,%d,%d,%d,"
 	            "%x,%hu,"
 	            "%x,%hu,"
 	            "%d,%d,%d",
-	            &fd, &proto, &state,
+	            &fd, &pid, &proto, &state,
 	            &laddr, &lport,
 	            &faddr, &fport,
 	            &q_len, &inc_q_len, &q_lim);
-	if (rc != 10) {
+	if (rc != 11) {
 		bad_format(buf);
 		return -EPROTO;
 	}
@@ -416,7 +416,7 @@ pr_socket(void *udata, const char *buf)
 	name = proto == IPPROTO_TCP ? "tcp" : "udp";
 	printf("%-5.5s ", name);
 	pr_sockaddr(laddr, lport, name, nflag > 1);
-	if (state == GT_TCP_S_LISTEN) {
+	if (state == GT_TCPS_LISTEN) {
 		snprintf(buf1, sizeof(buf1), "%u/%u/%u",
 			 q_len, inc_q_len, q_lim);
 		printf("%-32.32s ", buf1);
@@ -1005,7 +1005,7 @@ main(int argc, char **argv)
 	struct proto *proto, *p;
 	int opt, long_opt;
 
-	gt_init(NULL);
+	gt_init("netstat", LOG_ERR);
 	gt_preload_passthru = 1;
 	proto = NULL;
 	while ((opt = getopt_long(argc, argv, "habHI:iLnsw:z",

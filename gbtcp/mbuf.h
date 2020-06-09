@@ -10,7 +10,7 @@
 struct mbuf {
 	struct dlist mb_list;
 	uint16_t mb_magic;
-	u_char mb_service_id;
+	u_char mb_sid;
 	u_int mb_used : 1;
 	u_int mb_allocated : 1;
 };
@@ -19,7 +19,7 @@ struct mbuf_pool {
 	int mbp_mbuf_size;
 	int mbp_mbufs_per_chunk;
 	u_char mbp_id;
-	u_char mbp_service_id;
+	u_char mbp_sid;
 	struct dlist mbp_avail_chunkq;
 	struct dlist mbp_empty_chunkq;
 	struct mbuf_chunk *mbp_chunks[MBUF_CHUNKS_MAX]; // FIXME: allocate exact size

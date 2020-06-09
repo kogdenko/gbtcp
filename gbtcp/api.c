@@ -46,12 +46,13 @@ api_unlock()
 }
 
 void
-gt_init(const char *comm)
+gt_init(const char *comm, int log_level)
 {
 	dlsym_all();
 	rd_nanoseconds();
 	srand48(time(NULL));
-	log_init_early(comm);
+	log_init_early(comm, log_level);
+	sigemptyset(&service_sigprocmask);
 }
 
 pid_t
@@ -93,13 +94,13 @@ api_socket(int domain, int type, int proto)
 	if (domain == AF_INET && use) {
 		rc = so_socket(&so, domain, type_noflags, flags, proto);
 		if (rc < 0) {
-			DBG(-rc, "failed; type=%s, flags=%s",
-			    log_add_socket_type(type_noflags),
-			    log_add_socket_flags(flags));
+			INFO(-rc, "failed; type=%s, flags=%s",
+			     log_add_socket_type(type_noflags),
+			     log_add_socket_flags(flags));
 		} else {
-			DBG(0, "ok; fd=%d, type=%s, flags=%s",
-			    rc, log_add_socket_type(type_noflags),
-			    log_add_socket_flags(flags));
+			INFO(0, "ok; fd=%d, type=%s, flags=%s",
+			     rc, log_add_socket_type(type_noflags),
+			     log_add_socket_flags(flags));
 		}
 	} else {
 		rc = -EBADF;
@@ -138,7 +139,7 @@ api_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 		return rc;
 	}
 	faddr_in = (const struct sockaddr_in *)addr;
-	DBG(0, "hit; fd=%d, faddr=%s", fd, log_add_sockaddr_in(faddr_in));
+	INFO(0, "hit; fd=%d, faddr=%s", fd, log_add_sockaddr_in(faddr_in));
 	rc = so_connect(so, faddr_in, &laddr_in);
 restart:
 	if (rc == -EINPROGRESS && so->so_blocked) {
@@ -155,9 +156,9 @@ restart:
 
 	}
 	if (rc < 0) {
-		DBG(-rc, "failed");
+		INFO(-rc, "failed");
 	} else {
-		DBG(0, "ok; laddr=%s", log_add_sockaddr_in(&laddr_in));
+		INFO(0, "ok; laddr=%s", log_add_sockaddr_in(&laddr_in));
 	}
 	return rc;
 }
@@ -253,7 +254,7 @@ api_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 	if (rc) {
 		return rc;
 	}
-	DBG(0, "hit; lfd=%d, flags=%s)", lfd, log_add_socket_flags(flags));
+	INFO(0, "hit; lfd=%d, flags=%s)", lfd, log_add_socket_flags(flags));
 restart:
 	rc = so_accept(&so, lso, addr, addrlen, flags);
 	if (rc == -EAGAIN && lso->so_blocked) {
@@ -264,9 +265,9 @@ restart:
 		}
 	}
 	if (rc < 0) {
-		DBG(-rc, "failed");
+		INFO(-rc, "failed");
 	} else {
-		DBG(0, "ok; fd=%d", rc);
+		INFO(0, "ok; fd=%d", rc);
 	}
 	return rc;
 }
@@ -309,9 +310,9 @@ api_close(int fd)
 	if (rc) {
 		return rc;
 	}
-	DBG(0, "hit; fd=%d", fd);
+	INFO(0, "hit; fd=%d", fd);
 	file_close(fp);
-	DBG(0, "ok");
+	INFO(0, "ok");
 	return 0;
 }
 
@@ -346,7 +347,7 @@ api_recvfrom(int fd, const struct iovec *iov, int iovcnt, int flags,
 	if (rc) {
 		return rc;
 	}
-	DBG(0, "hit; fd=%d", fd);
+	INFO(0, "hit; fd=%d", fd);
 restart:
 	rc = so_recvfrom(so, iov, iovcnt, flags, addr, addrlen);
 	if (rc == -EAGAIN && so->so_blocked) {
@@ -357,9 +358,9 @@ restart:
 		}
 	}
 	if (rc < 0) {
-		DBG(-rc, "failed");
+		INFO(-rc, "failed;");
 	} else {
-		DBG(0, "ok; rc=%zd", rc);
+		INFO(0, "ok; rc=%zd", rc);
 	}
 	return rc;
 }
@@ -426,7 +427,7 @@ api_send(int fd, const struct iovec *iov, int iovcnt, int flags,
 	if (rc) {
 		return rc;
 	}
-	DBG(0, "hit; fd=%d, count=%d", fd, iovec_accum_len(iov, iovcnt));
+	INFO(0, "hit; fd=%d, count=%d", fd, iovec_accum_len(iov, iovcnt));
 restart:
 	rc = so_sendto(so, iov, iovcnt, flags, faddr, fport);
 	if (rc == -EAGAIN && so->so_blocked) {
@@ -437,9 +438,9 @@ restart:
 		}
 	}
 	if (rc < 0) {
-		DBG(-rc, "failed");
+		INFO(-rc, "failed");
 	} else {
-		DBG(0, "ok; rc=%d", rc);
+		INFO(0, "ok; rc=%d", rc);
 	}
 	return rc;
 }
@@ -528,12 +529,12 @@ api_fcntl(int fd, int cmd, uintptr_t arg)
 	if (rc) {
 		return rc;
 	}
-	DBG(0, "hit; fd=%d, cmd=%s", fd, log_add_fcntl_cmd(cmd));
+	INFO(0, "hit; fd=%d, cmd=%s", fd, log_add_fcntl_cmd(cmd));
 	rc = file_fcntl(fp, cmd, arg);
 	if (rc < 0) {
-		DBG(-rc, "failed");
+		INFO(-rc, "failed;");
 	} else {
-		DBG(0, "ok; rc=0x%x", rc);
+		INFO(0, "ok; rc=0x%x", rc);
 	}
 	return rc;
 }
@@ -559,12 +560,12 @@ api_ioctl(int fd, unsigned long req, uintptr_t arg)
 	if (rc) {
 		return rc;
 	}
-	DBG(0, "hit, fd=%d, req=%s", fd, log_add_ioctl_req(req));
+	INFO(0, "hit, fd=%d, req=%s", fd, log_add_ioctl_req(req, arg));
 	rc = file_ioctl(fp, req, arg);
 	if (rc < 0) {
-		DBG(-rc, "failed");
+		INFO(-rc, "failed");
 	} else {
-		DBG(0, "ok; rc=0x%x", rc);
+		INFO(0, "ok; rc=0x%x", rc);
 	}
 	return rc;
 }
@@ -591,17 +592,17 @@ api_getsockopt(int fd, int level, int optname, void *optval,
 	if (rc) {
 		return rc;
 	}
-	DBG(0, "hit; fd=%d, level=%s, optname=%s",
-	    fd, log_add_sockopt_level(level),
-	    log_add_sockopt_optname(level, optname));
+	INFO(0, "hit; fd=%d, level=%s, optname=%s",
+	     fd, log_add_sockopt_level(level),
+	     log_add_sockopt_optname(level, optname));
 	rc = so_getsockopt(so, level, optname, optval, optlen);
 	if (rc < 0) {
-		DBG(-rc, "failed;");
+		INFO(-rc, "failed;");
 	} else if (level == SOL_SOCKET &&
 		   optname == SO_ERROR && *optlen >= sizeof(int)) {
-		DBG(*(int *)optval, "error;");
+		INFO(*(int *)optval, "error;");
 	} else {
-		DBG(0, "ok;");
+		INFO(0, "ok;");
 	}
 	return rc;
 }
@@ -628,14 +629,14 @@ api_setsockopt(int fd, int level, int optname, const void *optval,
 	if (rc) {
 		return rc;
 	}
-	DBG(0, "hit; fd=%d, level=%s, optname=%s",
-	    fd, log_add_sockopt_level(level),
-	    log_add_sockopt_optname(level, optname));
+	INFO(0, "hit; fd=%d, level=%s, optname=%s",
+	     fd, log_add_sockopt_level(level),
+	     log_add_sockopt_optname(level, optname));
 	rc = so_setsockopt(so, level, optname, optval, optlen);
 	if (rc < 0) {
-		DBG(-rc, "failed");
+		INFO(-rc, "failed");
 	} else {
-		DBG(0, "ok");
+		INFO(0, "ok");
 	}
 	return rc;
 }
@@ -662,12 +663,12 @@ api_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 	if (rc) {
 		return rc;
 	}
-	DBG(0, "hit; fd=%d", fd);
+	INFO(0, "hit; fd=%d", fd);
 	rc = so_getpeername(so, addr, addrlen);
 	if (rc < 0) {
-		DBG(-rc, "failed");
+		INFO(-rc, "failed");
 	} else {
-		DBG(0, "ok");
+		INFO(0, "ok");
 	}
 	return rc;
 }
@@ -747,7 +748,7 @@ gt_first_fd()
 
 	API_LOCK;
 	rc = file_first_fd();
-	DBG(0, "hit; first_fd=%d", rc);
+	INFO(0, "hit; first_fd=%d", rc);
 	API_UNLOCK;
 	API_RETURN(rc);
 }

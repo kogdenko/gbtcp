@@ -13,7 +13,7 @@ file_init(struct file *fp, int type)
 	fp->fl_flags = 0;
 	fp->fl_type = type;
 	fp->fl_blocked = 1;
-	fp->fl_service_id = current->p_id;
+	fp->fl_sid = current->p_sid;
 	dlist_init(&fp->fl_aioq);
 }
 
@@ -47,7 +47,7 @@ file_mod_init()
 int
 file_mod_service_init(struct service *s)
 {
-	mbuf_pool_init(&s->p_file_pool, s->p_id, sizeof(struct sock) + sizeof(struct file_aio)); // FIXME:!!!!!!
+	mbuf_pool_init(&s->p_file_pool, s->p_sid, sizeof(struct sock) + sizeof(struct file_aio)); // FIXME:!!!!!!
 	return 0;
 }
 
@@ -62,19 +62,6 @@ void
 file_mod_service_deinit(struct service *s)
 {
 	mbuf_pool_deinit(&s->p_file_pool);
-}
-
-void
-file_mod_service_clean(struct service *s)
-{
-	int tmp_fd;
-	struct file *fp;
-
-	FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
-		fp->fl_service_id = current->p_id;
-		fp->fl_referenced = 0;
-		file_close(fp);
-	}
 }
 
 int
@@ -181,6 +168,13 @@ file_close(struct file *fp)
 	default:
 		assert(!"bad fl_type");
 	}
+}
+
+void
+file_clean(struct file *fp)
+{
+	fp->fl_referenced = 0; // dont call POLLNVAL
+	file_close(fp);
 }
 
 int

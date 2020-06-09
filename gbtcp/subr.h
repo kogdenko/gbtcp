@@ -220,7 +220,7 @@ void spinlock_lock(struct spinlock *);
 int spinlock_trylock(struct spinlock *);
 void spinlock_unlock(struct spinlock *);
 
-#define counter64_add(c, v) ((c)->cnt64[current->p_id] += (v))
+#define counter64_add(c, v) ((c)->cnt64[current->p_sid] += (v))
 #define counter64_inc(c) counter64_add(c, 1)
 uint64_t counter64_get(struct counter64 *);
 
@@ -276,7 +276,6 @@ const char *socket_type_str(int type);
 const char *sockopt_level_str(int level);
 const char *sockopt_optname_str(int level, int optname);
 const char *fcntl_cmd_str(int cmd);
-const char *ioctl_req_str(unsigned long req);
 const char *shutdown_how_str(int how);
 const char *sighandler_str(void *fn);
 const char *sigprocmask_how_str(int how);

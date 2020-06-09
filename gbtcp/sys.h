@@ -1,4 +1,4 @@
-/* GPL2 license */
+// gpl2 license
 #ifndef GBTCP_SYS_H
 #define GBTCP_SYS_H
 
@@ -64,7 +64,7 @@ typedef int (*sys_epoll_pwait_f)(int, struct epoll_event *, int, int,
 typedef int (*sys_dup3_f)(int, int, int);
 #else /* __linux__ */
 typedef int (*sys_kqueue_f)();
-typedef int (*sys_kevent_f)(int kq, const struct kevent *, int ,
+typedef int (*sys_kevent_f)(int, const struct kevent *, int ,
 	struct kevent *, int, const struct timespec *);
 #endif /* __linux__ */
 
@@ -181,10 +181,9 @@ int sys_shm_open(const char *, int, mode_t);
 int sys_epoll_create1(int);
 int sys_epoll_pwait(int, struct epoll_event *, int, int, const sigset_t *);
 int sys_epoll_ctl(int, int, int, struct epoll_event *);
-int sys_clone(int (*)(void *), void *, int , void *,
-	void *, void *, void *);
-#else /* __linux__ */
+int sys_clone(int (*)(void *), void *, int , void *, void *, void *, void *);
+#else // __linux__
 int sys_kqueue();
-#endif /* __linux__ */
+#endif // __linux__
 
-#endif /* GBTCP_SYS_H */
+#endif // GBTCP_SYS_H

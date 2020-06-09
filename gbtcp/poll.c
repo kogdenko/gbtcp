@@ -1,3 +1,4 @@
+// gpl2 license
 #include "internals.h"
 
 struct poll;
