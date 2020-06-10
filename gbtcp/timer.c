@@ -2,17 +2,11 @@
 
 #define CURMOD timer
 
-#define TIMER_RING_ID_MASK (((uintptr_t)1 << TIMER_RING_ID_SHIFT) - 1)
+#define TIMER_RING_POISON TIMER_RINGS_MAX
 
 struct timer_mod {
 	struct log_scope log_scope;
 };
-
-static int
-timer_ring_get_id(struct timer *timer)
-{
-	return timer->tm_data & TIMER_RING_ID_MASK;
-}
 
 static void
 free_timer_rings(struct service *s)
@@ -30,7 +24,7 @@ alloc_timer_rings(struct service *s)
 {
 	int i, rc;
 
-	for (i = 0; i < s->p_timer_nrings; ++i) {
+	for (i = 0; i < s->p_timer_n_rings; ++i) {
 		rc = shm_malloc((void **)&(s->p_timer_rings[i]),
 		                sizeof(struct timer_ring));
 		if (rc) {
@@ -47,13 +41,13 @@ timer_ring_init(struct timer_ring *ring, uint64_t seg_size)
 	int i;
 
 	if (seg_size) {
-		ring->r_seg_shift = ffsll(seg_size) - 1;
-		assert(seg_size == (1llu << ring->r_seg_shift));
-		ring->r_cur = nanoseconds >> ring->r_seg_shift;
+		ring->tmr_seg_shift = ffsll(seg_size) - 1;
+		assert(seg_size == (1llu << ring->tmr_seg_shift));
+		ring->tmr_cur = nanoseconds >> ring->tmr_seg_shift;
 	}
-	ring->r_ntimers = 0;
+	ring->tmr_n_timers = 0;
 	for (i = 0; i < TIMER_RING_SIZE; ++i) {
-		dlist_init(ring->r_segs + i);
+		dlist_init(ring->tmr_segs + i);
 	}
 }
 
@@ -69,34 +63,34 @@ timer_mod_init()
 int
 timer_mod_service_init(struct service *s)
 {
-	int i, rc, nrings;
+	int i, rc, n_rings;
 	uint64_t seg_size;
-	uint64_t ring_seg_size[TIMER_NRINGS_MAX];
+	uint64_t ring_seg_size[TIMER_RINGS_MAX];
 	struct timer_ring *ring;
 
 	seg_size = lower_pow2_64(TIMER_TIMEOUT);
-	nrings = 0;
+	n_rings = 0;
 	while (seg_size < TIMER_EXPIRE_MAX) {
-		ring_seg_size[nrings] = seg_size;
-		nrings++;
+		ring_seg_size[n_rings] = seg_size;
+		n_rings++;
 		if (seg_size * TIMER_RING_SIZE > TIMER_EXPIRE_MAX) {
 			break;
 		} else {
 			seg_size = ((seg_size * TIMER_RING_SIZE) >> 2llu);
-			assert(nrings < TIMER_NRINGS_MAX);
+			assert(n_rings < TIMER_RINGS_MAX);
 		}
 	}
-	assert(nrings);
-	s->p_timer_nrings = nrings;
+	assert(n_rings);
+	s->p_timer_n_rings = n_rings;
 	rc = alloc_timer_rings(s);
 	if (rc) {
 		return rc;
 	}
-	for (i = 0; i < nrings; ++i) {
+	for (i = 0; i < n_rings; ++i) {
 		ring = s->p_timer_rings[i];
 		timer_ring_init(ring, ring_seg_size[i]);
 		INFO(0, "hit; ring=%d, seg=%llu",
-		     i, 1llu << ring->r_seg_shift);
+		     i, 1llu << ring->tmr_seg_shift);
 	}
 	return 0;
 }
@@ -117,14 +111,12 @@ static void
 call_timers(struct dlist *queue)
 {
 	struct timer *timer;
-	timer_f fn;
 
 	while (!dlist_is_empty(queue)) {
 		timer = DLIST_FIRST(queue, struct timer, tm_list);
 		DLIST_REMOVE(timer, tm_list);
-		fn = (timer_f)(timer->tm_data & ~TIMER_RING_ID_MASK);
-		timer->tm_data = 0;
-		(*fn)(timer);
+		timer->tm_ring_id = TIMER_RING_POISON;
+		mod_timer_handler(timer, timer->tm_mod_id, timer->tm_fn_id);
 	}
 }
 
@@ -136,22 +128,22 @@ timer_ring_check(struct timer_ring *ring, struct dlist *queue)
 	struct timer *timer;
 	struct dlist *head;
 
-	pos = ring->r_cur;
-	ring->r_cur = (nanoseconds >> ring->r_seg_shift);
-	assert(pos <= ring->r_cur);
-	if (ring->r_ntimers == 0) {
+	pos = ring->tmr_cur;
+	ring->tmr_cur = (nanoseconds >> ring->tmr_seg_shift);
+	assert(pos <= ring->tmr_cur);
+	if (ring->tmr_n_timers == 0) {
 		return;
 	}
-	for (i = 0; pos <= ring->r_cur && i < TIMER_RING_SIZE; ++pos, ++i) {
-		head = ring->r_segs + (pos & TIMER_RING_MASK);
+	for (i = 0; pos <= ring->tmr_cur && i < TIMER_RING_SIZE; ++pos, ++i) {
+		head = ring->tmr_segs + (pos & TIMER_RING_MASK);
 		while (!dlist_is_empty(head)) {
-			ring->r_ntimers--;
-			assert(ring->r_ntimers >= 0);
+			ring->tmr_n_timers--;
+			assert(ring->tmr_n_timers >= 0);
 			timer = DLIST_FIRST(head, struct timer, tm_list);
 			DLIST_REMOVE(timer, tm_list);
 			DLIST_INSERT_HEAD(queue, timer, tm_list);
 		}
-		if (ring->r_ntimers == 0) {
+		if (ring->tmr_n_timers == 0) {
 			break;
 		}
 	}
@@ -170,7 +162,7 @@ check_timers()
 	}
 	last_check_time = nanoseconds;
 	dlist_init(&queue);
-	for (i = 0; i < current->p_timer_nrings; ++i) {
+	for (i = 0; i < current->p_timer_n_rings; ++i) {
 		ring = current->p_timer_rings[i];
 		timer_ring_check(ring, &queue);
 	}
@@ -180,19 +172,18 @@ check_timers()
 void
 timer_init(struct timer *timer)
 {
-	timer->tm_data = 0;
+	timer->tm_ring_id = TIMER_RING_POISON;
 }
 
 int
 timer_is_running(struct timer *timer)
 {
-	return timer->tm_data != 0;
+	return timer->tm_ring_id != TIMER_RING_POISON;
 }
 
 uint64_t
 timer_timeout(struct timer *timer)
 {
-	int ring_id;
 	uint64_t e, b, dist;
 	struct dlist *list;
 	struct timer_ring *ring;
@@ -200,24 +191,20 @@ timer_timeout(struct timer *timer)
 	if (!timer_is_running(timer)) {
 		return 0;
 	}
-	ring_id = timer_ring_get_id(timer);
-	assert(ring_id <= current->p_timer_nrings);
-	if (ring_id == current->p_timer_nrings) {
-		return 0;
-	}
-	ring = current->p_timer_rings[ring_id];
+	assert(timer->tm_ring_id <= current->p_timer_n_rings);
+	ring = current->p_timer_rings[timer->tm_ring_id];
 	for (list = timer->tm_list.dls_next;
-	     list != &timer->tm_list; // Never occured
+	     list != &timer->tm_list; // never occured
 	     list = list->dls_next) {
-		e = list - ring->r_segs;
+		e = list - ring->tmr_segs;
 		if (e < TIMER_RING_SIZE) {
-			b = ring->r_cur & TIMER_RING_MASK;
+			b = ring->tmr_cur & TIMER_RING_MASK;
 			if (e >= b) {
 				dist = e - b;
 			} else {
 				dist = e + TIMER_RING_SIZE - b;
 			}
-			return dist >> ring->r_seg_shift;
+			return dist >> ring->tmr_seg_shift;
 		}
 	}
 	assert(!"bad ring");
@@ -225,58 +212,56 @@ timer_timeout(struct timer *timer)
 }
 
 void
-timer_set(struct timer *timer, uint64_t expire, timer_f fn)
+timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 {
 	int ring_id;
-	uintptr_t uint_fn;
 	uint64_t dist, pos;
 	struct dlist *head;
 	struct timer_ring *ring;
 
-	uint_fn = (uintptr_t)fn;
-	assert(uint_fn != 0);
-	assert((uint_fn & TIMER_RING_ID_MASK) == 0);
 	assert(expire <= TIMER_EXPIRE_MAX);
+	assert(mod_id > 0 && mod_id < MODS_NUM);
 	timer_del(timer);
 	dist = 0;
-	for (ring_id = 0; ring_id < current->p_timer_nrings; ++ring_id) {
+	for (ring_id = 0; ring_id < current->p_timer_n_rings; ++ring_id) {
 		ring = current->p_timer_rings[ring_id];
-		dist = expire >> ring->r_seg_shift;
+		dist = expire >> ring->tmr_seg_shift;
 		assert(dist >= 2);
 		if (dist < TIMER_RING_SIZE) {
 			break;
 		}
 	}
-	if (ring_id == current->p_timer_nrings) {
+	if (ring_id == current->p_timer_n_rings) {
 		ERR(0, "too big expire=%"PRIu64, expire);
-		ring_id = current->p_timer_nrings - 1;
+		ring_id = current->p_timer_n_rings - 1;
 		ring = current->p_timer_rings[ring_id];
 		dist = TIMER_RING_SIZE - 1;
 	}
-	assert((ring_id & ~TIMER_RING_ID_MASK) == 0);
 	ring = current->p_timer_rings[ring_id];
-	pos = ring->r_cur + dist;
-	head = ring->r_segs + (pos & TIMER_RING_MASK);
-	ring->r_ntimers++;
-	timer->tm_data = uint_fn|ring_id;
+	pos = ring->tmr_cur + dist;
+	head = ring->tmr_segs + (pos & TIMER_RING_MASK);
+	ring->tmr_n_timers++;
+	timer->tm_sid = current->p_sid;
+	timer->tm_ring_id = ring_id;
+	timer->tm_mod_id = mod_id;
+	timer->tm_fn_id = fn_id;
 	DLIST_INSERT_HEAD(head, timer, tm_list);
-	DBG(0, "ok; timer=%p, fn=%p, ring=%d, cur=%"PRIu64", head=%p, dist=%d",
-	    timer, fn, ring_id, ring->r_cur, head, (int)dist);
+	DBG(0, "ok; timer=%p, mod_id=%d, fn_id=%d, ring=%d, cur=%"PRIu64", head=%p, dist=%d",
+	    timer, mod_id, fn_id, ring_id, ring->tmr_cur, head, (int)dist);
 }
 
 void
 timer_del(struct timer *timer)
 {
-	int ring_id;
 	struct timer_ring *ring;
 
 	if (timer_is_running(timer)) {
-		ring_id = timer_ring_get_id(timer);
-		ring = current->p_timer_rings[ring_id];
-		ring->r_ntimers--;
-		DBG(0, "ok; timer=%p, ring=%d", timer, ring_id);
-		assert(ring->r_ntimers >= 0);
+		assert(timer->tm_sid == current->p_sid);
+		ring = current->p_timer_rings[timer->tm_ring_id];
+		ring->tmr_n_timers--;
+		DBG(0, "ok; timer=%p, ring=%d", timer, timer->tm_ring_id);
+		assert(ring->tmr_n_timers >= 0);
 		DLIST_REMOVE(timer, tm_list);
-		timer->tm_data = 0;
+		timer->tm_ring_id = TIMER_RING_POISON;
 	}
 }

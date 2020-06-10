@@ -90,6 +90,10 @@ struct profiler {
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 #endif // ARRAY_SIZE
 
+#ifndef BUG
+#define BUG(msg) assert(!msg)
+#endif
+
 #define STRSZ(s) (s), (sizeof(s) - 1)
 
 #define ALIGNMENT sizeof(void *)

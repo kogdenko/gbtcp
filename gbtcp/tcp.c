@@ -17,6 +17,13 @@
 #define udps current->p_udps
 #define ips current->p_ips
 
+enum {
+	TCP_TIMER_DELACK,
+	TCP_TIMER_REXMIT,
+	TCP_TIMER_PERSIST,
+	TCP_TIMER_FIN,
+};
+
 enum so_error {
 	SO_OK,
 	SO_EINPROGRESS,
@@ -79,14 +86,6 @@ static void tcp_tx_timer_set(struct sock *);
 static int tcp_wprobe_timer_set(struct sock *);
 
 static void gt_tcp_timer_set_tcp_fin_timeout(struct sock *);
-
-static void gt_tcp_timeout_delack(struct timer *);
-
-static void tcp_tx_timo(struct timer *timer);
-
-static void tcp_wprobe_timo(struct timer *timer);
-
-static void gt_tcp_timeout_tcp_fin_timeout(struct timer *);
 
 static void tcp_rcv_SYN_SENT(struct sock *, struct in_context *);
 
@@ -1230,7 +1229,7 @@ tcp_delack(struct sock *so)
 		tcp_into_ackq(so);
 	}
 	timer_set(&so->so_timer_delack, 200 * NANOSECONDS_MILLISECOND,
-	          gt_tcp_timeout_delack);
+	          TCP_TIMER_DELACK);
 }
 
 #if 0
@@ -1261,7 +1260,7 @@ tcp_tx_timer_set(struct sock *so)
 		expires = 500 * NANOSECONDS_MILLISECOND;
 	}
 	expires <<= so->so_ntries;
-	timer_set(&so->so_timer, expires, tcp_tx_timo);
+	timer_set(&so->so_timer, expires, TCP_TIMER_REXMIT);
 }
 
 static int
@@ -1276,7 +1275,7 @@ tcp_wprobe_timer_set(struct sock *so)
 		return 0;
 	}
 	expires = 10 * NANOSECONDS_SECOND;
-	timer_set(&so->so_timer, expires, tcp_wprobe_timo);
+	timer_set(&so->so_timer, expires, TCP_TIMER_PERSIST);
 	return 1;
 }
 
@@ -1286,71 +1285,64 @@ gt_tcp_timer_set_tcp_fin_timeout(struct sock *so)
 	assert(so->so_retx == 0);
 	assert(so->so_wprobe == 0);
 	assert(!timer_is_running(&so->so_timer));
-	timer_set(&so->so_timer, curmod->tcp_fin_timeout,
-	             gt_tcp_timeout_tcp_fin_timeout); 
+	timer_set(&so->so_timer, curmod->tcp_fin_timeout, TCP_TIMER_FIN);
 }
 
-static void
-gt_tcp_timeout_delack(struct timer *timer)
+void
+tcp_mod_timer_handler(struct timer *timer, u_char fn_id)
 {
 	struct sock *so;
 
-	so = container_of(timer, struct sock, so_timer_delack);
-	tcp_into_ackq(so);
-}
-
-static void
-tcp_tx_timo(struct timer *timer)
-{
-	struct sock *so;
-
-	so = container_of(timer, struct sock, so_timer);
-	assert(GT_SOCK_ALIVE(so));
-	assert(so->so_sfin_acked == 0);
-	assert(so->so_retx);
-	so->so_ssnt = 0;
-	so->so_sfin_sent = 0;
-	tcps.tcps_rexmttimeo++;
-	DBG(0, "hit; fd=%d, state=%s",
-	    so_get_fd(so), tcp_state_str(so->so_state));
-	if (so->so_ntries++ > 6) {
-		tcps.tcps_timeoutdrop++;
-		so_set_err(so, NULL, ETIMEDOUT);
-		return;
+	switch (fn_id) {
+	case TCP_TIMER_DELACK:
+		so = container_of(timer, struct sock, so_timer_delack);
+		tcp_into_ackq(so);
+		break;
+	case TCP_TIMER_REXMIT:
+		so = container_of(timer, struct sock, so_timer);
+		assert(GT_SOCK_ALIVE(so));
+		assert(so->so_sfin_acked == 0);
+		assert(so->so_retx);
+		so->so_ssnt = 0;
+		so->so_sfin_sent = 0;
+		tcps.tcps_rexmttimeo++;
+		DBG(0, "hit; fd=%d, state=%s",
+		    so_get_fd(so), tcp_state_str(so->so_state));
+		if (so->so_ntries++ > 6) {
+			tcps.tcps_timeoutdrop++;
+			so_set_err(so, NULL, ETIMEDOUT);
+			return;
+		}
+		// TODO: 
+	//	if (so->so_state == TCPS_SYN_RCVD) {
+	//		cnt_tcp_timedout_syn_rcvd++;
+	//		so_set_err(so, NULL, ETIMEDOUT);
+	//		return;
+	//	}
+		so->so_tx_timo = 1;
+		tcp_into_sndq(so);
+		break;
+	case TCP_TIMER_PERSIST:
+		so = container_of(timer, struct sock, so_timer);
+		assert(GT_SOCK_ALIVE(so));
+		assert(so->so_sfin_acked == 0);
+		assert(so->so_retx == 0);
+		assert(so->so_wprobe);
+		tcps.tcps_persisttimeo++;
+		tcps.tcps_sndprobe++;
+		tcp_into_ackq(so);
+		tcp_wprobe_timer_set(so);
+		break;
+	case TCP_TIMER_FIN:
+		so = container_of(timer, struct sock, so_timer);
+		tcp_enter_TIME_WAIT(so, NULL);
+		break;
+	default:
+		BUG("bad timer");
+		break;
 	}
-	// TODO: 
-//	if (so->so_state == TCPS_SYN_RCVD) {
-//		cnt_tcp_timedout_syn_rcvd++;
-//		so_set_err(so, NULL, ETIMEDOUT);
-//		return;
-//	}
-	so->so_tx_timo = 1;
-	tcp_into_sndq(so);
 }
 
-static void
-tcp_wprobe_timo(struct timer *timer)
-{
-	struct sock *so;
-
-	so = container_of(timer, struct sock, so_timer);
-	assert(GT_SOCK_ALIVE(so));
-	assert(so->so_sfin_acked == 0);
-	assert(so->so_retx == 0);
-	assert(so->so_wprobe);
-	tcps.tcps_sndprobe++;
-	tcp_into_ackq(so);
-	tcp_wprobe_timer_set(so);
-}
-
-static void
-gt_tcp_timeout_tcp_fin_timeout(struct timer *timer)
-{
-	struct sock *so;
-
-	so = container_of(timer, struct sock, so_timer);
-	tcp_enter_TIME_WAIT(so, NULL);
-}
 
 static void
 tcp_rcv_SYN_SENT(struct sock *so, struct in_context *in)
@@ -2440,7 +2432,7 @@ so_new(int fd, int so_ipproto)
 		sockbuf_init(&so->so_sndbuf, 16384);
 		break;
 	default:
-		assert(0);
+		BUG("bad ipproto");
 		break;
 	}
 	sockbuf_init(&so->so_rcvbuf, 16384);

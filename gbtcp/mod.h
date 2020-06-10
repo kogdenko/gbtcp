@@ -10,6 +10,7 @@ struct mod {
 	int (*mod_service_init)(struct service *);
 	void (*mod_deinit)();
 	void (*mod_service_deinit)(struct service *);
+	void (*mod_timer_handler)(struct timer *, u_char);
 };
 
 extern struct mod mods[MODS_NUM];
@@ -33,9 +34,10 @@ extern struct mod mods[MODS_NUM];
 #define curmod_deinit() \
 	mod_deinit1(CAT2(MOD_, CURMOD))
 
+const char *mod_name(int);
 int mod_init2(int, size_t);
 void mod_deinit1();
-const char *mod_name(int);
+void mod_timer_handler(struct timer *, u_char, u_char);
 
 int mods_init();
 int mods_service_init(struct service *);

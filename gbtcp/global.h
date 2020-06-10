@@ -111,6 +111,7 @@ struct shm_init_hdr;
 #define MOD_ENUM(name) MOD_##name,
 
 enum {
+	MOD_ZERO,
 	MOD_FOREACH(MOD_ENUM)
 	MODS_NUM
 };

@@ -21,6 +21,7 @@ struct mod mods[MODS_NUM] = {
 		.mod_service_init = arp_mod_service_init,
 		.mod_deinit = arp_mod_deinit,
 		.mod_service_deinit = arp_mod_service_deinit,
+		.mod_timer_handler = arp_mod_timer_handler,
 	},
 	[MOD_file] = {
 		.mod_init = file_mod_init,
@@ -37,6 +38,7 @@ struct mod mods[MODS_NUM] = {
 		.mod_service_init = tcp_mod_service_init,
 		.mod_deinit = tcp_mod_deinit,
 		.mod_service_deinit = tcp_mod_service_deinit,
+		.mod_timer_handler = tcp_mod_timer_handler,
 	},
 };
 
@@ -80,13 +82,21 @@ mod_deinit1(int mod_id)
 	shm_free(scope);
 }
 
+void
+mod_timer_handler(struct timer *timer, u_char mod_id, u_char fn_id)
+{
+	assert(mod_id < MODS_NUM);
+	assert(mods[mod_id].mod_timer_handler != NULL);
+	(*mods[mod_id].mod_timer_handler)(timer, fn_id);
+}
+
 int
 mods_init()
 {
 	int i, rc;
 
 	rc = 0;
-	for (i = 0; i < MODS_NUM; ++i) {
+	for (i = 1; i < MODS_NUM; ++i) {
 		if (mods[i].mod_init == NULL) {
 			rc = mod_init2(i, sizeof(struct log_scope));
 		} else {
@@ -105,7 +115,7 @@ mods_service_init(struct service *s)
 	int i, rc;
 
 	rc = 0;
-	for (i = 0; i < MODS_NUM; ++i) {
+	for (i = 1; i < MODS_NUM; ++i) {
 		if (mods[i].mod_service_init != NULL) {
 			rc = (*mods[i].mod_service_init)(s);
 			if (rc) {
@@ -121,7 +131,7 @@ mods_deinit()
 {
 	int i;
 
-	for (i = MODS_NUM - 1; i >= 0; --i) {
+	for (i = MODS_NUM - 1; i > 0; --i) {
 		if (shm_ih->ih_mods[i] != NULL) {
 			if (mods[i].mod_deinit == NULL) {
 				mod_deinit1(i);
@@ -138,7 +148,7 @@ mods_service_deinit(struct service *s)
 {
 	int i;
 
-	for (i = MODS_NUM - 1; i >= 0; --i) {
+	for (i = MODS_NUM - 1; i > 0; --i) {
 		if (mods[i].mod_service_deinit != NULL) {
 			(*mods[i].mod_service_deinit)(s);
 		}

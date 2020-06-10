@@ -18,6 +18,7 @@ int arp_mod_init();
 int arp_mod_service_init(struct service *);
 void arp_mod_deinit();
 void arp_mod_service_deinit(struct service *);
+void arp_mod_timer_handler(struct timer *, u_char);
 
 void arp_resolve(struct route_if *, be32_t, struct dev_pkt *);
 void arp_update(struct arp_advert_msg *);

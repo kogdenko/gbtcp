@@ -3,7 +3,7 @@
 #define CURMOD arp
 
 #define GT_ARP_REACHABLE_TIME (30 * NANOSECONDS_SECOND)
-#define GT_ARP_RETRANS_TIMER NANOSECONDS_SECOND
+#define ARP_RETRANS_TIMER NANOSECONDS_SECOND
 #define GT_ARP_MAX_UNICAST_SOLICIT 3
 #define GT_ARP_MIN_RANDOM_FACTOR 0.5
 #define GT_ARP_MAX_RANDOM_FACTOR 1.5
@@ -37,8 +37,6 @@ struct arp_entry {
 	struct eth_addr ae_addr;
 	struct dev_pkt *ae_incomplete_q;
 };
-
-static void arp_probe_timeout(struct timer *timer);
 
 static void arp_entry_del(struct arp_entry *e);
 
@@ -163,7 +161,7 @@ arp_tx_req(struct arp_entry *e)
 		return;
 	}
 	e->ae_nprobes++;
-	timer_set(&e->ae_timer, GT_ARP_RETRANS_TIMER, arp_probe_timeout);
+	timer_set(&e->ae_timer, ARP_RETRANS_TIMER, 0);
 	route.rt_dst.ipa_4 = e->ae_next_hop;
 	rc = route_get(AF_INET, NULL, &route);
 	if (rc) {
@@ -374,8 +372,8 @@ arp_entry_get(be32_t next_hop)
 	return NULL;
 }
 
-static void
-arp_probe_timeout(struct timer *timer)
+void
+arp_mod_timer_handler(struct timer *timer, u_char fn_id)
 {
 	struct arp_entry *e;
 

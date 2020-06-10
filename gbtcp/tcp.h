@@ -99,6 +99,7 @@ int tcp_mod_init();
 int tcp_mod_service_init(struct service *);
 void tcp_mod_deinit();
 void tcp_mod_service_deinit(struct service *);
+void tcp_mod_timer_handler(struct timer *, u_char);
 
 int so_get(int, struct sock **);
 int so_get_fd(struct sock *);

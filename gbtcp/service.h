@@ -39,8 +39,8 @@ struct service {
 	u_int p_tx_kpps;
 	uint64_t p_tx_kpps_time;
 	uint64_t p_tx_pkts;
-	int p_timer_nrings;
-	struct timer_ring *p_timer_rings[TIMER_NRINGS_MAX];
+	int p_timer_n_rings;
+	struct timer_ring *p_timer_rings[TIMER_RINGS_MAX];
 	struct mbuf_pool p_file_pool;
 	struct mbuf_pool p_sockbuf_pool;
 	struct mbuf_pool p_arp_entry_pool;
