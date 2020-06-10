@@ -217,14 +217,10 @@ int gt_kevent(int, const struct kevent *, int, struct kevent *, int,
 	const struct timespec *);
 #endif /* __linux__ */
 
-#ifndef gt_dbg
+void gt_dbg4(const char *, u_int, const char *, const char *, ...)
+	__attribute__((format(printf, 4, 5)));
+
 #define gt_dbg(fmt, ...) \
-do { \
-	printf("%-6d: %-20s: %-4d: %-20s: ", \
-	       getpid(), __FILE__, __LINE__, __func__); \
-	printf(fmt, ##__VA_ARGS__); \
-	printf("\n"); \
-} while (0)
-#endif // gt_dbg
+	gt_dbg4(__FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
 #endif // GBTCP_H

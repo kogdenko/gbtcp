@@ -238,7 +238,8 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	t = nanoseconds;
 	SERVICE_UNLOCK;
 	rc = sys_ppoll(p->fdp_pfds, p->fdp_n_added + p->fdp_n_events,
-	               &timeout_ts, sigmask);
+	               &timeout_ts,
+	               D_TRUE && sigmask == NULL ? &service_sigprocmask : sigmask);
 	SERVICE_LOCK;
 	fd_poll_epoch++;
 	elapsed = nanoseconds - t;
@@ -249,6 +250,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	}
 	check_timers();
 	if (rc < 0 ) {
+		dbg("!");
 		return rc;
 	}
 	n_triggered = rc;

@@ -10,12 +10,11 @@ static int controller_quit_no_services = 1;
 static int controller_done;
 
 static int
-controller_terminate()
+controller_clean()
 {
 	int i, n, rc, fd, pid, npids, again;
 	uint64_t to;
 	int pids[GT_SERVICES_MAX];
-	struct sockaddr_un a;
 	DIR *dir;
 	struct dirent *entry;
 	struct pid_wait pw;
@@ -65,20 +64,15 @@ controller_terminate()
 			npids += rc;
 		}
 	}
-	for (i = 0; i < npids; ++i) {
-		sysctl_make_sockaddr_un(&a, pids[i]);
-		sys_unlink(a.sun_path);
-	}
-	if (pid_wait_is_empty(&pw)) {
-		INFO(0, "ok;");
-		rc = 0;
-	} else {
-		ERR(ETIMEDOUT, "failed;");
+	if (!pid_wait_is_empty(&pw)) {
 		rc = -ETIMEDOUT;
+		goto out;
 	}
+	rc = 0;
 out:
 	pid_wait_deinit(&pw);
 	if (rc) {
+		ERR(-rc, "failed;");
 		return rc;
 	} else {
 		return again;
@@ -105,7 +99,8 @@ controller_service_lock_detached(struct service *s)
 
 	rc = spinlock_trylock(&s->p_lock);
 	if (rc == 0) {
-		die(0, "deadlocked; pid=%d", s->p_pid);
+		ERR(0, "deadlocked; pid=%d", s->p_pid);
+		exit(EXIT_FAILURE);
 	}
 }
 
@@ -509,7 +504,7 @@ controller_init(int daemonize, const char *service_comm)
 		}
 	}
 	do {
-		rc = controller_terminate();
+		rc = controller_clean();
 	} while (rc == 1);
 	if (rc) {
 		goto err;
@@ -576,9 +571,9 @@ err:
 		SERVICE_FOREACH(s) {
 			mods_service_deinit(s);
 		}
+		mods_deinit(shm_ih);
 	}
 	service_deinit(0);
-	mods_deinit(shm_ih);
 	shm_deinit();
 	sysctl_root_deinit();
 	sys_close(controller_pid_fd);

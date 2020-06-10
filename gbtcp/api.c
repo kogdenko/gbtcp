@@ -50,9 +50,8 @@ gt_init(const char *comm, int log_level)
 {
 	dlsym_all();
 	rd_nanoseconds();
-	srand48(time(NULL));
+	srand48(nanoseconds ^ getpid());
 	log_init_early(comm, log_level);
-	sigemptyset(&service_sigprocmask);
 }
 
 pid_t
@@ -881,3 +880,21 @@ gt_kevent(int kq, const struct kevent *changelist, int nchanges,
 	API_RETURN(rc);
 }
 #endif /* __linux__ */
+
+void
+gt_dbg4(const char *file, u_int line, const char *func,
+	const char *fmt, ...)
+{
+	char buf[BUFSIZ];
+	va_list ap;
+	struct strbuf sb;
+
+	strbuf_init(&sb, buf, sizeof(buf));
+	strbuf_addf(&sb, "%-6d: %-20s: %-4d: %-20s: ",
+	            getpid(), file, line, func);
+	va_start(ap, fmt);
+	strbuf_vaddf(&sb, fmt, ap);
+	va_end(ap);
+	printf("%s\n", strbuf_cstr(&sb));
+	ERR(0, "%s", strbuf_cstr(&sb));
+}

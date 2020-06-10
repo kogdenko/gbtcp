@@ -544,7 +544,7 @@ restart:
 	nanoseconds_to_timespec(&ts, *to);
 	rc = sys_ppoll(&pfd, 1, &ts, NULL);
 	rd_nanoseconds();
-	elapsed = MIN(*to, t - nanoseconds);
+	elapsed = MIN(*to, nanoseconds - t);
 	*to -= elapsed;
 	switch (rc) {
 	case 0:
@@ -563,6 +563,9 @@ restart:
 		break;
 	}
 	fcntl_setfl_nonblock_rollback(fd, flags);
+	if (rc < 0) {
+		ERR(-rc, "failed; fd=%d", fd);
+	}
 	return rc;
 }
 

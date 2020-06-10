@@ -68,6 +68,8 @@ int gt_preload_passthru;
 #define PRELOAD_POLL poll
 #define PRELOAD_PSELECT pselect
 #define PRELOAD_SELECT select
+#define PRELOAD_SIGPROCMASK sigprocmask_
+#define PRELOAD_SIGSUSPEND sigsuspend
 
 #ifdef __linux__
 #define PRELOAD_CLONE clone
@@ -76,12 +78,12 @@ int gt_preload_passthru;
 #define PRELOAD_EPOLL_CTL epoll_ctl
 #define PRELOAD_EPOLL_PWAIT epoll_pwait
 #define PRELOAD_EPOLL_WAIT epoll_wait
-#else /* __linux__ */
+#else // __linux__
 #define PRELOAD_RFORK rfork
 #define PRELOAD_KEVENT kevent
 #define PRELOAD_KQUEUE kqueue
-#endif /* __linux__ */
-#endif /* 1 */
+#endif // __linux__
+#endif // 1
 
 static inline void
 preload_set_errno(int e)
@@ -454,6 +456,22 @@ PRELOAD_GETPEERNAME(int fd, struct sockaddr *addr, socklen_t *addrlen)
 
 	rc = PRELOAD_CALL(getpeername, fd, addr, addrlen);
 	return rc;
+}
+
+int
+PRELOAD_SIGPROCMASK(int how, const sigset_t *set, sigset_t *oldset)
+{
+//	int rc;
+
+//	rc = PRELOAD_PPOLL(NULL, 0, NULL
+	errno = EINVAL;
+	return -1;
+}
+
+int
+PRELOAD_SIGSUSPEND(const sigset_t *mask)
+{
+	return PRELOAD_PPOLL(NULL, 0, NULL, mask);
 }
 
 /*gt_sighandler_t 

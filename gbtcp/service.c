@@ -15,6 +15,7 @@ struct service_msg {
 static struct spinlock service_attach_lock;
 static int service_sysctl_fd = -1;
 static int service_pid_fd = -1;
+static int service_sigprocmask_set;
 static struct dev service_vale;
 static int service_rcu_max;
 static struct dlist service_rcu_active_head;
@@ -51,6 +52,9 @@ service_read_pipe(int fd)
 		return -EPIPE;
 	} else if (rc == sizeof(msg)) {
 		if (msg >= 0) {
+			if (msg > 0) {
+				ERR(msg, "error;");
+			}
 			return msg;
 		} else {
 			rc = msg;
@@ -86,6 +90,8 @@ service_start_controller(const char *p_comm)
 		}
 		exit(EXIT_SUCCESS);
 	} else if (rc > 0) {
+		// child created by fork become zombie after daemon()
+		sys_waitpid(-1, NULL, 0);
 		sys_close(pipe_fd[1]);
 		rc = service_read_pipe(pipe_fd[0]);
 		sys_close(pipe_fd[0]);
@@ -223,21 +229,23 @@ service_attach()
 	char pid_filename[32];
 	char p_comm[SERVICE_COMM_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
+	sigset_t sigprocmask_block;
 	struct service *s;
 
 	spinlock_lock(&service_attach_lock);
+	// check again under the lock
 	if (current != NULL) {
-		// Check again under the lock
 		spinlock_unlock(&service_attach_lock);
 		return 0;
 	}
-	NOTICE(0, "hit;");
+	ERR(0, "hit;");
 	pid = getpid();
 	rc = read_comm(p_comm, pid);
 	if (rc) {
 		goto err;
 	}
 	gt_init(p_comm, 0);
+	NOTICE(0, "hit2;");
 	sysctl_make_sockaddr_un(&a, pid);
 	rc = sysctl_bind(&a, 0);
 	if (rc < 0) {
@@ -255,6 +263,13 @@ service_attach()
 			goto err;
 		}
 	}
+	sigfillset(&sigprocmask_block);
+	rc = sys_sigprocmask(SIG_BLOCK, &sigprocmask_block,
+	                     &service_sigprocmask);
+	if (rc) {
+		goto err;
+	}
+	service_sigprocmask_set = 1;
 	rc = sysctl_req(service_sysctl_fd,
 	                SYSCTL_CONTROLLER_SERVICE_ATTACH, buf, "~");
 	if (rc) {
@@ -336,6 +351,10 @@ service_detach(int forked)
 	shm_ih = NULL;
 	shm_detach();
 	clean_fd_events();
+	if (service_sigprocmask_set) {
+		service_sigprocmask_set = 0;
+		sys_sigprocmask(SIG_SETMASK, &service_sigprocmask, NULL);
+	}
 }
 
 void
