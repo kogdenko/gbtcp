@@ -8,17 +8,17 @@
 
 int fd_poll_epoch;
 
-static uint64_t fd_event_last_check_time;
+static uint64_t fd_event_drain_time;
 static uint64_t fd_event_timeout = FD_EVENT_TIMEOUT_MIN;
-static int fd_event_nused;
-static int fd_event_in_cb;
-static struct fd_event *fd_event_used[FD_EVENTS_MAX];
-static struct fd_event fd_event_buf[FD_EVENTS_MAX];
+static int fd_event_n_used;
+static int fd_poll_is_waiting;
+static struct fd_event *fd_event_used[FD_SETSIZE];
+static struct fd_event fd_event_buf[FD_SETSIZE];
 
 void
 clean_fd_events()
 {
-	fd_event_nused = 0;
+	fd_event_n_used = 0;
 	memset(fd_event_buf, 0, sizeof(fd_event_buf));
 }
 
@@ -28,10 +28,9 @@ wait_for_fd_events2(int force, uint64_t to)
 	int throttled;
 	uint64_t elapsed;
 	struct fd_poll p;
-	struct pollfd pfds[FD_EVENTS_MAX];
 
 	if (!force) {
-		elapsed = nanoseconds - fd_event_last_check_time;
+		elapsed = nanoseconds - fd_event_drain_time;
 		if (elapsed < fd_event_timeout) {
 			return;
 		}
@@ -40,11 +39,7 @@ wait_for_fd_events2(int force, uint64_t to)
 	fd_poll_init(&p);
 	p.fdp_to = to;
 	while (1) {
-		fd_poll_set(&p, pfds);
-		SERVICE_UNLOCK;
-		sys_ppoll(pfds, p.fdp_nused, &p.fdp_to_ts, NULL);
-		SERVICE_LOCK;
-		fd_poll_call(&p, pfds);
+		fd_poll_wait(&p, NULL);
 		if (p.fdp_throttled) {
 			throttled = 1;
 		} else {
@@ -69,7 +64,7 @@ fd_event_add(struct fd_event **pe, int fd, const char *name,
 	struct fd_event *e;
 
 	assert(fn != NULL);
-	if (fd_event_nused == ARRAY_SIZE(fd_event_used)) {
+	if (fd_event_n_used == ARRAY_SIZE(fd_event_used)) {
 		ERR(ENOMEM, "failed; fd=%d, event='%s', limit=%zu",
 		    fd, name, ARRAY_SIZE(fd_event_used));
 		return -ENOMEM;
@@ -97,9 +92,9 @@ fd_event_add(struct fd_event **pe, int fd, const char *name,
 	e->fde_events = 0;
 	e->fde_fn = fn;
 	e->fde_udata = udata;
-	e->fde_id = fd_event_nused;
+	e->fde_id = fd_event_n_used;
 	fd_event_used[e->fde_id] = e;
-	fd_event_nused++;
+	fd_event_n_used++;
 	*pe = e;
 	INFO(0, "ok; fd=%d, event='%s'", e->fde_fd, name);
 	return 0;
@@ -116,13 +111,13 @@ fd_event_unref(struct fd_event *e)
 	ref_cnt = e->fde_ref_cnt;
 	if (ref_cnt == 0) {
 		INFO(0, "hit; fd=%d", e->fde_fd);
-		assert(e->fde_id < fd_event_nused);
-		if (e->fde_id != fd_event_nused - 1) {
-			last = fd_event_used[fd_event_nused - 1];
+		assert(e->fde_id < fd_event_n_used);
+		if (e->fde_id != fd_event_n_used - 1) {
+			last = fd_event_used[fd_event_n_used - 1];
 			fd_event_used[e->fde_id] = last;
 			fd_event_used[e->fde_id]->fde_id = e->fde_id;
 		}
-		fd_event_nused--;
+		fd_event_n_used--;
 	}
 	return ref_cnt;
 }
@@ -133,7 +128,7 @@ fd_event_del(struct fd_event *e)
 	if (e != NULL) {
 		INFO(0, "hit; fd=%d", e->fde_fd);
 		assert(e->fde_fn != NULL);
-		assert(e->fde_id < fd_event_nused);
+		assert(e->fde_id < fd_event_n_used);
 		assert(e == fd_event_used[e->fde_id]);
 		e->fde_fn = NULL;
 		fd_event_unref(e);
@@ -147,7 +142,7 @@ fd_event_set(struct fd_event *e, short events)
 	assert((events & ~(POLLIN|POLLOUT)) == 0);
 	assert(e != NULL);
 	assert(e->fde_ref_cnt);
-	assert(e->fde_id < fd_event_nused);
+	assert(e->fde_id < fd_event_n_used);
 	assert(e == fd_event_used[e->fde_id]);
 	e->fde_events |= events;
 }
@@ -157,7 +152,7 @@ fd_event_clear(struct fd_event *e, short events)
 {
 	assert(events);
 	assert(e != NULL);
-	assert(e->fde_id < fd_event_nused);
+	assert(e->fde_id < fd_event_n_used);
 	assert(e == fd_event_used[e->fde_id]);
 	assert((events & ~(POLLIN|POLLOUT)) == 0);
 	e->fde_events &= ~events;
@@ -177,40 +172,6 @@ fd_poll_init(struct fd_poll *p)
 	p->fdp_n_events = 0;
 }
 
-void
-fd_poll_add_fd_events(struct fd_poll *p)
-{
-	int i;
-	struct fd_event *e;
-
-	assert(fd_event_in_cb == 0 && "recursive wait");
-	p->fdp_throttled = 0;
-	p->fdp_time = nanoseconds;
-	p->fdp_n_events = 0;
-	sock_tx_flush();
-	for (i = 0; i < fd_event_nused; ++i) {
-		if (p->fdp_n_added + p->fdp_n_events == FD_SETSIZE) {
-			break;
-		}
-		e = fd_event_used[i];
-		if (e->fde_fn == NULL || e->fde_events == 0) {
-			continue;
-		}
-		e->fde_ref_cnt++;
-		pfds[p->fdp_n_events].fd = e->fde_fd;
-		pfds[p->fdp_n_events].events = e->fde_events;
-		p->fdp_events[p->fdp_n_events++] = e;
-	}
-	p->fdp_to_ts.tv_sec = 0;
-	if (p->fdp_to == 0) {
-		p->fdp_to_ts.tv_nsec = 0;
-	} else if (p->fdp_to >= TIMER_TIMEOUT) {
-		p->fdp_to_ts.tv_nsec = TIMER_TIMEOUT;
-	} else {
-		p->fdp_to_ts.tv_nsec = p->fdp_to;
-	}
-}
-
 static int
 fd_event_call(struct fd_event *e, short revents)
 {
@@ -221,40 +182,98 @@ fd_event_call(struct fd_event *e, short revents)
 }
 
 int
-fd_poll_call(struct fd_poll *p)
+fd_poll_add3(struct fd_poll *p, int fd, short events)
 {
-	int i, n, rc;
-	uint64_t elapsed;
+	int i;
+
+	i = p->fdp_n_added;
+	if (i == ARRAY_SIZE(p->fdp_pfds)) {
+		return -ENFILE;
+	} else {
+		p->fdp_n_added++;
+		p->fdp_pfds[i].fd = fd;
+		p->fdp_pfds[i].events = events;
+		p->fdp_pfds[i].revents = 0;
+		return i;
+	}
+}
+
+int
+fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
+{
+	int i, rc, n_triggered;
+	uint64_t t, elapsed;
+	struct timespec timeout_ts;
+	struct pollfd *pfd;
 	struct fd_event *e;
 
+	if (fd_poll_is_waiting) {
+		return -EAGAIN;
+	}
+	p->fdp_throttled = 0;
+	p->fdp_n_events = 0;
+	sock_tx_flush();
+	for (i = 0; i < fd_event_n_used; ++i) {
+		if (p->fdp_n_added + p->fdp_n_events == FD_SETSIZE) {
+			break;
+		}
+		e = fd_event_used[i];
+		if (e->fde_fn == NULL || e->fde_events == 0) {
+			continue;
+		}
+		e->fde_ref_cnt++;
+		pfd = p->fdp_pfds + p->fdp_n_added + p->fdp_n_events;
+		pfd->fd = e->fde_fd;
+		pfd->events = e->fde_events;
+		p->fdp_events[p->fdp_n_events++] = e;
+	}
+	timeout_ts.tv_sec = 0;
+	if (p->fdp_to == 0) {
+		timeout_ts.tv_nsec = 0;
+	} else if (p->fdp_to >= TIMER_TIMEOUT) {
+		timeout_ts.tv_nsec = TIMER_TIMEOUT;
+	} else {
+		timeout_ts.tv_nsec = p->fdp_to;
+	}
+	t = nanoseconds;
+	SERVICE_UNLOCK;
+	rc = sys_ppoll(p->fdp_pfds, p->fdp_n_added + p->fdp_n_events,
+	               &timeout_ts, sigmask);
+	SERVICE_LOCK;
 	fd_poll_epoch++;
-	elapsed = nanoseconds - p->fdp_time;
+	elapsed = nanoseconds - t;
 	if (elapsed > p->fdp_to) {
 		p->fdp_to = 0;
 	} else {
 		p->fdp_to -= elapsed;
 	}
 	check_timers();
-	n = 0;
-	fd_event_in_cb = 1;
+	if (rc < 0 ) {
+		return rc;
+	}
+	n_triggered = rc;
+	fd_poll_is_waiting = 1;
 	for (i = 0; i < p->fdp_n_events; ++i) {
-		e = p->fdp_used[i];
-		if (pfds[i].revents) {
-			n++;
+		e = p->fdp_events[i];
+		pfd = p->fdp_pfds + p->fdp_n_added + i;
+		if (pfd->revents) {
+			assert(n_triggered);
+			n_triggered--;
 			if (e->fde_fn != NULL) {
-				assert(pfds[i].fd == e->fde_fd);
-				rc = fd_event_call(e, pfds[i].revents);
+				assert(pfd->fd == e->fde_fd);
+				rc = fd_event_call(e, pfd->revents);
 				if (rc) {
 					assert(rc == -EAGAIN);
 					p->fdp_throttled = 1;
 				}
 			}
+			pfd->revents = 0;
 		}
 		fd_event_unref(e);
 	}
-	fd_event_in_cb = 0;
+	fd_poll_is_waiting = 0;
 	if (p->fdp_throttled == 0) {
-		fd_event_last_check_time = nanoseconds;
+		fd_event_drain_time = nanoseconds;
 	}
-	return n;
+	return n_triggered;
 }

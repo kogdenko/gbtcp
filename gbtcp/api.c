@@ -722,20 +722,15 @@ gt_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 		to = NANOSECONDS_SECOND * timeout->tv_sec + timeout->tv_nsec;
 	}
 	API_LOCK;
-	if (timeout == NULL) {
-		DBG(0, "hit; to={inf}, events={%s}",
-		    log_add_pollfds_events(fds, nfds));
-	} else {
-		DBG(0, "hit; to={sec=%ld, nsec=%ld}, events={%s}",
-		    timeout->tv_sec, timeout->tv_nsec,
-		    log_add_pollfds_events(fds, nfds));
-	}
+	DBG(0, "hit; to={%s}, events={%s}",
+	    log_add_ppoll_timeout(timeout),
+	    log_add_pollfds_events(fds, nfds));
 	rc = u_poll(fds, nfds, to, sigmask);
 	if (rc < 0) {
 		DBG(-rc, "failed;");
 	} else {
 		DBG(0, "ok; rc=%d, revents={%s}",
-		    rc, log_add_pollfds_revents(fds, nfds));
+		    rc, log_add_pollfds_revents(fds, rc));
 	}
 	API_UNLOCK;
 	API_RETURN(rc);

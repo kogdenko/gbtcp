@@ -234,25 +234,26 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 	}
 	return n;
 }
+
 #ifdef __linux__
 static int
-check_epoll_fd(int fd, epoll_event_t *buf, int cnt)
+epoll_pwait0(int fd, epoll_event_t *events, int maxevents)
 {
 	int rc;
 
-	rc = sys_epoll_pwait(fd, buf, cnt, 0, NULL);
+	rc = sys_epoll_pwait(fd, events, maxevents, 0, NULL);
 	return rc;
 }
 #else /* __linux__ */
 static int
-check_epoll_fd(int fd, epoll_event_t *buf, int cnt)
+epoll_pwait0(int fd, epoll_event_t *events, int maxevents)
 {
 	int rc;
 	struct timespec to;
 
 	to.tv_sec = 0;
 	to.tv_nsec = 0;
-	rc = sys_kevent(fd, NULL, 0, buf, cnt, &to);
+	rc = sys_kevent(fd, NULL, 0, events, maxevents, &to);
 	return rc;
 }
 
@@ -368,39 +369,29 @@ u_epoll_close(struct file *fp)
 }
 
 int
-u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
+u_epoll_pwait(int ep_fd, epoll_event_t *events, int maxevents,
 	uint64_t to, const sigset_t *sigmask)
 {
-	int rc, n;
-	struct pollfd pfds[1 + FD_EVENTS_MAX];
+	int rc, n_triggered;
 	struct epoll *ep;
-	struct fd_poll fd_poll;
+	struct fd_poll p;
 
-	if (cnt <= 0) {
+	if (maxevents <= 0) {
 		return -EINVAL;
 	}
 	rc = epoll_get(ep_fd, &ep);
 	if (rc) {
 		return rc;
 	}
-	n = epoll_read_triggered(ep, buf, cnt);
-	//if (n) {
-	//	return n;
-	//}
-	pfds[0].fd = ep->ep_fd;
-	pfds[0].events = POLLIN;
-	fd_poll_init(&fd_poll);
-	fd_poll.fdp_to = to;
+	n_triggered = epoll_read_triggered(ep, events, maxevents);
+	fd_poll_init(&p);
+	fd_poll_add3(&p, ep->ep_fd, POLLIN);
+	p.fdp_to = to;
 	do {
-		fd_poll_set(&fd_poll, pfds + 1);
-		SERVICE_UNLOCK;
-		if (n) {
-			fd_poll.fdp_to_ts.tv_nsec = 0;
+		if (n_triggered) {
+			p.fdp_to = 0;
 		}
-		rc = sys_ppoll(pfds, fd_poll.fdp_nused + 1,
-		               &fd_poll.fdp_to_ts, sigmask);
-		SERVICE_LOCK;
-		fd_poll_call(&fd_poll, pfds + 1);
+		rc = fd_poll_wait(&p, sigmask);
 		if (rc < 0) {
 			return rc;
 		}
@@ -408,19 +399,21 @@ u_epoll_pwait(int ep_fd, epoll_event_t *buf, int cnt,
 		if (rc) {
 			return rc;
 		}
-		if (pfds[0].revents) {
-			rc = check_epoll_fd(ep->ep_fd, buf + n, cnt - n);
+		if (p.fdp_pfds[0].revents) {
+			rc = epoll_pwait0(ep->ep_fd, events + n_triggered,
+			                  maxevents - n_triggered);
 			if (rc < 0) {
-				if (n == 0) {
+				if (n_triggered == 0) {
 					return rc;
 				}
 			} else {
-				n += rc;
+				n_triggered += rc;
 			}
 		}
-		n += epoll_read_triggered(ep, buf + n, cnt - n);
-	} while (n == 0 && fd_poll.fdp_to > 0);
-	return n;
+		n_triggered += epoll_read_triggered(ep, events + n_triggered,
+		                                    maxevents - n_triggered);
+	} while (n_triggered == 0 && p.fdp_to > 0);
+	return n_triggered;
 }
 
 #ifdef __linux__

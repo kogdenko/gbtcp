@@ -266,257 +266,234 @@ log_buf_alloc_space()
 const char *
 log_add_ipaddr(int af, const void *ip)
 {
-	const char *ret;
 	struct strbuf *sb; 
 
 	sb = log_buf_alloc_space();
 	strbuf_add_ipaddr(sb, af, ip);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_sockaddr_in(const struct sockaddr_in *a)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_ipaddr(sb, AF_INET, &a->sin_addr.s_addr);
 	strbuf_addf(sb, ":%hu", ntoh16(a->sin_port));
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_sockaddr_un(const struct sockaddr_un *a, int sa_len)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	if (sa_len > sizeof(sa_family_t)) {
 		strbuf_add(sb, a->sun_path, sa_len - sizeof(sa_family_t));
 	}
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_sockaddr(const struct sockaddr *a, int sa_len)
 {
-	const char *ret;
 	struct strbuf *sb;
+	const struct sockaddr_un *a_un;
+	const struct sockaddr_in *a_in;
 
 	switch (a->sa_family) {
 	case AF_INET:
 		if (sa_len < sizeof(struct sockaddr_in)) {
 			break;
 		}
-		ret = log_add_sockaddr_in((const struct sockaddr_in *)a);
-		return ret;
+		a_in = (const struct sockaddr_in *)a;
+		return log_add_sockaddr_in(a_in);
 	case AF_UNIX:
-		ret = log_add_sockaddr_un((const struct sockaddr_un *)a, sa_len);
-		return ret;
+		a_un = (const struct sockaddr_un *)a;
+		return log_add_sockaddr_un(a_un, sa_len);
 	default:
 		break;
 	}
 	sb = log_buf_alloc_space();
 	strbuf_addf(sb, "(sa_family=%d, sa_len=%d)", a->sa_family, sa_len);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_socket_domain(int domain)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_socket_domain(sb, domain);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_socket_type(int type)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_socket_type(sb, type);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_socket_flags(int flags)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_socket_flags(sb, flags);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_shutdown_how(int how)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_shutdown_how(sb, how);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_fcntl_cmd(int cmd)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_fcntl_cmd(sb, cmd);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_ioctl_req(u_long req, uintptr_t arg)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_ioctl_req(sb, req, arg);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_sockopt_level(int level)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_sockopt_level(sb, level);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_sockopt_optname(int level, int optname)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_sockopt_optname(sb, level, optname);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
+}
+
+const char *
+log_add_ppoll_timeout(const struct timespec *timeout)
+{
+	struct strbuf *sb;
+
+	sb = log_buf_alloc_space();
+	if (timeout == NULL) {
+		strbuf_add_str(sb, "inf");
+	} else {
+		strbuf_addf(sb, "sec=%ld, nsec=%ld",
+		            timeout->tv_sec, timeout->tv_nsec);
+	}
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_poll_events(short events)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_poll_events(sb, events);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_pollfds_events(struct pollfd *pfds, int npfds)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_pollfds_events(sb, pfds, npfds);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_pollfds_revents(struct pollfd *pfds, int npfds)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_pollfds_revents(sb, pfds, npfds);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_sighandler(void *handler)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_sighandler(sb, handler);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_sigprocmask_how(int how)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_sigprocmask_how(sb, how);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 #ifdef __linux__
 const char *
 log_add_clone_flags(int flags)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_clone_flags(sb, flags);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_epoll_op(int op)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_epoll_op(sb, op);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 
 const char *
 log_add_epoll_event_events(short events)
 {
-	const char *ret;
 	struct strbuf *sb;
 
 	sb = log_buf_alloc_space();
 	strbuf_add_epoll_event_events(sb, events);
-	ret = strbuf_cstr(sb);
-	return ret;
+	return strbuf_cstr(sb);
 }
 #endif /* __linux__ */

@@ -231,7 +231,7 @@ service_attach()
 		spinlock_unlock(&service_attach_lock);
 		return 0;
 	}
-	ERR(0, "hit;");
+	NOTICE(0, "hit;");
 	pid = getpid();
 	rc = read_comm(p_comm, pid);
 	if (rc) {

@@ -18,7 +18,7 @@ struct log_scope {
 	do { \
 		UNUSED(errnum); \
 	} while (0)
-#else /* LOG_DISABLED */
+#else // LOG_DISABLED
 #define LOGF(level, errnum, fmt, ...) \
 do { \
 	if (log_is_enabled(CAT2(MOD_, CURMOD), level, 0)) { \
@@ -26,7 +26,7 @@ do { \
 		log_printf(level, __func__, errnum, fmt, ##__VA_ARGS__); \
 	} \
 } while (0)
-#endif /* LOG_DISABLED */
+#endif // LOG_DISABLED
 
 #define log_trace0() log_trace(NULL)
 
@@ -40,7 +40,7 @@ do { \
 
 #define die(errnum, fmt, ...) \
 do { \
-	LOGF(LOG_EMERG, errnum, fmt, ##__VA_ARGS__); \
+	LOGF(LOG_CRIT, errnum, fmt, ##__VA_ARGS__); \
 	abort(); \
 } while (0)
 
@@ -81,6 +81,7 @@ const char *log_add_fcntl_cmd(int);
 const char *log_add_ioctl_req(u_long, uintptr_t);
 const char *log_add_sockopt_level(int);
 const char *log_add_sockopt_optname(int, int);
+const char *log_add_ppoll_timeout(const struct timespec *);
 const char *log_add_poll_events(short);
 const char *log_add_pollfds_events(struct pollfd *, int);
 const char *log_add_pollfds_revents(struct pollfd *, int);
