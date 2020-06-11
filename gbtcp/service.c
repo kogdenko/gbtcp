@@ -100,7 +100,7 @@ service_start_controller(const char *p_comm)
 }
 
 static int
-service_in(struct in_context *p)
+service_rx(struct in_context *p)
 {
 	int rc, ipproto;
 
@@ -125,7 +125,7 @@ service_in(struct in_context *p)
 }
 
 static void
-service_rssq_rxtx_one(struct route_if *ifp, void *data, int len)
+service_rssq_rx_one(struct route_if *ifp, void *data, int len)
 {
 	int rc;
 	struct eth_hdr *eh;
@@ -140,9 +140,8 @@ service_rssq_rxtx_one(struct route_if *ifp, void *data, int len)
 	p.in_ips = &current->p_ips;
 	p.in_icmps = &current->p_icmps;
 	p.in_arps = &current->p_arps;
-	rc = service_in(&p);
+	rc = service_rx(&p);
 	if (rc >= 0) {
-		dbg("redir");
 		assert(rc < GT_SERVICES_MAX);
 		eh = data;
 		eh->eh_saddr.ea_bytes[5] = current->p_sid;
@@ -162,6 +161,25 @@ service_rssq_rxtx_one(struct route_if *ifp, void *data, int len)
 	}
 }
 
+static void
+service_vale_rx_one(void *data, int len)
+{
+	struct tcp_stat tcps;
+	struct udp_stat udps;
+	struct ip_stat ips;
+	struct icmp_stat icmps;
+	struct arp_stat arps;
+	struct in_context p;
+
+	in_context_init(&p, data, len);
+	p.in_tcps = &tcps;
+	p.in_udps = &udps;
+	p.in_ips = &ips;
+	p.in_icmps = &icmps;
+	p.in_arps = &arps;
+	service_rx(&p);
+}
+
 void
 service_rssq_rxtx(struct dev *dev, short revents)
 {
@@ -179,18 +197,27 @@ service_rssq_rxtx(struct dev *dev, short revents)
 			slot = rxr->slot + rxr->cur;
 			data = NETMAP_BUF(rxr, slot->buf_idx);
 			len = slot->len;
-			service_rssq_rxtx_one(ifp, data, len);
+			service_rssq_rx_one(ifp, data, len);
 			route_if_rxr_next(ifp, rxr);
 		}
 	}
 }
 
+
 static void
 service_vale_rxtx(struct dev *dev, short revents)
 {
+	int len;
+	void *data;
 	struct netmap_ring *rxr;
+	struct netmap_slot *slot;
 
 	DEV_FOREACH_RXRING(rxr, dev) {
+		dev_prefetch(rxr);
+		slot = rxr->slot + rxr->cur;
+		data = NETMAP_BUF(rxr, slot->buf_idx);
+		len = slot->len;
+		service_vale_rx_one(data, len);
 		DEV_RXR_NEXT(rxr);
 	}
 }
@@ -582,6 +609,7 @@ service_dup_so(struct sock *oldso)
 	if (rc) {
 		goto err;
 	}
+	newso->so_blocked = oldso->so_blocked;
 	INFO(0, "ok; fd=%d", fd);
 	return 0;
 err:

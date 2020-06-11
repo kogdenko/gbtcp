@@ -594,32 +594,32 @@ PRELOAD_EPOLL_CREATE(int size)
 }
 
 int
-PRELOAD_EPOLL_CTL(int epfd, int op, int fd, struct epoll_event *event)
+PRELOAD_EPOLL_CTL(int ep_fd, int op, int fd, struct epoll_event *event)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(epoll_ctl, epfd, op, fd, event);
+	rc = PRELOAD_CALL(epoll_ctl, ep_fd, op, fd, event);
 	return rc;
 }
 
 int
-PRELOAD_EPOLL_PWAIT(int epfd, struct epoll_event *events, int maxevents,
+PRELOAD_EPOLL_PWAIT(int ep_fd, struct epoll_event *events, int maxevents,
 	int timeout, const sigset_t *sigmask)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(epoll_pwait, epfd, events, maxevents,
+	rc = PRELOAD_CALL(epoll_pwait, ep_fd, events, maxevents,
 	                  timeout, sigmask);
 	return rc;
 }
 
 int
-PRELOAD_EPOLL_WAIT(int epfd, struct epoll_event *events, int maxevents,
+PRELOAD_EPOLL_WAIT(int ep_fd, struct epoll_event *events, int maxevents,
 	int timeout)
 {
 	int rc;
 
-	rc = PRELOAD_EPOLL_PWAIT(epfd, events, maxevents, timeout, NULL);
+	rc = PRELOAD_EPOLL_PWAIT(ep_fd, events, maxevents, timeout, NULL);
 	return rc;
 }
 

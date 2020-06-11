@@ -8,6 +8,9 @@ struct timer_mod {
 	struct log_scope log_scope;
 };
 
+#define SEG_LOCK(seg) spinlock_lock(&seg->htb_lock)
+#define SEG_UNLOCK(seg) spinlock_unlock(&seg->htb_lock)
+
 static void
 free_timer_rings(struct service *s)
 {
@@ -45,9 +48,8 @@ timer_ring_init(struct timer_ring *ring, uint64_t seg_size)
 		assert(seg_size == (1llu << ring->tmr_seg_shift));
 		ring->tmr_cur = nanoseconds >> ring->tmr_seg_shift;
 	}
-	ring->tmr_n_timers = 0;
 	for (i = 0; i < TIMER_RING_SIZE; ++i) {
-		dlist_init(ring->tmr_segs + i);
+		htable_bucket_init(ring->tmr_segs + i);
 	}
 }
 
@@ -126,26 +128,21 @@ timer_ring_check(struct timer_ring *ring, struct dlist *queue)
 	int i;
 	uint64_t pos;
 	struct timer *timer;
-	struct dlist *head;
+	struct htable_bucket *seg;
 
 	pos = ring->tmr_cur;
 	ring->tmr_cur = (nanoseconds >> ring->tmr_seg_shift);
 	assert(pos <= ring->tmr_cur);
-	if (ring->tmr_n_timers == 0) {
-		return;
-	}
 	for (i = 0; pos <= ring->tmr_cur && i < TIMER_RING_SIZE; ++pos, ++i) {
-		head = ring->tmr_segs + (pos & TIMER_RING_MASK);
-		while (!dlist_is_empty(head)) {
-			ring->tmr_n_timers--;
-			assert(ring->tmr_n_timers >= 0);
-			timer = DLIST_FIRST(head, struct timer, tm_list);
+		seg = ring->tmr_segs + (pos & TIMER_RING_MASK);
+		SEG_LOCK(seg);
+		while (!dlist_is_empty(&seg->htb_head)) {
+			timer = DLIST_FIRST(&seg->htb_head,
+			                    struct timer, tm_list);
 			DLIST_REMOVE(timer, tm_list);
 			DLIST_INSERT_HEAD(queue, timer, tm_list);
 		}
-		if (ring->tmr_n_timers == 0) {
-			break;
-		}
+		SEG_UNLOCK(seg);
 	}
 }
 
@@ -181,6 +178,7 @@ timer_is_running(struct timer *timer)
 	return timer->tm_ring_id != TIMER_RING_POISON;
 }
 
+#if 0
 uint64_t
 timer_timeout(struct timer *timer)
 {
@@ -210,13 +208,15 @@ timer_timeout(struct timer *timer)
 	assert(!"bad ring");
 	return 0;
 }
+#endif
 
 void
 timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 {
 	int ring_id;
+	u_short seg_id;
 	uint64_t dist, pos;
-	struct dlist *head;
+	struct htable_bucket *seg;
 	struct timer_ring *ring;
 
 	assert(expire <= TIMER_EXPIRE_MAX);
@@ -239,29 +239,35 @@ timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 	}
 	ring = current->p_timer_rings[ring_id];
 	pos = ring->tmr_cur + dist;
-	head = ring->tmr_segs + (pos & TIMER_RING_MASK);
-	ring->tmr_n_timers++;
+	seg_id = (pos & TIMER_RING_MASK);
+	seg = ring->tmr_segs + seg_id;
 	timer->tm_sid = current->p_sid;
 	timer->tm_ring_id = ring_id;
+	timer->tm_seg_id = seg_id;
 	timer->tm_mod_id = mod_id;
 	timer->tm_fn_id = fn_id;
-	DLIST_INSERT_HEAD(head, timer, tm_list);
-	DBG(0, "ok; timer=%p, mod_id=%d, fn_id=%d, ring=%d, cur=%"PRIu64", head=%p, dist=%d",
-	    timer, mod_id, fn_id, ring_id, ring->tmr_cur, head, (int)dist);
+	SEG_LOCK(seg);
+	DLIST_INSERT_HEAD(&seg->htb_head, timer, tm_list);
+	SEG_UNLOCK(seg);
+	DBG(0, "ok; timer=%p, mod_id=%d, fn_id=%d, ring=%d, seg_id=%hu",
+	    timer, mod_id, fn_id, ring_id, seg_id);
 }
 
 void
 timer_del(struct timer *timer)
 {
+	struct service *s;
 	struct timer_ring *ring;
+	struct htable_bucket *seg;
 
 	if (timer_is_running(timer)) {
-		assert(timer->tm_sid == current->p_sid);
-		ring = current->p_timer_rings[timer->tm_ring_id];
-		ring->tmr_n_timers--;
-		DBG(0, "ok; timer=%p, ring=%d", timer, timer->tm_ring_id);
-		assert(ring->tmr_n_timers >= 0);
+		s = service_get_by_sid(timer->tm_sid);
+		ring = s->p_timer_rings[timer->tm_ring_id];
+		seg = ring->tmr_segs + timer->tm_seg_id;
+		DBG(0, "ok; timer=%p", timer);
+		SEG_LOCK(seg);
 		DLIST_REMOVE(timer, tm_list);
+		SEG_UNLOCK(seg);
 		timer->tm_ring_id = TIMER_RING_POISON;
 	}
 }

@@ -826,7 +826,7 @@ route_if_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt)
 	int i, rc;
 	struct dev *dev;
 
-	rc = -ENOBUFS;
+	rc = -ENODEV;
 	for (i = 0; i < ifp->rif_rss_nq; ++i) {
 		dev = &(ifp->rif_dev[current->p_sid][i]);
 		if (dev_is_inited(dev)) {

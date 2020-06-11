@@ -377,9 +377,9 @@ pr_sockets_banner()
 	if (Lflag) {
 		printf("%-32.32s ", "Listen");
 	} else {
-		printf("%-22.22s %-11.11s", "Foreign Address", "State ");
+		printf("%-22.22s %-11.11s ", "Foreign Address", "State ");
 	}
-	printf("\n");
+	printf("%-7.7s\n", "PID");
 }
 
 static int
@@ -424,15 +424,15 @@ pr_socket(void *udata, const char *buf)
 		pr_sockaddr(faddr, fport, name, 1);
 		if (proto == IPPROTO_TCP) {
 			if (state >= GT_TCP_NSTATES) {
-				printf("%-11d", state);
+				printf("%-11d ", state);
 			} else {
-				printf("%-11s", tcpstates[state]);
+				printf("%-11s ", tcpstates[state]);
 			}
 		} else {
-			printf("%-11s", "           ");
+			printf("%-11s ", "           ");
 		}
 	}
-	printf("\n");
+	printf("%-7d\n", pid);
 	return 0;
 }
 

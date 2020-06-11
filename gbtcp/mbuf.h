@@ -1,4 +1,4 @@
-// GPL2 license
+// gpl2 license
 #ifndef GBTCP_MBUF_H
 #define GBTCP_MBUF_H
 

@@ -582,7 +582,7 @@ sysctl_node_in_int(struct sysctl_conn *cp, void *udata,
 	} else {
 		x = strtoll(new, &endptr, 10);
 		if (*endptr != '\0') {
-			return -EPROTO;
+			return -EINVAL;
 		}
 		if (x < data->i_min || x > data->i_max) {
 			return -ERANGE;

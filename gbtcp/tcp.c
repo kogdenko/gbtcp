@@ -1992,6 +1992,7 @@ sock_tx_flush_if(struct route_if *ifp)
 		do {
 			rc = route_if_not_empty_txr(ifp, &pkt);
 			if (rc) {
+				dbg("no dev!! %s", strerror(-rc));
 				return;
 			}
 			rc = sock_tx(ifp, &pkt, so);
@@ -2297,19 +2298,26 @@ static struct sock *
 so_find_binded(struct htable_bucket *b, int so_ipproto,
 	be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
-	struct sock *so, *found;
+	int active, res_active;
+	struct sock *so, *res;
 
-	found = NULL;
+	res = NULL;
+	res_active = 0;
 	DLIST_FOREACH_RCU(so, &b->htb_head, so_binded_list) {
 		if (so->so_ipproto == so_ipproto &&
-		    (so->so_laddr == 0 || so->so_laddr == laddr)) {
-			found = so;
-			if (so->so_sid == current->p_sid) {
-				break;
+		    (so->so_laddr == 0 ||
+		     so->so_laddr == laddr)) {
+			active = !dlist_is_empty(&so->so_file.fl_aioq);
+			if (res == NULL ||
+			    (active && !res_active) ||
+			    (!(!active && res_active) &&
+			     (so->so_sid == current->p_sid))) {
+				res = so;
+				res_active = active;
 			}
 		}
 	}
-	return found;
+	return res;
 }
 
 
@@ -2657,7 +2665,6 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 		return IN_BYPASS;
 	}
 	if (so->so_sid != current->p_sid) {
-		assert(0);
 		if (b != NULL) {
 			BUCKET_UNLOCK(b);
 			b = NULL;
@@ -2780,5 +2787,3 @@ so_in_err(int ipproto, struct in_context *p, be32_t laddr, be32_t faddr,
 	return IN_OK;
 #endif
 }
-
-

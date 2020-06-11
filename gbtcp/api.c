@@ -796,14 +796,14 @@ gt_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 	int rc;
 
 	API_LOCK;
-	DBG(0, "hit; ep_fd=%d, op=%s, fd=%d, events={%s}",
+	INFO(0, "hit; ep_fd=%d, op=%s, fd=%d, events={%s}",
 	    ep_fd, log_add_epoll_op(op), fd,
 	    log_add_epoll_event_events(event->events));
 	rc = u_epoll_ctl(ep_fd, op, fd, event);
 	if (rc) {
-		DBG(-rc, "failed;");
+		INFO(-rc, "failed;");
 	} else {
-		DBG(0, "ok;");
+		INFO(0, "ok;");
 	}
 	API_UNLOCK;
 	API_RETURN(rc);

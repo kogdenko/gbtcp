@@ -3,7 +3,7 @@
 #define GBTCP_TIMER_H
 
 #include "subr.h"
-#include "list.h"
+#include "htable.h"
 
 #define TIMER_RING_SIZE 4096llu
 #define TIMER_RING_MASK (TIMER_RING_SIZE - 1llu)
@@ -15,6 +15,7 @@ struct timer {
 	struct dlist tm_list;
 	u_char tm_sid;
 	u_char tm_ring_id;
+	u_short tm_seg_id;
 	u_char tm_mod_id;
 	u_char tm_fn_id;
 };
@@ -22,8 +23,7 @@ struct timer {
 struct timer_ring {
 	uint64_t tmr_seg_shift;
 	uint64_t tmr_cur;
-	int tmr_n_timers;
-	struct dlist tmr_segs[TIMER_RING_SIZE];
+	struct htable_bucket tmr_segs[TIMER_RING_SIZE];
 };
 
 int timer_mod_init();

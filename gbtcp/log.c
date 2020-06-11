@@ -94,7 +94,7 @@ sysctl_log_level(struct sysctl_conn *cp, void *udata,
 	} else {
 		return -EINVAL;
 	}
-	curmod->log_level = level;
+	*((int *)udata) = level;
 	return 0;
 }
 
@@ -112,7 +112,8 @@ log_mod_init(void **pp)
 	} else {
 		curmod->log_level = LOG_NOTICE;
 	}
-	sysctl_add("log.level", SYSCTL_WR, NULL, NULL, sysctl_log_level); 
+	sysctl_add("log.level", SYSCTL_WR, &curmod->log_level,
+	           NULL, sysctl_log_level); 
 	return 0;
 }
 
@@ -134,8 +135,8 @@ log_scope_init(struct log_scope *scope, const char *name)
 	scope->lgs_name_len = strlen(scope->lgs_name);
 	assert(scope->lgs_name_len);
 	snprintf(path, sizeof(path), "log.scope.%s.level", name);
-	sysctl_add_int(path, SYSCTL_WR, &scope->lgs_level,
-	               LOG_EMERG, LOG_DEBUG);
+	sysctl_add(path, SYSCTL_WR, &scope->lgs_level,
+	           NULL, sysctl_log_level);
 }
 
 void

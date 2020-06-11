@@ -1,3 +1,4 @@
+// gpl2 license
 #include "internals.h"
 
 #define CURMOD fd_event
@@ -250,7 +251,6 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	}
 	check_timers();
 	if (rc < 0 ) {
-		dbg("!");
 		return rc;
 	}
 	n_triggered = rc;
