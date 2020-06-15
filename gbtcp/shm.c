@@ -108,7 +108,7 @@ shm_lock()
 void
 shm_unlock(struct service *s)
 {
-	int i, n;
+	int i;
 	struct dlist *dst, *src, tofree;
 	struct mbuf *m;
 

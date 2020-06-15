@@ -103,7 +103,6 @@ dev_close_fd(struct dev *dev)
 {
 	if (dev->dev_nmd != NULL) {
 		sys_close(dev->dev_nmd->fd);
-		dev->dev_nmd = NULL;
 	}
 }
 

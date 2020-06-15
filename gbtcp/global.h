@@ -116,6 +116,8 @@ enum {
 	MODS_NUM
 };
 
+#define MOD_FIRST 1
+
 extern struct shm_init_hdr *shm_ih;
 extern struct service *current;
 extern sigset_t service_sigprocmask;

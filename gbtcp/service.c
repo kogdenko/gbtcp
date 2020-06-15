@@ -190,7 +190,6 @@ service_rssq_rxtx(struct dev *dev, short revents)
 	}
 }
 
-
 static void
 service_vale_rxtx(struct dev *dev, short revents)
 {
@@ -210,11 +209,19 @@ service_vale_rxtx(struct dev *dev, short revents)
 }
 
 int
-service_priv_init(const char *p_comm)
+service_init(const char *p_comm)
 {
-	int rc;
+	int i, rc;
 	char buf[NM_IFNAMSIZ];
 
+	for (i = MOD_FIRST; i < MODS_NUM; ++i) {
+		if (mods[i].mod_service_init != NULL) {
+			rc = (*mods[i].mod_service_init)(current);
+			if (rc) {
+				break;
+			}
+		}
+	}
 	current->p_tx_kpps = 0;
 	current->p_tx_kpps_time = nanoseconds;
 	current->p_tx_pkts = 0;
@@ -228,28 +235,41 @@ service_priv_init(const char *p_comm)
 	return rc;
 }
 
-int
-service_shared_init(struct service *s)
-{
-	int i, rc;
-
-	rc = 0;
-	for (i = 1; i < MODS_NUM; ++i) {
-		if (mods[i].mod_service_init != NULL) {
-			rc = (*mods[i].mod_service_init)(s);
-			if (rc) {
-				break;
-			}
-		}
-	}
-	return 0;
-}
-
 struct service *
 service_get_by_sid(u_int sid)
 {
 	assert(sid < ARRAY_SIZE(shm_ih->ih_services));
 	return shm_ih->ih_services + sid;
+}
+
+void
+service_detach()
+{
+	int i;
+	struct dev *dev;
+	struct route_if *ifp;
+
+	dev_deinit(&service_vale);
+	sys_close(service_sysctl_fd);
+	service_sysctl_fd = -1;
+	sys_close(service_pid_fd);
+	service_pid_fd = -1;
+	if (current != NULL) {
+		ROUTE_IF_FOREACH(ifp) {
+			for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
+				dev = &(ifp->rif_dev[current->p_sid][i]);
+				dev_close_fd(dev);
+			}
+		}
+		current = NULL;
+	}
+	shm_ih = NULL;
+	shm_detach();
+	clean_fd_events();
+	if (service_sigprocmask_set) {
+		service_sigprocmask_set = 0;
+		sys_sigprocmask(SIG_SETMASK, &service_sigprocmask, NULL);
+	}
 }
 
 int
@@ -338,7 +358,7 @@ service_attach()
 	if (rc != pid) {
 		goto err;
 	}
-	rc = service_priv_init(p_comm);
+	rc = service_init(p_comm);
 	if (rc) {
 		goto err;
 	}
@@ -346,26 +366,23 @@ service_attach()
 	spinlock_unlock(&service_attach_lock);
 	return 0;
 err:
-	service_detach(0);
+	service_detach();
 	ERR(-rc, "failed;");
 	spinlock_unlock(&service_attach_lock);
 	return rc;
 }
 
 void
-service_priv_deinit()
-{
-	dev_deinit(&service_vale);
-}
-
-void
-service_shared_deinit(struct service *s)
+service_deinit(struct service *s)
 {
 	int i;
 	struct dev *dev;
 	struct route_if *ifp;
 
-	for (i = MODS_NUM - 1; i > 0; --i) {
+	if (s == current) {
+		dev_deinit(&service_vale);
+	}
+	for (i = MODS_NUM - 1; i >= MOD_FIRST; --i) {
 		if (mods[i].mod_service_deinit != NULL) {
 			(*mods[i].mod_service_deinit)(s);
 		}
@@ -377,37 +394,6 @@ service_shared_deinit(struct service *s)
 		}
 	}
 }
-
-void
-service_detach(int forked)
-{
-	int i;
-	struct dev *dev;
-	struct route_if *ifp;
-
-	service_priv_deinit(forked);
-	sys_close(service_sysctl_fd);
-	service_sysctl_fd = -1;
-	sys_close(service_pid_fd);
-	service_pid_fd = -1;
-	if (current != NULL) {
-		ROUTE_IF_FOREACH(ifp) {
-			for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
-				dev = &(ifp->rif_dev[current->p_sid][i]);
-				dev_close_fd(dev);
-			}
-		}
-		current = NULL;
-	}
-	shm_ih = NULL;
-	shm_detach();
-	clean_fd_events();
-	if (service_sigprocmask_set) {
-		service_sigprocmask_set = 0;
-		sys_sigprocmask(SIG_SETMASK, &service_sigprocmask, NULL);
-	}
-}
-
 
 static void
 service_rcu_reload()
@@ -635,7 +621,7 @@ service_in_child0()
 			break;
 		}
 	};
-	service_detach(1);
+	service_detach();
 	if (n == 0) {
 		return;
 	}
@@ -655,7 +641,7 @@ service_in_child0()
 		}
 	}
 	if (n == 0) {
-		service_detach(0);
+		service_detach();
 	}
 }
 

@@ -80,13 +80,10 @@ do { \
 int service_mod_init(void **);
 void service_mod_deinit();
 
-int service_priv_init(const char *);
-int service_shared_init(struct service *s);
+int service_init(const char *);
 struct service *service_get_by_sid(u_int);
 int service_attach();
-void service_priv_deinit();
-void service_shared_deinit(struct service *);
-void service_detach(int);
+void service_deinit(struct service *);
 void service_clean(struct service *);
 void service_unlock();
 void service_account_tx_pkt();
@@ -98,6 +95,6 @@ int service_fork();
 #ifdef __linux__
 int service_clone(int (*)(void *), void *, int, void *,
 	void *, void *, void *);
-#endif /* __linux__ */
+#endif // __linux__
 
 #endif // GBTCP_SERVICE_H

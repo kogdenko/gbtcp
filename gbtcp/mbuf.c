@@ -259,7 +259,6 @@ mbuf_free_indirect(struct mbuf *m)
 	struct dlist *head;
 	struct mbuf_pool *p;
 
-	dbg("free inde");
 	p = mbuf_get_pool(m);
 	DBG(0, "hit; m=%p, sid=%d->%d", m, current->p_sid, p->mbp_sid);
 	current->p_mbuf_free_indirect_n++;

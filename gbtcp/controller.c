@@ -383,7 +383,6 @@ sysctl_controller_service_attach(struct sysctl_conn *cp, void *udata,
 	for (i = 0; i < ARRAY_SIZE(shm_ih->ih_services); ++i) {
 		s = shm_ih->ih_services + i;
 		if (s->p_pid == 0) {
-			service_shared_init(s);
 			controller_service_add(s, pid, cp);
 			return 0;
 		}
@@ -451,7 +450,7 @@ controller_service_conn_close(struct sysctl_conn *cp)
 	if (s != NULL) {
 		controller_service_check_deadlock(s);
 		controller_service_del(s);
-		service_shared_deinit(s);
+		service_deinit(s);
 		s->p_pid = 0;
 		service_store_epoch(s, 0);
 
@@ -540,11 +539,7 @@ controller_init(int daemonize, const char *service_comm)
 	}
 	current = shm_ih->ih_services + CONTROLLER_SID;
 	current->p_pid = pid;
-	rc = service_shared_init(current);
-	if (rc) {
-		goto err;
-	}
-	rc = service_priv_init("controller");
+	rc = service_init("controller");
 	if (rc) {
 		goto err;
 	}
@@ -562,8 +557,7 @@ controller_init(int daemonize, const char *service_comm)
 	return 0;
 err:
 	if (current != NULL) {
-		service_shared_deinit(current);
-		service_priv_deinit();
+		service_deinit(current);
 		current->p_pid = 0;
 		current = NULL;
 	}

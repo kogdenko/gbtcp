@@ -78,6 +78,7 @@ mod_deinit1(int mod_id)
 {
 	struct log_scope *scope;
 
+	sysctl_del(mod_name(mod_id));
 	scope = shm_ih->ih_mods[mod_id];
 	log_scope_deinit(scope);
 	shm_free(scope);

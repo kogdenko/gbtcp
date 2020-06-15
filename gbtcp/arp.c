@@ -239,26 +239,20 @@ sysctl_arp_add(struct sysctl_conn *cp, void *udata,
 	return rc;
 }
 
-#if 0
-static int
-arp_ctl_list(void *udata, int id, const char *new, struct strbuf *out)
+static void
+sysctl_arp_entry(void *udata, const char *new, struct strbuf *out)
 {
-	const char *str;
+	const char *s;
 	struct arp_entry *e;
 
-	e = (struct arp_entry *)mbuf_get(arp_entry_pool, id);
-	if (e == NULL) {
-		return -EINVAL;
-	}
+	e = udata;
 	strbuf_add_ipaddr(out, AF_INET, &e->ae_next_hop);
 	strbuf_add_ch(out, ',');
-	strbuf_add_ethaddr(out, &e->ae_addr);
+	strbuf_add_eth_addr(out, &e->ae_addr);
 	strbuf_add_ch(out, ',');
-	str = arp_state_str(e->ae_state);
-	strbuf_add_str(out, str);
-	return 0;
+	s = arp_state_str(e->ae_state);
+	strbuf_add_str(out, s);
 }
-#endif
 
 int
 arp_mod_init()
@@ -275,6 +269,8 @@ arp_mod_init()
 		shm_free(curmod);
 		return rc;
 	}
+	sysctl_add_htable_list(GT_SYSCTL_ARP_LIST, SYSCTL_RD,
+	                       &curmod->arp_htable, sysctl_arp_entry);
 	sysctl_add(GT_SYSCTL_ARP_ADD, SYSCTL_WR, NULL, NULL, sysctl_arp_add);
 	curmod->arp_reachable_time = arp_calc_reachable_time();
 	return 0;
@@ -301,8 +297,6 @@ arp_mod_service_init(struct service *s)
 void
 arp_mod_deinit()
 {
-	sysctl_del("arp.add");
-	sysctl_del("arp.list");
 	htable_deinit(&curmod->arp_htable);
 	curmod_deinit();
 }
