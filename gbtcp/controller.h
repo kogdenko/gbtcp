@@ -1,8 +1,10 @@
-// GPL2 license
+// gpl2 license
 #ifndef GBTCP_CONTROLLER_H
 #define GBTCP_CONTROLLER_H
 
 #include "subr.h"
+
+#define CONTROLLER_SID 0
 
 int controller_mod_init(void **);
 int controller_mod_attach(void *);

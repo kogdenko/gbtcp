@@ -41,10 +41,10 @@ struct service {
 	uint64_t p_tx_pkts;
 	int p_timer_n_rings;
 	struct timer_ring *p_timer_rings[TIMER_RINGS_MAX];
-	struct mbuf_pool p_file_pool;
-	struct mbuf_pool p_sockbuf_pool;
-	struct mbuf_pool p_arp_entry_pool;
-	struct mbuf_pool p_arp_incomplete_pool;
+	struct mbuf_pool *p_file_pool;
+	struct mbuf_pool *p_sockbuf_pool;
+	struct mbuf_pool *p_arp_entry_pool;
+	struct mbuf_pool *p_arp_incomplete_pool;
 	struct tcp_stat p_tcps;
 	struct udp_stat p_udps;
 	struct ip_stat p_ips;
@@ -64,14 +64,28 @@ struct shm_init_hdr {
 	int ih_rss_table[GT_RSS_NQ_MAX];
 };
 
+#define service_load_epoch(s) \
+({ \
+	u_int epoch; \
+	__atomic_load(&(s)->p_epoch, &epoch, __ATOMIC_SEQ_CST); \
+	epoch; \
+})
+
+#define service_store_epoch(s, epoch) \
+do { \
+	u_int tmp = epoch; \
+	__atomic_store(&(s)->p_epoch, &tmp, __ATOMIC_SEQ_CST); \
+} while (0)
 
 int service_mod_init(void **);
 void service_mod_deinit();
 
-int service_init(const char *);
+int service_priv_init(const char *);
+int service_shared_init(struct service *s);
 struct service *service_get_by_sid(u_int);
 int service_attach();
-void service_deinit();
+void service_priv_deinit();
+void service_shared_deinit(struct service *);
 void service_detach(int);
 void service_clean(struct service *);
 void service_unlock();

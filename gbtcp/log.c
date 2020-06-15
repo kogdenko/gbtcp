@@ -81,15 +81,20 @@ sysctl_log_level(struct sysctl_conn *cp, void *udata,
 		level = LOG_ALERT;
 	} else if (!strcasecmp(new, "CRIT")) {
 		level = LOG_CRIT;
-	} else if (!strcasecmp(new, "ERR")) {
+	} else if (!strcasecmp(new, "ERR") ||
+	           !strcasecmp(new, "E")) {
 		level = LOG_ERR;
-	} else if (!strcasecmp(new, "WARNING")) {
+	} else if (!strcasecmp(new, "WARNING") ||
+	           !strcasecmp(new, "W")) {
 		level = LOG_WARNING;
-	} else if (!strcasecmp(new, "NOTICE")) {
+	} else if (!strcasecmp(new, "NOTICE") ||
+	           !strcasecmp(new, "N")) {
 		level = LOG_NOTICE;
-	} else if (!strcasecmp(new, "INFO")) {
+	} else if (!strcasecmp(new, "INFO") ||
+	           !strcasecmp(new, "I")) {
 		level = LOG_INFO;
-	} else if (!strcasecmp(new, "DEBUG")) {
+	} else if (!strcasecmp(new, "DEBUG") ||
+	           !strcasecmp(new, "D")) {
 		level = LOG_DEBUG;
 	} else {
 		return -EINVAL;

@@ -4,10 +4,13 @@
 
 #include "subr.h"
 
-int shm_init(void **, int);
-int shm_attach(void **);
+int shm_init();
+int shm_attach();
 void shm_deinit();
 void shm_detach();
+
+void shm_lock();
+void shm_unlock(struct service *);
 
 int shm_malloc(void **, size_t);
 int shm_realloc(void **, size_t);

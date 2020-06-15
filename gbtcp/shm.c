@@ -99,35 +99,34 @@ shm_virt_to_page(uintptr_t addr)
 	return page;
 }
 
-static void
+void
 shm_lock()
 {
 	spinlock_lock(&shm->shm_lock);
 }
 
-static void
-shm_unlock()
+void
+shm_unlock(struct service *s)
 {
 	int i, n;
 	struct dlist *dst, *src, tofree;
 	struct mbuf *m;
 
-	if (current != NULL && current->p_mbuf_free_indirect_n) {
-		current->p_mbuf_free_indirect_n = 0;
-		n =  ARRAY_SIZE(current->p_mbuf_free_indirect_head);
-		for (i = 0; i < n; ++i) {
-			src = current->p_mbuf_free_indirect_head + i;
+	if (s != NULL && s->p_mbuf_free_indirect_n) {
+		s->p_mbuf_free_indirect_n = 0;
+		for (i = 0; i < GT_SERVICES_MAX; ++i) {
+			src = s->p_mbuf_free_indirect_head + i;
 			if (!dlist_is_empty(src)) {
-				assert(i != current->p_sid);
+				assert(i != s->p_sid);
 				dst = shm->shm_mbuf_free_indirect_head + i;
 				dlist_splice_tail_init(dst, src);
 			}
 		}
 	}
-	if (current == NULL) {
+	if (s == NULL) {
 		dlist_init(&tofree);
 	} else {
-		src = shm->shm_mbuf_free_indirect_head + current->p_sid;
+		src = shm->shm_mbuf_free_indirect_head + s->p_sid;
 		dlist_replace_init(&tofree, src);
 	}
 	spinlock_unlock(&shm->shm_lock);
@@ -139,7 +138,7 @@ shm_unlock()
 }
 
 int
-shm_init(void **pinit, int init_size)
+shm_init()
 {
 	int i, rc, npages, hdr_size, superblock_size, superblock_npages;
 	size_t size;
@@ -160,7 +159,7 @@ shm_init(void **pinit, int init_size)
 	assert(!(((uintptr_t)shm) & PAGE_MASK));
 	hdr_size = sizeof(*shm);
 	hdr_size += BITSET_WORD_ARRAY_SIZE(npages) * sizeof(bitset_word_t);
-	superblock_size = ROUND_UP((hdr_size + init_size), PAGE_SIZE);
+	superblock_size = ROUND_UP((hdr_size + sizeof(*shm_ih)), PAGE_SIZE);
 	memset(shm, 0, superblock_size);
 	shm->shm_base_addr = (uintptr_t)shm;
 	spinlock_init(&shm->shm_lock);
@@ -169,15 +168,23 @@ shm_init(void **pinit, int init_size)
 	shm->shm_hdr_size = hdr_size;
 	shm->shm_size = size;
 	shm->shm_pages = (bitset_word_t *)(shm + 1);
-	for (i = 0; i < ARRAY_SIZE(shm->shm_mbuf_free_indirect_head); ++i) {
+	for (i = 0; i < GT_SERVICES_MAX; ++i) {
 		dlist_init(shm->shm_mbuf_free_indirect_head + i);
 	}
 	superblock_npages = superblock_size >> PAGE_SHIFT;
 	for (i = 0; i < superblock_npages; ++i) {
 		shm_page_alloc(i);
 	}
-	if (pinit != NULL) {
-		*pinit  = (void *)(shm->shm_base_addr + shm->shm_hdr_size);
+	shm_ih  = (void *)(shm->shm_base_addr + shm->shm_hdr_size);
+	for (i = 1; i < MODS_NUM; ++i) {
+		if (mods[i].mod_init == NULL) {
+			rc = mod_init2(i, sizeof(struct log_scope));
+		} else {
+			rc = (*mods[i].mod_init)();
+		}
+		if (rc) {
+			goto err;
+		}
 	}
 	NOTICE(0, "ok; addr=%"PRIxPTR, shm->shm_base_addr);
 	return 0;
@@ -187,7 +194,7 @@ err:
 }
 
 int
-shm_attach(void **pinit)
+shm_attach()
 {
 	int rc;
 	size_t size;
@@ -213,9 +220,7 @@ shm_attach(void **pinit)
 	if (rc) {
 		goto err;
 	}
-	if (pinit != NULL) {
-		*pinit = (void *)(shm->shm_base_addr + shm->shm_hdr_size);
-	}
+	shm_ih = (void *)(shm->shm_base_addr + shm->shm_hdr_size);
 	NOTICE(0, "ok; addr=%"PRIxPTR, shm->shm_base_addr);
 	return 0;
 err:
@@ -237,6 +242,21 @@ shm_detach()
 void
 shm_deinit()
 {
+	int i;
+
+	if (shm_ih != NULL) {
+		for (i = MODS_NUM - 1; i > 0; --i) {
+			if (shm_ih->ih_mods[i] != NULL) {
+				if (mods[i].mod_deinit == NULL) {
+					mod_deinit1(i);
+				} else {
+					(*mods[i].mod_deinit)();
+				}
+				shm_ih->ih_mods[i] = NULL;
+			}
+		}
+	}
+	shm_ih = NULL;
 	shm_detach();
 	shm_unlink(SHM_NAME);
 }
@@ -315,6 +335,9 @@ shm_free_locked(void *tofree_ptr)
 	uintptr_t tofree_addr; 
 	struct shm_region *r, *tofree_r;
 
+	if (tofree_ptr == NULL) {
+		return;
+	}
 	tofree_r = ((struct shm_region *)tofree_ptr) - 1;
 	tofree_addr = (uintptr_t)tofree_r;
 	DLIST_FOREACH(r, &shm->shm_heap, r_list) {
@@ -378,7 +401,7 @@ shm_malloc(void **pp, size_t size)
 
 	shm_lock();
 	rc = shm_malloc_locked(pp, size);
-	shm_unlock();
+	shm_unlock(current);
 	return rc;
 }
 
@@ -410,7 +433,7 @@ shm_free(void *ptr)
 {
 	shm_lock();
 	shm_free_locked(ptr);
-	shm_unlock();
+	shm_unlock(current);
 }
 
 int
@@ -426,7 +449,7 @@ shm_alloc_pages(void **pp, size_t alignment, size_t size)
 	}
 	shm_lock();
 	rc = shm_alloc_pages_locked(pp, alignment, size);
-	shm_unlock();
+	shm_unlock(current);
 	return rc;
 }
 
@@ -440,5 +463,5 @@ shm_free_pages(void *ptr, size_t size)
 	assert((size & PAGE_MASK) == 0);
 	shm_lock();
 	shm_free_pages_locked(addr, size);
-	shm_unlock();
+	shm_unlock(current);
 }

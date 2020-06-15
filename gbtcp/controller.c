@@ -383,6 +383,7 @@ sysctl_controller_service_attach(struct sysctl_conn *cp, void *udata,
 	for (i = 0; i < ARRAY_SIZE(shm_ih->ih_services); ++i) {
 		s = shm_ih->ih_services + i;
 		if (s->p_pid == 0) {
+			service_shared_init(s);
 			controller_service_add(s, pid, cp);
 			return 0;
 		}
@@ -450,14 +451,12 @@ controller_service_conn_close(struct sysctl_conn *cp)
 	if (s != NULL) {
 		controller_service_check_deadlock(s);
 		controller_service_del(s);
-		service_clean(s);
+		service_shared_deinit(s);
+		s->p_pid = 0;
+		service_store_epoch(s, 0);
+
 	}
 }
-
-/*struct fdesc {
-	u_short fd_fd;
-	u_short fd_pid;
-};*/
 
 static int
 controller_bind(int pid)
@@ -527,10 +526,6 @@ controller_init(int daemonize, const char *service_comm)
 	if (rc) {
 		goto err;
 	}
-	rc = mods_init(shm_ih);
-	if (rc) {
-		goto err;
-	}
 	hz = sleep_compute_hz();
 	set_hz(hz);
 	shm_ih->ih_version = IH_VERSION;
@@ -539,14 +534,17 @@ controller_init(int daemonize, const char *service_comm)
 	sysctl_read_file(1, service_comm);
 	SERVICE_FOREACH(s) {
 		s->p_sid = s - shm_ih->ih_services;
-		mods_service_init(s);
 	}
 	for (i = 0; i < ARRAY_SIZE(shm_ih->ih_rss_table); ++i) {
 		shm_ih->ih_rss_table[i] = -1;
 	}
-	current = shm_ih->ih_services + 0;
+	current = shm_ih->ih_services + CONTROLLER_SID;
 	current->p_pid = pid;
-	rc = service_init("controller");
+	rc = service_shared_init(current);
+	if (rc) {
+		goto err;
+	}
+	rc = service_priv_init("controller");
 	if (rc) {
 		goto err;
 	}
@@ -564,16 +562,11 @@ controller_init(int daemonize, const char *service_comm)
 	return 0;
 err:
 	if (current != NULL) {
+		service_shared_deinit(current);
+		service_priv_deinit();
 		current->p_pid = 0;
 		current = NULL;
 	}
-	if (shm_ih != NULL) {
-		SERVICE_FOREACH(s) {
-			mods_service_deinit(s);
-		}
-		mods_deinit(shm_ih);
-	}
-	service_deinit(0);
 	shm_deinit();
 	sysctl_root_deinit();
 	sys_close(controller_pid_fd);
@@ -588,4 +581,5 @@ controller_loop()
 		wait_for_fd_events();
 		controller_balance();
 	}
+	NOTICE(0, "done;");
 }

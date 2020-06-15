@@ -2,28 +2,32 @@
 #ifndef GBTCP_MBUF_H
 #define GBTCP_MBUF_H
 
-#include "subr.h"
 #include "list.h"
 
-#define MBUF_CHUNKS_MAX 2048
+enum mbuf_area {
+	MBUF_AREA_NONE,
+	MBUF_AREA_POOL,
+	MBUF_AREA_HEAP,
+};
 
 struct mbuf {
 	struct dlist mb_list;
+	uint32_t mb_size;
 	uint16_t mb_magic;
-	u_char mb_sid;
-	u_int mb_used : 1;
-	u_int mb_allocated : 1;
+	u_char mb_freed;
+	u_char mb_area;
 };
 
 struct mbuf_pool {
 	int mbp_mbuf_size;
 	int mbp_mbufs_per_chunk;
-	u_char mbp_id;
 	u_char mbp_sid;
-	struct dlist mbp_avail_chunkq;
-	struct dlist mbp_empty_chunkq;
-	struct mbuf_chunk *mbp_chunks[MBUF_CHUNKS_MAX]; // FIXME: allocate exact size
-	int mbp_nr_chunks;
+	u_char mbp_referenced;
+	struct dlist mbp_avail_chunk_head;
+	struct dlist mbp_not_avail_chunk_head;
+	struct mbuf_chunk **mbp_chunk_map;
+	int mbp_chunk_map_size;
+	int mbp_n_allocated_chunks;
 };
 
 #define MBUF_FOREACH_SAFE(m, p, tmp_id) \
@@ -32,18 +36,16 @@ struct mbuf_pool {
 	     m = mbuf_next(p, tmp_id))
 
 int mbuf_mod_init(void **);
-int mbuf_mod_attach(void *);
 int mbuf_mod_service_init(struct service *);
 void mbuf_mod_deinit();
-void mbuf_mod_detach();
+void mbuf_mod_service_deinit(struct service *);
 
-void mbuf_pool_init(struct mbuf_pool *, u_char, int);
-void mbuf_pool_deinit(struct mbuf_pool *);
-int mbuf_pool_is_empty(struct mbuf_pool *);
+int mbuf_pool_alloc(struct mbuf_pool **, u_char, int, int);
+void mbuf_pool_free(struct mbuf_pool *);
 
 int mbuf_alloc(struct mbuf_pool *, struct mbuf **);
 int mbuf_alloc3(struct mbuf_pool *, uint32_t, struct mbuf **);
-void mbuf_init(struct mbuf *);
+void mbuf_init(struct mbuf *, u_char);
 void mbuf_free(struct mbuf *);
 void mbuf_free_direct(struct mbuf *m);
 void mbuf_free_rcu(struct mbuf *);

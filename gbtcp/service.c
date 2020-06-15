@@ -26,19 +26,6 @@ struct shm_init_hdr *shm_ih;
 struct service *current;
 sigset_t service_sigprocmask;
 
-#define service_load_epoch(s) \
-({ \
-	u_int epoch; \
-	__atomic_load(&(s)->p_epoch, &epoch, __ATOMIC_SEQ_CST); \
-	epoch; \
-})
-
-#define service_store_epoch(s, epoch) \
-do { \
-	u_int tmp = epoch; \
-	__atomic_store(&(s)->p_epoch, &tmp, __ATOMIC_SEQ_CST); \
-} while (0)
-
 static int
 service_read_pipe(int fd)
 {
@@ -223,7 +210,7 @@ service_vale_rxtx(struct dev *dev, short revents)
 }
 
 int
-service_init(const char *p_comm)
+service_priv_init(const char *p_comm)
 {
 	int rc;
 	char buf[NM_IFNAMSIZ];
@@ -239,6 +226,23 @@ service_init(const char *p_comm)
 	memset(service_rcu, 0, sizeof(service_rcu));
 	rc = dev_init(&service_vale, buf, service_vale_rxtx);
 	return rc;
+}
+
+int
+service_shared_init(struct service *s)
+{
+	int i, rc;
+
+	rc = 0;
+	for (i = 1; i < MODS_NUM; ++i) {
+		if (mods[i].mod_service_init != NULL) {
+			rc = (*mods[i].mod_service_init)(s);
+			if (rc) {
+				break;
+			}
+		}
+	}
+	return 0;
 }
 
 struct service *
@@ -305,7 +309,7 @@ service_attach()
 		}
 		goto err;
 	}
-	rc = shm_attach((void **)&shm_ih);
+	rc = shm_attach();
 	if (rc) {
 		goto err;
 	}
@@ -334,7 +338,7 @@ service_attach()
 	if (rc != pid) {
 		goto err;
 	}
-	rc = service_init(p_comm);
+	rc = service_priv_init(p_comm);
 	if (rc) {
 		goto err;
 	}
@@ -349,9 +353,29 @@ err:
 }
 
 void
-service_deinit()
+service_priv_deinit()
 {
-	dev_deinit(&service_vale, 0);
+	dev_deinit(&service_vale);
+}
+
+void
+service_shared_deinit(struct service *s)
+{
+	int i;
+	struct dev *dev;
+	struct route_if *ifp;
+
+	for (i = MODS_NUM - 1; i > 0; --i) {
+		if (mods[i].mod_service_deinit != NULL) {
+			(*mods[i].mod_service_deinit)(s);
+		}
+	}
+	ROUTE_IF_FOREACH(ifp) {
+		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
+			dev = &(ifp->rif_dev[s->p_sid][i]);
+			memset(dev, 0, sizeof(*dev));
+		}
+	}
 }
 
 void
@@ -361,7 +385,7 @@ service_detach(int forked)
 	struct dev *dev;
 	struct route_if *ifp;
 
-	service_deinit(forked);
+	service_priv_deinit(forked);
 	sys_close(service_sysctl_fd);
 	service_sysctl_fd = -1;
 	sys_close(service_pid_fd);
@@ -370,7 +394,7 @@ service_detach(int forked)
 		ROUTE_IF_FOREACH(ifp) {
 			for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
 				dev = &(ifp->rif_dev[current->p_sid][i]);
-				dev_deinit(dev, forked);
+				dev_close_fd(dev);
 			}
 		}
 		current = NULL;
@@ -384,27 +408,6 @@ service_detach(int forked)
 	}
 }
 
-void
-service_clean(struct service *s)
-{
-	int i, tmp_fd;
-	struct dev *dev;
-	struct file *fp;
-	struct route_if *ifp;
-
-	NOTICE(0, "hit; pid=%d", s->p_pid);
-	ROUTE_IF_FOREACH(ifp) {
-		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
-			dev = &(ifp->rif_dev[s->p_sid][i]);
-			dev_clean(dev);
-		}
-	}
-	FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
-		file_clean(fp);
-	}
-	s->p_pid = 0;
-	service_store_epoch(s, 0);
-}
 
 static void
 service_rcu_reload()
@@ -416,7 +419,7 @@ service_rcu_reload()
 	for (i = 0; i < GT_SERVICES_MAX; ++i) {
 		s = shm_ih->ih_services + i;
 		if (s != current) {
-			__atomic_load(&s->p_epoch, service_rcu + i, __ATOMIC_SEQ_CST);
+			service_rcu[i] = service_load_epoch(s);
 			if (service_rcu[i]) {
 				service_rcu_max = i + 1;
 			}
@@ -530,7 +533,7 @@ service_update_dev(struct route_if *ifp, int rss_qid)
 			dev->dev_ifp = ifp;
 		}
 	} else {
-		dev_deinit(dev, 0);
+		dev_deinit(dev);
 	}
 }
 
@@ -547,8 +550,6 @@ service_update()
 	}
 	current->p_dirty = 0;
 }
-
-
 
 int
 service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,

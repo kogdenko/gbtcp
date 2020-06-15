@@ -5,6 +5,7 @@
 struct file_mod {
 	struct log_scope log_scope;
 	int file_first_fd;
+	int file_last_fd;
 };
 
 static void
@@ -21,13 +22,43 @@ static void
 file_aio_call(struct file_aio *aio, short revents)
 {
 	int fd;
-
+	short revents_filtered;
 	file_aio_f fn;
-	fn = aio->faio_fn;
-	fd = aio->faio_fd;
-	DBG(0, "hit; aio=%p, fd=%d, events=%s",
-	    aio, fd, log_add_poll_events(revents));
-	(*fn)(aio, fd, revents);
+
+	revents_filtered = aio->faio_filter & revents;
+	if (revents_filtered) {
+		fn = aio->faio_fn;
+		fd = aio->faio_fd;
+		aio->faio_revents |= revents_filtered;
+		DBG(0, "hit; aio=%p, fd=%d, events=%s",
+		    aio, fd, log_add_poll_events(revents_filtered));
+		if (fn != NULL) {
+			(*fn)(aio, fd, revents_filtered);
+		}
+	}
+}
+
+static int
+sysctl_file_nofile(struct sysctl_conn *cp, void *udata,
+	const char *new, struct strbuf *out)
+{
+	int rc;
+	u_long first_fd, last_fd;
+
+	strbuf_addf(out, "%d,%d", curmod->file_first_fd, curmod->file_last_fd);
+	if (new == NULL) {
+		return 0;
+	}
+	rc = sscanf(new, "%lu,%lu", &first_fd, &last_fd);
+	if (rc != -2 || last_fd <= first_fd) {
+		return -EINVAL;
+	} else if (last_fd > 100*1000000) {
+		return -ERANGE;
+	} else {
+		curmod->file_first_fd = first_fd;
+		curmod->file_last_fd = last_fd;
+		return 0;
+	}
 }
 
 int
@@ -38,8 +69,9 @@ file_mod_init()
 	rc = curmod_init();
 	if (rc == 0) {
 		curmod->file_first_fd = FD_SETSIZE / 2;
-		sysctl_add_int(GT_SYSCTL_FILE_FIRST_FD, SYSCTL_LD,
-			       &curmod->file_first_fd, 3, 1024 * 1024);
+		curmod->file_last_fd = 100000;
+		sysctl_add(GT_SYSCTL_FILE_NOFILE, SYSCTL_WR, NULL,
+		           NULL, sysctl_file_nofile); 
 	}
 	return rc;
 }
@@ -47,21 +79,32 @@ file_mod_init()
 int
 file_mod_service_init(struct service *s)
 {
-	mbuf_pool_init(&s->p_file_pool, s->p_sid, sizeof(struct sock) + sizeof(struct file_aio)); // FIXME:!!!!!!
-	return 0;
+	int rc, size, n;
+
+	size = sizeof(struct sock) + sizeof(struct file_aio); // FIXME:!!!!!!
+	n =  curmod->file_last_fd - curmod->file_first_fd + 1;
+	rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid, size, n);
+	return rc;
 }
 
 void
 file_mod_deinit()
 {
-	sysctl_del(GT_SYSCTL_FILE_FIRST_FD);
+	sysctl_del("file");
 	curmod_deinit();
 }
 
 void
 file_mod_service_deinit(struct service *s)
 {
-	mbuf_pool_deinit(&s->p_file_pool);
+	int tmp_fd;
+	struct file *fp;
+
+	FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
+		file_clean(fp);
+	}
+	mbuf_pool_free(s->p_file_pool);
+	s->p_file_pool = NULL;
 }
 
 int
@@ -85,7 +128,7 @@ file_next(struct service *s, int fd)
 	} else {
 		m_id = fd - curmod->file_first_fd;
 	}
-	m = mbuf_next(&s->p_file_pool, m_id);
+	m = mbuf_next(s->p_file_pool, m_id);
 	fp = (struct file *)m;
 	return fp;
 }
@@ -97,7 +140,7 @@ file_alloc3(struct file **fpp, int fd, int type)
 	struct mbuf_pool *p;
 	struct file *fp;
 
-	p = &current->p_file_pool;
+	p = current->p_file_pool;
 	if (fd == 0) {
 		rc = mbuf_alloc(p, (struct mbuf **)fpp);
 	} else {
@@ -127,7 +170,7 @@ file_get(int fd, struct file **fpp)
 		return -EBADF;
 	}
 	m_id = fd - curmod->file_first_fd;
-	m = mbuf_get(&current->p_file_pool, m_id);
+	m = mbuf_get(current->p_file_pool, m_id);
 	fp = (struct file *)m;
 	if (fp == NULL) {
 		return -EBADF;
@@ -242,54 +285,35 @@ file_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 }
 
 void
-file_wakeup(struct file *fp, short events)
+file_wakeup(struct file *fp, short revents)
 {
-	short revents;
 	struct file_aio *aio, *tmp;
 
-	assert(events);
-	DBG(0, "hit; fd=%d, events=%s",
-	    file_get_fd(fp), log_add_poll_events(events));
+	assert(revents);
+	DBG(0, "hit; fd=%d, revents=%s",
+	    file_get_fd(fp), log_add_poll_events(revents));
 	if (!fp->fl_referenced) {
 		return;
 	}
 	DLIST_FOREACH_SAFE(aio, &fp->fl_aioq, faio_list, tmp) {
 		assert(aio->faio_filter);
-		revents = (events & aio->faio_filter);
-		if (revents) {
-			file_aio_call(aio, revents);
-		}
+		file_aio_call(aio, revents);
 	}
-	assert((events & POLLNVAL) == 0 || dlist_is_empty(&fp->fl_aioq));
-}
-
-struct file_wait_data {
-	struct file_aio w_aio;
-	short w_revents;
-};
-
-static void
-file_handler(struct file_aio *aio, int fd, short revents)
-{
-	struct file_wait_data *data;
-
-	data = container_of(aio, struct file_wait_data, w_aio);
-	data->w_revents = revents;
+	assert((revents & POLLNVAL) == 0 || dlist_is_empty(&fp->fl_aioq));
 }
 
 void
 file_wait(struct file *fp, short events)
 {
-	struct file_wait_data data;
+	struct file_aio aio;
 
-	mbuf_init(&data.w_aio.faio_mbuf);
-	file_aio_init(&data.w_aio);
-	data.w_revents = 0;
-	file_aio_set(fp, &data.w_aio, events, file_handler);
+	mbuf_init(&aio.faio_mbuf, MBUF_AREA_NONE);
+	file_aio_init(&aio);
+	file_aio_set(fp, &aio, events, NULL);
 	do {
 		wait_for_fd_events();
-	} while (data.w_revents == 0);
-	file_aio_cancel(&data.w_aio);
+	} while (aio.faio_revents == 0);
+	file_aio_cancel(&aio);
 }
 
 short
@@ -302,7 +326,6 @@ file_get_events(struct file *fp, struct file_aio *aio)
 	} else {
 		revents = 0;
 	}
-	revents &= aio->faio_filter;
 	DBG(0, "hit; aio=%p, fd=%d, events=%s",
 	    aio, file_get_fd(fp), log_add_poll_events(revents));
 	return revents;
@@ -312,11 +335,7 @@ void
 file_aio_init(struct file_aio *aio)
 {
 	aio->faio_filter = 0;
-}
-
-static void
-file_aio_stub(struct file_aio *aio, int fd, short events)
-{
+	aio->faio_revents = 0;
 }
 
 void
@@ -335,9 +354,6 @@ file_aio_set(struct file *fp, struct file_aio *aio, short events,
 	fd = file_get_fd(fp);
 	aio->faio_fd = fd;
 	aio->faio_fn = fn;
-	if (aio->faio_fn == NULL) {
-		aio->faio_fn = file_aio_stub;
-	}
 	if (aio->faio_filter == 0) {
 		DLIST_INSERT_HEAD(&fp->fl_aioq, aio, faio_list);
 		action = "add";
@@ -364,6 +380,7 @@ file_aio_cancel(struct file_aio *aio)
 		aio->faio_filter = 0;
 		DLIST_REMOVE(aio, faio_list);
 	}
+	aio->faio_revents = 0;
 }
 
 int

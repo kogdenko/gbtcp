@@ -1,4 +1,4 @@
-/* GPL2 license */
+// gpl2 license 
 #include "internals.h"
 
 struct lptree_node {
@@ -10,7 +10,7 @@ struct lptree_node {
 };
 
 #define IS_LPTREE_NODE(tree, m) \
-	(mbuf_get_pool(m) == &(tree)->lpt_pool)
+	(mbuf_get_pool(m) == (tree)->lpt_node_pool)
 
 static void
 lptree_node_init(struct lptree_node *node, struct lptree_node *parent)
@@ -27,7 +27,7 @@ lptree_node_alloc(struct lptree *tree, struct lptree_node *parent,
 {
 	int rc;
 
-	rc = mbuf_alloc(&tree->lpt_pool, (struct mbuf **)pnode);
+	rc = mbuf_alloc(tree->lpt_node_pool, (struct mbuf **)pnode);
 	if (!rc) {
 		lptree_node_init(*pnode, parent);
 	}
@@ -57,11 +57,15 @@ lptree_node_free(struct lptree_node *node)
 	mbuf_free(&node->lpn_mbuf);
 }
 
-void
+int
 lptree_init(struct lptree *tree)
 {
-	mbuf_pool_init(&tree->lpt_pool, 0, sizeof(struct lptree_node));
+	int rc;
+
 	tree->lpt_root = NULL;
+	rc = mbuf_pool_alloc(&tree->lpt_node_pool, CONTROLLER_SID,
+	                     sizeof(struct lptree_node), 0);
+	return rc;
 }
 
 void
@@ -72,7 +76,8 @@ lptree_deinit(struct lptree *tree)
 		lptree_node_free(tree->lpt_root);
 		tree->lpt_root = NULL;
 	}
-	mbuf_pool_deinit(&tree->lpt_pool);
+	mbuf_pool_free(tree->lpt_node_pool);
+	tree->lpt_node_pool = NULL;
 }
 
 struct lptree_rule *

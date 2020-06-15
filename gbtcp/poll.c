@@ -50,7 +50,7 @@ u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 		if (rc == 0) {
 			// gbtcp fd
 			fd = -1;
-			mbuf_init(&e->pe_mbuf);
+			mbuf_init(&e->pe_mbuf, MBUF_AREA_NONE);
 			file_aio_init(&e->pe_aio);
 			e->pe_n_triggered = &n_triggered;
 			file_aio_set(&so->so_file, &e->pe_aio,

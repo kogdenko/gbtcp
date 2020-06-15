@@ -340,7 +340,7 @@ route_add(struct route_entry *a)
 		rc = -EEXIST;
 		goto out;
 	}
-	rc = mbuf_alloc(&curmod->route_pool, (struct mbuf **)&route);
+	rc = mbuf_alloc(curmod->route_pool, (struct mbuf **)&route);
 	if (rc) {
 		goto out;
 	}
@@ -660,7 +660,7 @@ sysctl_route_list_next(void *udata, const char *ident, struct strbuf *out)
 	} else {
 		id = strtoul(ident, NULL, 10) + 1;
 	}
-	m = mbuf_next(&curmod->route_pool, id);
+	m = mbuf_next(curmod->route_pool, id);
 	if (m == NULL) {
 		return -ENOENT;
 	} else {
@@ -680,7 +680,7 @@ sysctl_route_list(void *udata, const char *ident, const char *new,
 	struct route_entry_long *route;
 
 	id = strtoul(ident, NULL, 10);
-	m = mbuf_get(&curmod->route_pool, id);
+	m = mbuf_get(curmod->route_pool, id);
 	route = (struct route_entry_long *)m;
 	if (route == NULL) {
 		return -ENOENT;
@@ -707,13 +707,18 @@ route_mod_init()
 	curmod->route_default = NULL;
 	dlist_init(&curmod->route_if_head);
 	dlist_init(&curmod->route_addr_head);
-	lptree_init(&curmod->route_lptree);
-	mbuf_pool_init(&curmod->route_pool, 0,
-	               sizeof(struct route_entry_long));
+	rc = mbuf_pool_alloc(&curmod->route_pool, CONTROLLER_SID,
+	                      sizeof(struct route_entry_long), 10000);
+	if (rc) {
+		goto err;
+	}
+	rc = lptree_init(&curmod->route_lptree);
+	if (rc) {
+		goto err;
+	}
 	rc = route_monitor_start();
 	if (rc) {
-		route_mod_deinit(curmod);
-		return rc;
+		goto err;
 	}
 	sysctl_add_list(GT_SYSCTL_ROUTE_IF_LIST, SYSCTL_WR, NULL,
 	                sysctl_route_if_list_next,
@@ -729,6 +734,9 @@ route_mod_init()
 	                sysctl_route_list_next,
 	                sysctl_route_list);
 	return 0;
+err:
+	route_mod_deinit(curmod);
+	return rc;
 }
 
 void
@@ -737,6 +745,8 @@ route_mod_deinit()
 	sysctl_del(GT_SYSCTL_ROUTE);
 	route_monitor_stop();
 	lptree_deinit(&curmod->route_lptree);
+	mbuf_pool_free(curmod->route_pool);
+	curmod->route_pool = NULL;	
 	curmod_deinit();
 }
 

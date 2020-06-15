@@ -75,7 +75,7 @@ arp_entry_add_incomplete(struct arp_entry *e, struct dev_pkt *pkt)
 		e->ae_incomplete_q = NULL;
 		arps.arps_dropped++;
 	} else {
-		rc = mbuf_alloc(&current->p_arp_incomplete_pool,
+		rc = mbuf_alloc(current->p_arp_incomplete_pool,
 		                (struct mbuf **)&cp);
 		if (rc) {
 			arps.arps_dropped++;
@@ -283,10 +283,19 @@ arp_mod_init()
 int
 arp_mod_service_init(struct service *s)
 {
-	mbuf_pool_init(&s->p_arp_entry_pool, s->p_sid,
-	               sizeof(struct arp_entry));
-	mbuf_pool_init(&s->p_arp_incomplete_pool, s->p_sid, DEV_PKT_SIZE_MAX);
-	return 0;
+	int rc;
+
+	rc = mbuf_pool_alloc(&s->p_arp_entry_pool, s->p_sid,
+	                     sizeof(struct arp_entry), 0);
+	if (rc) {
+		return rc;
+	}
+	rc = mbuf_pool_alloc(&s->p_arp_incomplete_pool, s->p_sid,
+	                     DEV_PKT_SIZE_MAX, 0);
+	if (rc) {
+		arp_mod_service_deinit(s);
+	}
+	return rc;
 }
 
 void
@@ -301,9 +310,10 @@ arp_mod_deinit()
 void
 arp_mod_service_deinit(struct service *s)
 {
-	mbuf_pool_deinit(&s->p_arp_entry_pool);
-	mbuf_pool_deinit(&s->p_arp_incomplete_pool);
-
+	mbuf_pool_free(s->p_arp_entry_pool);
+	s->p_arp_entry_pool = NULL;
+	mbuf_pool_free(s->p_arp_incomplete_pool);
+	s->p_arp_incomplete_pool = NULL;
 }
 
 static inline void
@@ -328,7 +338,7 @@ arp_entry_alloc(struct arp_entry **ep, be32_t next_hop)
 	struct arp_entry *e;
 	struct htable_bucket *b;
 
-	rc = mbuf_alloc(&current->p_arp_entry_pool, (struct mbuf **)ep);
+	rc = mbuf_alloc(current->p_arp_entry_pool, (struct mbuf **)ep);
 	if (rc) {
 		return rc;
 	}

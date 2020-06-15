@@ -155,7 +155,7 @@ static void sock_sndbuf_drain(struct sock *, int);
 
 static int sysctl_tcp_fin_timeout(const long long *new, long long *old);
 
-#define GT_SOCK_ALIVE(so) ((so)->so_file.fl_mbuf.mb_used)
+#define GT_SOCK_ALIVE(so) ((so)->so_file.fl_mbuf.mb_freed == 0)
 
 #define GT_TCP_FLAG_ADD(val, name) \
 	if (tcp_flags & val) { \
@@ -272,8 +272,11 @@ tcp_mod_init()
 int
 tcp_mod_service_init(struct service *s)
 {
-	mbuf_pool_init(&s->p_sockbuf_pool, s->p_sid, SOCKBUF_CHUNK_SIZE);
-	return 0;
+	int rc;
+
+	rc = mbuf_pool_alloc(&s->p_sockbuf_pool, s->p_sid,
+	                     SOCKBUF_CHUNK_SIZE, 0);
+	return rc;
 }
 
 void
@@ -281,7 +284,8 @@ tcp_mod_deinit()
 {
 	sysctl_del(GT_SYSCTL_SOCKET);
 	sysctl_del(GT_SYSCTL_TCP);
-	mbuf_pool_deinit(&current->p_sockbuf_pool);
+	mbuf_pool_free(current->p_sockbuf_pool);
+	current->p_sockbuf_pool = NULL;
 	htable_deinit(&curmod->attached);
 	curmod_deinit();
 }
@@ -661,7 +665,7 @@ void
 so_close(struct sock *so)
 {
 	so->so_referenced = 0;
-	// so_close can be called from controller (service_clean)
+	// so_close can be called from controller
 	so->so_sid = current->p_sid;
 	switch (so->so_state) {
 	case GT_TCPS_CLOSED:
@@ -2514,7 +2518,7 @@ so_rcvbuf_add(struct sock *so, void *buf, int len/*, be32_t faddr, be16_t fport*
 {
 	int rc;
 
-	rc = sockbuf_add(&current->p_sockbuf_pool, &so->so_rcvbuf, buf, len);
+	rc = sockbuf_add(current->p_sockbuf_pool, &so->so_rcvbuf, buf, len);
 	return rc;
 
 
@@ -2613,7 +2617,7 @@ sock_sndbuf_add(struct sock *so, const void *src, int cnt)
 {
 	int rc;
 
-	rc = sockbuf_add(&current->p_sockbuf_pool,
+	rc = sockbuf_add(current->p_sockbuf_pool,
 	                 &so->so_sndbuf, src, cnt);
 	DBG(0, "hit; cnt=%d, buflen=%d, fd=%d",
 	    cnt, so->so_sndbuf.sob_len, so_get_fd(so));

@@ -18,7 +18,7 @@
 struct route_mod {
 	struct log_scope log_scope;
 	struct lptree route_lptree;
-	struct mbuf_pool route_pool;
+	struct mbuf_pool *route_pool;
 	struct dlist route_if_head;
 	struct route_entry_long *route_default;
 	struct dlist route_addr_head;

@@ -37,7 +37,7 @@
 #define GT_SERVICES_MAX 128
 #define GT_GROUP_NAME "gbtcp"
 
-#define GT_SYSCTL_FILE_FIRST_FD "file.first_fd"
+#define GT_SYSCTL_FILE_NOFILE "file.nofile"
 #define GT_SYSCTL_ROUTE "route"
 #define GT_SYSCTL_ROUTE_RSS_QID "route.rss.qid"
 #define GT_SYSCTL_ROUTE_IF_LIST "route.if.list"

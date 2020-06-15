@@ -88,24 +88,23 @@ dev_init(struct dev *dev, const char *ifname, dev_f dev_fn)
 }
 
 void
-dev_deinit(struct dev *dev, int forked)
+dev_deinit(struct dev *dev)
 {
 	if (dev_is_inited(dev)) {
-		if (forked) {
-			sys_close(dev->dev_nmd->fd);
-		} else {
-			fd_event_del(dev->dev_event);
-			dev->dev_event = NULL;
-			dev_nm_close(dev);
-			dev->dev_fn = NULL;
-		}
+		fd_event_del(dev->dev_event);
+		dev->dev_event = NULL;
+		dev_nm_close(dev);
+		dev->dev_fn = NULL;
 	}
 }
 
 void
-dev_clean(struct dev *dev)
+dev_close_fd(struct dev *dev)
 {
-	dev->dev_fn = NULL;
+	if (dev->dev_nmd != NULL) {
+		sys_close(dev->dev_nmd->fd);
+		dev->dev_nmd = NULL;
+	}
 }
 
 void

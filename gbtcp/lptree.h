@@ -20,7 +20,7 @@ struct lptree_rule {
 
 struct lptree {
 	struct lptree_node *lpt_root;
-	struct mbuf_pool lpt_pool;
+	struct mbuf_pool *lpt_node_pool;
 };
 
 int lptree_mod_init(void **);
@@ -28,7 +28,7 @@ int lptree_mod_attach(void *);
 void lptree_mod_deinit(void *);
 void lptree_mod_detach();
 
-void lptree_init(struct lptree *);
+int lptree_init(struct lptree *);
 void lptree_deinit(struct lptree *);
 struct lptree_rule *lptree_search(struct lptree *, uint32_t);
 void lptree_del(struct lptree *, struct lptree_rule *);

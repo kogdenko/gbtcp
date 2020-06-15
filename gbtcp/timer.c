@@ -113,12 +113,16 @@ static void
 call_timers(struct dlist *queue)
 {
 	struct timer *timer;
+	void (*fn)(struct timer *, u_char);
 
 	while (!dlist_is_empty(queue)) {
 		timer = DLIST_FIRST(queue, struct timer, tm_list);
 		DLIST_REMOVE(timer, tm_list);
 		timer->tm_ring_id = TIMER_RING_POISON;
-		mod_timer_handler(timer, timer->tm_mod_id, timer->tm_fn_id);
+		assert(timer->tm_mod_id < MODS_NUM);
+		fn = mods[timer->tm_mod_id].mod_timer_handler;
+		assert(fn != NULL);
+		(*fn)(timer, timer->tm_fn_id);
 	}
 }
 

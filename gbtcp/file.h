@@ -20,6 +20,7 @@ struct file_aio {
 	file_aio_f faio_fn;
 	int faio_fd;
 	short faio_filter;
+	short faio_revents;
 };
 
 struct file {

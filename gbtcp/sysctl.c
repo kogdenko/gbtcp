@@ -1097,5 +1097,5 @@ gt_sysctl(const char *path, char *old, const char *new)
 	} else {
 		INFO(0, "ok");
 	}
-	API_RETURN(rc);
+	GT_RETURN(rc);
 }

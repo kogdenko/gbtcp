@@ -76,8 +76,8 @@ void dev_mod_deinit(void *);
 void dev_mod_detach();
 
 int dev_init(struct dev *, const char *, dev_f);
-void dev_deinit(struct dev *, int);
-void dev_clean(struct dev *);
+void dev_deinit(struct dev *);
+void dev_close_fd(struct dev *);
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);
 int dev_not_empty_txr(struct dev *, struct dev_pkt *);
