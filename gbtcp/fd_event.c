@@ -4,8 +4,8 @@
 #define CURMOD fd_event
 
 // System should periodically RX netmap devices or packets would be lost
-#define FD_EVENT_TIMEOUT_MIN (20 * NANOSECONDS_MICROSECOND)
-#define FD_EVENT_TIMEOUT_MAX (60 * NANOSECONDS_MICROSECOND) 
+#define FD_EVENT_TIMEOUT_MIN (20 * NSEC_USEC)
+#define FD_EVENT_TIMEOUT_MAX (60 * NSEC_USEC) 
 
 int fd_poll_epoch;
 
@@ -53,7 +53,7 @@ wait_for_fd_events2(int force, uint64_t to)
 			fd_event_timeout = FD_EVENT_TIMEOUT_MIN;
 		}
 	} else if (fd_event_timeout < FD_EVENT_TIMEOUT_MAX) {
-		fd_event_timeout += NANOSECONDS_MICROSECOND;
+		fd_event_timeout += NSEC_USEC;
 	}
 }
 

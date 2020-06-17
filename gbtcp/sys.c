@@ -639,47 +639,47 @@ sys_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 }
 
 int
-sys_malloc(void **pp, size_t size)
+sys_malloc(const char *name, void **pp, size_t size)
 {
 	*pp = malloc(size);
 	if (*pp == NULL) {
-		ERR(0, "failed; size=%zu", size);
+		ERR(0, "failed; name='%s', size=%zu", name, size);
 		return -ENOMEM;
 	} else {
-		INFO(0, "ok; size=%zu, ptr=%p", size, *pp);
+		INFO(0, "ok; name='%s', size=%zu, ptr=%p", name, size, *pp);
 	}
 	return 0;
 }
 
 int
-sys_realloc(void **pp, size_t size)
+sys_realloc(const char *name, void **pp, size_t size)
 {
 	void *newptr;
 
 	newptr = realloc(*pp, size);
 	if (newptr == NULL) {
-		ERR(0, "failed; size=%zu", size);
+		ERR(0, "failed; name='%s', size=%zu", name, size);
 		return -ENOMEM;
 	} else {
-		INFO(0, "ok; size=%zu, oldptr=%p, newptr=%p",
-		     size, *pp, newptr);
+		INFO(0, "ok; name='%s', size=%zu, oldptr=%p, newptr=%p",
+		     name, size, *pp, newptr);
 	}
 	*pp = newptr;
 	return 0;
 }
 
 int
-sys_posix_memalign(void **memptr, size_t alignment, size_t size)
+sys_posix_memalign(const char *name, void **memptr,
+	size_t alignment, size_t size)
 {
 	int rc;
 
 	rc = posix_memalign(memptr, alignment, size);
 	if (rc) {
-		ERR(0, "failed; alignment=%zu, size=%zu",
-		    alignment, size);
+		ERR(0, "failed; name='%s', size=%zu", name, size);
 	} else {
-		INFO(0, "ok; alignment=%zu, size=%zu, ptr=%p",
-		     alignment, size, *memptr);
+		INFO(0, "ok; name='%s', size=%zu, ptr=%p",
+		     name, size, *memptr);
 	}
 	return -rc;
 }

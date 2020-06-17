@@ -1,11 +1,7 @@
 // gpl2 license
 #include "internals.h"
 
-#ifdef NDEBUG
 #define LOG_LEVEL_DEFAULT LOG_NOTICE
-#else // NDEBUG
-#define LOG_LEVEL_DEFAULT LOG_DEBUG
-#endif // NDEBUG
 
 #define CURMOD log
 
@@ -16,7 +12,6 @@ struct log_mod {
 
 static char log_buf[LOG_BUFSIZ];
 static struct strbuf log_sb;
-static int log_early_level_set;
 static int log_early_level = LOG_LEVEL_DEFAULT;
 static char ident_buf[SERVICE_COMM_MAX + 7];
 static const char *ident;
@@ -37,72 +32,6 @@ log_init_early(const char *comm, u_int log_level)
 	openlog(ident, LOG_PID, LOG_DAEMON);
 }
 
-static const char *
-log_level_str(int level)
-{
-	switch (level) {
-	case LOG_EMERG: return "EMERG";
-	case LOG_ALERT: return "ALERT";
-	case LOG_CRIT: return "CRIT";
-	case LOG_ERR: return "ERR";
-	case LOG_WARNING: return "WARNING";
-	case LOG_NOTICE: return "NOTICE";
-	case LOG_INFO: return "INFO";
-	case LOG_DEBUG: return "DEBUG";
-	default: return NULL;
-	}
-}
-
-static int
-sysctl_log_level(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *out)
-{
-	u_long level;
-	char *endptr;
-	const char *s;
-
-	s = log_level_str(curmod->log_level);
-	if (s == NULL) {
-		strbuf_addf(out, "%d", curmod->log_level);
-	} else {
-		strbuf_add_str(out, s);
-	}
-	if (new == NULL) {
-		return 0;
-	}
-	level = strtoul(new, &endptr, 10);
-	if (*endptr == '\0') {
-		if (level > LOG_DEBUG) {
-			return -EINVAL;
-		}
-	} else if (!strcasecmp(new, "EMERG")) {
-		level = LOG_EMERG;
-	} else if (!strcasecmp(new, "ALERT")) {
-		level = LOG_ALERT;
-	} else if (!strcasecmp(new, "CRIT")) {
-		level = LOG_CRIT;
-	} else if (!strcasecmp(new, "ERR") ||
-	           !strcasecmp(new, "E")) {
-		level = LOG_ERR;
-	} else if (!strcasecmp(new, "WARNING") ||
-	           !strcasecmp(new, "W")) {
-		level = LOG_WARNING;
-	} else if (!strcasecmp(new, "NOTICE") ||
-	           !strcasecmp(new, "N")) {
-		level = LOG_NOTICE;
-	} else if (!strcasecmp(new, "INFO") ||
-	           !strcasecmp(new, "I")) {
-		level = LOG_INFO;
-	} else if (!strcasecmp(new, "DEBUG") ||
-	           !strcasecmp(new, "D")) {
-		level = LOG_DEBUG;
-	} else {
-		return -EINVAL;
-	}
-	*((int *)udata) = level;
-	return 0;
-}
-
 int
 log_mod_init(void **pp)
 {
@@ -112,21 +41,10 @@ log_mod_init(void **pp)
 	if (rc) {
 		return rc;
 	}
-	if (log_early_level_set) {
-		curmod->log_level = log_early_level;
-	} else {
-		curmod->log_level = LOG_NOTICE;
-	}
-	sysctl_add("log.level", SYSCTL_WR, &curmod->log_level,
-	           NULL, sysctl_log_level); 
+	curmod->log_level = log_early_level;
+	sysctl_add_int("log.level", SYSCTL_WR, &curmod->log_level,
+	               LOG_EMERG, LOG_DEBUG); 
 	return 0;
-}
-
-void
-log_mod_deinit()
-{
-	sysctl_del("log");
-	curmod_deinit();
 }
 
 void
@@ -140,8 +58,8 @@ log_scope_init(struct log_scope *scope, const char *name)
 	scope->lgs_name_len = strlen(scope->lgs_name);
 	assert(scope->lgs_name_len);
 	snprintf(path, sizeof(path), "log.scope.%s.level", name);
-	sysctl_add(path, SYSCTL_WR, &scope->lgs_level,
-	           NULL, sysctl_log_level);
+	sysctl_add_int(path, SYSCTL_WR, &scope->lgs_level,
+	               LOG_EMERG, LOG_DEBUG);
 }
 
 void
@@ -158,7 +76,6 @@ log_set_level(int level)
 {
 	if (mod_get(MOD_log) == NULL) {
 		log_early_level = level;
-		log_early_level_set = 1;
 	} else {
 		curmod->log_level = level;
 	}

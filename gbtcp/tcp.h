@@ -81,7 +81,7 @@ struct sock {
 			int so_acceptq_len;
 		};
 	};
-	struct sock *so_listen;
+	struct sock *so_acceptor;
 	struct sockbuf so_rcvbuf;
 	union {
 		struct sockbuf so_sndbuf; // TCP
@@ -96,10 +96,11 @@ struct sock {
 		        so_binded_list)
 
 int tcp_mod_init();
-int tcp_mod_service_init(struct service *);
 void tcp_mod_deinit();
-void tcp_mod_service_deinit(struct service *);
-void tcp_mod_timer_handler(struct timer *, u_char);
+void tcp_mod_timer(struct timer *, u_char);
+
+int service_init_tcp(struct service *);
+void service_deinit_tcp(struct service *);
 
 int so_get(int, struct sock **);
 int so_get_fd(struct sock *);

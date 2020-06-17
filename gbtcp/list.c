@@ -70,14 +70,16 @@ dlist_insert_before(struct dlist *l, struct dlist *b)
 {
 	l->dls_next = b;
 	l->dls_prev = b->dls_prev;
+	b->dls_prev->dls_next = l;
 	b->dls_prev = l;
 }
 
 void
 dlist_insert_after(struct dlist *a, struct dlist *l)
 {
-	l->dls_next = a->dls_next;
 	l->dls_prev = a;
+	l->dls_next = a->dls_next;
+	a->dls_next->dls_prev = l;
 	a->dls_next = l;
 }
 

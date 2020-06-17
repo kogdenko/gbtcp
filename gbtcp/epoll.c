@@ -335,7 +335,7 @@ u_epoll_create(int ep_fd)
 		file_free(fp);
 		return rc;
 	}
-	rc = mbuf_pool_alloc(&ep->ep_pool, current->p_sid,
+	rc = mbuf_pool_alloc(&ep->ep_pool, current->p_sid, "epoll.pool",
 	                     sizeof(struct u_epoll_event), 0);
 	if (rc) {
 		file_free(fp);

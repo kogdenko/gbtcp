@@ -51,9 +51,9 @@ struct file {
 extern int file_sizeof;
 
 int file_mod_init();
-int file_mod_service_init(struct service *);
-void file_mod_deinit();
-void file_mod_service_deinit(struct service *);
+
+int service_init_file(struct service *);
+void service_deinit_file(struct service *);
 
 struct file *file_next(struct service *, int);
 int file_alloc3(struct file **, int, int);

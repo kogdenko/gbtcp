@@ -14,40 +14,8 @@ htable_bucket_init(struct htable_bucket *b)
 	spinlock_init(&b->htb_lock);
 }
 
-int
-htable_init(struct htable *t, int size, htable_f fn, int flags)
-{
-	int i, rc;
-	malloc_f malloc_fn;
-
-	if (flags & HTABLE_POWOF2) {
-		t->ht_size = upper_pow2_32(size);
-		t->ht_mask = t->ht_size - 1;
-	} else {
-		t->ht_size = size;
-		t->ht_mask = 0;
-	}
-	t->ht_flags = flags;
-	t->ht_fn = fn;
-	t->ht_sysctl_fn = NULL;
-	if (flags & HTABLE_SHARED) {
-		malloc_fn = shm_malloc;
-	} else {
-		malloc_fn = sys_malloc;
-	}
-	rc = (*malloc_fn)((void **)&t->ht_array,
-	                  t->ht_size * sizeof(struct htable_bucket));
-	if (rc) {
-		return rc;
-	}
-	for (i = 0; i < t->ht_size; ++i) {
-		htable_bucket_init(t->ht_array + i);
-	}
-	return 0;
-}
-
-void
-htable_deinit(struct htable *t)
+static void
+htable_free_array(struct htable *t)
 {
 	free_f free_fn;
 
@@ -58,6 +26,62 @@ htable_deinit(struct htable *t)
 	}
 	(*free_fn)(t->ht_array);
 	t->ht_array = NULL;
+}
+
+static int
+htable_resize(struct htable *t, int size)
+{
+	int i, rc;
+	void *ptr;
+	int new_size, new_mask; 
+	malloc_f malloc_fn;
+
+	if (t->ht_flags & HTABLE_POWOF2) {
+		new_size = upper_pow2_32(size);
+		new_mask = new_size - 1;
+	} else {
+		new_size = size;
+		new_mask = 0;
+	}
+	if (t->ht_flags & HTABLE_SHARED) {
+		malloc_fn = shm_malloc;
+	} else {
+		malloc_fn = sys_malloc;
+	}
+	rc = (*malloc_fn)(t->ht_name, &ptr,
+	                  new_size * sizeof(struct htable_bucket));
+	if (rc) {
+		return rc;
+	}
+	htable_free_array(t);
+	t->ht_array = ptr;
+	t->ht_size = new_size;
+	t->ht_mask = new_mask;
+	for (i = 0; i < t->ht_size; ++i) {
+		htable_bucket_init(t->ht_array + i);
+	}
+	return 0;
+}
+
+int
+htable_init(struct htable *t, const char *name,
+	int size, htable_f fn, int flags)
+{
+	int rc;
+
+	t->ht_flags = flags;
+	t->ht_fn = fn;
+	t->ht_name = name;
+	t->ht_array = NULL;
+	t->ht_sysctl_fn = NULL;
+	rc = htable_resize(t, size);
+	return rc; 
+}
+
+void
+htable_deinit(struct htable *t)
+{
+	htable_free_array(t);
 }
 
 struct htable_bucket *
@@ -79,7 +103,7 @@ sysctl_htable_size(struct sysctl_conn *cp, void *udata,
 {
 	int rc, new_size;
 	char *endptr;
-	struct htable *t, new_t;
+	struct htable *t;
 
 	t = udata;
 	strbuf_addf(out, "%d", t->ht_size);
@@ -93,13 +117,8 @@ sysctl_htable_size(struct sysctl_conn *cp, void *udata,
 	if (new_size == t->ht_size) {
 		return 0;
 	}
-	rc = htable_init(&new_t, new_size, t->ht_fn, t->ht_flags);
-	if (rc) {
-		return rc;
-	}
-	htable_deinit(t);
-	*t = new_t;
-	return 0;
+	rc = htable_resize(t, new_size);
+	return rc;
 }
 
 static int
@@ -119,6 +138,7 @@ sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 		}
 	}
 	t = (struct htable *)udata;
+	assert(t->ht_sysctl_fn != NULL);
 	for (; id.hi < t->ht_size; ++id.hi) {
 		b = t->ht_array + id.hi;
 		lo = 0;
@@ -152,6 +172,7 @@ sysctl_htable_list(void *udata, const char *ident,
 		return -EPROTO;
 	}
 	t = (struct htable *)udata;
+	assert(t->ht_sysctl_fn != NULL);
 	if (id.hi >= t->ht_size) {
 		return -ENOENT;
 	}

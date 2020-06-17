@@ -41,6 +41,9 @@ void dlist_splice_tail_init(struct dlist *, struct dlist *);
 #define DLIST_LAST(head, type, field) \
 	container_of((head)->dls_prev, type, field)
 
+#define DLIST_PREV(var, field) \
+	container_of((var)->field.dls_prev, __typeof__(*(var)), field)
+
 #define DLIST_NEXT(var, field) \
 	container_of((var)->field.dls_next, __typeof__(*(var)), field)
 
@@ -51,7 +54,7 @@ void dlist_splice_tail_init(struct dlist *, struct dlist *);
 	dlist_insert_tail(head, &((var)->field))
 
 #define DLIST_INSERT_BEFORE(var, bvar, field) \
-	dlist_insert_before( &((var)->field), &((bvar)->field))
+	dlist_insert_before(&((var)->field), &((bvar)->field))
 
 #define DLIST_INSERT_AFTER(avar, var, field) \
 	dlist_insert_after(&((avar)->field), &((var)->field))

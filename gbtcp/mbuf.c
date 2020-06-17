@@ -1,3 +1,4 @@
+// gpl2
 #include "internals.h"
 
 #define CURMOD mbuf
@@ -5,7 +6,7 @@
 #define MBUF_MAGIC 0xcafe
 
 #define MBUF_CHUNK_SIZE (2 * 1024 * 1024)
-#define MBUF_CHUNK_DATA_SIZE  (MBUF_CHUNK_SIZE - sizeof(struct mbuf_chunk))
+#define MBUF_CHUNK_DATA_SIZE (MBUF_CHUNK_SIZE - sizeof(struct mbuf_chunk))
 
 struct mbuf_chunk {
 	struct dlist mbc_list;
@@ -17,25 +18,6 @@ struct mbuf_chunk {
 
 #define MBUF_GET(p, chunk, i) \
 	(struct mbuf *)(((u_char *)(chunk + 1)) + (i) * (p)->mbp_mbuf_size)
-
-int
-mbuf_mod_service_init(struct service *s)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(s->p_mbuf_free_indirect_head); ++i) {
-		dlist_init(s->p_mbuf_free_indirect_head + i);
-	}
-	return 0;
-}
-
-void
-mbuf_mod_service_deinit(struct service *s)
-{
-	shm_lock();
-	shm_unlock(s); // clean mbuf_free_indirect
-	assert(s->p_mbuf_free_indirect_n == 0);
-}
 
 static struct mbuf_chunk *
 mbuf_get_chunk(struct mbuf *m)
@@ -66,7 +48,7 @@ mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 	    p->mbp_n_allocated_chunks == p->mbp_chunk_map_size) {
 		return -ENOMEM;
 	}
-	rc = shm_alloc_pages((void **)pchunk,
+	rc = shm_alloc_pages(p->mbp_name, (void **)pchunk,
 	                     MBUF_CHUNK_SIZE, MBUF_CHUNK_SIZE);
 	if (rc) {
 		return rc;
@@ -87,12 +69,6 @@ mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 	return 0;
 }
 
-/*static int
-mbuf_chunk_is_empty(struct mbuf_pool *p, struct mbuf_chunk *chunk)
-{
-	return chunk->mbc_n_avail_mbufs == p->mbp_mbufs_per_chunk;
-}*/
-
 static int
 mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 {
@@ -106,7 +82,7 @@ mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 		shm_free_pages(chunk, MBUF_CHUNK_SIZE);
 		p->mbp_n_allocated_chunks--;
 		if (p->mbp_n_allocated_chunks == 0) {
-			shm_free(p);
+			mbuf_pool_free(p);
 			return -EINVAL;
 		}
 	}
@@ -114,8 +90,8 @@ mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 }
 
 int
-mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, int mbuf_size,
-	int n_mbufs_max)
+mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, const char *name,
+	int mbuf_size, int n_mbufs_max)
 {
 	int rc, size, mbuf_size_align, mbufs_per_chunk, chunk_map_size;
 	struct mbuf_pool *p;
@@ -129,13 +105,14 @@ mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, int mbuf_size,
 		chunk_map_size++;
 	}
 	size = sizeof(*p) + chunk_map_size * sizeof(struct mbuf_chunk *);
-	rc = shm_malloc((void **)pp, size);
+	rc = shm_malloc(name, (void **)pp, size);
 	if (rc) {
 		return rc;
 	}
 	p = *pp;
 	memset(p, 0, size);
 	p->mbp_sid = sid;
+	p->mbp_name = name;
 	p->mbp_referenced = 1;
 	p->mbp_mbuf_size = mbuf_size_align;
 	p->mbp_mbufs_per_chunk = mbufs_per_chunk;
@@ -145,6 +122,7 @@ mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, int mbuf_size,
 	if (p->mbp_chunk_map_size) {
 		p->mbp_chunk_map = (struct mbuf_chunk **)(p + 1);
 	}
+	INFO(0, "ok; pool=%p, name='%s'", p, name);
 	return 0;
 }
 
@@ -158,6 +136,11 @@ mbuf_pool_free(struct mbuf_pool *p)
 		return;
 	}
 	p->mbp_referenced = 0;
+	if (p->mbp_n_allocated_chunks == 0) {
+		INFO(0, "ok; pool=%p, name='%s'", p, p->mbp_name);
+		shm_free(p);
+		return;
+	}
 	DLIST_FOREACH_SAFE(chunk, &p->mbp_avail_chunk_head, mbc_list, tmp) {
 		if (chunk->mbc_n_mbufs == p->mbp_mbufs_per_chunk) {
 			rc = mbuf_chunk_free(p, chunk);
@@ -180,10 +163,12 @@ mbuf_alloc2(struct mbuf *m, struct mbuf_chunk *chunk)
 	chunk->mbc_n_mbufs--;
 	if (chunk->mbc_n_mbufs == 0) {
 		DLIST_REMOVE(chunk, mbc_list);
-		DLIST_INSERT_HEAD(&p->mbp_not_avail_chunk_head, chunk, mbc_list);
+		DLIST_INSERT_HEAD(&p->mbp_not_avail_chunk_head,
+		                  chunk, mbc_list);
 	}
 	WRITE_ONCE(m->mb_freed, 0);
-	DBG(0, "ok; m=%p, c=%p, n=%d", m, chunk, chunk->mbc_n_mbufs);
+	DBG(0, "ok; m=%p, c=%p, pool=%p, n=%d",
+	    m, chunk, p, chunk->mbc_n_mbufs);
 }
 
 int
@@ -254,16 +239,19 @@ mbuf_alloc3(struct mbuf_pool *p, uint32_t m_id, struct mbuf **mp)
 }
 
 static void
-mbuf_free_indirect(struct mbuf *m)
+mbuf_free_garbage(struct mbuf *m)
 {
 	struct dlist *head;
 	struct mbuf_pool *p;
 
 	p = mbuf_get_pool(m);
-	DBG(0, "hit; m=%p, sid=%d->%d", m, current->p_sid, p->mbp_sid);
-	current->p_mbuf_free_indirect_n++;
+	DBG(0, "hit; m=%p, pool=%p, sid=%d->%d",
+	    m, p, current->p_sid, p->mbp_sid);
 	assert(p->mbp_sid < GT_SERVICES_MAX);
-	head = current->p_mbuf_free_indirect_head + p->mbp_sid;
+	if (current->p_mbuf_garbage_max < p->mbp_sid + 1) {
+		current->p_mbuf_garbage_max = p->mbp_sid + 1;
+	}
+	head = current->p_mbuf_garbage_head + p->mbp_sid;
 	DLIST_INSERT_TAIL(head, m, mb_list);
 }
 
@@ -274,8 +262,9 @@ mbuf_free_direct(struct mbuf *m)
 	struct mbuf_pool *p;
 
 	chunk = mbuf_get_chunk(m);
-	DBG(0, "hit; m=%p, c=%p, n=%d", m, chunk, chunk->mbc_n_mbufs);
 	p = chunk->mbc_pool;
+	DBG(0, "hit; m=%p, c=%p, pool=%p, n=%d",
+	    m, chunk, p, chunk->mbc_n_mbufs);
 	assert(chunk->mbc_n_mbufs < p->mbp_mbufs_per_chunk);
 	DLIST_INSERT_HEAD(&chunk->mbc_mbuf_head, m, mb_list);
 	if (chunk->mbc_n_mbufs == 0) {
@@ -289,6 +278,18 @@ mbuf_free_direct(struct mbuf *m)
 }
 
 void
+mbuf_free_direct_list(struct dlist *head)
+{
+	struct mbuf *m;
+
+	while (!dlist_is_empty(head)) {
+		m = DLIST_FIRST(head, struct mbuf, mb_list);
+		DLIST_REMOVE(m, mb_list);
+		mbuf_free_direct(m);
+	}
+}
+
+void
 mbuf_free(struct mbuf *m)
 {
 	struct mbuf_chunk *chunk;
@@ -296,7 +297,7 @@ mbuf_free(struct mbuf *m)
 	if (m == NULL) {
 		return;
 	}
-	DBG(0, "hit, m=%p", m);
+	DBG(0, "hit; m=%p", m);
 	assert(m->mb_freed == 0);
 	WRITE_ONCE(m->mb_freed, 1);
 	switch (m->mb_area) {
@@ -309,7 +310,7 @@ mbuf_free(struct mbuf *m)
 		if (chunk->mbc_pool->mbp_sid == current->p_sid) {
 			mbuf_free_direct(m);
 		} else {
-			mbuf_free_indirect(m);
+			mbuf_free_garbage(m);
 		}
 		break;
 	default:
@@ -375,8 +376,9 @@ mbuf_get_id(struct mbuf *m)
 
 	assert(m->mb_area == MBUF_AREA_POOL);
 	chunk = mbuf_get_chunk(m);
-	assert(chunk->mbc_id >= 0);
 	p = chunk->mbc_pool;
+	assert(p->mbp_chunk_map_size);
+	assert(chunk->mbc_id >= 0);
 	i = ((u_char *)m - (u_char *)(chunk + 1)) / p->mbp_mbuf_size;
 	m_id = chunk->mbc_id * p->mbp_mbufs_per_chunk + i;
 	return m_id;

@@ -288,7 +288,8 @@ sysctl_node_alloc(struct sysctl_node **pnode, struct sysctl_node *parent,
 	int rc;
 	struct sysctl_node *node;
 
-	rc = sys_malloc((void **)pnode, sizeof(struct sysctl_node));
+	rc = sys_malloc("sysctl.node", (void **)pnode,
+	                sizeof(struct sysctl_node));
 	if (rc) {
 		return rc;
 	}
@@ -619,7 +620,7 @@ sysctl_conn_open(struct sysctl_conn **cpp, int fd)
 	int rc;
 	struct sysctl_conn *cp;
 
-	rc = sys_malloc((void **)cpp, sizeof(*cp));
+	rc = sys_malloc("sysctl.conn", (void **)cpp, sizeof(*cp));
 	if (rc) {
 		return rc;
 	}
@@ -806,6 +807,7 @@ sysctl_add6(const char *path, int mode, void *udata,
 {
 	int rc;
 
+	assert(sysctl_root != NULL);
 	rc = sysctl_node_add(path, mode, udata, free_fn, fn, pnode);
 	if (rc < 0) {
 		die(-rc, "sysctl_add('%s') failed", path);
@@ -918,7 +920,7 @@ sysctl_connect(int fd)
 
 	a.sun_family = AF_UNIX;
 	strzcpy(a.sun_path, SYSCTL_CONTROLLER_PATH, sizeof(a.sun_path));
-	to = 2 * NANOSECONDS_SECOND;
+	to = 2 * NSEC_SEC;
 	rc = connect_timed(fd, (struct sockaddr *)&a, sizeof(a), &to);
 	return rc;
 }
@@ -987,7 +989,7 @@ sysctl_recv_rpl(int fd, char *old)
 	uint64_t to;
 	struct iovec t[SYSCTL_NTOKENS_MAX];
 
-	to = 5 * NANOSECONDS_SECOND;
+	to = 5 * NSEC_SEC;
 	len = 0;
 	while (1) {
 		rc = read_timed(fd, old + len, GT_SYSCTL_BUFSIZ - len, &to);

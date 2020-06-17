@@ -1,3 +1,4 @@
+// gpl2
 #ifndef GBTCP_GLOBAL_H
 #define GBTCP_GLOBAL_H
 
@@ -85,9 +86,9 @@ struct shm_init_hdr;
 	x(sysctl) \
 	x(log) \
 	x(sys) \
+	x(shm) \
 	x(subr) \
 	x(pid) \
-	x(shm) \
 	x(poll) \
 	x(epoll) \
 	x(mbuf) \
@@ -113,7 +114,7 @@ struct shm_init_hdr;
 enum {
 	MOD_ZERO,
 	MOD_FOREACH(MOD_ENUM)
-	MODS_NUM
+	MODS_MAX
 };
 
 #define MOD_FIRST 1
@@ -123,4 +124,4 @@ extern struct service *current;
 extern sigset_t service_sigprocmask;
 extern uint64_t nanoseconds;
 
-#endif
+#endif // GBTCP_GLOBAL_H

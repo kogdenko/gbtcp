@@ -26,8 +26,9 @@ struct dev_pkt {
 		struct {
 			u_int pkt_len : 11;
 			u_int pkt_off : 11;
+			u_char pkt_sid;
 		};
-		uint32_t pkt_flags;
+		uint64_t pkt_flags;
 	};
 	struct netmap_ring *pkt_txr;
 	u_char *pkt_data;

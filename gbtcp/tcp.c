@@ -85,7 +85,7 @@ static void tcp_tx_timer_set(struct sock *);
 
 static int tcp_wprobe_timer_set(struct sock *);
 
-static void gt_tcp_timer_set_tcp_fin_timeout(struct sock *);
+static void tcp_timer_set_tcp_fin_timeout(struct sock *);
 
 static void tcp_rcv_SYN_SENT(struct sock *, struct in_context *);
 
@@ -187,9 +187,9 @@ so_hash(void *e)
 static int
 sysctl_tcp_fin_timeout(const long long *new, long long *old)
 {
-	*old = curmod->tcp_fin_timeout / NANOSECONDS_SECOND;
+	*old = curmod->tcp_fin_timeout / NSEC_SEC;
 	if (new != NULL) {
-		curmod->tcp_fin_timeout = (*new) * NANOSECONDS_SECOND;
+		curmod->tcp_fin_timeout = (*new) * NSEC_SEC;
 	}
 	return 0;
 }
@@ -234,8 +234,6 @@ sysctl_socket_binded(void *udata, const char *new, struct strbuf *out)
 	sysctl_socket(so, out);
 }
 
-
-
 int
 tcp_mod_init()
 {
@@ -245,14 +243,14 @@ tcp_mod_init()
 	if (rc) {
 		return rc;
 	}
-	rc = htable_init(&curmod->attached, 2048, so_hash,
+	rc = htable_init(&curmod->attached, "tcp.attached", 2048, so_hash,
 	                 HTABLE_SHARED|HTABLE_POWOF2);
 	if (rc) {
 		tcp_mod_deinit();
 		return rc;
 	}
-	rc = htable_init(&curmod->binded, EPHEMERAL_PORT_MAX, NULL,
-	                 HTABLE_SHARED);
+	rc = htable_init(&curmod->binded, "tcp.binded", EPHEMERAL_PORT_MAX,
+	                 NULL, HTABLE_SHARED);
 	if (rc) {
 		tcp_mod_deinit();
 		return rc;
@@ -263,20 +261,10 @@ tcp_mod_init()
 	                       &curmod->attached);
 	sysctl_add_htable_list(GT_SYSCTL_SOCKET_BINDED_LIST, SYSCTL_RD,
 	                       &curmod->binded, sysctl_socket_binded);
-	curmod->tcp_fin_timeout = NANOSECONDS_SECOND;
+	curmod->tcp_fin_timeout = NSEC_MINUTE;
 	sysctl_add_intfn(GT_SYSCTL_TCP_FIN_TIMEOUT, SYSCTL_WR,
 	                 &sysctl_tcp_fin_timeout, 1, 24 * 60 * 60);
 	return 0;
-}
-
-int
-tcp_mod_service_init(struct service *s)
-{
-	int rc;
-
-	rc = mbuf_pool_alloc(&s->p_sockbuf_pool, s->p_sid,
-	                     SOCKBUF_CHUNK_SIZE, 0);
-	return rc;
 }
 
 void
@@ -290,9 +278,26 @@ tcp_mod_deinit()
 	curmod_deinit();
 }
 
-void
-tcp_mod_service_deinit(struct service *s)
+int
+service_init_tcp(struct service *s)
 {
+	int rc;
+
+	if (s->p_sockbuf_pool == NULL) {
+		rc = mbuf_pool_alloc(&s->p_sockbuf_pool, s->p_sid,
+		                     "tcp.sockbuf_pool",
+		                     SOCKBUF_CHUNK_SIZE, 0);
+	} else {
+		rc = 0;
+	}
+	return rc;
+}
+
+void
+service_deinit_tcp(struct service *s)
+{
+	mbuf_pool_free(s->p_sockbuf_pool);
+	s->p_sockbuf_pool = NULL;
 }
 
 const char *
@@ -647,7 +652,9 @@ so_accept(struct sock **pso, struct sock *lso,
 	so = DLIST_FIRST(&lso->so_completeq, struct sock, so_accept_list);
 	assert(so->so_state >= GT_TCPS_ESTABLISHED);
 	assert(so->so_accepted == 0);
+	assert(so->so_acceptor == lso);
 	so->so_accepted = 1;
+	so->so_acceptor = NULL;
 	DLIST_REMOVE(so, so_accept_list);
 	lso->so_acceptq_len--;
 	gt_set_sockaddr(addr, addrlen, so->so_faddr, so->so_fport);
@@ -1077,8 +1084,8 @@ tcp_set_state_ESTABLISHED(struct sock *so, struct in_context *in)
 	if (so->so_wshut) {
 		tcp_wshut(so, in);
 	}
-	if (so->so_passive_open && so->so_listen != NULL) {
-		lso = so->so_listen;
+	if (so->so_passive_open && so->so_acceptor != NULL) {
+		lso = so->so_acceptor;
 		assert(lso->so_acceptq_len);
 		DLIST_REMOVE(so, so_accept_list);
 		DLIST_INSERT_HEAD(&lso->so_completeq, so, so_accept_list);
@@ -1173,10 +1180,10 @@ tcp_close(struct sock *so)
 	sockbuf_free(&so->so_sndbuf);
 	if (so->so_passive_open) {
 		if (so->so_accepted == 0) { 
-			assert(so->so_listen != NULL);
-			so->so_listen->so_acceptq_len--;
+			assert(so->so_acceptor != NULL);
+			so->so_acceptor->so_acceptq_len--;
 			DLIST_REMOVE(so, so_accept_list);
-			so->so_listen = NULL;
+			so->so_acceptor = NULL;
 		}
 	}
 }
@@ -1188,7 +1195,6 @@ tcp_close_not_accepted(struct dlist *q)
 
 	DLIST_FOREACH_SAFE(so, q, so_accept_list, tmp_so) {
 		assert(so->so_referenced == 0);
-		so->so_listen = NULL;
 		so_close(so);
 	}
 }
@@ -1232,7 +1238,7 @@ tcp_delack(struct sock *so)
 		timer_del(&so->so_timer_delack);
 		tcp_into_ackq(so);
 	}
-	timer_set(&so->so_timer_delack, 200 * NANOSECONDS_MILLISECOND,
+	timer_set(&so->so_timer_delack, 200 * NSEC_MSEC,
 	          TCP_TIMER_DELACK);
 }
 
@@ -1259,9 +1265,9 @@ tcp_tx_timer_set(struct sock *so)
 		so->so_ntries = 0;
 	}
 	if (so->so_state < GT_TCPS_ESTABLISHED) {
-		expires = NANOSECONDS_SECOND;
+		expires = NSEC_SEC;
 	} else {
-		expires = 500 * NANOSECONDS_MILLISECOND;
+		expires = 500 * NSEC_MSEC;
 	}
 	expires <<= so->so_ntries;
 	timer_set(&so->so_timer, expires, TCP_TIMER_REXMIT);
@@ -1278,13 +1284,13 @@ tcp_wprobe_timer_set(struct sock *so)
 	if (timer_is_running(&so->so_timer)) {
 		return 0;
 	}
-	expires = 10 * NANOSECONDS_SECOND;
+	expires = 10 * NSEC_SEC;
 	timer_set(&so->so_timer, expires, TCP_TIMER_PERSIST);
 	return 1;
 }
 
 static void
-gt_tcp_timer_set_tcp_fin_timeout(struct sock *so)
+tcp_timer_set_tcp_fin_timeout(struct sock *so)
 {
 	assert(so->so_retx == 0);
 	assert(so->so_wprobe == 0);
@@ -1293,7 +1299,7 @@ gt_tcp_timer_set_tcp_fin_timeout(struct sock *so)
 }
 
 void
-tcp_mod_timer_handler(struct timer *timer, u_char fn_id)
+tcp_mod_timer(struct timer *timer, u_char fn_id)
 {
 	struct sock *so;
 
@@ -1412,7 +1418,7 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 	DLIST_INSERT_HEAD(&lso->so_incompleteq, so, so_accept_list);
 	lso->so_acceptq_len++;
 	so->so_passive_open = 1;
-	so->so_listen = lso;
+	so->so_acceptor = lso;
 	if (lso->so_lmss) {
 		so->so_lmss = lso->so_lmss;
 	}
@@ -1682,7 +1688,7 @@ tcp_process_ack_complete(struct sock *so, struct in_context *in)
 		so->so_sfin_acked = 1;
 		switch (so->so_state) {
 		case GT_TCPS_FIN_WAIT_1:
-			gt_tcp_timer_set_tcp_fin_timeout(so);
+			tcp_timer_set_tcp_fin_timeout(so);
 			tcp_set_state(so, in, GT_TCPS_FIN_WAIT_2);
 			break;
 		case GT_TCPS_CLOSING:
@@ -1995,8 +2001,8 @@ sock_tx_flush_if(struct route_if *ifp)
 		so = DLIST_FIRST(txq, struct sock, so_tx_list);
 		do {
 			rc = route_if_not_empty_txr(ifp, &pkt);
-			if (rc) {
-				dbg("no dev!! %s", strerror(-rc));
+			if (rc == -ENODEV) {
+				dbg("no dev!!!");
 				return;
 			}
 			rc = sock_tx(ifp, &pkt, so);
@@ -2253,9 +2259,9 @@ sock_str(struct strbuf *sb, struct sock *so)
 				so->so_ip_id,
 				so->so_rcvbuf.sob_len,
 				so->so_sndbuf.sob_len);
-			if (so->so_listen != NULL) {
+			if (so->so_acceptor != NULL) {
 				strbuf_addf(sb, ", listen_fd=%d",
-				            so_get_fd(so->so_listen));
+				            so_get_fd(so->so_acceptor));
 			}
 		}
 	} else {
@@ -2431,7 +2437,7 @@ so_new(int fd, int so_ipproto)
 	so->so_lport = 0;
 	so->so_faddr = 0;
 	so->so_fport = 0;
-	so->so_listen = NULL;
+	so->so_acceptor = NULL;
 	so->so_tx_list.dls_next = NULL;
 	timer_init(&so->so_timer);
 	timer_init(&so->so_timer_delack);

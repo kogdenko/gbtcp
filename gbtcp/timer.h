@@ -7,8 +7,8 @@
 
 #define TIMER_RING_SIZE 4096llu
 #define TIMER_RING_MASK (TIMER_RING_SIZE - 1llu)
-#define TIMER_TIMEOUT (32 * NANOSECONDS_MILLISECOND)
-#define TIMER_EXPIRE_MAX (5 * NANOSECONDS_HOUR)
+#define TIMER_TIMEOUT (32 * NSEC_MSEC)
+#define TIMER_EXPIRE_MAX (5 * NSEC_HOUR)
 #define TIMER_RINGS_MAX 4
 
 struct timer {
@@ -27,9 +27,9 @@ struct timer_ring {
 };
 
 int timer_mod_init();
-int timer_mod_service_init(struct service *);
-void timer_mod_deinit();
-void timer_mod_service_deinit(struct service *);
+
+int service_init_timer(struct service *);
+void service_deinit_timer(struct service *);
 
 void check_timers();
 

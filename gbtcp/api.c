@@ -680,9 +680,9 @@ gt_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 	uint64_t to;
 
 	if (timeout_ms == -1) {
-		to = NANOSECONDS_INFINITY;
+		to = NSEC_INFINITY;
 	} else {
-		to = timeout_ms * NANOSECONDS_MILLISECOND;
+		to = timeout_ms * NSEC_MSEC;
 	}
 	API_LOCK;
 	DBG(0, "hit; to=%d, events={%s}",
@@ -706,9 +706,9 @@ gt_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 	uint64_t to;
 
 	if (timeout == NULL) {
-		to = NANOSECONDS_INFINITY;
+		to = NSEC_INFINITY;
 	} else {
-		to = NANOSECONDS_SECOND * timeout->tv_sec + timeout->tv_nsec;
+		to = NSEC_SEC * timeout->tv_sec + timeout->tv_nsec;
 	}
 	API_LOCK;
 	DBG(0, "hit; to={%s}, events={%s}",
@@ -807,9 +807,9 @@ gt_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 	uint64_t to;
 
 	if (timeout_ms == -1) {
-		to = NANOSECONDS_INFINITY;
+		to = NSEC_INFINITY;
 	} else {
-		to = timeout_ms * NANOSECONDS_MILLISECOND;
+		to = timeout_ms * NSEC_MSEC;
 	}
 	API_LOCK;
 	DBG(0, "hit; epfd=%d", epfd);

@@ -2,8 +2,8 @@
 
 #define CURMOD arp
 
-#define GT_ARP_REACHABLE_TIME (30 * NANOSECONDS_SECOND)
-#define ARP_RETRANS_TIMER NANOSECONDS_SECOND
+#define GT_ARP_REACHABLE_TIME (30 * NSEC_SEC)
+#define ARP_RETRANS_TIMER NSEC_SEC
 #define GT_ARP_MAX_UNICAST_SOLICIT 3
 #define GT_ARP_MIN_RANDOM_FACTOR 0.5
 #define GT_ARP_MAX_RANDOM_FACTOR 1.5
@@ -263,10 +263,10 @@ arp_mod_init()
 	if (rc) {
 		return rc;
 	}
-	rc = htable_init(&curmod->arp_htable, 32,
+	rc = htable_init(&curmod->arp_htable, "arp.htable", 32,
 	                 arp_entry_hash, HTABLE_SHARED|HTABLE_POWOF2);
 	if (rc) {
-		shm_free(curmod);
+		curmod_deinit();
 		return rc;
 	}
 	sysctl_add_htable_list(GT_SYSCTL_ARP_LIST, SYSCTL_RD,
@@ -276,24 +276,6 @@ arp_mod_init()
 	return 0;
 }
 
-int
-arp_mod_service_init(struct service *s)
-{
-	int rc;
-
-	rc = mbuf_pool_alloc(&s->p_arp_entry_pool, s->p_sid,
-	                     sizeof(struct arp_entry), 0);
-	if (rc) {
-		return rc;
-	}
-	rc = mbuf_pool_alloc(&s->p_arp_incomplete_pool, s->p_sid,
-	                     DEV_PKT_SIZE_MAX, 0);
-	if (rc) {
-		arp_mod_service_deinit(s);
-	}
-	return rc;
-}
-
 void
 arp_mod_deinit()
 {
@@ -301,8 +283,33 @@ arp_mod_deinit()
 	curmod_deinit();
 }
 
+int
+service_init_arp(struct service *s)
+{
+	int rc;
+
+	if (s->p_arp_entry_pool == NULL) {
+		rc = mbuf_pool_alloc(&s->p_arp_entry_pool, s->p_sid,
+		                     "arp.entry.pool",
+		                     sizeof(struct arp_entry), 0);
+		if (rc) {
+			return rc;
+		}
+	}
+	rc = 0;
+	if (s->p_arp_incomplete_pool == NULL) {
+		rc = mbuf_pool_alloc(&s->p_arp_incomplete_pool, s->p_sid,
+		                     "arp.incomplete.pool",
+		                     DEV_PKT_SIZE_MAX, 0);
+		if (rc) {
+			service_deinit_arp(s);
+		}
+	}
+	return rc;
+}
+
 void
-arp_mod_service_deinit(struct service *s)
+service_deinit_arp(struct service *s)
 {
 	mbuf_pool_free(s->p_arp_entry_pool);
 	s->p_arp_entry_pool = NULL;
@@ -377,7 +384,7 @@ arp_entry_get(be32_t next_hop)
 }
 
 void
-arp_mod_timer_handler(struct timer *timer, u_char fn_id)
+arp_mod_timer(struct timer *timer, u_char fn_id)
 {
 	struct arp_entry *e;
 

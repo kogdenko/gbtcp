@@ -150,10 +150,10 @@ int sys_ppoll(struct pollfd *, nfds_t, const struct timespec *,
 void *sys_signal(int, void (*)(int));
 int sys_sigaction(int, const struct sigaction *, struct sigaction *);
 int sys_sigprocmask(int, const sigset_t *, sigset_t *);
-int sys_malloc(void **, size_t);
+int sys_malloc(const char *, void **, size_t);
 #define sys_free free
-int sys_realloc(void **, size_t);
-int sys_posix_memalign(void **, size_t, size_t);
+int sys_realloc(const char *, void **, size_t);
+int sys_posix_memalign(const char *, void **, size_t, size_t);
 int sys_mmap(void **, void *, size_t, int, int, int, off_t);
 int sys_munmap(void *addr, size_t);
 int sys_mprotect(void *, size_t, int);

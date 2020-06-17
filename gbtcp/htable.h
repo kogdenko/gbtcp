@@ -21,6 +21,7 @@ struct htable {
 	int ht_size;
 	int ht_mask;
 	int ht_flags;
+	const char *ht_name;
 	htable_f ht_fn;
 	htable_sysctl_f ht_sysctl_fn;
 	struct htable_bucket *ht_array;
@@ -32,7 +33,7 @@ void htable_mod_deinit(void *);
 void htable_mod_detach();
 
 void htable_bucket_init(struct htable_bucket *);
-int htable_init(struct htable *, int, htable_f, int);
+int htable_init(struct htable *, const char *, int, htable_f, int);
 void htable_deinit(struct htable *);
 struct htable_bucket *htable_bucket_get(struct htable *, uint32_t);
 

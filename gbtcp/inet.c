@@ -145,13 +145,6 @@ inet_mod_init()
 }
 
 void
-inet_mod_deinit()
-{
-	sysctl_del("inet");
-	curmod_deinit();
-}
-
-void
 in_context_init(struct in_context *in, void *data, int len)
 {
 	in->in_ifp = NULL;

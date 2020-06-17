@@ -28,6 +28,7 @@ struct mbuf_pool {
 	struct mbuf_chunk **mbp_chunk_map;
 	int mbp_chunk_map_size;
 	int mbp_n_allocated_chunks;
+	const char *mbp_name;
 };
 
 #define MBUF_FOREACH_SAFE(m, p, tmp_id) \
@@ -40,14 +41,15 @@ int mbuf_mod_service_init(struct service *);
 void mbuf_mod_deinit();
 void mbuf_mod_service_deinit(struct service *);
 
-int mbuf_pool_alloc(struct mbuf_pool **, u_char, int, int);
+int mbuf_pool_alloc(struct mbuf_pool **, u_char, const char *, int, int);
 void mbuf_pool_free(struct mbuf_pool *);
 
 int mbuf_alloc(struct mbuf_pool *, struct mbuf **);
 int mbuf_alloc3(struct mbuf_pool *, uint32_t, struct mbuf **);
 void mbuf_init(struct mbuf *, u_char);
 void mbuf_free(struct mbuf *);
-void mbuf_free_direct(struct mbuf *m);
+void mbuf_free_direct(struct mbuf *);
+void mbuf_free_direct_list(struct dlist *);
 void mbuf_free_rcu(struct mbuf *);
 struct mbuf *mbuf_get(struct mbuf_pool *, uint32_t);
 struct mbuf *mbuf_next(struct mbuf_pool *, uint32_t);

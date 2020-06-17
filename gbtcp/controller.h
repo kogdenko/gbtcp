@@ -11,6 +11,8 @@ int controller_mod_attach(void *);
 void controller_mod_deinit();
 void controller_mod_detach();
 
+void controller_host_rxtx(struct dev *, short);
+int controller_bypass(struct route_if *, void *, int);
 int controller_init(int, const char *);
 void controller_loop();
 void controller_update_rss_table();

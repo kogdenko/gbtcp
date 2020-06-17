@@ -235,7 +235,6 @@ struct in_context {
 #define TCP_HDR_LEN(data_off) ((data_off & 0xf0) >> 2)
 
 int inet_mod_init();
-void inet_mod_deinit();
 
 void in_context_init(struct in_context *, void *, int);
 int eth_in(struct in_context *);

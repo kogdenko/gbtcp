@@ -1,3 +1,4 @@
+// gpl2
 #include "internals.h"
 
 #define CURMOD shm
@@ -6,68 +7,66 @@
 #define SHM_SIZE (1024*1024*1204) // 1 Gb
 #define SHM_ADDR (void *)(0x7fffffffffff - 8llu * 1024 * 1024 * 1024)
 
-typedef uint32_t bitset_word_t;
-
-#define BITSET_WORD_SIZE 32
-#define BITSET_WORD_MASK (BITSET_WORD_SIZE - 1)
-#define BITSET_WORD_SHIFT 5
-#define BITSET_WORD_ARRAY_SIZE(n) \
-	(ROUND_UP(n, BITSET_WORD_SIZE) >> BITSET_WORD_SHIFT)
-#define BITSET_MASK(i) ((bitset_word_t)1 << (i & BITSET_WORD_MASK))
-#define BITSET_WORD(i) (i >> BITSET_WORD_SHIFT)
-
-static void
-bitset_set(bitset_word_t *bitset_words, int i)
-{
-	bitset_words[BITSET_WORD(i)] |= BITSET_MASK(i);
-}
-
-static void
-bitset_clr(bitset_word_t *bitset_words, int i)
-{
-	bitset_words[BITSET_WORD(i)] &= ~BITSET_MASK(i);
-}
-
-static int
-bitset_get(const bitset_word_t *bitset_words, int i)
-{
-	return (bitset_words[BITSET_WORD(i)] & BITSET_MASK(i)) != 0;
-}
+struct shm_mod {
+	struct log_scope log_scope;
+	int shm_n_allocated_pages;
+};
 
 struct shm_hdr {
 	uintptr_t shm_base_addr;
 	struct spinlock shm_lock;
 	struct dlist shm_heap;
-	int shm_npages;
+	int shm_n_pages;
 	int shm_hdr_size;
 	size_t shm_size;
-	struct dlist shm_mbuf_free_indirect_head[GT_SERVICES_MAX];
+	struct dlist shm_garbage_head[GT_SERVICES_MAX];
 	bitset_word_t *shm_pages;
 };
 
-struct shm_region {
-	struct dlist r_list;
-	size_t r_size;
-};
-
 static int shm_fd = -1;
+static int shm_early = 1;
+static int shm_early_n_allocated_pages;
 static struct shm_hdr *shm = MAP_FAILED;
 
 #define IS_SHM_ADDR(p) \
 	(((uintptr_t)(p) - shm->shm_base_addr) < shm->shm_size)
 
+int
+shm_mod_init()
+{
+	int rc;
+
+	rc = curmod_init();
+	if (rc) {
+		return rc;
+	}
+	sysctl_add_int("shm.n_allocated_pages", SYSCTL_RD,
+	               &curmod->shm_n_allocated_pages, 0, 0);
+	return 0;
+}
+
 static void
 shm_page_alloc(u_int page)
 {
-	assert(page < shm->shm_npages);
+	assert(page < shm->shm_n_pages);
 	bitset_set(shm->shm_pages, page);
+	if (shm_early) {
+		shm_early_n_allocated_pages++;
+	} else {
+		curmod->shm_n_allocated_pages++;
+	}
 }
 
 static void
 shm_page_free(u_int page)
 {
-	assert(page < shm->shm_npages);
+	assert(page < shm->shm_n_pages);
 	bitset_clr(shm->shm_pages, page);
+	if (shm_early) {
+		shm_early_n_allocated_pages--;
+	} else {
+		curmod->shm_n_allocated_pages--;
+	}
 }
 
 static int
@@ -75,7 +74,7 @@ shm_page_is_allocated(u_int page)
 {
 	int flag;
 
-	assert(page < shm->shm_npages);
+	assert(page < shm->shm_n_pages);
 	flag = bitset_get(shm->shm_pages, page);
 	return flag;	
 }
@@ -83,7 +82,7 @@ shm_page_is_allocated(u_int page)
 static uintptr_t
 shm_page_to_virt(u_int page)
 {
-	assert(page < shm->shm_npages);
+	assert(page < shm->shm_n_pages);
 	return shm->shm_base_addr + (page << PAGE_SHIFT);
 }
 
@@ -95,7 +94,7 @@ shm_virt_to_page(uintptr_t addr)
 
 	base_addr = ROUND_DOWN(addr, PAGE_SIZE);
 	page = (base_addr - shm->shm_base_addr) >> PAGE_SHIFT;
-	assert(page < shm->shm_npages);
+	assert(page < shm->shm_n_pages);
 	return page;
 }
 
@@ -106,45 +105,63 @@ shm_lock()
 }
 
 void
-shm_unlock(struct service *s)
+shm_unlock()
+{
+	spinlock_unlock(&shm->shm_lock);
+}
+
+static void
+shm_unlock_and_free_garbage()
+{
+	struct dlist head;
+
+	dlist_init(&head);
+	if (current != NULL) {
+		shm_garbage_push(current);
+		shm_garbage_pop(&head, current->p_sid);
+	}
+	shm_unlock();
+	mbuf_free_direct_list(&head);
+}
+
+void
+shm_garbage_push(struct service *s)
 {
 	int i;
-	struct dlist *dst, *src, tofree;
-	struct mbuf *m;
+	struct dlist *dst, *src;
 
-	if (s != NULL && s->p_mbuf_free_indirect_n) {
-		s->p_mbuf_free_indirect_n = 0;
-		for (i = 0; i < GT_SERVICES_MAX; ++i) {
-			src = s->p_mbuf_free_indirect_head + i;
-			if (!dlist_is_empty(src)) {
-				assert(i != s->p_sid);
-				dst = shm->shm_mbuf_free_indirect_head + i;
-				dlist_splice_tail_init(dst, src);
-			}
+	for (i = 0; i < s->p_mbuf_garbage_max; ++i) {
+		src = s->p_mbuf_garbage_head + i;
+		if (!dlist_is_empty(src)) {
+			assert(i != s->p_sid);
+			dst = shm->shm_garbage_head + i;
+			dlist_splice_tail_init(dst, src);
 		}
 	}
-	if (s == NULL) {
-		dlist_init(&tofree);
-	} else {
-		src = shm->shm_mbuf_free_indirect_head + s->p_sid;
-		dlist_replace_init(&tofree, src);
-	}
-	spinlock_unlock(&shm->shm_lock);
-	while (!dlist_is_empty(&tofree)) {
-		m = DLIST_FIRST(&tofree, struct mbuf, mb_list);
-		DLIST_REMOVE(m, mb_list);
-		mbuf_free_direct(m);
+	s->p_mbuf_garbage_max = 0;
+}
+
+void
+shm_garbage_pop(struct dlist *dst, u_char sid)
+{
+	struct dlist *src;
+
+	src = shm->shm_garbage_head + sid;
+	if (!dlist_is_empty(src)) {
+		dlist_splice_tail_init(dst, src);
 	}
 }
 
 int
 shm_init()
 {
-	int i, rc, npages, hdr_size, superblock_size, superblock_npages;
+	int i, rc, n_pages, hdr_size, superblock_size, superblock_n_pages;
 	size_t size;
 
+	NOTICE(0, "hit;");
+	assert(shm_early);
 	size = ROUND_UP(SHM_SIZE, PAGE_SIZE);
-	npages = size >> PAGE_SHIFT;
+	n_pages = size >> PAGE_SHIFT;
 	rc = sys_shm_open(SHM_NAME, O_CREAT|O_RDWR, 0666);
 	if (rc < 0) {
 		goto err;
@@ -158,25 +175,25 @@ shm_init()
 	}
 	assert(!(((uintptr_t)shm) & PAGE_MASK));
 	hdr_size = sizeof(*shm);
-	hdr_size += BITSET_WORD_ARRAY_SIZE(npages) * sizeof(bitset_word_t);
+	hdr_size += BITSET_WORD_ARRAY_SIZE(n_pages) * sizeof(bitset_word_t);
 	superblock_size = ROUND_UP((hdr_size + sizeof(*shm_ih)), PAGE_SIZE);
 	memset(shm, 0, superblock_size);
 	shm->shm_base_addr = (uintptr_t)shm;
 	spinlock_init(&shm->shm_lock);
 	dlist_init(&shm->shm_heap);
-	shm->shm_npages = npages;
+	shm->shm_n_pages = n_pages;
 	shm->shm_hdr_size = hdr_size;
 	shm->shm_size = size;
 	shm->shm_pages = (bitset_word_t *)(shm + 1);
 	for (i = 0; i < GT_SERVICES_MAX; ++i) {
-		dlist_init(shm->shm_mbuf_free_indirect_head + i);
+		dlist_init(shm->shm_garbage_head + i);
 	}
-	superblock_npages = superblock_size >> PAGE_SHIFT;
-	for (i = 0; i < superblock_npages; ++i) {
+	superblock_n_pages = superblock_size >> PAGE_SHIFT;
+	for (i = 0; i < superblock_n_pages; ++i) {
 		shm_page_alloc(i);
 	}
 	shm_ih  = (void *)(shm->shm_base_addr + shm->shm_hdr_size);
-	for (i = 1; i < MODS_NUM; ++i) {
+	for (i = MOD_FIRST; i < MODS_MAX; ++i) {
 		if (mods[i].mod_init == NULL) {
 			rc = mod_init2(i, sizeof(struct log_scope));
 		} else {
@@ -185,10 +202,14 @@ shm_init()
 		if (rc) {
 			goto err;
 		}
-	}
-	NOTICE(0, "ok; addr=%"PRIxPTR, shm->shm_base_addr);
+	}	
+	shm_early = 0;
+	curmod->shm_n_allocated_pages += shm_early_n_allocated_pages;
+	shm_early_n_allocated_pages = 0;
+	NOTICE(0, "ok; addr=%p", (void *)shm->shm_base_addr);
 	return 0;
 err:
+	ERR(-rc, "failed;");
 	shm_deinit();
 	return rc;
 }
@@ -200,6 +221,7 @@ shm_attach()
 	size_t size;
 	void *addr;
 
+	NOTICE(0, "hit;");
 	rc = sys_shm_open(SHM_NAME, O_RDWR, 0666);
 	if (rc < 0) {
 		goto err;
@@ -221,9 +243,11 @@ shm_attach()
 		goto err;
 	}
 	shm_ih = (void *)(shm->shm_base_addr + shm->shm_hdr_size);
-	NOTICE(0, "ok; addr=%"PRIxPTR, shm->shm_base_addr);
+	shm_early = 0;
+	NOTICE(0, "ok; addr=%p", (void *)shm->shm_base_addr);
 	return 0;
 err:
+	ERR(-rc, "failed;");
 	shm_detach();
 	return rc;
 }
@@ -231,12 +255,14 @@ err:
 void
 shm_detach()
 {
+	NOTICE(0, "hit;");
 	if (shm != MAP_FAILED) {
 		sys_munmap(shm, shm->shm_size);
 		shm = MAP_FAILED;
 	}
 	sys_close(shm_fd);
 	shm_fd = -1;
+	shm_early = 1;
 }
 
 void
@@ -244,8 +270,9 @@ shm_deinit()
 {
 	int i;
 
+	NOTICE(0, "hit;");
 	if (shm_ih != NULL) {
-		for (i = MODS_NUM - 1; i > 0; --i) {
+		for (i = MODS_MAX - 1; i >= MOD_FIRST; --i) {
 			if (shm_ih->ih_mods[i] != NULL) {
 				if (mods[i].mod_deinit == NULL) {
 					mod_deinit1(i);
@@ -262,30 +289,31 @@ shm_deinit()
 }
 
 static int
-shm_alloc_pages_locked(void **pp, size_t alignment, size_t size)
+shm_alloc_pages_locked(const char *name, void **pp,
+	size_t alignment, size_t size)
 {
-	int i, j, n, rc, alignment_n, size_n;
+	int i, n, rc, page, alignment_n, size_n;
 	uintptr_t addr;
 
 	alignment_n = alignment >> PAGE_SHIFT;
 	size_n = size >> PAGE_SHIFT;
 	assert(size_n);
 	addr = ROUND_UP(shm->shm_base_addr, alignment);
-	i = shm_virt_to_page(addr);
-	n = shm->shm_npages - size_n;
-	for (; i < n; i += alignment_n) {
+	page = shm_virt_to_page(addr);
+	n = shm->shm_n_pages - size_n;
+	for (; page < n; page += alignment_n) {
 		rc = 0;
-		for (j = i; j < i + size_n; ++j) {
-			rc = shm_page_is_allocated(j);
+		for (i = 0; i < size_n; ++i) {
+			rc = shm_page_is_allocated(page + i);
 			if (rc) {
 				break;
 			}
 		}
 		if (rc == 0) {
-			for (j = i; j < i + size_n; ++j) {
-				shm_page_alloc(j);
+			for (i = 0; i < size_n; ++i) {
+				shm_page_alloc(page + i);
 			}
-			*pp = (void *)shm_page_to_virt(i);
+			*pp = (void *)shm_page_to_virt(page);
 			return 0;
 		}
 	}
@@ -295,135 +323,140 @@ shm_alloc_pages_locked(void **pp, size_t alignment, size_t size)
 static void
 shm_free_pages_locked(uintptr_t addr, size_t size)
 {
-	int i, size_n;
+	int i, page, size_n;
 
 	size_n = size >> PAGE_SHIFT;
-	i = shm_virt_to_page(addr);
-	for (; i < size_n; ++i) {
-		if (!shm_page_is_allocated(i)) {
-			die(0, "double free; addr=%"PRIxPTR,
-			    shm_page_to_virt(i));
+	page = shm_virt_to_page(addr);
+	for (i = 0; i < size_n; ++i) {
+		if (!shm_page_is_allocated(page + i)) {
+			die(0, "double free; addr=%p",
+			    (void *)shm_page_to_virt(i));
 		}
 		shm_page_free(i);
 	}
 }
 
-static int
-shm_region_merge(struct shm_region *left, struct shm_region *right)
-{
-	uintptr_t left_addr, right_addr;
+#define IS_ADJACENT(l, r) \
+	((uintptr_t)(l) + (l)->mb_size == (uintptr_t)(r))
 
-	left_addr = (uintptr_t)left;
-	right_addr = (uintptr_t)right;
-	assert(left_addr <= right_addr);
-	if (left_addr + left->r_size > right_addr) {
-		die(0, "memory corrupted; left=(%p, %zu), right=(%p, %zu)",
-		    left, left->r_size, right, right->r_size);
+static void
+shm_merge(struct mbuf *middle)
+{
+	struct mbuf *m, *x;
+
+	m = middle;
+	if (m != DLIST_FIRST(&shm->shm_heap, struct mbuf, mb_list)) {
+		x = DLIST_PREV(m, mb_list);
+		if (IS_ADJACENT(x, m)) {
+			x->mb_size += m->mb_size;
+			DLIST_REMOVE(m, mb_list);
+			m = x;
+		}
 	}
-	if (left_addr + left->r_size == right_addr) {
-		left->r_size += right->r_size;
-		return 1;
-	} else {
-		return 0;
+	if (m != DLIST_LAST(&shm->shm_heap, struct mbuf, mb_list)) {
+		x = DLIST_NEXT(m, mb_list);
+		if (IS_ADJACENT(m, x)) {
+			m->mb_size += x->mb_size;
+			DLIST_REMOVE(x, mb_list);
+		}
 	}
 }
 
 static void
 shm_free_locked(void *tofree_ptr)
 {
-	int rc;
-	uintptr_t tofree_addr; 
-	struct shm_region *r, *tofree_r;
+	struct mbuf *m, *tofree_m;
 
 	if (tofree_ptr == NULL) {
 		return;
 	}
-	tofree_r = ((struct shm_region *)tofree_ptr) - 1;
-	tofree_addr = (uintptr_t)tofree_r;
-	DLIST_FOREACH(r, &shm->shm_heap, r_list) {
-		if ((uintptr_t)r < tofree_addr) {
-			rc = shm_region_merge(r, tofree_r);
-			if (rc) {
-				break;
-			}
-		} else {
-			DLIST_INSERT_BEFORE(tofree_r, r, r_list);
-			rc = shm_region_merge(tofree_r, r);
-			if (rc) {
-				DLIST_REMOVE(r, r_list);
-			}
-			break;
+	tofree_m = ((struct mbuf *)tofree_ptr) - 1;
+	DLIST_FOREACH(m, &shm->shm_heap, mb_list) {
+		if ((uintptr_t)tofree_m < (uintptr_t)m) {
+			DLIST_INSERT_BEFORE(tofree_m, m, mb_list);
+			shm_merge(tofree_m);
+			return;
 		}
 	}
+	DLIST_INSERT_TAIL(&shm->shm_heap, tofree_m, mb_list);
+	shm_merge(tofree_m);
 }
 
 static int
-shm_malloc_locked(void **pp, size_t size)
+shm_malloc_locked(const char *name, void **pp, size_t mem_size)
 {
-	int rc, r_bf_size;
-	struct shm_region *r, *r_bf;
+	int rc;
+	size_t size, alloc_size;
+	struct mbuf *m, *b;
 
-	// Best fit
-	r_bf = NULL;
-	r_bf_size = 0;
-	DLIST_FOREACH(r, &shm->shm_heap, r_list) {
-		if (r->r_size >= size + sizeof(*r)) {
-			if (r_bf_size == 0 || r_bf_size > r->r_size) {
-				r_bf = r;
-				r_bf_size = r->r_size;
+	size = sizeof(struct mbuf) + mem_size;
+	assert(size < INT_MAX);
+	b = NULL;
+	DLIST_FOREACH(m, &shm->shm_heap, mb_list) {
+		if (m->mb_size >= size) {
+			if (b == NULL || b->mb_size > m->mb_size) {
+				b = m;
 			}
 		}
 	}
-	if (r_bf_size != 0) {
-		DLIST_REMOVE(r_bf, r_list);
-	} else {
-		r_bf_size = ROUND_UP(size + sizeof(*r), PAGE_SIZE);
-		rc = shm_alloc_pages_locked((void **)&r_bf,
-		                            PAGE_SIZE, r_bf_size);
+	if (b == NULL) {
+		alloc_size = ROUND_UP(size, PAGE_SIZE);
+		rc = shm_alloc_pages_locked(name, (void **)&b,
+		                            PAGE_SIZE, alloc_size);
 		if (rc) {
 			return rc;
 		}
+		b->mb_size = alloc_size;
+	} else {
+		DLIST_REMOVE(b, mb_list);
 	}
-	if (r_bf_size - (size + sizeof(*r)) > 128) {
-		r_bf->r_size = size + sizeof(*r);
-		r = (struct shm_region *)(((u_char *)r_bf) + r_bf->r_size);
-		r->r_size = r_bf_size - r_bf->r_size;
-		shm_free_locked(r + 1);
+	if (b->mb_size > size + 128) {
+		m = (struct mbuf *)(((u_char *)b) + size);
+		m->mb_size = b->mb_size - size;
+		b->mb_size = size;
+		shm_free_locked(m + 1);
 	}
-	*pp = r_bf + 1;
+	*pp = b + 1;
 	return 0;
 }
 
 int
-shm_malloc(void **pp, size_t size)
+shm_malloc(const char *name, void **pp, size_t size)
 {
 	int rc;
 
 	shm_lock();
-	rc = shm_malloc_locked(pp, size);
-	shm_unlock(current);
+	rc = shm_malloc_locked(name, pp, size);
+	if (rc == 0) {
+		INFO(0, "ok; name='%s', addr=%p", name, *pp);
+	} else {
+		WARN(-rc, "failed; name='%s'", name);
+	}
+	shm_unlock_and_free_garbage(current);
 	return rc;
 }
 
 int
-shm_realloc(void **pp, size_t size)
+shm_realloc(const char *name, void **pp, size_t size)
 {
 	int rc;
 	size_t old_size;
-	struct shm_region *r;
-	void *new;
+	struct mbuf *m;
+	void *new, *old;
 
-	if (*pp == NULL) {
+	old = *pp;
+	if (old == NULL) {
 		old_size = 0;
 	} else {
-		r = ((struct shm_region *)*pp) - 1;
-		old_size = r->r_size;
+		m = ((struct mbuf *)old) - 1;
+		old_size = m->mb_size;
 	}
-	rc = shm_malloc(&new, size);
+	rc = shm_malloc(name, &new, size);
 	if (rc) {
 		return rc;
 	}
 	memcpy(new, *pp, old_size);
+	shm_free(old);
 	*pp = new;
 	return 0;
 }
@@ -433,11 +466,12 @@ shm_free(void *ptr)
 {
 	shm_lock();
 	shm_free_locked(ptr);
-	shm_unlock(current);
+	INFO(0, "ok; addr=%p", ptr);
+	shm_unlock_and_free_garbage();
 }
 
 int
-shm_alloc_pages(void **pp, size_t alignment, size_t size)
+shm_alloc_pages(const char *name, void **pp, size_t alignment, size_t size)
 {
 	int rc;
 
@@ -448,8 +482,14 @@ shm_alloc_pages(void **pp, size_t alignment, size_t size)
 		return -EINVAL;
 	}
 	shm_lock();
-	rc = shm_alloc_pages_locked(pp, alignment, size);
-	shm_unlock(current);
+	rc = shm_alloc_pages_locked(name, pp, alignment, size);
+	if (rc == 0) {
+		INFO(0, "ok; name='%s', size=%zu, addr=%p",
+		     name, size, *pp);
+	} else {
+		WARN(-rc, "failed; name='%s', size=%zu", name, size);
+	}
+	shm_unlock_and_free_garbage();
 	return rc;
 }
 
@@ -463,5 +503,6 @@ shm_free_pages(void *ptr, size_t size)
 	assert((size & PAGE_MASK) == 0);
 	shm_lock();
 	shm_free_pages_locked(addr, size);
-	shm_unlock(current);
+	INFO(0, "ok; size=%zu, addr=%p", size, ptr);
+	shm_unlock_and_free_garbage();
 }

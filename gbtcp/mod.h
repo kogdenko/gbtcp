@@ -1,4 +1,4 @@
-// gpl2 license
+// gpl2
 #ifndef GBTCP_MOD_H
 #define GBTCP_MOD_H
 
@@ -7,13 +7,11 @@
 
 struct mod {
 	int (*mod_init)();
-	int (*mod_service_init)(struct service *);
 	void (*mod_deinit)();
-	void (*mod_service_deinit)(struct service *);
-	void (*mod_timer_handler)(struct timer *, u_char);
+	void (*mod_timer)(struct timer *, u_char);
 };
 
-extern struct mod mods[MODS_NUM];
+extern struct mod mods[MODS_MAX];
 
 #define mod_get(id) \
 	(shm_ih == NULL ? NULL : shm_ih->ih_mods[id])

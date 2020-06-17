@@ -143,6 +143,7 @@ dev_not_empty_txr(struct dev *dev, struct dev_pkt *pkt)
 		if (!nm_ring_empty(txr)) {
 			assert(txr != NULL);
 			pkt->pkt_flags = 0;
+			pkt->pkt_sid = current->p_sid;
 			pkt->pkt_txr = txr;
 			slot = txr->slot + txr->cur;
 			buf = NETMAP_BUF(txr, slot->buf_idx);

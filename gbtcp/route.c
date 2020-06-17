@@ -38,35 +38,6 @@ route_foreach_set_srcs(struct route_if *ifp)
 	}
 }
 
-void gtd_host_rxtx(struct dev *dev, short revents);
-void service_rxtx(struct dev *dev, short revents);
-
-void
-gtd_host_rxtx(struct dev *dev, short revents)
-{
-	int i, n, len;
-	u_char *data;
-	struct netmap_ring *rxr;
-	struct netmap_slot *slot;
-//	struct route_if *ifp;
-
-	//ifp = container_of(dev, struct route_if, rif_host_dev);
-	DEV_FOREACH_RXRING(rxr, dev) {
-		n = dev_rxr_space(dev, rxr);
-		for (i = 0; i < n; ++i) {
-			slot = rxr->slot + rxr->cur;
-			data = (u_char *)NETMAP_BUF(rxr, slot->buf_idx);
-			len = slot->len;
-			UNUSED(data);
-			UNUSED(slot);
-			UNUSED(len);
-			//gtd_tx_to_net(ifp, data, len);
-			
-			DEV_RXR_NEXT(rxr);
-		}
-	}
-}
-
 struct dlist *
 route_if_head()
 {
@@ -120,7 +91,7 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 		*ifpp = ifp;
 		return -EEXIST;
 	}
-	rc = shm_malloc((void **)&ifp, sizeof(*ifp));
+	rc = shm_malloc("route.if", (void **)&ifp, sizeof(*ifp));
 	if (rc < 0) {
 		return rc;
 	}
@@ -151,7 +122,7 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 	nr_rx_rings = nr_tx_rings = 1;
 	if (is_pipe == 0) {
 		snprintf(host, sizeof(host), "%s^", ifp->rif_name);
-		rc = dev_init(&ifp->rif_host_dev, host, gtd_host_rxtx);
+		rc = dev_init(&ifp->rif_host_dev, host, controller_host_rxtx);
 		if (rc) {
 			shm_free(ifp);
 			return rc;
@@ -170,7 +141,6 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 	// FIXME: 
 	ifp->rif_flags |= IFF_UP;
 	controller_update_rss_table();
-//	sched_link_up();
 	if (route_monitor_fd != -1) {
 		// TODO: DELETE OLD ROUTES...
 		route_dump(route_on_msg);
@@ -208,7 +178,7 @@ route_ifaddr_add(struct route_if_addr **ifap,
 
 	ifa = route_ifaddr_get(AF_INET, addr);
 	if (ifa == NULL) {
-		rc = shm_malloc((void **)&ifa, sizeof(*ifa));
+		rc = shm_malloc("route.ifa", (void **)&ifa, sizeof(*ifa));
 		if (rc < 0) {
 			return rc;
 		}
@@ -227,7 +197,7 @@ route_ifaddr_add(struct route_if_addr **ifap,
 		}
 	}
 	ifa->ria_ref_cnt++;
-	rc = shm_realloc((void **)&ifp->rif_addrs,
+	rc = shm_realloc("route.ifp.rif_addrs", (void **)&ifp->rif_addrs,
 	                 (ifp->rif_naddrs + 1) * sizeof(ifa));
 	if (rc) {
 		DLIST_REMOVE(ifa, ria_list);
@@ -297,7 +267,8 @@ route_set_srcs(struct route_entry_long *route)
 	n = route->rtl_ifp->rif_naddrs;
 	size = n * sizeof(struct route_if_addr *);
 	if (route->rtl_nsrcs < n) {
-		rc = shm_realloc((void **)&route->rtl_srcs, size);
+		rc = shm_realloc("route.rtl_srcs",
+		                 (void **)&route->rtl_srcs, size);
 		if (rc) {
 			return rc;
 		}
@@ -707,7 +678,7 @@ route_mod_init()
 	curmod->route_default = NULL;
 	dlist_init(&curmod->route_if_head);
 	dlist_init(&curmod->route_addr_head);
-	rc = mbuf_pool_alloc(&curmod->route_pool, CONTROLLER_SID,
+	rc = mbuf_pool_alloc(&curmod->route_pool, CONTROLLER_SID, "route.pool",
 	                      sizeof(struct route_entry_long), 10000);
 	if (rc) {
 		goto err;
@@ -846,24 +817,35 @@ route_if_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt)
 			}	
 		}
 	}
+	if (rc == -ENODEV) {
+		rc = service_not_empty_txr(ifp, pkt);
+	}
 	return rc;
 }
 
 void
-route_if_rxr_next(struct route_if *ifp, struct netmap_ring *rxr)
+route_if_rxr_next(struct route_if *ifp, struct netmap_ring *rxr, int drop)
 {
 	struct netmap_slot *slot;
 
-	slot = rxr->slot + rxr->cur;
-	counter64_inc(&ifp->rif_rx_pkts);
-	counter64_add(&ifp->rif_rx_bytes, slot->len);
+	if (drop) {
+		counter64_inc(&ifp->rif_rx_drop);
+	} else {
+		slot = rxr->slot + rxr->cur;
+		counter64_inc(&ifp->rif_rx_pkts);
+		counter64_add(&ifp->rif_rx_bytes, slot->len);
+	}
 	DEV_RXR_NEXT(rxr);
 }
 
 void
 route_if_tx(struct route_if *ifp, struct dev_pkt *pkt)
 {
-	counter64_inc(&ifp->rif_tx_pkts);
-	counter64_add(&ifp->rif_tx_bytes, pkt->pkt_len);
-	dev_tx(pkt);
+	if (pkt->pkt_sid == current->p_sid) {
+		counter64_inc(&ifp->rif_tx_pkts);
+		counter64_add(&ifp->rif_tx_bytes, pkt->pkt_len);
+		dev_tx(pkt);
+	} else {
+		service_redir(ifp, SERVICE_MSG_TX, pkt);
+	}
 }

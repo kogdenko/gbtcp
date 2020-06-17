@@ -107,6 +107,24 @@ eth_addr_make_ip6_mcast(struct eth_addr *addr, const u_char *ip6)
 }
 
 void
+bitset_set(bitset_word_t *bitset_words, int i)
+{
+	bitset_words[BITSET_WORD(i)] |= BITSET_MASK(i);
+}
+
+void
+bitset_clr(bitset_word_t *bitset_words, int i)
+{
+	bitset_words[BITSET_WORD(i)] &= ~BITSET_MASK(i);
+}
+
+int
+bitset_get(const bitset_word_t *bitset_words, int i)
+{
+	return (bitset_words[BITSET_WORD(i)] & BITSET_MASK(i)) != 0;
+}
+
+void
 spinlock_init(struct spinlock *sl)
 {
 	sl->spinlock_locked = 0;
@@ -438,12 +456,12 @@ fcntl_setfl_nonblock_rollback(int fd, int old_flags)
 static struct timespec *
 nanoseconds_to_timespec(struct timespec *ts, uint64_t t)
 {
-	if (t < NANOSECONDS_SECOND) {
+	if (t < NSEC_SEC) {
 		ts->tv_sec = 0;
 		ts->tv_nsec = t;
 	} else {
-		ts->tv_sec = t / NANOSECONDS_SECOND;
-		ts->tv_nsec = t % NANOSECONDS_SECOND;
+		ts->tv_sec = t / NSEC_SEC;
+		ts->tv_nsec = t % NSEC_SEC;
 	}
 	return ts;
 }
@@ -628,7 +646,7 @@ read_rss_key(const char *ifname, u_char *rss_key)
 	}
 	size = (sizeof(rss) + rss.key_size +
 	       rss.indir_size * sizeof(rss.rss_config[0]));
-	rc = sys_malloc((void **)&rss2, size);
+	rc = sys_malloc("rss.tmp", (void **)&rss2, size);
 	if (rc) {
 		goto out;
 	}

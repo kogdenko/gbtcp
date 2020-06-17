@@ -76,17 +76,6 @@ file_mod_init()
 	return rc;
 }
 
-int
-file_mod_service_init(struct service *s)
-{
-	int rc, size, n;
-
-	size = sizeof(struct sock) + sizeof(struct file_aio); // FIXME:!!!!!!
-	n =  curmod->file_last_fd - curmod->file_first_fd + 1;
-	rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid, size, n);
-	return rc;
-}
-
 void
 file_mod_deinit()
 {
@@ -94,17 +83,36 @@ file_mod_deinit()
 	curmod_deinit();
 }
 
+int
+service_init_file(struct service *s)
+{
+	int rc, size, n;
+
+	if (s->p_file_pool == NULL) {
+		size = sizeof(struct sock) + sizeof(struct file_aio); // FIXME:!!!!!!
+		n =  curmod->file_last_fd - curmod->file_first_fd + 1;
+		assert(n > 0);
+		rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid,
+		                     "file.pool", size, n);
+	} else {
+		rc = 0;
+	}
+	return rc;
+}
+
 void
-file_mod_service_deinit(struct service *s)
+service_deinit_file(struct service *s)
 {
 	int tmp_fd;
 	struct file *fp;
 
-	FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
-		file_clean(fp);
+	if (s->p_file_pool != NULL) {
+		FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
+			file_clean(fp);
+		}
+		mbuf_pool_free(s->p_file_pool);
+		s->p_file_pool = NULL;
 	}
-	mbuf_pool_free(s->p_file_pool);
-	s->p_file_pool = NULL;
 }
 
 int

@@ -51,7 +51,6 @@ do { \
 void log_init_early(const char *, u_int);
 
 int log_mod_init(void **);
-void log_mod_deinit();
 
 void log_scope_init(struct log_scope *, const char *);
 void log_scope_deinit(struct log_scope *);

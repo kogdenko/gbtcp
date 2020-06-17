@@ -55,7 +55,8 @@ struct route_if {
 	counter64_t rif_tx_pkts;
 	counter64_t rif_tx_bytes;
 	counter64_t rif_tx_drop;
-	counter64_t rif_tx_redir;
+	counter64_t rif_redir;
+	counter64_t rif_redir_drop;
 	char rif_name[NM_IFNAMSIZ];
 };
 
@@ -129,7 +130,7 @@ int route_get4(be32_t, struct route_entry *);
 
 // ???????
 int route_if_not_empty_txr(struct route_if *, struct dev_pkt *);
-void route_if_rxr_next(struct route_if *, struct netmap_ring *);
+void route_if_rxr_next(struct route_if *, struct netmap_ring *, int);
 void route_if_tx(struct route_if *, struct dev_pkt *);
 
 int route_open(struct route_mod *);

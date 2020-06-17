@@ -30,18 +30,20 @@ typedef cpuset_t cpu_set_t;
 #define NM_IFNAMSIZ (IFNAMSIZ + NETMAP_PFX_LEN)
 #define GT_PREFIX "/usr/local/gbtcp"
 
-#define NANOSECONDS_SECOND 1000000000ull
-#define NANOSECONDS_MILLISECOND 1000000ull
-#define NANOSECONDS_MICROSECOND 1000ull
-#define NANOSECONDS_MINUTE (60 * NANOSECONDS_SECOND)
-#define NANOSECONDS_HOUR (60 * NANOSECONDS_MINUTE)
-#define NANOSECONDS_INFINITY ((uint64_t)(-1))
+#define NSEC_SEC 1000000000ull
+#define NSEC_MSEC 1000000ull
+#define NSEC_USEC 1000ull
+#define NSEC_MINUTE (60 * NSEC_SEC)
+#define NSEC_HOUR (60 * NSEC_MINUTE)
+#define NSEC_INFINITY ((uint64_t)(-1))
 
 typedef uint16_t be16_t;
 typedef uint32_t be32_t;
 typedef uint64_t be64_t;
 
-typedef int (*malloc_f)(void **, size_t);
+typedef uint32_t bitset_word_t;
+
+typedef int (*malloc_f)(const char *, void **, size_t);
 typedef void (*free_f)(void *);
 
 struct eth_addr {
@@ -63,7 +65,6 @@ struct profiler {
 	uint64_t prf_last_print_tsc;
 	uint64_t prf_spended;
 };
-
 
 #ifndef field_off
 #define field_off(type, field) ((intptr_t)&((type *)0)->field)
@@ -161,6 +162,14 @@ do { \
 	} \
 } while (0)
 
+#define BITSET_WORD_SIZE 32
+#define BITSET_WORD_MASK (BITSET_WORD_SIZE - 1)
+#define BITSET_WORD_SHIFT 5
+#define BITSET_WORD_ARRAY_SIZE(n) \
+	(ROUND_UP(n, BITSET_WORD_SIZE) >> BITSET_WORD_SHIFT)
+#define BITSET_MASK(i) ((bitset_word_t)1 << (i & BITSET_WORD_MASK))
+#define BITSET_WORD(i) (i >> BITSET_WORD_SHIFT)
+
 #define PRF_INIT(x) \
 	static struct profiler prf_##x = { .prf_name = #x };
 #define PRF_ENTER(x) profiler_enter(&prf_##x)
@@ -218,6 +227,10 @@ int eth_addr_aton(struct eth_addr *, const char *);
 int eth_addr_is_mcast(const u_char *);
 int eth_addr_is_ucast(const u_char *);
 void eth_addr_make_ip6_mcast(struct eth_addr *, const u_char *);
+
+void bitset_set(bitset_word_t *, int);
+void bitset_clr(bitset_word_t *, int);
+int bitset_get(const bitset_word_t *, int);
 
 void spinlock_init(struct spinlock *);
 void spinlock_lock(struct spinlock *);
