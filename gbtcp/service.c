@@ -103,7 +103,6 @@ service_start_controller(const char *p_comm)
 	return rc;
 }
 
-
 static int
 service_rx(struct in_context *p)
 {
@@ -125,6 +124,8 @@ service_rx(struct in_context *p)
 		rc = so_in_err(p->in_emb_ipproto, p,
 		               p->in_ih->ih_daddr, p->in_ih->ih_saddr,
 		               p->in_uh->uh_dport, p->in_uh->uh_sport);
+	} else {
+		rc = IN_DROP;
 	}
 	return rc;
 }
@@ -137,9 +138,7 @@ service_redir5(struct route_if *ifp, int msg_type, u_char sid,
 	struct dev_pkt pkt;
 
 	rc = dev_not_empty_txr(&service_vale, &pkt);
-	if (rc) {
-		counter64_inc(&ifp->rif_redir_drop);
-	} else {
+	if (rc == 0) {
 		DEV_PKT_COPY(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
 		pkt.pkt_sid = sid;
@@ -148,7 +147,7 @@ service_redir5(struct route_if *ifp, int msg_type, u_char sid,
 	return rc;
 }
 
-static int
+static void
 service_rssq_rx_one(struct route_if *ifp, void *data, int len)
 {
 	int rc;
@@ -165,19 +164,24 @@ service_rssq_rx_one(struct route_if *ifp, void *data, int len)
 	rc = service_rx(&p);
 	if (rc == IN_BYPASS) {
 		if (current->p_sid == CONTROLLER_SID) {
-			rc = controller_bypass(ifp, data, len);
+			controller_bypass(ifp, data, len);
 		} else {
-			rc = service_redir5(ifp, SERVICE_MSG_BYPASS,
-			                    CONTROLLER_SID, data, len);
+			service_redir5(ifp, SERVICE_MSG_BYPASS,
+			               CONTROLLER_SID, data, len);
 		}
-		return rc;
 	} else if (rc >= 0) {
+		current->p_ips.ips_delivered++;
 		sid = rc;
 		rc = service_redir5(ifp, SERVICE_MSG_RX, sid, data, len);
-		return rc;
-	} else {
-		return 0;
+		if (rc) {
+			counter64_inc(&ifp->rif_rx_drop);
+			return;
+		}
+	} else if (rc == IN_OK) {
+		current->p_ips.ips_delivered++;
 	}
+	counter64_inc(&ifp->rif_rx_pkts);
+	counter64_add(&ifp->rif_rx_bytes, len);
 }
 
 static void
@@ -244,7 +248,7 @@ service_vale_rx_one(void *data, int len)
 void
 service_rssq_rxtx(struct dev *dev, short revents)
 {
-	int i, n, rc, len;
+	int i, n, len;
 	void *data;
 	struct netmap_ring *rxr;
 	struct netmap_slot *slot;
@@ -258,8 +262,8 @@ service_rssq_rxtx(struct dev *dev, short revents)
 			slot = rxr->slot + rxr->cur;
 			data = NETMAP_BUF(rxr, slot->buf_idx);
 			len = slot->len;
-			rc = service_rssq_rx_one(ifp, data, len);
-			route_if_rxr_next(ifp, rxr, rc);
+			service_rssq_rx_one(ifp, data, len);
+			DEV_RXR_NEXT(rxr);
 		}
 	}
 }
@@ -334,7 +338,7 @@ service_init_shared(struct service *s, int pid, int fd)
 	for (i = 0; i < GT_SERVICES_MAX; ++i) {
 		dlist_init(s->p_mbuf_garbage_head + i);
 	}
-	rc = service_init_timer(s);
+	rc = init_timers(s);
 	if (rc) {
 		return rc;
 	}
@@ -370,10 +374,11 @@ service_deinit_shared(struct service *s, int full)
 		}
 	}
 	service_deinit_file(s);
+	migrate_timers(current, s);
 	if (full) {
 		service_deinit_tcp(s);
 		service_deinit_arp(s);
-		service_deinit_timer(s);
+		deinit_timers(s);
 	}
 	dlist_init(&tofree);
 	shm_lock();
@@ -744,7 +749,6 @@ service_redir(struct route_if *ifp, int msg_type, struct dev_pkt *pkt)
 	msg->msg_ifindex = ifp->rif_index;
 	pkt->pkt_len += sizeof(*msg);
 	dev_tx(pkt);
-	counter64_inc(&ifp->rif_redir);
 }
 
 static void

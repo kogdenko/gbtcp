@@ -133,6 +133,7 @@
 	x(fragments) \
 	x(fragdropped) \
 	x(delivered) \
+	x(bypassed) \
 	x(noproto) \
 	x(localout) \
 	x(noroute) \

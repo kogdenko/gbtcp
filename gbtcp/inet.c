@@ -394,23 +394,6 @@ arp_in(struct in_context *in)
 		in->in_arps->arps_badpro++;
 		return IN_DROP;
 	}
-	tip = in->in_ah->ah_data.aip_tip;
-	sip = in->in_ah->ah_data.aip_sip;
-	ifa = route_ifaddr_get4(tip);
-	if (ifa == NULL) {
-		in->in_arps->arps_bypassed++;
-		return IN_BYPASS;
-	}
-	assert(in->in_ifp != NULL);
-	for (i = 0; i < in->in_ifp->rif_naddrs; ++i) {
-		if (ifa == in->in_ifp->rif_addrs[i]) {
-			break;		
-		}
-	}
-	if (i == in->in_ifp->rif_naddrs) {
-		in->in_arps->arps_filtered++;
-		return IN_DROP;
-	}
 	if (in->in_ah->ah_hlen != sizeof(struct eth_addr)) {
 		in->in_arps->arps_badhlen++;
 		return IN_DROP;
@@ -419,6 +402,8 @@ arp_in(struct in_context *in)
 		in->in_arps->arps_badplen++;
 		return IN_DROP;
 	}
+	tip = in->in_ah->ah_data.aip_tip;
+	sip = in->in_ah->ah_data.aip_sip;
 	if (ipaddr4_is_loopback(tip)) {
 		in->in_arps->arps_badaddr++;
 		return IN_DROP;
@@ -435,10 +420,23 @@ arp_in(struct in_context *in)
 		in->in_arps->arps_badaddr++;
 		return IN_DROP;
 	}
-	// IP4 duplicate address detection
+	ifa = route_ifaddr_get4(tip);
+	if (ifa == NULL) {
+		return IN_BYPASS;
+	}
+	assert(in->in_ifp != NULL);
+	for (i = 0; i < in->in_ifp->rif_n_addrs; ++i) {
+		if (ifa == in->in_ifp->rif_addrs[i]) {
+			break;		
+		}
+	}
+	if (i == in->in_ifp->rif_n_addrs) {
+		in->in_arps->arps_filtered++;
+		return IN_BYPASS;
+	}
 	if (sip == 0) {
-		// TODO: reply
-		return IN_OK;
+		// IP4 duplicate address detection
+		return IN_BYPASS;
 	}
 	switch (in->in_ah->ah_op) {
 	case ARP_OP_REQUEST_BE:
@@ -461,7 +459,11 @@ arp_in(struct in_context *in)
 	msg.arpam_next_hop = in->in_ah->ah_data.aip_sip;
 	msg.arpam_addr = in->in_ah->ah_data.aip_sha;
 	arp_update(&msg);
-	return IN_OK;
+	if (is_req) {
+		return IN_DROP;
+	} else {
+		return IN_BYPASS;
+	}
 }
 
 static int
@@ -587,7 +589,7 @@ icmp4_in(struct in_context *in)
 	type = in->in_icp->icmp_type;
 	code = in->in_icp->icmp_code;	
 	if (type > ICMP_MAXTYPE) {
-		return IN_DROP;
+		return IN_BYPASS;
 	}
 	in->in_icmps->icmps_inhist[type]++;
 	switch (type) {
@@ -693,21 +695,20 @@ ip_in(struct in_context *in)
 	int rc, total_len, cksum;
 
 	in->in_ips->ips_total++;
-	in->in_ips->ips_delivered++;
 	if (in->in_rem < sizeof(struct ip4_hdr)) {
 		in->in_ips->ips_toosmall++;
 		return IN_DROP;
 	}
 	in->in_ih = (struct ip4_hdr *)(in->in_eh + 1);
 	if (in->in_ih->ih_ttl < 1) {
-		return IN_DROP;
+		return IN_BYPASS;
 	}
 	if (ipaddr4_is_mcast(in->in_ih->ih_saddr)) {
 		return IN_BYPASS;
 	}
 	if (in->in_ih->ih_frag_off & IP4_FRAG_MASK) {
-		in->in_ips->ips_fragments++;
-		in->in_ips->ips_fragdropped++;
+//		in->in_ips->ips_fragments++;
+//		in->in_ips->ips_fragdropped++;
 		return IN_BYPASS;
 	}
 	in->in_ih_len = IP4_HDR_LEN(in->in_ih->ih_ver_ihl);
@@ -762,7 +763,7 @@ ip_in(struct in_context *in)
 		rc = icmp4_in(in);
 		return rc;
 	default:
-		in->in_ips->ips_noproto++;
+//		in->in_ips->ips_noproto++;
 		rc = IN_BYPASS;
 		break;
 	}

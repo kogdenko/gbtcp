@@ -71,10 +71,11 @@ struct netif {
 	LIST_ENTRY(netif) list;
 	char name[IFNAMSIZ];
 	unsigned long long ipackets;
+	unsigned long long idrops;
 	unsigned long long ibytes;
 	unsigned long long opackets;
-	unsigned long long obytes;
 	unsigned long long odrops;
+	unsigned long long obytes;
 };
 
 LIST_HEAD(netif_head, netif);
@@ -129,9 +130,9 @@ xmalloc(int size)
 }
 
 static void
-bad_format(const char *path)
+bad_format(const char *path, const char *data)
 {
-	warnx("sysctl('%s') bad format", path);
+	warnx("sysctl('%s') bad format: '%s'", path, data);
 }
 
 // Interfaces
@@ -148,8 +149,8 @@ show_stat(int width, unsigned long long value)
 static void
 print_if_banner()
 {
-	printf("%-*.*s %12.12s",
-	       16, 16, "Name", "Ipkts");
+	printf("%-*.*s", 16, 16, "Name");
+	printf(" %12.12s %12.12s", "Ipkts", "Idrop");
 	if (bflag) {
 		printf(" %14.14s", "Ibytes");
 	}
@@ -171,8 +172,8 @@ print_if_rate_banner()
 		banner = "(Total)";
 	}
 	printf("%40s\n", banner);
-	printf(" %12s %12s %12s %12s %12s\n",
-	       "Ipkts", "Ibytes", "Opkts", "Odrop", "Obytes");
+	printf(" %12s %12s %12s %12s %12s %12s\n",
+	       "Ipkts", "Idrop", "Ibytes", "Opkts", "Odrop", "Obytes");
 }
 
 static void
@@ -183,6 +184,7 @@ netif_print(struct netif *ifp)
 	strzcpy(name, ifp->name, sizeof(name));
 	printf("%-*.*s", 16, 16, name);
 	show_stat(12, ifp->ipackets);
+	show_stat(12, ifp->idrops);
 	if (bflag) {
 		show_stat(14, ifp->ibytes);
 	}
@@ -246,16 +248,17 @@ sc_if(void *udata, const char *buf)
 {
 	int rc, tmpd, tmpx;
 	char ifname[64], tmp32[32];
-	unsigned long long ipackets, ibytes, opackets, obytes, odrops;
+	unsigned long long ipackets, idrops, ibytes;
+	unsigned long long opackets, odrops, obytes;
 	struct netif *ifp;
 	struct netif_head *head;
 
 	head = udata;
-	rc = sscanf(buf, "%64[^,],%d,%x,%32[^,],%llu,%llu,%llu,%llu,%llu",
+	rc = sscanf(buf, "%64[^,],%d,%x,%32[^,],%llu,%llu,%llu,%llu,%llu,%llu",
 	            ifname, &tmpd, &tmpx, tmp32,
-	            &ipackets, &ibytes, &opackets, &obytes, &odrops);
-	if (rc != 9) {
-		bad_format(buf);
+	            &ipackets, &idrops, &ibytes, &opackets, &odrops, &obytes);
+	if (rc != 10) {
+		bad_format(GT_SYSCTL_ROUTE_IF_LIST, buf);
 		return -EPROTO;
 	}
 	if (interface != NULL && strcmp(interface, ifname)) {
@@ -269,10 +272,11 @@ sc_if(void *udata, const char *buf)
 		LIST_INSERT_HEAD(head, ifp, list);
 	}
 	ifp->ipackets += ipackets;
+	ifp->idrops += idrops;
 	ifp->ibytes += ibytes;
 	ifp->opackets += opackets;
-	ifp->obytes += obytes;
 	ifp->odrops += odrops;
+	ifp->obytes += obytes;
 	return 0;
 }
 
@@ -403,7 +407,7 @@ pr_socket(void *udata, const char *buf)
 	            &faddr, &fport,
 	            &q_len, &inc_q_len, &q_lim);
 	if (rc != 11) {
-		bad_format(buf);
+		bad_format(GT_SYSCTL_SOCKET_ATTACHED_LIST, buf);
 		return -EPROTO;
 	}
 	if (p != NULL && p->pr_ipproto != proto) {

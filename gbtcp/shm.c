@@ -3,6 +3,7 @@
 
 #define CURMOD shm
 
+#define SHM_MAGIC 0xb9d1
 #define SHM_NAME "gbtcp"
 #define SHM_SIZE (1024*1024*1204) // 1 Gb
 #define SHM_ADDR (void *)(0x7fffffffffff - 8llu * 1024 * 1024 * 1024)
@@ -16,6 +17,7 @@ struct shm_hdr {
 	uintptr_t shm_base_addr;
 	struct spinlock shm_lock;
 	struct dlist shm_heap;
+	int shm_n_superblock_pages;
 	int shm_n_pages;
 	int shm_hdr_size;
 	size_t shm_size;
@@ -31,6 +33,31 @@ static struct shm_hdr *shm = MAP_FAILED;
 #define IS_SHM_ADDR(p) \
 	(((uintptr_t)(p) - shm->shm_base_addr) < shm->shm_size)
 
+#if 0
+static void
+check_heap()
+{
+	int n;
+	struct mbuf *m;
+
+	n = 0;
+	dbg("heap>");
+	DLIST_FOREACH(m, &shm->shm_heap, mb_list) {
+		if (!IS_SHM_ADDR(m)) {
+			dbg("not shm %p", m);
+			assert(0);
+		}
+		if (m->mb_magic != SHM_MAGIC) {
+			dbg("memory corrupted at %p, %d", m, n);
+			assert(0);
+		}
+		dbg("%p, %u", m, m->mb_size);
+		n++;
+	}
+	dbg("<");
+}
+#endif
+
 int
 shm_mod_init()
 {
@@ -45,10 +72,20 @@ shm_mod_init()
 	return 0;
 }
 
+static int
+shm_page_is_allocated(u_int page)
+{
+	int flag;
+
+	assert(page < shm->shm_n_pages);
+	flag = bitset_get(shm->shm_pages, page);
+	return flag;	
+}
+
 static void
 shm_page_alloc(u_int page)
 {
-	assert(page < shm->shm_n_pages);
+	assert(!shm_page_is_allocated(page));
 	bitset_set(shm->shm_pages, page);
 	if (shm_early) {
 		shm_early_n_allocated_pages++;
@@ -61,22 +98,13 @@ static void
 shm_page_free(u_int page)
 {
 	assert(page < shm->shm_n_pages);
+	assert(page >= shm->shm_n_superblock_pages);
 	bitset_clr(shm->shm_pages, page);
 	if (shm_early) {
 		shm_early_n_allocated_pages--;
 	} else {
 		curmod->shm_n_allocated_pages--;
 	}
-}
-
-static int
-shm_page_is_allocated(u_int page)
-{
-	int flag;
-
-	assert(page < shm->shm_n_pages);
-	flag = bitset_get(shm->shm_pages, page);
-	return flag;	
 }
 
 static uintptr_t
@@ -155,7 +183,7 @@ shm_garbage_pop(struct dlist *dst, u_char sid)
 int
 shm_init()
 {
-	int i, rc, n_pages, hdr_size, superblock_size, superblock_n_pages;
+	int i, rc, n_pages, hdr_size, superblock_size;
 	size_t size;
 
 	NOTICE(0, "hit;");
@@ -188,8 +216,8 @@ shm_init()
 	for (i = 0; i < GT_SERVICES_MAX; ++i) {
 		dlist_init(shm->shm_garbage_head + i);
 	}
-	superblock_n_pages = superblock_size >> PAGE_SHIFT;
-	for (i = 0; i < superblock_n_pages; ++i) {
+	shm->shm_n_superblock_pages = superblock_size >> PAGE_SHIFT;
+	for (i = 0; i < shm->shm_n_superblock_pages; ++i) {
 		shm_page_alloc(i);
 	}
 	shm_ih  = (void *)(shm->shm_base_addr + shm->shm_hdr_size);
@@ -330,9 +358,9 @@ shm_free_pages_locked(uintptr_t addr, size_t size)
 	for (i = 0; i < size_n; ++i) {
 		if (!shm_page_is_allocated(page + i)) {
 			die(0, "double free; addr=%p",
-			    (void *)shm_page_to_virt(i));
+			    (void *)shm_page_to_virt(page + i));
 		}
-		shm_page_free(i);
+		shm_page_free(page + i);
 	}
 }
 
@@ -371,7 +399,9 @@ shm_free_locked(void *tofree_ptr)
 		return;
 	}
 	tofree_m = ((struct mbuf *)tofree_ptr) - 1;
+	assert(tofree_m->mb_magic == SHM_MAGIC);
 	DLIST_FOREACH(m, &shm->shm_heap, mb_list) {
+		assert(m->mb_magic == SHM_MAGIC);
 		if ((uintptr_t)tofree_m < (uintptr_t)m) {
 			DLIST_INSERT_BEFORE(tofree_m, m, mb_list);
 			shm_merge(tofree_m);
@@ -406,12 +436,14 @@ shm_malloc_locked(const char *name, void **pp, size_t mem_size)
 		if (rc) {
 			return rc;
 		}
+		b->mb_magic = SHM_MAGIC;	
 		b->mb_size = alloc_size;
 	} else {
 		DLIST_REMOVE(b, mb_list);
 	}
 	if (b->mb_size > size + 128) {
 		m = (struct mbuf *)(((u_char *)b) + size);
+		m->mb_magic = SHM_MAGIC;
 		m->mb_size = b->mb_size - size;
 		b->mb_size = size;
 		shm_free_locked(m + 1);

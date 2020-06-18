@@ -39,7 +39,7 @@ struct route_if {
 	int rif_flags;
 	int rif_mtu;
 	u_char rif_rss_nq;
-	int rif_naddrs;
+	int rif_n_addrs;
 	int rif_name_len[2];
 	struct route_if_addr **rif_addrs;
 	struct eth_addr rif_hwaddr;
@@ -51,12 +51,9 @@ struct route_if {
 	counter64_t rif_rx_pkts;
 	counter64_t rif_rx_bytes;
 	counter64_t rif_rx_drop;
-	counter64_t rif_rx_redir;
 	counter64_t rif_tx_pkts;
 	counter64_t rif_tx_bytes;
 	counter64_t rif_tx_drop;
-	counter64_t rif_redir;
-	counter64_t rif_redir_drop;
 	char rif_name[NM_IFNAMSIZ];
 };
 
@@ -130,7 +127,6 @@ int route_get4(be32_t, struct route_entry *);
 
 // ???????
 int route_if_not_empty_txr(struct route_if *, struct dev_pkt *);
-void route_if_rxr_next(struct route_if *, struct netmap_ring *, int);
 void route_if_tx(struct route_if *, struct dev_pkt *);
 
 int route_open(struct route_mod *);

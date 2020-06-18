@@ -285,6 +285,8 @@ gt_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 int
 gt_shutdown_locked(int fd, int how)
 {
+	// TODO: on socket rewrite
+//	assert(0);
 	return -ENOTSUP;
 }
 
@@ -885,6 +887,6 @@ gt_dbg4(const char *file, u_int line, const char *func,
 	va_start(ap, fmt);
 	strbuf_vaddf(&sb, fmt, ap);
 	va_end(ap);
-	printf("%s\n", strbuf_cstr(&sb));
+	fprintf(stderr, "%s\n", strbuf_cstr(&sb));
 	ERR(0, "%s", strbuf_cstr(&sb));
 }

@@ -164,7 +164,7 @@ route_if_del(struct route_if *ifp)
 		                     rtl_list);
 		route_del(route);
 	}
-	while (ifp->rif_naddrs) {
+	while (ifp->rif_n_addrs) {
 		route_ifaddr_del(ifp, &(ifp->rif_addrs[0]->ria_addr));
 	}
 }
@@ -188,7 +188,7 @@ route_ifaddr_add(struct route_if_addr **ifap,
 		ifa->ria_ephemeral_port = EPHEMERAL_PORT_MIN + i;
 		DLIST_INSERT_HEAD(&curmod->route_addr_head, ifa, ria_list);
 	}
-	for (i = 0; i < ifp->rif_naddrs; ++i) {
+	for (i = 0; i < ifp->rif_n_addrs; ++i) {
 		tmp = ifp->rif_addrs[i];
 		if (!ipaddr_cmp(AF_INET, addr, &tmp->ria_addr)) {
 			ERR(0, "exists; addr=%s",
@@ -198,13 +198,13 @@ route_ifaddr_add(struct route_if_addr **ifap,
 	}
 	ifa->ria_ref_cnt++;
 	rc = shm_realloc("route.ifp.rif_addrs", (void **)&ifp->rif_addrs,
-	                 (ifp->rif_naddrs + 1) * sizeof(ifa));
+	                 (ifp->rif_n_addrs + 1) * sizeof(ifa));
 	if (rc) {
 		DLIST_REMOVE(ifa, ria_list);
 		shm_free(ifa);
 		return rc;
 	}
-	ifp->rif_addrs[ifp->rif_naddrs++] = ifa;
+	ifp->rif_addrs[ifp->rif_n_addrs++] = ifa;
 	route_foreach_set_srcs(ifp);
 	if (ifap != NULL) {
 		*ifap = ifa;
@@ -222,11 +222,11 @@ route_ifaddr_del(struct route_if *ifp, const struct ipaddr *addr)
 	ifa = route_ifaddr_get(AF_INET, addr);
 	rc = -ENOENT;
 	if (ifa != NULL) {
-		for (i = 0; i < ifp->rif_naddrs; ++i) {
+		for (i = 0; i < ifp->rif_n_addrs; ++i) {
 			if (ifp->rif_addrs[i] == ifa) {
-				last = ifp->rif_naddrs - 1;
+				last = ifp->rif_n_addrs - 1;
 				ifp->rif_addrs[i] = ifp->rif_addrs[last];
-				ifp->rif_naddrs--;
+				ifp->rif_n_addrs--;
 				ifa->ria_ref_cnt--;
 				route_foreach_set_srcs(ifp);
 				if (ifa->ria_ref_cnt == 0) {
@@ -264,7 +264,7 @@ route_set_srcs(struct route_entry_long *route)
 	int n, rc, size;
 	uint32_t next_hop;
 
-	n = route->rtl_ifp->rif_naddrs;
+	n = route->rtl_ifp->rif_n_addrs;
 	size = n * sizeof(struct route_if_addr *);
 	if (route->rtl_nsrcs < n) {
 		rc = shm_realloc("route.rtl_srcs",
@@ -538,7 +538,7 @@ sysctl_route_if_list(void *udata, const char *ident, const char *new,
 	struct strbuf *out)
 {
 	int ifindex;
-	uint64_t rx_pkts, rx_bytes, tx_pkts, tx_bytes, tx_drop;
+	uint64_t rx_pkts, rx_drop, rx_bytes, tx_pkts, tx_drop, tx_bytes;
 	struct route_if *ifp;
 
 	ifindex = strtoul(ident, NULL, 10);
@@ -547,15 +547,18 @@ sysctl_route_if_list(void *udata, const char *ident, const char *new,
 		return -ENOENT;
 	}
 	rx_pkts = counter64_get(&ifp->rif_rx_pkts);
+	rx_drop = counter64_get(&ifp->rif_rx_drop);
 	rx_bytes = counter64_get(&ifp->rif_rx_bytes);
 	tx_pkts = counter64_get(&ifp->rif_tx_pkts);
-	tx_bytes = counter64_get(&ifp->rif_tx_bytes);
 	tx_drop = counter64_get(&ifp->rif_tx_drop);
+	tx_bytes = counter64_get(&ifp->rif_tx_bytes);
 	strbuf_addf(out, "%s,%d,%x,",
 	            ifp->rif_name, ifp->rif_index, ifp->rif_flags);
 	strbuf_add_eth_addr(out, &ifp->rif_hwaddr);
-	strbuf_addf(out, ",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64,
-                    rx_pkts, rx_bytes, tx_pkts, tx_bytes, tx_drop);
+	strbuf_addf(out, ",%"PRIu64",%"PRIu64",%"PRIu64,
+	            rx_pkts, rx_drop, rx_bytes);
+	strbuf_addf(out, ",%"PRIu64",%"PRIu64",%"PRIu64,
+                    tx_pkts, tx_bytes, tx_drop);
 	return 0;
 }
 
@@ -589,11 +592,11 @@ sysctl_route_addr_list_next(void *udata, const char *ident, struct strbuf *out)
 	}
 	off = 0;
 	ROUTE_IF_FOREACH(ifp) {
-		if (id - off < ifp->rif_naddrs) {
+		if (id - off < ifp->rif_n_addrs) {
 			strbuf_addf(out, "%d", id);
 			return 0;
 		}
-		off += ifp->rif_naddrs;
+		off += ifp->rif_n_addrs;
 	}
 	return -ENOENT;
 }
@@ -609,13 +612,13 @@ sysctl_route_addr_list(void *udata, const char *ident, const char *new,
 	id = strtoul(ident, NULL, 10);
 	off = 0;
 	ROUTE_IF_FOREACH(ifp) {
-		if (id - off < ifp->rif_naddrs) {
+		if (id - off < ifp->rif_n_addrs) {
 			ifa = ifp->rif_addrs[id - off];
 			strbuf_addf(out, "%s,", ifp->rif_name);
 			strbuf_add_ipaddr(out, AF_INET, &ifa->ria_addr);
 			return 0;
 		}
-		off += ifp->rif_naddrs;
+		off += ifp->rif_n_addrs;
 	}
 	return -ENOENT;
 }
@@ -835,7 +838,6 @@ route_if_rxr_next(struct route_if *ifp, struct netmap_ring *rxr, int drop)
 		counter64_inc(&ifp->rif_rx_pkts);
 		counter64_add(&ifp->rif_rx_bytes, slot->len);
 	}
-	DEV_RXR_NEXT(rxr);
 }
 
 void

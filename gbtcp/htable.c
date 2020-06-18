@@ -182,16 +182,13 @@ sysctl_htable_list(void *udata, const char *ident,
 	dlist_foreach(e, &b->htb_head) {
 		if (lo == id.lo) {
 			(*t->ht_sysctl_fn)(e, new, out);
-			break;
+			spinlock_unlock(&b->htb_lock);
+			return 0;
 		}
 		lo++;
 	}
 	spinlock_unlock(&b->htb_lock);
-	if (lo == id.lo) {
-		return 0;
-	} else {
-		return -ENOENT;
-	}
+	return -ENOENT;
 }
 
 void
