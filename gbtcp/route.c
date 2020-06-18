@@ -558,7 +558,7 @@ sysctl_route_if_list(void *udata, const char *ident, const char *new,
 	strbuf_addf(out, ",%"PRIu64",%"PRIu64",%"PRIu64,
 	            rx_pkts, rx_drop, rx_bytes);
 	strbuf_addf(out, ",%"PRIu64",%"PRIu64",%"PRIu64,
-                    tx_pkts, tx_bytes, tx_drop);
+                    tx_pkts, tx_drop, tx_bytes);
 	return 0;
 }
 
@@ -824,20 +824,6 @@ route_if_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt)
 		rc = service_not_empty_txr(ifp, pkt);
 	}
 	return rc;
-}
-
-void
-route_if_rxr_next(struct route_if *ifp, struct netmap_ring *rxr, int drop)
-{
-	struct netmap_slot *slot;
-
-	if (drop) {
-		counter64_inc(&ifp->rif_rx_drop);
-	} else {
-		slot = rxr->slot + rxr->cur;
-		counter64_inc(&ifp->rif_rx_pkts);
-		counter64_add(&ifp->rif_rx_bytes, slot->len);
-	}
 }
 
 void

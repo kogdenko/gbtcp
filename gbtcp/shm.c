@@ -17,6 +17,7 @@ struct shm_hdr {
 	uintptr_t shm_base_addr;
 	struct spinlock shm_lock;
 	struct dlist shm_heap;
+	uint64_t shm_nanoseconds;
 	int shm_n_superblock_pages;
 	int shm_n_pages;
 	int shm_hdr_size;
@@ -180,6 +181,18 @@ shm_garbage_pop(struct dlist *dst, u_char sid)
 	}
 }
 
+uint64_t
+shm_get_nanoseconds()
+{
+	return READ_ONCE(shm->shm_nanoseconds);
+}
+
+void
+shm_set_nanoseconds(uint64_t t)
+{
+	WRITE_ONCE(shm->shm_nanoseconds, t);
+}
+
 int
 shm_init()
 {
@@ -206,6 +219,7 @@ shm_init()
 	hdr_size += BITSET_WORD_ARRAY_SIZE(n_pages) * sizeof(bitset_word_t);
 	superblock_size = ROUND_UP((hdr_size + sizeof(*shm_ih)), PAGE_SIZE);
 	memset(shm, 0, superblock_size);
+	shm->shm_nanoseconds = nanoseconds;
 	shm->shm_base_addr = (uintptr_t)shm;
 	spinlock_init(&shm->shm_lock);
 	dlist_init(&shm->shm_heap);

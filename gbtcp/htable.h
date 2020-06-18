@@ -1,4 +1,4 @@
-// gpl2 license
+// gpl2
 #ifndef GBTCP_HTABLE_H
 #define GBTCP_HTABLE_H
 
@@ -27,10 +27,8 @@ struct htable {
 	struct htable_bucket *ht_array;
 };
 
-int htable_mod_init(void **);
-int htable_mod_attach(void *);
-void htable_mod_deinit(void *);
-void htable_mod_detach();
+#define HTABLE_BUCKET_LOCK(b) spinlock_lock(&(b)->htb_lock)
+#define HTABLE_BUCKET_UNLOCK(b) spinlock_unlock(&(b)->htb_lock)
 
 void htable_bucket_init(struct htable_bucket *);
 int htable_init(struct htable *, const char *, int, htable_f, int);

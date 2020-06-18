@@ -1,4 +1,4 @@
-// gpl2 license
+// gpl2
 #include "internals.h"
 
 #define CURMOD api
@@ -6,7 +6,6 @@
 static __thread int api_passthru;
 
 __thread int gt_errno;
-
 
 #define API_LOCK \
 	if (api_lock()) { \

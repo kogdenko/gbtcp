@@ -52,6 +52,7 @@
 #define GT_SYSCTL_SOCKET_ATTACHED_SIZE "socket.attached.size"
 #define GT_SYSCTL_SOCKET_BINDED_LIST "socket.binded.list"
 #define GT_SYSCTL_ARP_ADD "arp.add"
+#define GT_SYSCTL_ARP_DEL "arp.del"
 #define GT_SYSCTL_ARP_LIST "arp.list"
 #define GT_SYSCTL_CONTROLLER_SERVICE_LIST "controller.service.list"
 #define GT_SYSCTL_INET_CKSUM_OFFLOAD_RX "inet.cksum.offload.rx"

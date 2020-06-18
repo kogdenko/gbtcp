@@ -17,6 +17,9 @@ void shm_unlock();
 void shm_garbage_push(struct service *);
 void shm_garbage_pop(struct dlist *, u_char);
 
+uint64_t shm_get_nanoseconds();
+void shm_set_nanoseconds(uint64_t);
+
 int shm_malloc(const char *, void **, size_t);
 int shm_realloc(const char *, void **, size_t);
 void shm_free(void *);

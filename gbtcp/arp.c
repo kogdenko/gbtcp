@@ -2,11 +2,11 @@
 
 #define CURMOD arp
 
-#define GT_ARP_REACHABLE_TIME (30 * NSEC_SEC)
+#define ARP_REACHABLE_TIME (30 * NSEC_SEC)
 #define ARP_RETRANS_TIMER NSEC_SEC
-#define GT_ARP_MAX_UNICAST_SOLICIT 3
-#define GT_ARP_MIN_RANDOM_FACTOR 0.5
-#define GT_ARP_MAX_RANDOM_FACTOR 1.5
+#define ARP_MAX_UNICAST_SOLICIT 3
+#define ARP_MIN_RANDOM_FACTOR 0.5
+#define ARP_MAX_RANDOM_FACTOR 1.5
 
 #define arps current->p_arps
 
@@ -27,18 +27,15 @@ enum arp_state {
 struct arp_entry {
 	struct mbuf ae_mbuf;
 #define ae_list ae_mbuf.mb_list
-	struct htable_bucket *ae_bucket;
 	be32_t ae_next_hop;
 	short ae_state;
 	short ae_admin;
-	short ae_nprobes;
+	short ae_n_probes;
 	uint64_t ae_confirmed;
 	struct timer ae_timer;
 	struct eth_addr ae_addr;
 	struct dev_pkt *ae_incomplete_q;
 };
-
-static void arp_entry_del(struct arp_entry *e);
 
 const char *
 arp_state_str(int state)
@@ -54,7 +51,7 @@ arp_state_str(int state)
 }
 
 static inline void
-arp_set_eth_hdr(struct arp_entry *e, struct route_if *ifp, u_char *data)
+arp_set_eh(struct arp_entry *e, struct route_if *ifp, u_char *data)
 {
 	struct eth_hdr *eh;
 
@@ -82,12 +79,10 @@ arp_entry_add_incomplete(struct arp_entry *e, struct dev_pkt *pkt)
 			return;
 		}
 	}
-	if (cp != NULL) {
-		cp->pkt_len = pkt->pkt_len;
-		cp->pkt_data = (uint8_t *)cp + sizeof(*cp);
-		DEV_PKT_COPY(cp->pkt_data, pkt->pkt_data, pkt->pkt_len);
-		e->ae_incomplete_q = cp;
-	}
+	cp->pkt_len = pkt->pkt_len;
+	cp->pkt_data = (uint8_t *)cp + sizeof(*cp);
+	DEV_PKT_COPY(cp->pkt_data, pkt->pkt_data, pkt->pkt_len);
+	e->ae_incomplete_q = cp;
 }
 
 static void
@@ -108,25 +103,27 @@ arp_tx_incomplete_q(struct arp_entry *e)
 	route.rt_dst.ipa_4 = ih->ih_daddr;
 	rc = route_get(AF_INET, NULL, &route);
 	if (rc) {
-		goto drop;
+		goto err;
 	}
 	next_hop = route_get_next_hop4(&route);
 	if (e->ae_next_hop != next_hop) {
-drop:
-		mbuf_free(&x->pkt_mbuf);
-		arps.arps_dropped++;
-		return;
+		goto err;
 	}
 	rc = route_if_not_empty_txr(route.rt_ifp, &pkt);
 	if (rc) {
 		counter64_inc(&route.rt_ifp->rif_tx_drop);
+		goto err;
 	} else {
 		DEV_PKT_COPY(pkt.pkt_data, x->pkt_data, x->pkt_len);
 		pkt.pkt_len = x->pkt_len;
-		arp_set_eth_hdr(e, route.rt_ifp, pkt.pkt_data);
+		arp_set_eh(e, route.rt_ifp, pkt.pkt_data);
 		route_if_tx(route.rt_ifp, &pkt);
 	}
 	mbuf_free(&x->pkt_mbuf);
+	return;
+err:
+	mbuf_free(&x->pkt_mbuf);
+	arps.arps_dropped++;
 }
 
 static int
@@ -150,7 +147,7 @@ arp_fill_probe4(struct eth_hdr *eh, be32_t sip, be32_t dip)
 }
 
 static void
-arp_tx_req(struct arp_entry *e)
+arp_probe(struct arp_entry *e)
 {
 	int rc, len;
 	struct eth_hdr *eh;
@@ -160,7 +157,7 @@ arp_tx_req(struct arp_entry *e)
 	if (timer_is_running(&e->ae_timer)) {
 		return;
 	}
-	e->ae_nprobes++;
+	e->ae_n_probes++;
 	timer_set(&e->ae_timer, ARP_RETRANS_TIMER, 0);
 	route.rt_dst.ipa_4 = e->ae_next_hop;
 	rc = route_get(AF_INET, NULL, &route);
@@ -186,14 +183,22 @@ arp_tx_req(struct arp_entry *e)
 }
 
 static uint32_t
-arp_entry_hash(void *ep)
+arp_hash(uint32_t key)
 {
-	uint32_t h;
-	struct arp_entry *e;
+	uint32_t hash_val;
 
-	e = ep;
-	h = custom_hash32(e->ae_next_hop, 0);
-	return h;
+	// Linux algorithm
+	hash_val = key;
+	hash_val ^= (hash_val >> 16);
+	hash_val ^= (hash_val >> 8);
+	hash_val ^= (hash_val >> 4);
+	return hash_val;
+}
+
+static uint32_t
+arp_entry_hash(void *udata)
+{
+	return arp_hash(((struct arp_entry *)udata)->ae_next_hop);
 }
 
 static uint64_t
@@ -201,8 +206,8 @@ arp_calc_reachable_time()
 {
 	double x, min, max;
 
-	min = GT_ARP_REACHABLE_TIME * GT_ARP_MIN_RANDOM_FACTOR;
-	max = GT_ARP_REACHABLE_TIME * GT_ARP_MAX_RANDOM_FACTOR;
+	min = ARP_REACHABLE_TIME * ARP_MIN_RANDOM_FACTOR;
+	max = ARP_REACHABLE_TIME * ARP_MAX_RANDOM_FACTOR;
 	x = rand64();
 	x = min + (max - min) * x / UINT64_MAX;
 	assert(x >= min);
@@ -239,6 +244,24 @@ sysctl_arp_add(struct sysctl_conn *cp, void *udata,
 	return rc;
 }
 
+static int
+sysctl_arp_del(struct sysctl_conn *cp, void *udata,
+	const char *new, struct strbuf *out)
+{
+	int rc;
+	struct ipaddr next_hop;
+
+	if (new == NULL) {
+		return 0;
+	}
+	rc = ipaddr_pton(AF_INET, &next_hop, new);
+	if (rc) {
+		return rc;
+	}
+	rc = arp_del(next_hop.ipa_4);
+	return rc;
+}
+
 static void
 sysctl_arp_entry(void *udata, const char *new, struct strbuf *out)
 {
@@ -272,6 +295,7 @@ arp_mod_init()
 	sysctl_add_htable_list(GT_SYSCTL_ARP_LIST, SYSCTL_RD,
 	                       &curmod->arp_htable, sysctl_arp_entry);
 	sysctl_add(GT_SYSCTL_ARP_ADD, SYSCTL_WR, NULL, NULL, sysctl_arp_add);
+	sysctl_add(GT_SYSCTL_ARP_DEL, SYSCTL_WR, NULL, NULL, sysctl_arp_del);
 	curmod->arp_reachable_time = arp_calc_reachable_time();
 	return 0;
 }
@@ -323,35 +347,35 @@ arp_set_state(struct arp_entry *e, int state)
 	INFO(0, "hit; state=%s->%s, next_hop=%s",
 	     arp_state_str(e->ae_state), arp_state_str(state),
 	     log_add_ipaddr(AF_INET, &e->ae_next_hop));
-	e->ae_state = state;
+	WRITE_ONCE(e->ae_state, state);
 	if (state == ARP_REACHABLE) {
 		timer_del(&e->ae_timer);
 		e->ae_confirmed = nanoseconds;
-		e->ae_nprobes = 0;
+		e->ae_n_probes = 0;
 	}
 }
 
 static int
-arp_entry_alloc(struct arp_entry **ep, be32_t next_hop)
+arp_entry_add(struct arp_entry **ep, struct htable_bucket *b, be32_t next_hop,
+	int admin, const struct eth_addr *addr)
 {
 	int rc;
-	uint32_t h;
 	struct arp_entry *e;
-	struct htable_bucket *b;
 
 	rc = mbuf_alloc(current->p_arp_entry_pool, (struct mbuf **)ep);
 	if (rc) {
 		return rc;
 	}
 	e = *ep;
-	e->ae_nprobes = 0;
+	e->ae_n_probes = 0;
 	e->ae_incomplete_q = NULL;
-	e->ae_state = 0;
-	e->ae_admin = 0;
+	e->ae_state = ARP_NONE;
+	e->ae_admin = admin;
+	if (addr != NULL) {
+		e->ae_addr = *addr;
+	}
 	timer_init(&e->ae_timer);
 	e->ae_next_hop = next_hop;
-	h = arp_entry_hash(e);
-	b = htable_bucket_get(&curmod->arp_htable, h);
 	dlist_insert_tail_rcu(&b->htb_head, &e->ae_list);
 	return 0;
 }
@@ -363,18 +387,14 @@ arp_entry_del(struct arp_entry *e)
 	timer_del(&e->ae_timer);
 	arp_set_state(e, ARP_NONE);
 	mbuf_free(&e->ae_incomplete_q->pkt_mbuf);
-	mbuf_free(&e->ae_mbuf);
+	mbuf_free_rcu(&e->ae_mbuf);
 }
 
 static struct arp_entry *
-arp_entry_get(be32_t next_hop)
+arp_entry_get(struct htable_bucket *b, be32_t next_hop)
 {
-	uint32_t h;
-	struct htable_bucket *b;
 	struct arp_entry *e;
 
-	h = custom_hash32(next_hop, 0);
-	b = htable_bucket_get(&curmod->arp_htable, h);
 	DLIST_FOREACH(e, &b->htb_head, ae_list) {
 		if (e->ae_next_hop == next_hop) {
 			return e;
@@ -386,44 +406,47 @@ arp_entry_get(be32_t next_hop)
 void
 arp_mod_timer(struct timer *timer, u_char fn_id)
 {
+	uint32_t h;
 	struct arp_entry *e;
+	struct htable_bucket *b;
 
 	arps.arps_timeouts++;
 	e = container_of(timer, struct arp_entry, ae_timer);
+	h = arp_entry_hash(e);
+	b = htable_bucket_get(&curmod->arp_htable, h);
+	HTABLE_BUCKET_LOCK(b);
 	if (e->ae_state == ARP_INCOMPLETE || e->ae_state == ARP_PROBE) {
-		if (e->ae_nprobes >= GT_ARP_MAX_UNICAST_SOLICIT) {
+		if (e->ae_n_probes >= ARP_MAX_UNICAST_SOLICIT) {
 			arp_entry_del(e);
 		} else {
-			arp_tx_req(e);
+			arp_probe(e);
 		}
 	}
+	HTABLE_BUCKET_UNLOCK(b);
 }
 
 static int
-arp_entry_is_reachable_timeouted(struct arp_entry *e)
+arp_is_reachable_timeouted(struct arp_entry *e)
 {
-	if (e->ae_state != ARP_REACHABLE) {
+	uint64_t t;
+
+	if (READ_ONCE(e->ae_admin)) {
 		return 0;
 	}
-	if (e->ae_admin) {
-		return 0;
-	}
-	return nanoseconds - e->ae_confirmed > curmod->arp_reachable_time;
+	t = shm_get_nanoseconds();
+	return t - e->ae_confirmed > curmod->arp_reachable_time;
 }
 
 void
-arp_resolve(struct route_if *ifp, be32_t next_hop,
-	struct dev_pkt *pkt)
+arp_resolve_slow(struct route_if *ifp, struct htable_bucket *b,
+	be32_t next_hop, struct dev_pkt *pkt)
 {
 	int rc;
-	uint32_t h;
-	struct htable_bucket *b;
-	struct arp_entry *e, *tmp;
+	struct arp_entry *e, *tmp;	
 
-	h = custom_hash32(next_hop, 0);
-	b = htable_bucket_get(&curmod->arp_htable, h);
 	DLIST_FOREACH_SAFE(e, &b->htb_head, ae_list, tmp) {
-		if (arp_entry_is_reachable_timeouted(e)) {
+		if (e->ae_state == ARP_REACHABLE &&
+		    arp_is_reachable_timeouted(e)) {
 			arp_set_state(e, ARP_STALE);
 		}
 		if (e->ae_next_hop != next_hop) {
@@ -436,74 +459,104 @@ arp_resolve(struct route_if *ifp, be32_t next_hop,
 				return;
 			}
 			assert(e->ae_incomplete_q == NULL);
-			arp_set_eth_hdr(e, ifp, pkt->pkt_data);
+			arp_set_eh(e, ifp, pkt->pkt_data);
 			route_if_tx(ifp, pkt);
 			if (e->ae_state == ARP_STALE) {
 				arp_set_state(e, ARP_PROBE);
-				arp_tx_req(e);
+				arp_probe(e);
 			}
 			return;
 		}
 	}
-	rc = arp_entry_alloc(&e, next_hop);
+	rc = arp_entry_add(&e, b, next_hop, 0, NULL);
 	if (rc == 0) {
 		arp_set_state(e, ARP_INCOMPLETE);
 		arp_entry_add_incomplete(e, pkt);
-		arp_tx_req(e);
+		arp_probe(e);
 	}
 }
 
 void
-arp_update(struct arp_advert_msg *msg)
+arp_resolve(struct route_if *ifp, be32_t next_hop, struct dev_pkt *pkt)
+{
+	int state;
+	uint32_t h;
+	struct htable_bucket *b;
+	struct arp_entry *e;
+
+	h = arp_hash(next_hop);
+	b = htable_bucket_get(&curmod->arp_htable, h);
+	// Fast path
+	DLIST_FOREACH_RCU(e, &b->htb_head, ae_list) {
+		state = READ_ONCE(e->ae_state);
+		if (state == ARP_REACHABLE &&
+		    arp_is_reachable_timeouted(e)) {
+			break;
+		}
+		if (e->ae_next_hop != next_hop) {
+			if (state == ARP_STALE) {
+				break;
+			}
+		} else if (state == ARP_REACHABLE ||
+		           state == ARP_PROBE) {
+			arp_set_eh(e, ifp, pkt->pkt_data);
+			route_if_tx(ifp, pkt);
+			return;
+		} else {
+			break;
+		}
+	}
+	HTABLE_BUCKET_LOCK(b);
+	arp_resolve_slow(ifp, b, next_hop, pkt);
+	HTABLE_BUCKET_UNLOCK(b);
+}
+
+// RFC-4861
+// 7.2.5.  Receipt of Neighbor Advertisements
+// Appendix C: State Machine for the Reachability State
+void
+arp_update_locked(struct arp_advert *adv, struct htable_bucket *b)
 {
 	int rc, same_addr;
 	struct arp_entry *e;
 
-	INFO(0, "hit; next_hop=%s",
-	     log_add_ipaddr(AF_INET, &msg->arpam_next_hop));
-	// RFC-4861
-	// 7.2.5.  Receipt of Neighbor Advertisements
-	// Appendix C: State Machine for the Reachability State
-	if (!eth_addr_is_ucast(msg->arpam_addr.ea_bytes)) {
-		return;
-	}
-	e = arp_entry_get(msg->arpam_next_hop);
+	e = arp_entry_get(b, adv->arpa_next_hop);
 	if (e == NULL) {
-		if (msg->arpam_advert == 0) {
-			rc = arp_entry_alloc(&e, msg->arpam_next_hop);
+		if (adv->arpa_advert == 0) {
+			rc = arp_entry_add(&e, b, adv->arpa_next_hop,
+			                   0, &adv->arpa_addr);
 			if (rc == 0) {
-				e->ae_addr = msg->arpam_addr;
 				arp_set_state(e, ARP_STALE);
 			}
 		}
 		return;
 	}
-	same_addr = !memcmp(&e->ae_addr, &msg->arpam_addr,
-	                    sizeof(msg->arpam_addr));
-	if (arp_entry_is_reachable_timeouted(e)) {
+	same_addr = !memcmp(&e->ae_addr, &adv->arpa_addr,
+	                    sizeof(adv->arpa_addr));
+	if (e->ae_state == ARP_REACHABLE && arp_is_reachable_timeouted(e)) {
 		arp_set_state(e, ARP_STALE);
 	}
-	if (msg->arpam_advert == 0) {
+	if (adv->arpa_advert == 0) {
 		if (e->ae_state == ARP_INCOMPLETE) {
-			e->ae_addr = msg->arpam_addr;
+			e->ae_addr = adv->arpa_addr;
 			arp_tx_incomplete_q(e);
 			same_addr = 0;
 		}
 		if (same_addr == 0) {
-			e->ae_addr = msg->arpam_addr;
+			e->ae_addr = adv->arpa_addr;
 			arp_set_state(e, ARP_STALE);
 		}
 	} else if (e->ae_state == ARP_INCOMPLETE) {
-		e->ae_addr = msg->arpam_addr;
+		e->ae_addr = adv->arpa_addr;
 		arp_tx_incomplete_q(e);
-		if (msg->arpam_solicited) {
+		if (adv->arpa_solicited) {
 			arp_set_state(e, ARP_REACHABLE);
 		} else {
 			arp_set_state(e, ARP_STALE);
 		}
-	} else if (msg->arpam_override == 0) {
+	} else if (adv->arpa_override == 0) {
 		if (same_addr) {
-			if (msg->arpam_solicited) {
+			if (adv->arpa_solicited) {
 				arp_set_state(e, ARP_REACHABLE);
 			}
 		} else {
@@ -512,8 +565,8 @@ arp_update(struct arp_advert_msg *msg)
 			}
 		}
 	} else {
-		e->ae_addr = msg->arpam_addr;
-		if (msg->arpam_solicited) {
+		e->ae_addr = adv->arpa_addr;
+		if (adv->arpa_solicited) {
 			arp_set_state(e, ARP_REACHABLE);
 		} else {
 			// override == 1 && solicited == 0
@@ -522,25 +575,72 @@ arp_update(struct arp_advert_msg *msg)
 			}
 		}
 	}
+
+}
+
+void
+arp_update(struct arp_advert *adv)
+{
+	uint32_t h;
+	struct htable_bucket *b;
+
+	INFO(0, "hit; next_hop=%s",
+	     log_add_ipaddr(AF_INET, &adv->arpa_next_hop));
+	if (!eth_addr_is_ucast(adv->arpa_addr.ea_bytes)) {
+		return;
+	}
+	h = arp_hash(adv->arpa_next_hop);
+	b = htable_bucket_get(&curmod->arp_htable, h);
+	HTABLE_BUCKET_LOCK(b);
+	arp_update_locked(adv, b);
+	HTABLE_BUCKET_UNLOCK(b);
 }
 
 int
 arp_add(be32_t next_hop, struct eth_addr *addr)
 {
 	int rc;
+	uint32_t h;
+	struct htable_bucket *b;
 	struct arp_entry *e;
 
-	e = arp_entry_get(next_hop);
+	rc = 0;
+	h = arp_hash(next_hop);
+	b = htable_bucket_get(&curmod->arp_htable, h);
+	HTABLE_BUCKET_LOCK(b);
+	e = arp_entry_get(b, next_hop);
 	if (e != NULL) {
-		return -EEXIST;
+		WRITE_ONCE(e->ae_admin, 1);
+	} else {
+		rc = arp_entry_add(&e, b, next_hop, 1, addr);
+		if (rc == 0) {
+			arp_set_state(e, ARP_REACHABLE);
+			arp_tx_incomplete_q(e);
+		}
 	}
-	rc = arp_entry_alloc(&e, next_hop);
-	if (rc == 0) {
-		e->ae_admin = 1;
-		e->ae_addr = *addr;
-		arp_set_state(e, ARP_REACHABLE);
-		arp_tx_incomplete_q(e);
+	HTABLE_BUCKET_UNLOCK(b);
+	return rc;
+}
+
+int
+arp_del(be32_t next_hop)
+{
+	int rc;
+	uint32_t h;
+	struct htable_bucket *b;
+	struct arp_entry *e;
+
+	h = arp_hash(next_hop);
+	b = htable_bucket_get(&curmod->arp_htable, h);
+	HTABLE_BUCKET_LOCK(b);
+	e = arp_entry_get(b, next_hop);
+	if (e == NULL) {
+		rc = -ENOENT;
+	} else {
+		rc = 0;
+		arp_entry_del(e);
 	}
+	HTABLE_BUCKET_UNLOCK(b);
 	return rc;
 }
 

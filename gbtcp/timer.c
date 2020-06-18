@@ -8,26 +8,8 @@
 #define SEG_LOCK(seg) spinlock_lock(&seg->htb_lock)
 #define SEG_UNLOCK(seg) spinlock_unlock(&seg->htb_lock)
 
-struct timer_mod {
-	struct log_scope log_scope;
-	uint64_t timer_nanoseconds;
-};
-
-int
-timer_mod_init()
-{
-	int rc;
-
-	rc = curmod_init();
-	if (rc) {
-		return rc;
-	}
-	WRITE_ONCE(curmod->timer_nanoseconds, nanoseconds);
-	return 0;
-}
-
 static int
-timer_ring_init(struct service *s, int ring_id, uint64_t seg_shift)
+timer_ring_init(struct service *s, uint64_t t, int ring_id, uint64_t seg_shift)
 {
 	int i, rc;
 	void *ptr;
@@ -41,7 +23,7 @@ timer_ring_init(struct service *s, int ring_id, uint64_t seg_shift)
 	}
 	s->p_timer_rings[ring_id] = ring = ptr;
 	ring->tmr_seg_shift = seg_shift;
-	ring->tmr_cur = curmod->timer_nanoseconds >> ring->tmr_seg_shift;
+	ring->tmr_cur = t >> ring->tmr_seg_shift;
 	for (i = 0; i < TIMER_RING_SIZE; ++i) {
 		htable_bucket_init(ring->tmr_segs + i);
 	}
@@ -53,13 +35,15 @@ int
 init_timers(struct service *s)
 {
 	int i, rc;
+	uint64_t t;
 	int seg_shift[2] = {
 		TIMER_RING0_SEG_SHIFT,
 		TIMER_RING1_SEG_SHIFT
 	};
 
+	t = shm_get_nanoseconds();
 	for (i = 0; i < ARRAY_SIZE(seg_shift); ++i) {
-		rc = timer_ring_init(s, i, seg_shift[i]);
+		rc = timer_ring_init(s, t, i, seg_shift[i]);
 		if (rc) {
 			return rc;
 		}
@@ -128,19 +112,11 @@ run_timers()
 	struct dlist queue;
 	struct timer_ring *ring;
 
-	if (current->p_sid == CONTROLLER_SID) {
-		t = nanoseconds;
-		if (t - t_saved < TIMER_TIMEOUT) {
-			return;
-		}
-		WRITE_ONCE(curmod->timer_nanoseconds, t);
-	} else {
-		t = READ_ONCE(curmod->timer_nanoseconds);
-		if (t == t_saved) {
-			return;
-		}
-
+	t = shm_get_nanoseconds();
+	if (t - t_saved < TIMER_TIMEOUT) {
+		return;
 	}
+	t_saved = t;
 	dlist_init(&queue);
 	for (i = 0; i < TIMER_N_RINGS; ++i) {
 		ring = current->p_timer_rings[i];

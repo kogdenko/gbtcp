@@ -600,6 +600,8 @@ void
 controller_loop()
 {
 	while (!controller_done) {
+		rd_nanoseconds();
+		shm_set_nanoseconds(nanoseconds);
 		wait_for_fd_events();
 		controller_balance();
 	}

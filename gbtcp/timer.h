@@ -35,8 +35,6 @@ struct timer_ring {
 	timer_seg_t tmr_segs[TIMER_RING_SIZE];
 };
 
-int timer_mod_init();
-
 int init_timers(struct service *);
 void deinit_timers(struct service *);
 void run_timers();
