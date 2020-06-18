@@ -128,7 +128,9 @@ nginx (ixgbe):
 | 7  | 630|4060|
 | 8  | 700|4390|
 
-
-
 ---
 echo 0 > /proc/sys/kernel/randomize_va_space
+BUG: 
+nginx
+while true; do kill -HUP `cat /var/run/nginx.pid `; done
+timeouts occured (after a while worker process become fully unresponsive)

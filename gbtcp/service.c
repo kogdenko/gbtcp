@@ -115,15 +115,15 @@ service_rx(struct in_context *p)
 	}
 	ipproto = p->in_ipproto;
 	if (ipproto == IPPROTO_UDP || ipproto == IPPROTO_TCP) {
-		rc = so_in(ipproto, p,
-		           p->in_ih->ih_daddr, p->in_ih->ih_saddr,
-		           p->in_uh->uh_dport, p->in_uh->uh_sport);
+		rc = so_input(ipproto, p,
+		              p->in_ih->ih_daddr, p->in_ih->ih_saddr,
+		              p->in_uh->uh_dport, p->in_uh->uh_sport);
 	} else if (ipproto == IPPROTO_ICMP && p->in_errnum &&
 	           (p->in_emb_ipproto == IPPROTO_UDP ||
 	            p->in_emb_ipproto == IPPROTO_TCP)) {
-		rc = so_in_err(p->in_emb_ipproto, p,
-		               p->in_ih->ih_daddr, p->in_ih->ih_saddr,
-		               p->in_uh->uh_dport, p->in_uh->uh_sport);
+		rc = so_input_err(p->in_emb_ipproto, p,
+		                  p->in_ih->ih_daddr, p->in_ih->ih_saddr,
+		                  p->in_uh->uh_dport, p->in_uh->uh_sport);
 	} else {
 		rc = IN_DROP;
 	}
@@ -143,6 +143,8 @@ service_redir5(struct route_if *ifp, int msg_type, u_char sid,
 		pkt.pkt_len = len;
 		pkt.pkt_sid = sid;
 		service_redir(ifp, msg_type, &pkt);
+	} else {
+		dbg("no bufs");
 	}
 	return rc;
 }
@@ -171,6 +173,7 @@ service_rssq_rx_one(struct route_if *ifp, void *data, int len)
 		}
 	} else if (rc >= 0) {
 		current->p_ips.ips_delivered++;
+		printf_rl(NSEC_SEC, "redirrx\n");
 		sid = rc;
 		rc = service_redir5(ifp, SERVICE_MSG_RX, sid, data, len);
 		if (rc) {
@@ -201,17 +204,20 @@ service_vale_rx_one(void *data, int len)
 	struct dev_pkt pkt;
 
 	if (len < sizeof(*msg) + sizeof(*eh)) {
+		dbg("1");
 		return;
 	}
 	eh = data;
 	memset(&a, 0, sizeof(a));
 	a.ea_bytes[5] = current->p_sid;
 	if (memcmp(a.ea_bytes, eh->eh_daddr.ea_bytes, sizeof(a))) {
+		printf_rl(NSEC_SEC, "notforme\n");
 		return;
 	}
 	msg = (struct service_msg *)((u_char *)data + len - sizeof(*msg));
 	ifp = route_if_get_by_ifindex(msg->msg_ifindex);
 	if (ifp == NULL) {
+		dbg("2");
 		return;
 	}
 	eh->eh_saddr = msg->msg_orig_saddr;
@@ -219,6 +225,7 @@ service_vale_rx_one(void *data, int len)
 	len -= sizeof(*msg);
 	switch (msg->msg_type) {
 	case SERVICE_MSG_RX:
+		printf_rl(NSEC_SEC, "vale RX\n");
 		in_context_init(&p, data, len);
 		p.in_tcps = &tcps;
 		p.in_udps = &udps;
@@ -402,8 +409,9 @@ service_init_private()
 	dlist_init(&service_rcu_shadow_head);
 	service_rcu_max = 0;
 	memset(service_rcu, 0, sizeof(service_rcu));
-	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_sid);
+	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_pid % 1000);
 	rc = dev_init(&service_vale, buf, service_vale_rxtx);
+	dbg("vale dev %s %d", buf, rc);
 	return rc;
 }
 
@@ -429,6 +437,7 @@ service_attach()
 		spinlock_unlock(&service_attach_lock);
 		return 0;
 	}
+	dbg("attach!!");
 	ERR(0, "hit;");
 	pid = getpid();
 	rc = read_comm(p_comm, pid);

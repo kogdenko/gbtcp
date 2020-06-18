@@ -113,8 +113,8 @@ short so_get_events(struct file *fp);
 
 int sock_nread(struct file *fp);
 
-int so_in(int, struct in_context *, be32_t, be32_t, be16_t, be16_t);
-int so_in_err(int, struct in_context *, be32_t, be32_t, be16_t, be16_t);
+int so_input(int, struct in_context *, be32_t, be32_t, be16_t, be16_t);
+int so_input_err(int, struct in_context *, be32_t, be32_t, be16_t, be16_t);
 
 void sock_tx_flush();
 

@@ -157,6 +157,7 @@ do { \
 			printf("suppresed %d; ", UNIQV(cnt)); \
 		} \
 		printf(fmt, ##__VA_ARGS__); \
+		UNIQV(cnt) = 0; \
 	} else { \
 		UNIQV(cnt)++; \
 	} \

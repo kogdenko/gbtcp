@@ -16,12 +16,12 @@
 typedef uint32_t be32_t;
 typedef uint16_t be16_t;
 
-int aflag;      /* show all sockets (including servers) */
+int aflag;       /* show all sockets (including servers) */
 int bflag;       /* show i/f total bytes in/out */
 int Pflag = -1;
 int Hflag;       /* show counters in human readable format */
 int iflag;       /* show interfaces */
-int Lflag;       /* show size of listen queues */
+int lflag;
 int nflag;       /* show numerically */
 int pflag;       /* show given protocol */
 int sflag;       /* show protocol statistics */
@@ -369,21 +369,14 @@ print_if()
 static void
 pr_sockets_banner()
 {
-	if (!Lflag) {
-		printf("Active Internet connections");
-		if (aflag) {
-			printf(" (including servers)");
-		}
-	} else {
-		printf("Current listen queue sizes (qlen/incqlen/maxqlen)");
+	printf("Active Internet connections");
+	if (aflag) {
+		printf(" (including servers)");
+	} else if (lflag) {
+		printf(" (only servers)");	
 	}
-	printf("\n%-5.5s %-22.22s ", "Proto", "Local Address");
-	if (Lflag) {
-		printf("%-32.32s ", "Listen");
-	} else {
-		printf("%-22.22s %-11.11s ", "Foreign Address", "State ");
-	}
-	printf("%-7.7s\n", "PID");
+	printf("\n%-5.5s %-22.22s %-22.22s %-11.11s %-7.7s\n",
+	       "Proto", "Local Address", "Foreign Address", "State", "PID");
 }
 
 static int
@@ -393,7 +386,6 @@ pr_socket(void *udata, const char *buf)
 	uint32_t laddr, faddr;
 	uint16_t lport, fport;
 	const char *name;
-	char buf1[33];
 	struct proto *p;
 
 	p = udata;
@@ -420,30 +412,43 @@ pr_socket(void *udata, const char *buf)
 	name = proto == IPPROTO_TCP ? "tcp" : "udp";
 	printf("%-5.5s ", name);
 	pr_sockaddr(laddr, lport, name, nflag > 1);
-	if (state == GT_TCPS_LISTEN) {
-		snprintf(buf1, sizeof(buf1), "%u/%u/%u",
-			 q_len, inc_q_len, q_lim);
-		printf("%-32.32s ", buf1);
-	} else {
-		pr_sockaddr(faddr, fport, name, 1);
-		if (proto == IPPROTO_TCP) {
-			if (state >= GT_TCP_NSTATES) {
-				printf("%-11d ", state);
-			} else {
-				printf("%-11s ", tcpstates[state]);
-			}
+	pr_sockaddr(faddr, fport, name, 1);
+	if (proto == IPPROTO_TCP) {
+		if (state >= GT_TCP_NSTATES) {
+			printf("%-11d ", state);
 		} else {
-			printf("%-11s ", "           ");
+			printf("%-11s ", tcpstates[state]);
 		}
+	} else {
+		printf("%-11s ", "           ");
 	}
 	printf("%-7d\n", pid);
 	return 0;
 }
 
-void
-pr_sockets(struct proto *p)
+static void
+pr_sockets_attached(struct proto *p)
 {
 	sysctl_list_foreach(GT_SYSCTL_SOCKET_ATTACHED_LIST, p, pr_socket);
+}
+
+static void
+pr_sockets_binded(struct proto *p)
+{
+	sysctl_list_foreach(GT_SYSCTL_SOCKET_BINDED_LIST, p, pr_socket);
+}
+
+static void
+pr_sockets(struct proto *p)
+{
+	if (aflag) {
+		pr_sockets_binded(p);
+		pr_sockets_attached(p);
+	} else if (lflag) {
+		pr_sockets_binded(p);
+	} else {
+		pr_sockets_attached(p);
+	}
 }
 
 struct stat_entry {
@@ -982,17 +987,17 @@ static void
 usage(void)
 {
 	printf("%s",
-	"Usage: netstat [-avLn] [--tcp] [--udp] [--ip] [--arp]\n"
+	"Usage: netstat [-aln] [--tcp] [--udp] [--ip] [--arp]\n"
 	"       netstat -s [-z] [--tcp] [--udp] [--ip] [--arp]\n"
 	"       netstat {-i|-I interface} [-Hb] [-w wait]\n"
 	"\n"
 	"\t-h   Print this help\n"
 	"\t-a   Display all sockets (default: connected)\n"
-	"\t-b   Display bytes interface statistics\n"
-	"\t-L   Display listening server sockets\n"
+	"\t-l   Display listening server sockets\n"
 	"\t-n   Don't resolve names\n"
 	"\t-z   Zero statistics\n"
 	"\t-H   Display interface statistics in human readable form\n"
+	"\t-b   Display bytes interface statistics\n"
 	);
 }
 
@@ -1012,7 +1017,7 @@ main(int argc, char **argv)
 	gt_init("netstat", LOG_ERR);
 	gt_preload_passthru = 1;
 	proto = NULL;
-	while ((opt = getopt_long(argc, argv, "habHI:iLnsw:z",
+	while ((opt = getopt_long(argc, argv, "halnszI:iHbw:",
 	                          long_opts, &long_opt)) != -1) {
 		switch(opt) {
 		case 0:
@@ -1024,11 +1029,17 @@ main(int argc, char **argv)
 		case 'a':
 			aflag = 1;
 			break;
-		case 'b':
-			bflag = 1;
+		case 'l':
+			lflag = 1;
 			break;
-		case 'H':
-			Hflag = 1;
+		case 'n':
+			nflag++;
+			break;
+		case 's':
+			sflag++;
+			break;
+		case 'z':
+			zflag = 1;
 			break;
 		case 'I':
 			iflag = 1;
@@ -1037,21 +1048,15 @@ main(int argc, char **argv)
 		case 'i':
 			iflag = 1;
 			break;
-		case 'L':
-			Lflag = 1;
+		case 'H':
+			Hflag = 1;
 			break;
-		case 'n':
-			nflag++;
-			break;
-		case 's':
-			sflag++;
+		case 'b':
+			bflag = 1;
 			break;
 		case 'w':
 			interval = atoi(optarg);
 			iflag = 1;
-			break;
-		case 'z':
-			zflag = 1;
 			break;
 		}
 	}

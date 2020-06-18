@@ -130,11 +130,11 @@ static int so_bind_ephemeral_port(struct sock *, struct route_entry *);
 
 static int sock_route(struct sock *so, struct route_entry *r);
 
-static int sock_in_txq(struct sock *so);
+static int so_in_txq(struct sock *so);
 
-static void sock_add_txq(struct route_if *ifp, struct sock *so);
+static void so_add_txq(struct route_if *ifp, struct sock *so);
 
-static void sock_del_txq(struct sock *so);
+static void so_del_txq(struct sock *so);
 
 static void sock_open(struct sock *so);
 
@@ -549,7 +549,7 @@ so_connect(struct sock *so, const struct sockaddr_in *faddr_in,
 			return -EISCONN;
 		}
 	}
-	assert(!sock_in_txq(so));
+	assert(!so_in_txq(so));
 	if (so->so_lport) {
 		return -ENOTSUP;
 	}
@@ -674,6 +674,10 @@ so_close(struct sock *so)
 	so->so_referenced = 0;
 	// so_close can be called from controller
 	so->so_sid = current->p_sid;
+	if (so_in_txq(so)) {
+		so_del_txq(so);
+		tcp_into_sndq(so);
+	}
 	switch (so->so_state) {
 	case GT_TCPS_CLOSED:
 		so_unref(so, NULL);
@@ -684,8 +688,8 @@ so_close(struct sock *so)
 		tcp_set_state(so, NULL, GT_TCPS_CLOSED);
 		break;
 	case GT_TCPS_SYN_SENT:
-		if (sock_in_txq(so)) {
-			sock_del_txq(so);
+		if (so_in_txq(so)) {
+			so_del_txq(so);
 		}
 		tcp_set_state(so, NULL, GT_TCPS_CLOSED);
 		break;
@@ -1715,13 +1719,13 @@ tcp_into_sndq(struct sock *so)
 	struct route_entry r;
 
 	assert(GT_SOCK_ALIVE(so));
-	if (!sock_in_txq(so)) {
+	if (!so_in_txq(so)) {
 		rc = sock_route(so, &r);
 		if (rc != 0) {
 			assert(0); // TODO: v0.1
 			return;
 		}
-		sock_add_txq(r.rt_ifp, so);
+		so_add_txq(r.rt_ifp, so);
 	}
 }
 
@@ -2008,7 +2012,7 @@ sock_tx_flush_if(struct route_if *ifp)
 			rc = sock_tx(ifp, &pkt, so);
 			n++;
 		} while (rc == 0);
-		sock_del_txq(so);
+		so_del_txq(so);
 		so_unref(so, NULL);
 	}
 }
@@ -2187,7 +2191,7 @@ sock_str(struct strbuf *sb, struct sock *so)
 		", rmss=%u"
 		,
 		ntoh16(so->so_fport),
-		sock_in_txq(so),
+		so_in_txq(so),
 		so->so_err,
 		so->so_reuseaddr,
 		so->so_reuseport,
@@ -2386,13 +2390,13 @@ sock_route(struct sock *so, struct route_entry *r)
 }
 
 static int
-sock_in_txq(struct sock *so)
+so_in_txq(struct sock *so)
 {
 	return so->so_tx_list.dls_next != NULL;
 }
 
 static void
-sock_add_txq(struct route_if *ifp, struct sock *so)
+so_add_txq(struct route_if *ifp, struct sock *so)
 {
 	struct dlist *txq;
 
@@ -2401,9 +2405,9 @@ sock_add_txq(struct route_if *ifp, struct sock *so)
 }
 
 static void
-sock_del_txq(struct sock *so)
+so_del_txq(struct sock *so)
 {
-	assert(sock_in_txq(so));
+	assert(so_in_txq(so));
 	DLIST_REMOVE(so, so_tx_list);
 	so->so_tx_list.dls_next = NULL;
 }
@@ -2494,7 +2498,7 @@ so_unref(struct sock *so, struct in_context *in)
 	if (so->so_processing) {
 		return 0;
 	}
-	if (sock_in_txq(so)) {
+	if (so_in_txq(so)) {
 		return 0;
 	}
 	DBG(0, "hit; fd=%d", so_get_fd(so));
@@ -2639,7 +2643,7 @@ sock_sndbuf_drain(struct sock *so, int cnt)
 }
 
 int
-so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
+so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 	be16_t lport, be16_t fport)
 {
 	int so_ipproto, i;
@@ -2672,6 +2676,7 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 		so = so_find_binded(b, so_ipproto, laddr, faddr, lport, fport);
 	}
 	if (so == NULL) {
+		dbg("??");
 		return IN_BYPASS;
 	}
 	if (so->so_sid != current->p_sid) {
@@ -2747,7 +2752,7 @@ so_in(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 }
 
 int
-so_in_err(int ipproto, struct in_context *p, be32_t laddr, be32_t faddr,
+so_input_err(int ipproto, struct in_context *p, be32_t laddr, be32_t faddr,
 	be16_t lport, be16_t fport)
 {
 #if 0

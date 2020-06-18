@@ -377,7 +377,7 @@ arp_in(struct in_context *in)
 	int i, is_req;
 	be32_t sip, tip;
 	struct route_if_addr *ifa;
-	struct arp_advert_msg msg;
+	struct arp_advert adv;
 
 	in->in_arps->arps_received++;
 	if (in->in_rem < sizeof(struct arp_hdr)) {
@@ -452,13 +452,13 @@ arp_in(struct in_context *in)
 		in->in_arps->arps_badop++;
 		return IN_DROP;
 	}
-	msg.arpam_af = AF_INET;
-	msg.arpam_advert = !is_req;
-	msg.arpam_solicited = !is_req;
-	msg.arpam_override = !is_req;
-	msg.arpam_next_hop = in->in_ah->ah_data.aip_sip;
-	msg.arpam_addr = in->in_ah->ah_data.aip_sha;
-	arp_update(&msg);
+	adv.arpa_af = AF_INET;
+	adv.arpa_advert = !is_req;
+	adv.arpa_solicited = !is_req;
+	adv.arpa_override = !is_req;
+	adv.arpa_next_hop = in->in_ah->ah_data.aip_sip;
+	adv.arpa_addr = in->in_ah->ah_data.aip_sha;
+	arp_update(&adv);
 	if (is_req) {
 		return IN_DROP;
 	} else {
