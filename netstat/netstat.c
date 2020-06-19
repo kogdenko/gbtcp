@@ -16,40 +16,24 @@
 typedef uint32_t be32_t;
 typedef uint16_t be16_t;
 
-int aflag;       /* show all sockets (including servers) */
-int bflag;       /* show i/f total bytes in/out */
-int Pflag = -1;
-int Hflag;       /* show counters in human readable format */
-int iflag;       /* show interfaces */
-int lflag;
-int nflag;       /* show numerically */
-int pflag;       /* show given protocol */
-int sflag;       /* show protocol statistics */
-int zflag;       /* zero stats */
-int interval;    /* repeat interval for i/f stats */
-char *interface;
-
-void tcp_stats();
-void udp_stats();
-void arp_stats();
-void ip_stats();
-
-struct proto {
-	void (*pr_stats)();
-	const char *pr_name;
-	int pr_ipproto;
+struct interface {
+	LIST_ENTRY(interface) list;
+	char ifname[IFNAMSIZ];
+	unsigned long long ipackets;
+	unsigned long long idrops;
+	unsigned long long ibytes;
+	unsigned long long opackets;
+	unsigned long long odrops;
+	unsigned long long obytes;
 };
 
-struct proto protos[] = {
-	{ tcp_stats, "tcp",  IPPROTO_TCP },
-	{ udp_stats, "udp",  IPPROTO_UDP },
-	{ ip_stats,  "ip",   IPPROTO_RAW },
-	{ arp_stats, "arp",  0 },
-	{ NULL,      NULL,   0 }
-};
+LIST_HEAD(interface_head, interface);
 
-struct in_addr;
-char *inetname(be32_t);
+#define PROTO_FLAG_ARP (1 << 0)
+#define PROTO_FLAG_IP (1 << 1)
+#define PROTO_FLAG_TCP (1 << 2) 
+#define PROTO_FLAG_UDP (1 << 3)
+#define PROTO_FLAG_ALL 0xffffffff
 
 static const char *tcpstates[GT_TCP_NSTATES] = {
 	[GT_TCPS_CLOSED] = "CLOSED",
@@ -65,20 +49,17 @@ static const char *tcpstates[GT_TCP_NSTATES] = {
 	[GT_TCPS_TIME_WAIT] = "TIME_WAIT"
 };
 
-void pr_sockaddr(be32_t, be16_t, const char *, int);
-
-struct netif {
-	LIST_ENTRY(netif) list;
-	char name[IFNAMSIZ];
-	unsigned long long ipackets;
-	unsigned long long idrops;
-	unsigned long long ibytes;
-	unsigned long long opackets;
-	unsigned long long odrops;
-	unsigned long long obytes;
-};
-
-LIST_HEAD(netif_head, netif);
+int aflag;
+int bflag;
+int Hflag;
+int iflag;
+int lflag;
+int nflag;
+int sflag;
+int zflag;
+int proto_mask;
+int interval;
+char *interface;
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
@@ -110,7 +91,6 @@ xsysctl(const char *path, char *old, const char *new)
 	if (rc < 0) {
 		rc = -gt_errno;
 		warnx("gt_sysctl('%s') failed (%s)", path, strerror(-rc));
-		return rc;
 	} else if (rc > 0) {
 		warnx("gt_sysctl('%s') error (%s)", path, strerror(rc));		
 	}
@@ -129,15 +109,94 @@ xmalloc(int size)
 	return ptr;
 }
 
+static char *
+inetname(be32_t addr)
+{
+	char *cp;
+	struct in_addr in;
+	struct hostent *hp;
+	static char line[256];
+
+	cp = 0;
+	if (nflag == 0 && addr != INADDR_ANY) {		
+		hp = gethostbyaddr((char *)&addr, sizeof(addr), AF_INET);
+		if (hp) {
+			cp = hp->h_name;
+			//trimdomain(cp, strlen(cp));
+		}
+	}
+	if (addr == INADDR_ANY)
+		strcpy(line, "*");
+	else if (cp) {
+		strzcpy(line, cp, sizeof(line));
+	} else {
+		in.s_addr = addr;
+		strzcpy(line, inet_ntoa(in), sizeof(line));
+	}
+	return line;
+}
+
+static void
+print_sockaddr(be32_t addr, be16_t port, const char *proto_name)
+{
+	struct servent *sp = 0;
+	char line[80], *cp;
+	int width;
+	int alen;
+
+	snprintf(line, sizeof(line), "%.*s.", 16, inetname(addr));
+	alen = strlen(line);
+	cp = line + alen;
+	if (nflag < 2 && port) {
+		sp = getservbyport(port, proto_name);
+	}
+	if (sp || port == 0) {
+		snprintf(cp, sizeof(line) - alen, "%.15s ",
+		         sp ? sp->s_name : "*");
+	} else {
+		snprintf(cp, sizeof(line) - alen, "%d ", ntohs(port));
+	}
+	width = 22;
+	printf("%-*.*s ", width, width, line);
+}
+
 static void
 bad_format(const char *path, const char *data)
 {
 	warnx("sysctl('%s') bad format: '%s'", path, data);
 }
 
+int
+sysctl_list_foreach(const char *path, void *udata,
+	int (*fn)(const char *, void *, const char *))
+{
+	int rc, len;
+	char pbuf[PATH_MAX];
+	char vbuf[GT_SYSCTL_BUFSIZ];
+
+	rc = xsysctl(path, vbuf, NULL);
+	while (rc == 0 && vbuf[0] == ',') {
+		len = snprintf(pbuf, sizeof(pbuf), "%s.%s", path, vbuf + 1);
+		if (len + 1 >= sizeof(pbuf)) {
+			return -ENAMETOOLONG;
+		}
+		rc = xsysctl(pbuf, vbuf, NULL);
+		if (rc == 0) {
+			rc = (*fn)(path, udata, vbuf);
+			if (rc) {
+				break;
+			}
+		}
+		pbuf[len++] = '+';
+		pbuf[len] = '\0';
+		rc = xsysctl(pbuf, vbuf, NULL);
+	}
+	return rc;
+}
+
 // Interfaces
 static void
-show_stat(int width, unsigned long long value)
+print_interface_stat(int width, unsigned long long value)
 {
 	if (0 && Hflag) {
 		// TODO: Print statistics in human readable form
@@ -147,7 +206,7 @@ show_stat(int width, unsigned long long value)
 }
 
 static void
-print_if_banner()
+print_interface_banner()
 {
 	printf("%-*.*s", 16, 16, "Name");
 	printf(" %12.12s %12.12s", "Ipkts", "Idrop");
@@ -162,113 +221,64 @@ print_if_banner()
 }
 
 static void
-print_if_rate_banner()
-{
-	const char *banner;
-
-	if (interface != NULL) {
-		banner = interface;
-	} else {
-		banner = "(Total)";
-	}
-	printf("%40s\n", banner);
-	printf(" %12s %12s %12s %12s %12s %12s\n",
-	       "Ipkts", "Idrop", "Ibytes", "Opkts", "Odrop", "Obytes");
-}
-
-static void
-netif_print(struct netif *ifp)
+print_interface(struct interface *ifp)
 {
 	char name[IFNAMSIZ];
 
-	strzcpy(name, ifp->name, sizeof(name));
+	strzcpy(name, ifp->ifname, sizeof(name));
 	printf("%-*.*s", 16, 16, name);
-	show_stat(12, ifp->ipackets);
-	show_stat(12, ifp->idrops);
+	print_interface_stat(12, ifp->ipackets);
+	print_interface_stat(12, ifp->idrops);
 	if (bflag) {
-		show_stat(14, ifp->ibytes);
+		print_interface_stat(14, ifp->ibytes);
 	}
-	show_stat(12, ifp->opackets);
-	show_stat(12, ifp->odrops);
+	print_interface_stat(12, ifp->opackets);
+	print_interface_stat(12, ifp->odrops);
 	if (bflag) {
-		show_stat(14, ifp->obytes);
+		print_interface_stat(14, ifp->obytes);
 	}
 	printf("\n");
 }
 
-static void
-netif_set_name(struct netif *ifp, const char *ifname)
+static struct interface *
+get_interface(struct interface_head *head, const char *ifname)
 {
-	strzcpy(ifp->name, ifname, ARRAY_SIZE(ifp->name));
-}
-
-static struct netif *
-get_if(struct netif_head *head, const char *ifname)
-{
-	struct netif *ifp;
+	struct interface *ifp;
 
 	LIST_FOREACH(ifp, head, list) {
-		if (!strcmp(ifp->name, ifname)) {
+		if (!strcmp(ifp->ifname, ifname)) {
 			return ifp;
 		}
 	}
 	return NULL;
 }
 
-int
-sysctl_list_foreach(const char *name, void *udata,
-	int (*fn)(void *, const char *))
-{
-	int rc, len;
-	char path[PATH_MAX];
-	char buf[GT_SYSCTL_BUFSIZ];
-
-	rc = xsysctl(name, buf, NULL);
-	while (rc == 0 && buf[0] == ',') {
-		len = snprintf(path, sizeof(path), "%s.%s", name, buf + 1);
-		if (len + 1 >= sizeof(path)) {
-			return -ENAMETOOLONG;
-		}
-		rc = xsysctl(path, buf, NULL);
-		if (rc == 0) {
-			rc = (*fn)(udata, buf);
-			if (rc) {
-				break;
-			}
-		}
-		path[len++] = '+';
-		path[len] = '\0';
-		rc = xsysctl(path, buf, NULL);
-	}
-	return rc;
-}
-
 static int
-sc_if(void *udata, const char *buf)
+sysctl_route_if(const char *path, void *udata, const char *buf)
 {
 	int rc, tmpd, tmpx;
 	char ifname[64], tmp32[32];
 	unsigned long long ipackets, idrops, ibytes;
 	unsigned long long opackets, odrops, obytes;
-	struct netif *ifp;
-	struct netif_head *head;
+	struct interface *ifp;
+	struct interface_head *head;
 
 	head = udata;
 	rc = sscanf(buf, "%64[^,],%d,%x,%32[^,],%llu,%llu,%llu,%llu,%llu,%llu",
 	            ifname, &tmpd, &tmpx, tmp32,
 	            &ipackets, &idrops, &ibytes, &opackets, &odrops, &obytes);
 	if (rc != 10) {
-		bad_format(GT_SYSCTL_ROUTE_IF_LIST, buf);
+		bad_format(path, buf);
 		return -EPROTO;
 	}
 	if (interface != NULL && strcmp(interface, ifname)) {
 		return 0;
 	}
-	ifp = get_if(head, ifname);
+	ifp = get_interface(head, ifname);
 	if (ifp == NULL) {
 		ifp = xmalloc(sizeof(*ifp));
 		memset(ifp, 0, sizeof(*ifp));
-		netif_set_name(ifp, ifname);
+		strzcpy(ifp->ifname, ifname, sizeof(ifp->ifname));
 		LIST_INSERT_HEAD(head, ifp, list);
 	}
 	ifp->ipackets += ipackets;
@@ -281,15 +291,16 @@ sc_if(void *udata, const char *buf)
 }
 
 static void
-get_ifs(struct netif_head *head)
+alloc_interface_list(struct interface_head *head)
 {
-	sysctl_list_foreach(GT_SYSCTL_ROUTE_IF_LIST, head, sc_if);
+	LIST_INIT(head);
+	sysctl_list_foreach(GT_SYSCTL_ROUTE_IF_LIST, head, sysctl_route_if);
 }
 
 static void
-free_ifs(struct netif_head *head)
+free_interface_list(struct interface_head *head)
 {
-	struct netif *ifp;
+	struct interface *ifp;
 
 	while (!LIST_EMPTY(head)) {
 		ifp = LIST_FIRST(head);
@@ -299,121 +310,129 @@ free_ifs(struct netif_head *head)
 }
 
 static void
-get_if_stat(struct netif *res)
+get_interfaces_stat(struct interface *stat)
 {
-	struct netif *ifp;
-	struct netif_head head;
+	int n;
+	struct interface *ifp;
+	struct interface_head head;
 
-	memset(res, 0, sizeof(*res));
-	get_ifs(&head);
+	memset(stat, 0, sizeof(*stat));
+	n = 0;
+	alloc_interface_list(&head);
 	LIST_FOREACH(ifp, &head, list) {
-		res->ipackets += ifp->ipackets;
-		res->ibytes += ifp->ibytes;
-		res->opackets += ifp->opackets;
-		res->obytes += ifp->obytes;
-		res->odrops += ifp->odrops;
+		if (n == 0) {
+			strzcpy(stat->ifname, ifp->ifname,
+			        sizeof(stat->ifname));
+		}
+		n++;
+		stat->ipackets += ifp->ipackets;
+		stat->ibytes += ifp->ibytes;
+		stat->opackets += ifp->opackets;
+		stat->obytes += ifp->obytes;
+		stat->odrops += ifp->odrops;
 	}
-	free_ifs(&head);
+	if (n > 1) {
+		strzcpy(stat->ifname, "Total", sizeof(stat->ifname));
+	}
+	free_interface_list(&head);
 }
 
 static void
-print_if_rate()
+print_interfaces_rate()
 {
-	struct netif if2[2], *new, *old, *tmp;
+	struct interface if2[2], *new, *old, *tmp, diff;
 	int n;
 
 	n = 0;
 	new = &if2[0];
 	old = &if2[1];
-	get_if_stat(old);
-	print_if_rate_banner();
+	get_interfaces_stat(old);
+	print_interface_banner();
 	while (1) {
 		sleep(interval);
 		n++;
-		get_if_stat(new);
-		show_stat(12, new->ipackets - old->ipackets);
-		show_stat(12, new->ibytes - old->ibytes);
-		show_stat(12, new->opackets - old->opackets);
-		show_stat(12, new->odrops - old->odrops);
-		show_stat(12, new->obytes - old->obytes);
-		printf("\n");
+		get_interfaces_stat(new);
+		strzcpy(diff.ifname, new->ifname, sizeof(diff.ifname));
+		diff.ipackets = new->ipackets - old->ipackets;
+		diff.idrops = new->idrops - old->idrops;
+		diff.ibytes = new->ibytes - old->ibytes;
+		diff.opackets = new->opackets - old->opackets;
+		diff.odrops = new->odrops - old->odrops;
+		diff.obytes = new->obytes - old->obytes;
+		print_interface(&diff);
 		tmp = new;
 		new = old;
 		old = tmp;
 		if (n == 21) {
 			n = 0;
-			print_if_rate_banner();
+			print_interface_banner();
 		}
 	}
 }
 
 static void
-print_if()
+print_interfaces()
 {
-	struct netif *ifp;
-	struct netif_head head;
+	struct interface *ifp;
+	struct interface_head head;
 
-	if (interval) {
-		return print_if_rate();
-	}
-	get_ifs(&head);
+	alloc_interface_list(&head);
 	if (!LIST_EMPTY(&head)) {
-		print_if_banner();
+		print_interface_banner();
 		LIST_FOREACH(ifp, &head, list) {
-			netif_print(ifp);
+			print_interface(ifp);
 		}
 	}
-	free_ifs(&head);
+	free_interface_list(&head);
 }
 
-static void
-pr_sockets_banner()
+// sockets
+static int
+ipproto_is_filtered(int ipproto)
 {
-	printf("Active Internet connections");
-	if (aflag) {
-		printf(" (including servers)");
-	} else if (lflag) {
-		printf(" (only servers)");	
+	if (proto_mask & PROTO_FLAG_IP) {
+		return 0;
+	} else if (ipproto == IPPROTO_UDP) {
+		return !(proto_mask & PROTO_FLAG_UDP);
+	} else if (ipproto == IPPROTO_TCP) {
+		return !(proto_mask & PROTO_FLAG_TCP);
+	} else {
+		return 1;
 	}
-	printf("\n%-5.5s %-22.22s %-22.22s %-11.11s %-7.7s\n",
-	       "Proto", "Local Address", "Foreign Address", "State", "PID");
 }
 
 static int
-pr_socket(void *udata, const char *buf)
+print_socket(const char *path, void *udata, const char *buf)
 {
-	int rc, fd, pid, proto, state, q_len, inc_q_len, q_lim;
+	int rc, fd, pid, ipproto, state;
 	uint32_t laddr, faddr;
 	uint16_t lport, fport;
-	const char *name;
-	struct proto *p;
+	const char *proto_name;
 
-	p = udata;
 	rc = sscanf(buf,
 	            "%d,%d,%d,%d,"
 	            "%x,%hu,"
-	            "%x,%hu,"
-	            "%d,%d,%d",
-	            &fd, &pid, &proto, &state,
+	            "%x,%hu",
+	            &fd, &pid, &ipproto, &state,
 	            &laddr, &lport,
-	            &faddr, &fport,
-	            &q_len, &inc_q_len, &q_lim);
-	if (rc != 11) {
-		bad_format(GT_SYSCTL_SOCKET_ATTACHED_LIST, buf);
+	            &faddr, &fport);
+	if (rc != 8) {
+		bad_format(path, buf);
 		return -EPROTO;
 	}
-	if (p != NULL && p->pr_ipproto != proto) {
+	rc = ipproto_is_filtered(ipproto);
+	if (rc) {
 		return 0;
 	}
 	laddr = htonl(laddr);
 	faddr = htonl(faddr);
 	lport = htons(lport);
 	fport = htons(fport);
-	name = proto == IPPROTO_TCP ? "tcp" : "udp";
-	printf("%-5.5s ", name);
-	pr_sockaddr(laddr, lport, name, nflag > 1);
-	pr_sockaddr(faddr, fport, name, 1);
-	if (proto == IPPROTO_TCP) {
+	proto_name = ipproto == IPPROTO_TCP ? "tcp" : "udp";
+	printf("%-5.5s ", proto_name);
+	print_sockaddr(laddr, lport, proto_name);
+	print_sockaddr(faddr, fport, proto_name);
+	if (ipproto == IPPROTO_TCP) {
 		if (state >= GT_TCP_NSTATES) {
 			printf("%-11d ", state);
 		} else {
@@ -427,30 +446,21 @@ pr_socket(void *udata, const char *buf)
 }
 
 static void
-pr_sockets_attached(struct proto *p)
+print_sockets()
 {
-	sysctl_list_foreach(GT_SYSCTL_SOCKET_ATTACHED_LIST, p, pr_socket);
-}
-
-static void
-pr_sockets_binded(struct proto *p)
-{
-	sysctl_list_foreach(GT_SYSCTL_SOCKET_BINDED_LIST, p, pr_socket);
-}
-
-static void
-pr_sockets(struct proto *p)
-{
+	printf("Active Internet connections");
 	if (aflag) {
-		pr_sockets_binded(p);
-		pr_sockets_attached(p);
+		printf(" (including servers)");
 	} else if (lflag) {
-		pr_sockets_binded(p);
-	} else {
-		pr_sockets_attached(p);
+		printf(" (only servers)");	
 	}
+	printf("\n%-5.5s %-22.22s %-22.22s %-11.11s %-7.7s\n",
+	       "Proto", "Local Address", "Foreign Address", "State", "PID");
+	sysctl_list_foreach(GT_SYSCTL_SOCKET_ATTACHED_LIST, NULL, print_socket);
+	sysctl_list_foreach(GT_SYSCTL_SOCKET_BINDED_LIST, NULL, print_socket);
 }
 
+// stats
 struct stat_entry {
 	const char *name;
 	unsigned long long *ptr;
@@ -521,7 +531,7 @@ struct stat_entry stat_arp_entries[] = {
 #undef MYX
 
 static int
-sysctl_net_stat(const char *name, struct stat_entry *e)
+sysctl_inet_stat(const char *name, struct stat_entry *e)
 {
 	int rc;
 	char *endptr;
@@ -543,21 +553,126 @@ sysctl_net_stat(const char *name, struct stat_entry *e)
 }
 
 static void
-sysctl_net_stats(const char *name, struct stat_entry *entries)
+sysctl_inet_stats(const char *name, struct stat_entry *entries)
 {
 	struct stat_entry *e;
 
 	for (e = entries; e->name != NULL; ++e) {
-		sysctl_net_stat(name, e);
+		sysctl_inet_stat(name, e);
+	}
+}
+
+static void
+print_arp_stats()
+{
+	sysctl_inet_stats("arp", stat_arp_entries);
+	printf("arp:\n");
+	if (arps.txrequests || sflag > 1) {
+		printf("\t%llu ARP requests sent\n", arps.txrequests);
+	}
+	if (arps.txreplies || sflag > 1) {
+		printf("\t%llu ARP replies sent\n", arps.txreplies);
+	}
+	if (arps.txrepliesdropped || sflag > 1) {
+		printf("\t%llu ARP replies tx dropped\n",
+		       arps.txrepliesdropped);
+	}
+	if (arps.rxrequests || sflag > 1) {
+		printf("\t%llu ARP requests received\n", arps.rxrequests);
+	}
+	if (arps.rxreplies || sflag > 1) {
+		printf("\t%llu ARP replies received\n", arps.rxreplies);
+	}
+	if (arps.received || sflag > 1) {
+		printf("\t%llu ARP packets received\n", arps.received);
+	}
+	if (arps.bypassed || sflag > 1) {
+		printf("\t%llu ARP packets bypassed\n", arps.bypassed);
+	}
+	if (arps.filtered || sflag > 1) {
+		printf("\t%llu ARP packets filtered\n", arps.filtered);
+	}
+	if (arps.dropped || sflag > 1) {
+		printf("\t%llu total packets dropped due to no ARP entry\n",
+		       arps.dropped);
+	}
+	if (arps.timeouts || sflag > 1) {
+		printf("\t%llu ARP entries timed out\n", arps.timeouts);
+	}
+//	printf("\t%llu Duplicate IPs seen\n", arps.dupips);
+}
+
+void
+print_ip_stats()
+{
+	sysctl_inet_stats("ip", stat_ip_entries);
+	printf("ip:\n");
+	if (ips.total || sflag > 1) {
+		printf("\t%llu total packets received\n", ips.total);
+	}
+	if (ips.badsum || sflag > 1) {
+		printf("\t%llu bad header checksums\n", ips.badsum);
+	}
+	if (ips.toosmall || sflag > 1) {
+		printf("\t%llu with size smaller than minimum\n",
+		       ips.toosmall);
+	}
+	if (ips.tooshort || sflag > 1) {
+		printf("\t%llu with data size < data length\n", ips.tooshort);
+	}
+	if (ips.toolong || sflag > 1) {
+		printf("\t%llu with ip length > max ip packet size\n",
+		       ips.toolong);
+	}
+	if (ips.badhlen || sflag > 1) {
+		printf("\t%llu with header length < data size\n", ips.badhlen);
+	}
+	if (ips.badlen || sflag > 1) {
+		printf("\t%llu with data length < header length\n",
+		       ips.badlen);
+	}
+//	printf("\t%llu with bad options\n", ips.badoptions);
+	if (ips.badvers || sflag > 1) {
+		printf("\t%llu with incorrect version number\n", ips.badvers);
+	}
+	if (ips.fragments || sflag > 1) {
+		printf("\t%llu fragments received\n", ips.fragments);
+	}
+	if (ips.fragdropped || sflag > 1) {
+		printf("\t%llu fragments dropped (dup or out of space)\n",
+		       ips.fragdropped);
+	}
+//	printf("\t%llu fragments dropped after timeout\n", ips.fragtimeout);
+//	printf("\t%llu packets reassembled ok\n", ips.reassembled);
+	if (ips.delivered || sflag > 1) {
+		printf("\t%llu packets for this host\n", ips.delivered);
+	}
+	if (ips.noproto || sflag > 1) {
+		printf("\t%llu packets for unknown/unsupported protocol\n",
+		       ips.noproto);
+	}
+	if (ips.localout || sflag > 1) {
+		printf("\t%llu packets sent from this host\n", ips.localout);
+	}
+	if (ips.noroute || sflag > 1) {
+		printf("\t%llu output packets discarded due to no route\n",
+		       ips.noroute);
+	}
+	if (ips.fragmented || sflag > 1) {
+		printf("\t%llu output datagrams fragmented\n", ips.fragmented);
+	}
+	if (ips.cantfrag || sflag > 1) {
+		printf("\t%llu datagrams that can't be fragmented\n",
+		       ips.cantfrag);
 	}
 }
 
 void
-tcp_stats()
+print_tcp_stats()
 {
 	int i, first;
 
-	sysctl_net_stats("tcp", stat_tcp_entries);
+	sysctl_inet_stats("tcp", stat_tcp_entries);
 	printf("tcp:\n");
 	if (tcps.sndtotal || sflag > 1) {
 		printf("\t%llu packets sent\n",	tcps.sndtotal);
@@ -767,11 +882,11 @@ tcp_stats()
 }
 
 void
-udp_stats()
+print_udp_stats()
 {
 	unsigned long long delivered;
 
-	sysctl_net_stats("udp", stat_udp_entries);
+	sysctl_inet_stats("udp", stat_udp_entries);
 	printf("udp:\n");
 	if (udps.ipackets || sflag > 1) {
 		printf("\t%llu datagrams received\n", udps.ipackets);
@@ -812,182 +927,28 @@ udp_stats()
 	}
 }
 
-void
-ip_stats(const char *name, int proto)
+static void
+print_stats()
 {
-	sysctl_net_stats("ip", stat_ip_entries);
-	printf("ip:\n");
-	if (ips.total || sflag > 1) {
-		printf("\t%llu total packets received\n", ips.total);
+	if (proto_mask & PROTO_FLAG_ARP) {
+		print_arp_stats();
 	}
-	if (ips.badsum || sflag > 1) {
-		printf("\t%llu bad header checksums\n", ips.badsum);
+	if (proto_mask & PROTO_FLAG_IP) {
+		print_ip_stats();
 	}
-	if (ips.toosmall || sflag > 1) {
-		printf("\t%llu with size smaller than minimum\n",
-		       ips.toosmall);
+	if (proto_mask & PROTO_FLAG_TCP) {
+		print_tcp_stats();
 	}
-	if (ips.tooshort || sflag > 1) {
-		printf("\t%llu with data size < data length\n", ips.tooshort);
+	if (proto_mask & PROTO_FLAG_UDP) {
+		print_udp_stats();
 	}
-	if (ips.toolong || sflag > 1) {
-		printf("\t%llu with ip length > max ip packet size\n",
-		       ips.toolong);
-	}
-	if (ips.badhlen || sflag > 1) {
-		printf("\t%llu with header length < data size\n", ips.badhlen);
-	}
-	if (ips.badlen || sflag > 1) {
-		printf("\t%llu with data length < header length\n",
-		       ips.badlen);
-	}
-//	printf("\t%llu with bad options\n", ips.badoptions);
-	if (ips.badvers || sflag > 1) {
-		printf("\t%llu with incorrect version number\n", ips.badvers);
-	}
-	if (ips.fragments || sflag > 1) {
-		printf("\t%llu fragments received\n", ips.fragments);
-	}
-	if (ips.fragdropped || sflag > 1) {
-		printf("\t%llu fragments dropped (dup or out of space)\n",
-		       ips.fragdropped);
-	}
-//	printf("\t%llu fragments dropped after timeout\n", ips.fragtimeout);
-//	printf("\t%llu packets reassembled ok\n", ips.reassembled);
-	if (ips.delivered || sflag > 1) {
-		printf("\t%llu packets for this host\n", ips.delivered);
-	}
-	if (ips.noproto || sflag > 1) {
-		printf("\t%llu packets for unknown/unsupported protocol\n",
-		       ips.noproto);
-	}
-	if (ips.localout || sflag > 1) {
-		printf("\t%llu packets sent from this host\n", ips.localout);
-	}
-	if (ips.noroute || sflag > 1) {
-		printf("\t%llu output packets discarded due to no route\n",
-		       ips.noroute);
-	}
-	if (ips.fragmented || sflag > 1) {
-		printf("\t%llu output datagrams fragmented\n", ips.fragmented);
-	}
-	if (ips.cantfrag || sflag > 1) {
-		printf("\t%llu datagrams that can't be fragmented\n",
-		       ips.cantfrag);
-	}
-}
-
-void
-arp_stats()
-{
-	sysctl_net_stats("arp", stat_arp_entries);
-	printf("arp:\n");
-	if (arps.txrequests || sflag > 1) {
-		printf("\t%llu ARP requests sent\n", arps.txrequests);
-	}
-	if (arps.txreplies || sflag > 1) {
-		printf("\t%llu ARP replies sent\n", arps.txreplies);
-	}
-	if (arps.txrepliesdropped || sflag > 1) {
-		printf("\t%llu ARP replies tx dropped\n",
-		       arps.txrepliesdropped);
-	}
-	if (arps.rxrequests || sflag > 1) {
-		printf("\t%llu ARP requests received\n", arps.rxrequests);
-	}
-	if (arps.rxreplies || sflag > 1) {
-		printf("\t%llu ARP replies received\n", arps.rxreplies);
-	}
-	if (arps.received || sflag > 1) {
-		printf("\t%llu ARP packets received\n", arps.received);
-	}
-	if (arps.bypassed || sflag > 1) {
-		printf("\t%llu ARP packets bypassed\n", arps.bypassed);
-	}
-	if (arps.filtered || sflag > 1) {
-		printf("\t%llu ARP packets filtered\n", arps.filtered);
-	}
-	if (arps.dropped || sflag > 1) {
-		printf("\t%llu total packets dropped due to no ARP entry\n",
-		       arps.dropped);
-	}
-	if (arps.timeouts || sflag > 1) {
-		printf("\t%llu ARP entries timed out\n", arps.timeouts);
-	}
-//	printf("\t%llu Duplicate IPs seen\n", arps.dupips);
-}
-
-void
-pr_sockaddr(be32_t addr, be16_t port, const char *proto, int num_port)
-{
-	struct servent *sp = 0;
-	char line[80], *cp;
-	int width;
-	int alen;
-
-	snprintf(line, sizeof(line), "%.*s.", 16, inetname(addr));
-	alen = strlen(line);
-	cp = line + alen;
-	if (!num_port && port) {
-		sp = getservbyport(port, proto);
-	}
-	if (sp || port == 0) {
-		snprintf(cp, sizeof(line) - alen,
-			"%.15s ", sp ? sp->s_name : "*");
-	} else {
-		snprintf(cp, sizeof(line) - alen,
-			"%d ", ntohs(port));
-	}
-	width = 22;
-	printf("%-*.*s ", width, width, line);
-}
-
-char *
-inetname(be32_t addr)
-{
-	char *cp;
-	struct in_addr in;
-	struct hostent *hp;
-	static char line[256];
-
-	cp = 0;
-	if (nflag == 0 && addr != INADDR_ANY) {		
-		hp = gethostbyaddr((char *)&addr, sizeof(addr), AF_INET);
-		if (hp) {
-			cp = hp->h_name;
-			//trimdomain(cp, strlen(cp));
-		}
-	}
-	if (addr == INADDR_ANY)
-		strcpy(line, "*");
-	else if (cp) {
-		strzcpy(line, cp, sizeof(line));
-	} else {
-		in.s_addr = addr;
-		strzcpy(line, inet_ntoa(in), sizeof(line));
-	}
-	return line;
-}
-
-
-static struct proto *
-get_proto(const char *name)
-{
-	struct proto *p;
-
-	for (p = protos; p->pr_name != NULL; ++p) {
-		if (!strcmp(p->pr_name, name)) {
-			return p;
-		}
-	}
-	return NULL;
 }
 
 static void
 usage(void)
 {
 	printf("%s",
-	"Usage: netstat [-aln] [--tcp] [--udp] [--ip] [--arp]\n"
+	"Usage: netstat [-aln] [--tcp] [--udp] [--ip]\n"
 	"       netstat -s [-z] [--tcp] [--udp] [--ip] [--arp]\n"
 	"       netstat {-i|-I interface} [-Hb] [-w wait]\n"
 	"\n"
@@ -998,30 +959,39 @@ usage(void)
 	"\t-z   Zero statistics\n"
 	"\t-H   Display interface statistics in human readable form\n"
 	"\t-b   Display bytes interface statistics\n"
+	"\t-w   Repet interval in seconds for interface statistics\n"
 	);
 }
 
 struct option long_opts[] = {
-	{ "tcp", no_argument, 0, 0 },
-	{ "udp", no_argument, 0, 0 },
 	{ "ip",  no_argument, 0, 0 },
+	{ "udp", no_argument, 0, 0 },
+	{ "tcp", no_argument, 0, 0 },
 	{ "arp", no_argument, 0, 0 },
 };
 
 int
 main(int argc, char **argv)
 {
-	struct proto *proto, *p;
+	const char *long_opt_name;
 	int opt, long_opt;
 
 	gt_init("netstat", LOG_ERR);
 	gt_preload_passthru = 1;
-	proto = NULL;
 	while ((opt = getopt_long(argc, argv, "halnszI:iHbw:",
 	                          long_opts, &long_opt)) != -1) {
 		switch(opt) {
 		case 0:
-			proto = get_proto(long_opts[long_opt].name);
+			long_opt_name = long_opts[long_opt].name;
+			if (!strcmp(long_opt_name, "arp")) {
+				proto_mask |= PROTO_FLAG_ARP;
+			} else if (!strcmp(long_opt_name, "ip")) {
+				proto_mask |= PROTO_FLAG_IP;
+			} else if (!strcmp(long_opt_name, "tcp")) {
+				proto_mask |= PROTO_FLAG_TCP;
+			} else if (!strcmp(long_opt_name, "tcp")) {
+				proto_mask |= PROTO_FLAG_UDP;
+			}
 			break;
 		case 'h':
 			usage();
@@ -1060,19 +1030,19 @@ main(int argc, char **argv)
 			break;
 		}
 	}
-	if (iflag) {
-		print_if();
-		return 0;
+	if (proto_mask == 0) {
+		proto_mask |= PROTO_FLAG_ALL;
 	}
-	if (sflag) {
-		for (p = protos; p->pr_name != NULL; ++p) {
-			if (proto == NULL || proto == p) {
-				(*p->pr_stats)(p->pr_name);
-			}
+	if (iflag) {
+		if (interval) {
+			print_interfaces_rate();
+		} else {
+			print_interfaces();
 		}
+	} else if (sflag) {
+		print_stats();
 	} else {
-		pr_sockets_banner();
-		pr_sockets(proto);
+		print_sockets();
 	}
 	return 0;
 }

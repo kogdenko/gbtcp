@@ -201,7 +201,7 @@ sysctl_socket(struct sock *so, struct strbuf *out)
 
 	s = service_get_by_sid(so->so_sid);
 	assert(s->p_pid);
-	strbuf_addf(out, "%d,%d,%d,%d,%x,%hu,%x,%hu,%d,%d,%d",
+	strbuf_addf(out, "%d,%d,%d,%d,%x,%hu,%x,%hu",
 		so_get_fd(so),
 		s->p_pid,
 		so->so_ipproto == SO_IPPROTO_TCP ? IPPROTO_TCP : IPPROTO_UDP,
@@ -209,11 +209,7 @@ sysctl_socket(struct sock *so, struct strbuf *out)
 		ntoh32(so->so_laddr),
 		ntoh16(so->so_lport),
 		ntoh32(so->so_faddr),
-		ntoh16(so->so_fport),
-		0,//so->so_acceptq_len,
-		0,//dlist_size(&so->so_incompleteq),
-		0//so->so_backlog
-		);
+		ntoh16(so->so_fport));
 }
 
 static void
