@@ -1,33 +1,49 @@
+// gpl2
 #include "internals.h"
+
+static __thread int gt_called;
 
 int gt_preload_passthru;
 
-#define SYS_CALL(func, ...) \
+#define PRELOAD_FLAG_FD_ARG (1 << 0)
+#define PRELOAD_FLAG_FD_RET (1 << 1)
+#define PRELOAD_FLAG_PASSTHRU (1 << 2)
+
+#define SYS_CALL(fn, ...) \
 ({ \
 	ssize_t rc; \
  \
-	if (sys_##func##_fn == NULL) { \
- 		SYS_DLSYM(func); \
+	if (sys_##fn##_fn == NULL) { \
+ 		SYS_DLSYM(fn); \
 	} \
-	rc = (sys_##func##_fn)(__VA_ARGS__); \
+	rc = (sys_##fn##_fn)(__VA_ARGS__); \
 	rc; \
 })
 
-#define PRELOAD_PASSTHRU(e) ((e) == EBADF || (e) == ENOTSOCK)
-
-#define PRELOAD_CALL2(func, return_fd, ...) \
+#if 1
+#define PRELOAD_CALL(fn, fd, flags, ...) \
 ({ \
+	int new_fd; \
 	ssize_t rc; \
  \
-	if (gt_preload_passthru) { \
-		rc = SYS_CALL(func, ##__VA_ARGS__); \
+	if (gt_preload_passthru || \
+	    ((flags) & PRELOAD_FLAG_PASSTHRU) || \
+	    gt_called || \
+	    (((flags) & PRELOAD_FLAG_FD_ARG) && fd < GT_FIRST_FD)) { \
+		rc = SYS_CALL(fn, ##__VA_ARGS__); \
 	} else { \
-		rc = gt_##func(__VA_ARGS__); \
+		gt_called = 1; \
+		rc = gt_##fn(__VA_ARGS__); \
+		gt_called = 0; \
 		if (rc == -1) { \
-			if (PRELOAD_PASSTHRU(gt_errno)) { \
-				rc = SYS_CALL(func, ##__VA_ARGS__); \
-				if (return_fd) {\
-					rc = preload_return_fd(rc); \
+			if (gt_errno == ENOTSUP && \
+			    ((flags) & PRELOAD_FLAG_FD_RET)) { \
+				rc = SYS_CALL(fn, ##__VA_ARGS__); \
+				if (rc > GT_FIRST_FD) {\
+					new_fd = rc; \
+					SYS_CALL(close, new_fd); \
+					preload_set_errno(ENFILE); \
+					rc = -1; \
 				} \
 			} else { \
 				preload_set_errno(gt_errno); \
@@ -36,8 +52,7 @@ int gt_preload_passthru;
 	} \
 	rc; \
 })
-
-#define PRELOAD_CALL(func, ...) PRELOAD_CALL2(func, 0, __VA_ARGS__)
+#endif
 
 #if 1
 #define PRELOAD_FORK fork
@@ -91,28 +106,12 @@ preload_set_errno(int e)
 	errno = e;
 }
 
-static int
-preload_return_fd(int fd)
-{
-	int first_fd;
-
-	if (fd >= 0) {
-		first_fd = gt_first_fd();
-		if (fd >= first_fd) {
-			SYS_CALL(close, fd);
-			preload_set_errno(ENFILE);
-			return -1;
-		}
-	}
-	return fd;
-}
-
 pid_t
 PRELOAD_FORK()
 {
 	int rc;
 
-	rc = PRELOAD_CALL(fork);
+	rc = PRELOAD_CALL(fork, 0, 0);
 	return rc;
 }
 
@@ -127,18 +126,23 @@ PRELOAD_VFORK()
 int
 PRELOAD_SOCKET(int domain, int type, int protocol)
 {
-	int rc;
+	int rc, pf;
 
-	rc = PRELOAD_CALL2(socket, 1, domain, type, protocol);
+	pf = PRELOAD_FLAG_FD_RET;
+	if (domain != AF_INET) {
+		pf |= PRELOAD_FLAG_PASSTHRU;
+	}
+	rc = PRELOAD_CALL(socket, 0, pf, domain, type, protocol);
 	return rc;
 }
 
+#if 1
 int
 PRELOAD_BIND(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(bind, fd, addr, addrlen);
+	rc = PRELOAD_CALL(bind, fd, PRELOAD_FLAG_FD_ARG, fd, addr, addrlen);
 	return rc;
 }
 
@@ -147,7 +151,7 @@ PRELOAD_CONNECT(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(connect, fd, addr, addrlen);
+	rc = PRELOAD_CALL(connect, fd, PRELOAD_FLAG_FD_ARG, fd, addr, addrlen);
 	return rc;
 }
 
@@ -156,7 +160,7 @@ PRELOAD_LISTEN(int fd, int backlog)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(listen, fd, backlog);
+	rc = PRELOAD_CALL(listen, fd, PRELOAD_FLAG_FD_ARG, fd, backlog);
 	return rc;
 }
 
@@ -166,7 +170,8 @@ PRELOAD_ACCEPT4(int fd, struct sockaddr *addr, socklen_t *addrlen,
 {
 	int rc;
 
-	rc = PRELOAD_CALL2(accept4, 1, fd, addr, addrlen, flags);
+	rc = PRELOAD_CALL(accept4, fd, PRELOAD_FLAG_FD_ARG|PRELOAD_FLAG_FD_RET,
+	                  fd, addr, addrlen, flags);
 	return rc;
 }
 
@@ -184,7 +189,7 @@ PRELOAD_SHUTDOWN(int fd, int how)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(shutdown, fd, how);
+	rc = PRELOAD_CALL(shutdown, fd, PRELOAD_FLAG_FD_ARG, fd, how);
 	return rc;
 }
 
@@ -193,7 +198,7 @@ PRELOAD_CLOSE(int fd)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(close, fd);
+	rc = PRELOAD_CALL(close, fd, PRELOAD_FLAG_FD_ARG, fd);
 	return rc;
 }
 
@@ -202,7 +207,7 @@ PRELOAD_READ(int fd, void *buf, size_t count)
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(read, fd, buf, count);
+	rc = PRELOAD_CALL(read, fd, PRELOAD_FLAG_FD_ARG, fd, buf, count);
 	return rc;
 }
 
@@ -211,7 +216,7 @@ PRELOAD_READV(int fd, const struct iovec *iov, int iovcnt)
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(readv, fd, iov, iovcnt);
+	rc = PRELOAD_CALL(readv, fd, PRELOAD_FLAG_FD_ARG, fd, iov, iovcnt);
 	return rc;
 }
 
@@ -220,7 +225,7 @@ PRELOAD_RECV(int fd, void *buf, size_t len, int flags)
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(recv, fd, buf, len, flags);
+	rc = PRELOAD_CALL(recv, fd, PRELOAD_FLAG_FD_ARG, fd, buf, len, flags);
 	return rc;
 }
 
@@ -230,7 +235,8 @@ PRELOAD_RECVFROM(int fd, void *buf, size_t len, int flags,
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(recvfrom, fd, buf, len, flags, src_addr, addrlen);
+	rc = PRELOAD_CALL(recvfrom, fd, PRELOAD_FLAG_FD_ARG,
+	                  fd, buf, len, flags, src_addr, addrlen);
 	return rc;
 }
 
@@ -239,7 +245,7 @@ PRELOAD_RECVMSG(int fd, struct msghdr *msg, int flags)
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(recvmsg, fd, msg, flags);
+	rc = PRELOAD_CALL(recvmsg, fd, PRELOAD_FLAG_FD_ARG, fd, msg, flags);
 	return rc;
 }
 
@@ -248,7 +254,7 @@ PRELOAD_WRITE(int fd, const void *buf, size_t count)
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(write, fd, buf, count);
+	rc = PRELOAD_CALL(write, fd, PRELOAD_FLAG_FD_ARG, fd, buf, count);
 	return rc;
 }
 
@@ -257,7 +263,7 @@ PRELOAD_WRITEV(int fd, const struct iovec *iov, int iovcnt)
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(writev, fd, iov, iovcnt);
+	rc = PRELOAD_CALL(writev, fd, PRELOAD_FLAG_FD_ARG, fd, iov, iovcnt);
 	return rc;
 }
 
@@ -266,7 +272,7 @@ PRELOAD_SEND(int fd, const void *buf, size_t len, int flags)
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(send, fd, buf, len, flags);
+	rc = PRELOAD_CALL(send, fd, PRELOAD_FLAG_FD_ARG, fd, buf, len, flags);
 	return rc;
 }
 
@@ -276,7 +282,8 @@ PRELOAD_SENDTO(int fd, const void *buf, size_t len, int flags,
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(sendto, fd, buf, len, flags, dest_addr, addrlen);
+	rc = PRELOAD_CALL(sendto, fd, PRELOAD_FLAG_FD_ARG,
+	                  fd, buf, len, flags, dest_addr, addrlen);
 	return rc;
 }
 
@@ -285,7 +292,7 @@ PRELOAD_SENDMSG(int fd, const struct msghdr *msg, int flags)
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(sendmsg, fd, msg, flags);
+	rc = PRELOAD_CALL(sendmsg, fd, PRELOAD_FLAG_FD_ARG, fd, msg, flags);
 	return rc;
 }
 
@@ -299,7 +306,7 @@ PRELOAD_FCNTL(int fd, int cmd, ...)
 	va_start(ap, cmd);
 	arg = va_arg(ap, uintptr_t);
 	va_end(ap);
-	rc = PRELOAD_CALL(fcntl, fd, cmd, arg);
+	rc = PRELOAD_CALL(fcntl, fd, PRELOAD_FLAG_FD_ARG, fd, cmd, arg);
 	return rc;
 }
 
@@ -313,7 +320,7 @@ PRELOAD_IOCTL(int fd, unsigned long request, ...)
 	va_start(ap, request);
 	arg = va_arg(ap, uintptr_t);
 	va_end(ap);
-	rc = PRELOAD_CALL(ioctl, fd, request, arg);
+	rc = PRELOAD_CALL(ioctl, fd, PRELOAD_FLAG_FD_ARG, fd, request, arg);
 	return rc;
 }
 
@@ -323,7 +330,7 @@ PRELOAD_PPOLL(struct pollfd *pfds, nfds_t npfds, const struct timespec *to,
 {
 	int rc;
 
-	rc = PRELOAD_CALL(ppoll, pfds, npfds, to, sigmask);
+	rc = PRELOAD_CALL(ppoll, 0, 0, pfds, npfds, to, sigmask);
 	return rc;
 }
 
@@ -435,7 +442,8 @@ PRELOAD_GETSOCKOPT(int fd, int level, int optname, void *optval,
 {
 	int rc;
 
-	rc = PRELOAD_CALL(getsockopt, fd, level, optname, optval, optlen);
+	rc = PRELOAD_CALL(getsockopt, fd, PRELOAD_FLAG_FD_ARG,
+	                  fd, level, optname, optval, optlen);
 	return rc;
 }
 
@@ -445,7 +453,8 @@ PRELOAD_SETSOCKOPT(int fd, int level, int optname, const void *optval,
 {
 	int rc;
 
-	rc = PRELOAD_CALL(setsockopt, fd, level, optname, optval, optlen);
+	rc = PRELOAD_CALL(setsockopt, fd, PRELOAD_FLAG_FD_ARG,
+	                  fd, level, optname, optval, optlen);
 	return rc;
 }
 
@@ -454,7 +463,8 @@ PRELOAD_GETPEERNAME(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(getpeername, fd, addr, addrlen);
+	rc = PRELOAD_CALL(getpeername, fd, PRELOAD_FLAG_FD_ARG,
+	                  fd, addr, addrlen);
 	return rc;
 }
 
@@ -571,7 +581,8 @@ PRELOAD_CLONE(int (*fn)(void *), void *child_stack, int flags,
 	tls = va_arg(ap, void *);
 	ctid = va_arg(ap, void *);
 	va_end(ap);
-	rc = PRELOAD_CALL(clone, fn, child_stack, flags, arg, ptid, tls, ctid);
+	rc = PRELOAD_CALL(clone, 0, 0,
+	                  fn, child_stack, flags, arg, ptid, tls, ctid);
 	return rc;
 }
 
@@ -580,7 +591,7 @@ PRELOAD_EPOLL_CREATE1(int flags)
 {
 	int rc;
 
-	rc = PRELOAD_CALL2(epoll_create1, 1, flags);
+	rc = PRELOAD_CALL(epoll_create1, 0, PRELOAD_FLAG_FD_RET, flags);
 	return rc;	
 }
 
@@ -598,7 +609,8 @@ PRELOAD_EPOLL_CTL(int ep_fd, int op, int fd, struct epoll_event *event)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(epoll_ctl, ep_fd, op, fd, event);
+	rc = PRELOAD_CALL(epoll_ctl, ep_fd, PRELOAD_FLAG_FD_ARG,
+	                  ep_fd, op, fd, event);
 	return rc;
 }
 
@@ -608,8 +620,8 @@ PRELOAD_EPOLL_PWAIT(int ep_fd, struct epoll_event *events, int maxevents,
 {
 	int rc;
 
-	rc = PRELOAD_CALL(epoll_pwait, ep_fd, events, maxevents,
-	                  timeout, sigmask);
+	rc = PRELOAD_CALL(epoll_pwait, ep_fd, PRELOAD_FLAG_FD_ARG,
+	                  ep_fd, events, maxevents, timeout, sigmask);
 	return rc;
 }
 
@@ -623,7 +635,7 @@ PRELOAD_EPOLL_WAIT(int ep_fd, struct epoll_event *events, int maxevents,
 	return rc;
 }
 
-#else /* __linux__ */
+#else // __linux__
 pid_t
 PRELOAD_RFORK(int flags)
 {
@@ -637,7 +649,7 @@ PRELOAD_KQUEUE()
 {
 	int rc;
 
-	rc = PRELOAD_CALL2(kqueue, 1);
+	rc = PRELOAD_CALL2(kqueue, 0, PRELOAD_FLAG_FD_RET);
 	return rc;
 }
 
@@ -647,8 +659,10 @@ PRELOAD_KEVENT(int kq, const struct kevent *changelist, int nchanges,
 {
 	int rc;
 
-	rc = PRELOAD_CALL(kevent, kq, changelist, nchanges,
+	rc = PRELOAD_CALL(kevent, kq, PRELOAD_FLAG_FD_ARG,
+	                  kq, changelist, nchanges,
 	                  eventlist, nevents, timeout);
 	return rc;
 }
-#endif /* __linux__ */
+#endif // __linux__
+#endif

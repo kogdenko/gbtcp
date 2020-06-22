@@ -4,8 +4,7 @@
 
 struct file_mod {
 	struct log_scope log_scope;
-	int file_first_fd;
-	int file_last_fd;
+	int file_nofile;
 };
 
 static void
@@ -38,29 +37,6 @@ file_aio_call(struct file_aio *aio, short revents)
 	}
 }
 
-static int
-sysctl_file_nofile(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *out)
-{
-	int rc;
-	u_long first_fd, last_fd;
-
-	strbuf_addf(out, "%d,%d", curmod->file_first_fd, curmod->file_last_fd);
-	if (new == NULL) {
-		return 0;
-	}
-	rc = sscanf(new, "%lu,%lu", &first_fd, &last_fd);
-	if (rc != -2 || last_fd <= first_fd) {
-		return -EINVAL;
-	} else if (last_fd > 100*1000000) {
-		return -ERANGE;
-	} else {
-		curmod->file_first_fd = first_fd;
-		curmod->file_last_fd = last_fd;
-		return 0;
-	}
-}
-
 int
 file_mod_init()
 {
@@ -68,10 +44,10 @@ file_mod_init()
 
 	rc = curmod_init();
 	if (rc == 0) {
-		curmod->file_first_fd = FD_SETSIZE / 2;
-		curmod->file_last_fd = 100000;
-		sysctl_add(GT_SYSCTL_FILE_NOFILE, SYSCTL_WR, NULL,
-		           NULL, sysctl_file_nofile); 
+		curmod->file_nofile = upper_pow2_32(GT_FIRST_FD + 100000);
+		sysctl_add_int(GT_SYSCTL_FILE_NOFILE, SYSCTL_WR,
+		               &curmod->file_nofile,
+		               GT_FIRST_FD + 1, 1 << 26);
 	}
 	return rc;
 }
@@ -90,7 +66,7 @@ service_init_file(struct service *s)
 
 	if (s->p_file_pool == NULL) {
 		size = sizeof(struct sock) + sizeof(struct file_aio); // FIXME:!!!!!!
-		n =  curmod->file_last_fd - curmod->file_first_fd + 1;
+		n = curmod->file_nofile - GT_FIRST_FD;
 		assert(n > 0);
 		rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid,
 		                     "file.pool", size, n);
@@ -118,25 +94,25 @@ service_deinit_file(struct service *s)
 int
 file_get_fd(struct file *fp)
 {
-	int m_id;
+	int id;
 
-	m_id = mbuf_get_id(&fp->fl_mbuf);
-	return m_id + curmod->file_first_fd;
+	id = mbuf_get_id(&fp->fl_mbuf);
+	return GT_FIRST_FD + id;
 }
 
 struct file *
 file_next(struct service *s, int fd)
 {
-	int m_id;
+	int id;
 	struct mbuf *m;
 	struct file *fp;
 
-	if (fd < curmod->file_first_fd) {
-		m_id = 0;
+	if (fd < GT_FIRST_FD) {
+		id = 0;
 	} else {
-		m_id = fd - curmod->file_first_fd;
+		id = fd - GT_FIRST_FD;
 	}
-	m = mbuf_next(s->p_file_pool, m_id);
+	m = mbuf_next(s->p_file_pool, id);
 	fp = (struct file *)m;
 	return fp;
 }
@@ -144,7 +120,7 @@ file_next(struct service *s, int fd)
 int
 file_alloc3(struct file **fpp, int fd, int type)
 {
-	int rc, m_id;
+	int rc, id;
 	struct mbuf_pool *p;
 	struct file *fp;
 
@@ -153,8 +129,8 @@ file_alloc3(struct file **fpp, int fd, int type)
 		rc = mbuf_alloc(p, (struct mbuf **)fpp);
 	} else {
 		assert(fd >= curmod->file_first_fd);
-		m_id = fd - curmod->file_first_fd;
-		rc = mbuf_alloc3(p, m_id, (struct mbuf **)fpp);
+		id = fd - GT_FIRST_FD;
+		rc = mbuf_alloc3(p, id, (struct mbuf **)fpp);
 	}
 	if (rc == 0) {
 		fp = *fpp;
@@ -169,16 +145,16 @@ file_alloc3(struct file **fpp, int fd, int type)
 int
 file_get(int fd, struct file **fpp)
 {
-	int m_id;
+	int id;
 	struct mbuf *m;
 	struct file *fp;
 
 	*fpp = NULL;
-	if (fd < curmod->file_first_fd) {
+	if (fd < GT_FIRST_FD) {
 		return -EBADF;
 	}
-	m_id = fd - curmod->file_first_fd;
-	m = mbuf_get(current->p_file_pool, m_id);
+	id = fd - GT_FIRST_FD;
+	m = mbuf_get(current->p_file_pool, id);
 	fp = (struct file *)m;
 	if (fp == NULL) {
 		return -EBADF;
@@ -389,10 +365,4 @@ file_aio_cancel(struct file_aio *aio)
 		DLIST_REMOVE(aio, faio_list);
 	}
 	aio->faio_revents = 0;
-}
-
-int
-file_first_fd()
-{
-	return curmod->file_first_fd;
 }

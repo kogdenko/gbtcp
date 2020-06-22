@@ -463,14 +463,15 @@ sock_nread(struct file *fp)
 }
 
 int
-so_socket6_(struct sock **pso,
-	int fd, int domain, int type, int flags, int ipproto)
+so_socket6(struct sock **pso, int fd, int domain, int type, int flags,
+	int ipproto)
 {
 	int so_fd, so_ipproto;
 	struct sock *so;
 
 	if (domain != AF_INET) {
-		return -EINVAL;
+		// ipv4 only
+		return -ENOTSUP;
 	}
 	switch (type) {
 	case SOCK_STREAM:
@@ -484,9 +485,9 @@ so_socket6_(struct sock **pso,
 			return -EINVAL;
 		}
 		so_ipproto = SO_IPPROTO_UDP;
-		break;
+		// break; TODO: repair UDP
 	default:
-		return -EINVAL;
+		return -ENOTSUP;
 	}
 	so = so_new(fd, so_ipproto);
 	if (so == NULL) {
@@ -499,24 +500,6 @@ so_socket6_(struct sock **pso,
 	so_fd = so_get_fd(so);
 	*pso = so;
 	return so_fd;
-}
-
-int
-so_socket6(struct sock **pso,
-	int fd, int domain, int type, int flags, int ipproto)
-{
-	int rc;
-
-	INFO(0, "hit; type=%s, flags=%s",
-	     log_add_socket_type(type),
-	     log_add_socket_flags(flags));
-	rc = so_socket6_(pso, fd, domain, type, flags, ipproto);
-	if (rc < 0) {
-		INFO(-rc, "failed;");
-	} else {
-		INFO(0, "ok; fd=%d", rc);
-	}
-	return rc;
 }
 
 int

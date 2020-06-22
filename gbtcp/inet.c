@@ -1,8 +1,7 @@
+// gpl2
 #include "internals.h"
 
 #define CURMOD inet
-
-//#define curmod ((struct inet_mod *)(curmod_ptr(MOD_inet)))
 
 struct inet_mod {
 	struct log_scope log_scope;

@@ -35,6 +35,7 @@
 #define GT_SYSCTL_BUFSIZ 4096
 #define GT_RSS_NQ_MAX 32
 #define GT_SERVICES_MAX 128
+#define GT_FIRST_FD (FD_SETSIZE >> 1)
 #define GT_GROUP_NAME "gbtcp"
 
 #define GT_SYSCTL_FILE_NOFILE "file.nofile"
@@ -206,7 +207,6 @@ int gt_ppoll(struct pollfd *, nfds_t, const struct timespec *,
 	const sigset_t *);
 int gt_sysctl(const char *, char *, const char *);
 void gt_init(const char *, int);
-int gt_first_fd();
 int gt_sigaction(int, const struct sigaction *,	struct sigaction *);
 
 #ifdef __linux__

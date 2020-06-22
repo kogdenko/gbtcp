@@ -3,7 +3,7 @@
 
 #define CURMOD api
 
-static __thread int api_passthru;
+static __thread int api_locked;
 
 __thread int gt_errno;
 
@@ -19,17 +19,15 @@ api_lock()
 {
 	int rc;
 
-	if (api_passthru) {
-		GT_RETURN(-EBADF);
-	}
-	api_passthru = 1;
-	if (current == NULL) {
-		rc = service_attach();
-		if (rc) {
-			api_passthru = 0;
-			GT_RETURN(-ECANCELED);
+	if (api_locked == 0) {
+		if (current == NULL) {
+			rc = service_attach();
+			if (rc) {
+				GT_RETURN(-ECANCELED);
+			}
 		}
 	}
+	api_locked++;
 	SERVICE_LOCK;
 	return 0;
 }
@@ -37,11 +35,14 @@ api_lock()
 static inline void
 api_unlock()
 {
-	if (current != NULL) {
-		check_fd_events();
-		SERVICE_UNLOCK;
+	assert(api_locked > 0);
+	api_locked--;
+	if (api_locked == 0) {
+		if (current != NULL) {
+			check_fd_events();
+			SERVICE_UNLOCK;
+		}
 	}
-	api_passthru = 0;
 }
 
 void
@@ -63,55 +64,31 @@ gt_fork()
 	rc = service_fork();
 	if (rc >= 0) {
 		INFO(0, "ok; pid=%d", rc);
+	} else {
+		ERR(-rc, "failed;");
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
 
 int
-gt_socket_locked(int domain, int type, int proto)
+gt_socket(int domain, int type, int proto)
 {
-	int rc, flags, type_noflags, use, use_tcp, use_udp;
+	int rc, flags, type_noflags;
 	struct sock *so;
 
-	use_tcp = 1; // TODO: in ctl
-	use_udp = 0;
+	API_LOCK;
 	flags = type & (SOCK_NONBLOCK|SOCK_CLOEXEC);
 	type_noflags = type & (~(SOCK_NONBLOCK|SOCK_CLOEXEC));
-	switch (type_noflags) {
-	case SOCK_STREAM:
-		use = use_tcp;
-		break;
-	case SOCK_DGRAM:
-		use = use_udp;
-		break;
-	default:
-		use = 0;
-		break;
-	}
 	INFO(0, "hit; type=%s, flags=%s",
 	     log_add_socket_type(type_noflags),
 	     log_add_socket_flags(flags));
-	if (domain == AF_INET && use) {
-		rc = so_socket(&so, domain, type_noflags, flags, proto);
-	} else {
-		rc = -EBADF;
-	}
+	rc = so_socket(&so, domain, type_noflags, flags, proto);
 	if (rc < 0) {
 		INFO(-rc, "failed;");
 	} else {
 		INFO(0, "ok; fd=%d", rc);
 	}
-	return rc;
-}
-
-int
-gt_socket(int domain, int type, int proto)
-{
-	int rc;
-
-	API_LOCK;
-	rc = gt_socket_locked(domain, type, proto);
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
@@ -136,7 +113,6 @@ gt_connect_locked(int fd, const struct sockaddr *addr, socklen_t addrlen)
 		return rc;
 	}
 	faddr_in = (const struct sockaddr_in *)addr;
-	INFO(0, "hit; fd=%d, faddr=%s", fd, log_add_sockaddr_in(faddr_in));
 	rc = so_connect(so, faddr_in, &laddr_in);
 restart:
 	if (rc == -EINPROGRESS && so->so_blocked) {
@@ -152,11 +128,6 @@ restart:
 		}
 
 	}
-	if (rc < 0) {
-		INFO(-rc, "failed");
-	} else {
-		INFO(0, "ok; laddr=%s", log_add_sockaddr_in(&laddr_in));
-	}
 	return rc;
 }
 
@@ -166,7 +137,13 @@ gt_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	int rc;
 
 	API_LOCK;
+	INFO(0, "hit; fd=%d, faddr=%s", fd, log_add_sockaddr(addr, addrlen));
 	rc = gt_connect_locked(fd, addr, addrlen);
+	if (rc < 0) {
+		INFO(-rc, "failed");
+	} else {
+		INFO(0, "ok; laddr=%s", log_add_sockaddr_in(&laddr_in));
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
@@ -178,24 +155,18 @@ gt_bind_locked(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	const struct sockaddr_in *addr_in;
 	struct sock *so;
 
-	rc = so_get(fd, &so);
-	if (rc) {
-		return rc;
-	}
 	if (addr->sa_family != AF_INET) {
 		return -EAFNOSUPPORT;
 	}
 	if (addrlen < sizeof(*addr_in)) {
 		return -EINVAL;
 	}
-	addr_in = (const struct sockaddr_in *)addr;
-	INFO(0, "hit; fd=%d, laddr=%s", fd, log_add_sockaddr_in(addr_in));
-	rc = so_bind(so, addr_in);
-	if (rc < 0) {
-		INFO(-rc, "failed");
-	} else {
-		INFO(0, "ok");
+	rc = so_get(fd, &so);
+	if (rc) {
+		return rc;
 	}
+	addr_in = (const struct sockaddr_in *)addr;
+	rc = so_bind(so, addr_in);
 	return rc;
 }
 
@@ -205,38 +176,34 @@ gt_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	int rc;
 
 	API_LOCK;
+	INFO(0, "hit; fd=%d, laddr=%s", fd, log_add_sockaddr(addr, addrlen));
 	rc = gt_bind_locked(fd, addr, addrlen);
+	if (rc < 0) {
+		INFO(-rc, "failed");
+	} else {
+		INFO(0, "ok");
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
-}
-
-static int 
-gt_listen_locked(int fd, int backlog)
-{
-	int rc;
-	struct sock *so;
-
-	rc = so_get(fd, &so);
-	if (rc) {
-		return rc;
-	}
-	INFO(0, "hit; lfd=%d", fd);
-	rc = so_listen(so, backlog);
-	if (rc < 0) {
-		INFO(rc, "failed;");
-	} else {
-		INFO(0, "ok;");
-	}
-	return rc;
 }
 
 int
 gt_listen(int fd, int backlog)
 {
 	int rc;
+	struct sock *so;
 
 	API_LOCK;
-	rc = gt_listen_locked(fd, backlog);
+	INFO(0, "hit; lfd=%d", fd);
+	rc = so_get(fd, &so);
+	if (rc == 0) {
+		rc = so_listen(so, backlog);
+	}
+	if (rc < 0) {
+		INFO(rc, "failed;");
+	} else {
+		INFO(0, "ok;");
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
@@ -252,7 +219,6 @@ gt_accept4_locked(int lfd, struct sockaddr *addr, socklen_t *addrlen,
 	if (rc) {
 		return rc;
 	}
-	INFO(0, "hit; lfd=%d, flags=%s)", lfd, log_add_socket_flags(flags));
 restart:
 	rc = so_accept(&so, lso, addr, addrlen, flags);
 	if (rc == -EAGAIN && lso->so_blocked) {
@@ -261,11 +227,6 @@ restart:
 		if (rc == 0) {
 			goto restart;
 		}
-	}
-	if (rc < 0) {
-		INFO(-rc, "failed");
-	} else {
-		INFO(0, "ok; fd=%d", rc);
 	}
 	return rc;
 }
@@ -276,17 +237,15 @@ gt_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 	int rc;
 
 	API_LOCK;
+	INFO(0, "hit; lfd=%d, flags=%s)", lfd, log_add_socket_flags(flags));
 	rc = gt_accept4_locked(lfd, addr, addrlen, flags);
+	if (rc < 0) {
+		INFO(-rc, "failed");
+	} else {
+		INFO(0, "ok; fd=%d", rc);
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
-}
-
-int
-gt_shutdown_locked(int fd, int how)
-{
-	// TODO: on socket rewrite
-//	assert(0);
-	return -ENOTSUP;
 }
 
 int
@@ -295,34 +254,34 @@ gt_shutdown(int fd, int how)
 	int rc;
 
 	API_LOCK;
-	rc = gt_shutdown_locked(fd, how);
+	INFO(0, "hit; fd=%d, how=%s", fd, log_add_shutdown_how(how));
+	rc = -ENOTSUP;
+	if (rc < 0) {
+		INFO(-rc, "failed;");
+	} else {
+		INFO(0, "ok;");
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
-}
-
-int
-gt_close_locked(int fd)
-{
-	int rc;
-	struct file *fp;
-
-	rc = file_get(fd, &fp);
-	if (rc) {
-		return rc;
-	}
-	INFO(0, "hit; fd=%d", fd);
-	file_close(fp);
-	INFO(0, "ok");
-	return 0;
 }
 
 int
 gt_close(int fd)
 {
 	int rc;
+	struct file *fp;
 
 	API_LOCK;
-	rc = gt_close_locked(fd);	
+	INFO(0, "hit; fd=%d", fd);
+	rc = file_get(fd, &fp);
+	if (rc == 0) {
+		file_close(fp);
+	}
+	if (rc) {
+		INFO(-rc, "failed;");
+	} else {
+		INFO(0, "ok;");
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
@@ -347,7 +306,6 @@ gt_recvfrom_locked(int fd, const struct iovec *iov, int iovcnt, int flags,
 	if (rc) {
 		return rc;
 	}
-	INFO(0, "hit; fd=%d", fd);
 restart:
 	rc = so_recvfrom(so, iov, iovcnt, flags, addr, addrlen);
 	if (rc == -EAGAIN && so->so_blocked) {
@@ -356,11 +314,6 @@ restart:
 		if (rc == 0) {
 			goto restart;
 		}
-	}
-	if (rc < 0) {
-		INFO(-rc, "failed;");
-	} else {
-		INFO(0, "ok; rc=%zd", rc);
 	}
 	return rc;
 }
@@ -371,7 +324,13 @@ gt_readv(int fd, const struct iovec *iov, int iovcnt)
 	ssize_t rc;
 
 	API_LOCK;
+	INFO(0, "hit; fd=%d, count=%d", fd, iovec_accum_len(iov, iovcnt));
 	rc = gt_recvfrom_locked(fd, iov, iovcnt, 0, NULL, NULL);
+	if (rc < 0) {
+		INFO(-rc, "failed;");
+	} else {
+		INFO(0, "ok; rc=%zd", rc);
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
@@ -395,7 +354,13 @@ gt_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *addr,
 	iov.iov_base = buf;
 	iov.iov_len = len;
 	API_LOCK;
+	INFO(0, "hit; fd=%d, count=%zu", fd, len);
 	rc = gt_recvfrom_locked(fd, &iov, 1, flags, addr, addrlen);
+	if (rc < 0) {
+		INFO(-rc, "failed;");
+	} else {
+		INFO(0, "ok; rc=%zd", rc);
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
@@ -430,7 +395,6 @@ gt_send_locked(int fd, const struct iovec *iov, int iovcnt, int flags,
 	if (rc) {
 		return rc;
 	}
-	INFO(0, "hit; fd=%d, count=%d", fd, iovec_accum_len(iov, iovcnt));
 	if (namelen >= sizeof(*addr_in)) {
 		addr_in = name;
 		faddr = addr_in->sin_addr.s_addr;
@@ -448,21 +412,22 @@ restart:
 			goto restart;
 		}
 	}
-	if (rc < 0) {
-		INFO(-rc, "failed");
-	} else {
-		INFO(0, "ok; rc=%d", rc);
-	}
 	return rc;
 }
 
 ssize_t
 gt_writev(int fd, const struct iovec *iov, int iovcnt)
 {
-	int rc;
+	ssize_t rc;
 
 	API_LOCK;
+	INFO(0, "hit; fd=%d, count=%d", fd, iovec_accum_len(iov, iovcnt));
 	rc = gt_send_locked(fd, iov, iovcnt, 0, NULL, 0);
+	if (rc < 0) {
+		INFO(-rc, "failed");
+	} else {
+		INFO(0, "ok; rc=%d", rc);
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
@@ -480,13 +445,19 @@ ssize_t
 gt_sendto(int fd, const void *buf, size_t len, int flags,
 	const struct sockaddr *addr, socklen_t addrlen)
 {
-	int rc;
+	ssize_t rc;
 	struct iovec iov;
 
 	iov.iov_base = (void *)buf;
 	iov.iov_len = len;
 	API_LOCK;
+	INFO(0, "hit; fd=%d, count=%zu", fd, len);
 	rc = gt_send_locked(fd, &iov, 1, flags, addr, addrlen);
+	if (rc < 0) {
+		INFO(-rc, "failed");
+	} else {
+		INFO(0, "ok; rc=%d", rc);
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
@@ -494,98 +465,85 @@ gt_sendto(int fd, const void *buf, size_t len, int flags,
 ssize_t
 gt_sendmsg(int fd, const struct msghdr *msg, int flags)
 {
-	int rc;
+	ssize_t rc;
+	int iovcnt;
+	struct iovec *iov;
 
-	if (msg->msg_flags != 0) {
-		GT_RETURN(-ENOTSUP);
-	}
-	if (msg->msg_controllen != 0) {
-		GT_RETURN(-ENOTSUP);
-	}
 	API_LOCK;
-	rc = gt_send_locked(fd, msg->msg_iov, msg->msg_iovlen, msg->msg_flags,
-	                    msg->msg_name, msg->msg_namelen);
+	iov = msg->msg_iov;
+	iovcnt = msg->msg_iovlen;
+	INFO(0, "hit; fd=%d, count=%d", fd, iovec_accum_len(iov, iovcnt));
+	if (msg->msg_flags != 0 || msg->msg_controllen != 0) {
+		rc = -ENOTSUP;
+	} else {
+		rc = gt_send_locked(fd, iov, iovcnt, msg->msg_flags,
+		                    msg->msg_name, msg->msg_namelen);
+	}
+	if (rc < 0) {
+		INFO(-rc, "failed");
+	} else {
+		INFO(0, "ok; rc=%d", rc);
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
-}
-
-int
-gt_fcntl_locked(int fd, int cmd, uintptr_t arg)
-{
-	int rc;
-	struct file *fp;
-
-	rc = file_get(fd, &fp);
-	if (rc) {
-		return rc;
-	}
-	INFO(0, "hit; fd=%d, cmd=%s", fd, log_add_fcntl_cmd(cmd));
-	rc = file_fcntl(fp, cmd, arg);
-	if (rc < 0) {
-		INFO(-rc, "failed;");
-	} else {
-		INFO(0, "ok; rc=0x%x", rc);
-	}
-	return rc;
 }
 
 int
 gt_fcntl(int fd, int cmd, uintptr_t arg)
 {
 	int rc;
-
-	API_LOCK;
-	rc = gt_fcntl_locked(fd, cmd, arg);
-	API_UNLOCK;
-	GT_RETURN(rc);
-}
-
-int
-gt_ioctl_locked(int fd, u_long req, uintptr_t arg)
-{
-	int rc;
 	struct file *fp;
 
+	API_LOCK;
+	INFO(0, "hit; fd=%d, cmd=%s", fd, log_add_fcntl_cmd(cmd));
 	rc = file_get(fd, &fp);
-	if (rc) {
-		return rc;
+	if (rc == 0) {
+		rc = file_fcntl(fp, cmd, arg);
 	}
-	INFO(0, "hit, fd=%d, req=%s", fd, log_add_ioctl_req(req, arg));
-	rc = file_ioctl(fp, req, arg);
 	if (rc < 0) {
-		INFO(-rc, "failed");
+		INFO(-rc, "failed;");
 	} else {
 		INFO(0, "ok; rc=0x%x", rc);
 	}
-	return rc;
+	API_UNLOCK;
+	GT_RETURN(rc);
 }
 
 int
 gt_ioctl(int fd, unsigned long req, uintptr_t arg)
 {
 	int rc;
+	struct file *fp;
 
 	API_LOCK;
-	rc = gt_ioctl_locked(fd, req, arg);
+	INFO(0, "hit, fd=%d, req=%s", fd, log_add_ioctl_req(req, arg));
+	rc = file_get(fd, &fp);
+	if (rc == 0) {
+		rc = file_ioctl(fp, req, arg);
+	}
+	if (rc < 0) {
+		INFO(-rc, "failed");
+	} else {
+		INFO(0, "ok; rc=0x%x", rc);
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
 
 int
-gt_getsockopt_locked(int fd, int level, int optname, void *optval,
-	socklen_t *optlen)
+gt_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
 {
 	int rc;
 	struct sock *so;
 
-	rc = so_get(fd, &so);
-	if (rc) {
-		return rc;
-	}
+	API_LOCK;
 	INFO(0, "hit; fd=%d, level=%s, optname=%s",
 	     fd, log_add_sockopt_level(level),
 	     log_add_sockopt_optname(level, optname));
-	rc = so_getsockopt(so, level, optname, optval, optlen);
+	rc = so_get(fd, &so);
+	if (rc == 0) {
+		rc = so_getsockopt(so, level, optname, optval, optlen);
+	}
 	if (rc < 0) {
 		INFO(-rc, "failed;");
 	} else if (level == SOL_SOCKET &&
@@ -594,41 +552,9 @@ gt_getsockopt_locked(int fd, int level, int optname, void *optval,
 	} else {
 		INFO(0, "ok;");
 	}
-	return rc;
-}
 
-int
-gt_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
-{
-	int rc;
-
-	API_LOCK;
-	rc = gt_getsockopt_locked(fd, level, optname, optval, optlen);
 	API_UNLOCK;
 	GT_RETURN(rc);
-}
-
-int
-gt_setsockopt_locked(int fd, int level, int optname, const void *optval,
-	socklen_t optlen)
-{
-	int rc;
-	struct sock *so;
-
-	rc = so_get(fd, &so);
-	if (rc) {
-		return rc;
-	}
-	INFO(0, "hit; fd=%d, level=%s, optname=%s",
-	     fd, log_add_sockopt_level(level),
-	     log_add_sockopt_optname(level, optname));
-	rc = so_setsockopt(so, level, optname, optval, optlen);
-	if (rc < 0) {
-		INFO(-rc, "failed");
-	} else {
-		INFO(0, "ok");
-	}
-	return rc;
 }
 
 int
@@ -636,40 +562,42 @@ gt_setsockopt(int fd, int level, int optname, const void *optval,
 	socklen_t optlen)
 {
 	int rc;
-
-	API_LOCK;
-	rc = gt_setsockopt_locked(fd, level, optname, optval, optlen);
-	API_UNLOCK;
-	GT_RETURN(rc);
-}
-
-int
-gt_getpeername_locked(int fd, struct sockaddr *addr, socklen_t *addrlen)
-{
-	int rc;
 	struct sock *so;
 
+	API_LOCK;
+	INFO(0, "hit; fd=%d, level=%s, optname=%s",
+	     fd, log_add_sockopt_level(level),
+	     log_add_sockopt_optname(level, optname));
 	rc = so_get(fd, &so);
-	if (rc) {
-		return rc;
+	if (rc == 0) {
+		rc = so_setsockopt(so, level, optname, optval, optlen);
 	}
-	INFO(0, "hit; fd=%d", fd);
-	rc = so_getpeername(so, addr, addrlen);
 	if (rc < 0) {
 		INFO(-rc, "failed");
 	} else {
 		INFO(0, "ok");
 	}
-	return rc;
+	API_UNLOCK;
+	GT_RETURN(rc);
 }
 
 int
 gt_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
+	struct sock *so;
 
 	API_LOCK;
-	rc = gt_getpeername_locked(fd, addr, addrlen);
+	INFO(0, "hit; fd=%d", fd);
+	rc = so_get(fd, &so);
+	if (rc == 0) {
+		rc = so_getpeername(so, addr, addrlen);
+	}
+	if (rc < 0) {
+		INFO(-rc, "failed");
+	} else {
+		INFO(0, "ok");
+	}
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
@@ -722,18 +650,6 @@ gt_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 		DBG(0, "ok; rc=%d, revents={%s}",
 		    rc, log_add_pollfds_revents(fds, rc));
 	}
-	API_UNLOCK;
-	GT_RETURN(rc);
-}
-
-int
-gt_first_fd()
-{
-	int rc;
-
-	API_LOCK;
-	rc = file_first_fd();
-	INFO(0, "hit; first_fd=%d", rc);
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
