@@ -1,9 +1,12 @@
-// GPL2 license
+// gpl2
 #ifndef GBTCP_DEV_H
 #define GBTCP_DEV_H
 
 #include "timer.h"
 #include "mbuf.h"
+
+#define TX_CAN_RECLAIM (1 << 0)
+#define TX_CAN_REDIRECT (1 << 1)
 
 #define DEV_PKT_SIZE_MAX 2048
 
@@ -13,7 +16,8 @@ struct dev {
 	struct nm_desc *dev_nmd;
 	struct fd_event *dev_event;
 	int dev_cur_tx_ring;
-	int dev_tx_full;
+	u_char dev_tx_throttled;
+	u_short dev_tx_without_reclaim;
 	uint64_t dev_cur_tx_ring_epoch;
 	dev_f dev_fn;
 	struct dlist dev_list;
@@ -22,14 +26,8 @@ struct dev {
 
 struct dev_pkt {
 	struct mbuf pkt_mbuf;
-	union {
-		struct {
-			u_int pkt_len : 11;
-			u_int pkt_off : 11;
-			u_char pkt_sid;
-		};
-		uint64_t pkt_flags;
-	};
+	u_short pkt_len;
+	u_char pkt_sid;
 	struct netmap_ring *pkt_txr;
 	u_char *pkt_data;
 };
@@ -81,9 +79,9 @@ void dev_deinit(struct dev *);
 void dev_close_fd(struct dev *);
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);
-int dev_not_empty_txr(struct dev *, struct dev_pkt *);
+int dev_not_empty_txr(struct dev *, struct dev_pkt *, int);
 int dev_rxr_space(struct dev *, struct netmap_ring *);
-void dev_tx(struct dev_pkt *);
+void dev_transmit(struct dev_pkt *);
 
 static inline void
 dev_prefetch(struct netmap_ring *ring)

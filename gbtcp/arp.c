@@ -109,7 +109,8 @@ arp_tx_incomplete_q(struct arp_entry *e)
 	if (e->ae_next_hop != next_hop) {
 		goto err;
 	}
-	rc = route_if_not_empty_txr(route.rt_ifp, &pkt);
+	rc = route_not_empty_txr(route.rt_ifp, &pkt,
+	                         TX_CAN_RECLAIM|TX_CAN_REDIRECT);
 	if (rc) {
 		counter64_inc(&route.rt_ifp->rif_tx_drop);
 		goto err;
@@ -117,7 +118,7 @@ arp_tx_incomplete_q(struct arp_entry *e)
 		DEV_PKT_COPY(pkt.pkt_data, x->pkt_data, x->pkt_len);
 		pkt.pkt_len = x->pkt_len;
 		arp_set_eh(e, route.rt_ifp, pkt.pkt_data);
-		route_if_tx(route.rt_ifp, &pkt);
+		route_transmit(route.rt_ifp, &pkt);
 	}
 	mbuf_free(&x->pkt_mbuf);
 	return;
@@ -164,7 +165,8 @@ arp_probe(struct arp_entry *e)
 	if (rc) {
 		return;
 	}
-	rc = route_if_not_empty_txr(route.rt_ifp, &pkt);
+	rc = route_not_empty_txr(route.rt_ifp, &pkt,
+	                         TX_CAN_RECLAIM|TX_CAN_REDIRECT);
 	if (rc) {
 		counter64_inc(&route.rt_ifp->rif_tx_drop);
 		return;
@@ -178,7 +180,7 @@ arp_probe(struct arp_entry *e)
 		assert(0);
 	}
 	pkt.pkt_len = len;
-	route_if_tx(route.rt_ifp, &pkt);
+	route_transmit(route.rt_ifp, &pkt);
 	arps.arps_txrequests++;
 }
 
@@ -460,7 +462,7 @@ arp_resolve_slow(struct route_if *ifp, struct htable_bucket *b,
 			}
 			assert(e->ae_incomplete_q == NULL);
 			arp_set_eh(e, ifp, pkt->pkt_data);
-			route_if_tx(ifp, pkt);
+			route_transmit(ifp, pkt);
 			if (e->ae_state == ARP_STALE) {
 				arp_set_state(e, ARP_PROBE);
 				arp_probe(e);
@@ -500,7 +502,7 @@ arp_resolve(struct route_if *ifp, be32_t next_hop, struct dev_pkt *pkt)
 		} else if (state == ARP_REACHABLE ||
 		           state == ARP_PROBE) {
 			arp_set_eh(e, ifp, pkt->pkt_data);
-			route_if_tx(ifp, pkt);
+			route_transmit(ifp, pkt);
 			return;
 		} else {
 			break;
@@ -652,7 +654,7 @@ arp_reply(struct route_if *ifp, struct arp_hdr *ah)
 	struct arp_hdr *ah_rpl;
 	struct dev_pkt pkt;
 
-	rc = route_if_not_empty_txr(ifp, &pkt);
+	rc = route_not_empty_txr(ifp, &pkt, TX_CAN_RECLAIM|TX_CAN_REDIRECT);
 	if (rc) {
 		counter64_inc(&ifp->rif_tx_drop);
 		arps.arps_txrepliesdropped++;
@@ -674,5 +676,5 @@ arp_reply(struct route_if *ifp, struct arp_hdr *ah)
 	ah_rpl->ah_data.aip_tha = ah->ah_data.aip_sha;
 	ah_rpl->ah_data.aip_tip = ah->ah_data.aip_sip;
 	arps.arps_txreplies++;
-	route_if_tx(ifp, &pkt);
+	route_transmit(ifp, &pkt);
 }

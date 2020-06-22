@@ -1,4 +1,4 @@
-// gpl2 license
+// gpl2
 #ifndef GBTCP_SYSCTL_H
 #define GBTCP_SYSCTL_H
 
@@ -11,9 +11,9 @@
 
 #define SYSCTL_SOCK_PATH GT_PREFIX"/sock"
 #define SYSCTL_CONFIG_PATH GT_PREFIX"/sysctl"
-#define SYSCTL_CONTROLLER_PATH SYSCTL_SOCK_PATH"/controller.sock"
+#define SYSCTL_SCHED_PATH SYSCTL_SOCK_PATH"/sched.sock"
 
-#define SYSCTL_CONTROLLER_SERVICE_ATTACH "controller.service.attach"
+#define SYSCTL_SCHED_ADD "sched.add"
 
 struct sysctl_conn {
 	void (*scc_close_fn)(struct sysctl_conn *);
@@ -30,12 +30,7 @@ typedef int (*sysctl_list_next_f)(void *, const char *, struct strbuf *);
 typedef int (*sysctl_list_f)(void *, const char *,
 	const char *, struct strbuf *);
 
-int sysctl_mod_init(void **);
-int sysctl_mod_attach(void *);
 int sysctl_root_init();
-void sysctl_mod_deinit();
-void sysctl_mod_detach();
-
 void sysctl_root_deinit();
 
 void sysctl_make_sockaddr_un(struct sockaddr_un *, int);

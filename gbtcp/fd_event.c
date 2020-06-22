@@ -204,7 +204,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 {
 	int i, rc, n_triggered;
 	uint64_t t, elapsed;
-	struct timespec timeout_ts;
+	struct timespec to;
 	struct pollfd *pfd;
 	struct fd_event *e;
 
@@ -228,19 +228,18 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 		pfd->events = e->fde_events;
 		p->fdp_events[p->fdp_n_events++] = e;
 	}
-	timeout_ts.tv_sec = 0;
+	to.tv_sec = 0;
 	if (p->fdp_to == 0) {
-		timeout_ts.tv_nsec = 0;
+		to.tv_nsec = 0;
 	} else if (p->fdp_to >= TIMER_TIMEOUT) {
-		timeout_ts.tv_nsec = TIMER_TIMEOUT;
+		to.tv_nsec = TIMER_TIMEOUT;
 	} else {
-		timeout_ts.tv_nsec = p->fdp_to;
+		to.tv_nsec = p->fdp_to;
 	}
 	t = nanoseconds;
 	SERVICE_UNLOCK;
 	rc = sys_ppoll(p->fdp_pfds, p->fdp_n_added + p->fdp_n_events,
-	               &timeout_ts,
-	               D_TRUE && sigmask == NULL ? &service_sigprocmask : sigmask);
+	               &to, sigmask == NULL ? &service_sigprocmask : sigmask);
 	SERVICE_LOCK;
 	fd_poll_epoch++;
 	elapsed = nanoseconds - t;

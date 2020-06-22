@@ -112,12 +112,15 @@ typedef void (*route_msg_f)(struct route_msg *);
 #define ROUTE_IF_FOREACH(ifp) \
 	DLIST_FOREACH(ifp, route_if_head(), rif_list)
 
+#define ROUTE_IF_FOREACH_RCU(ifp) \
+	DLIST_FOREACH_RCU(ifp, route_if_head(), rif_list)
+
 int route_mod_init();
 void route_mod_deinit();
 
 struct dlist *route_if_head();
-struct route_if *route_if_get_by_ifindex(int);
-struct route_if *route_if_get_by_ifname(const char *, int, int);
+struct route_if *route_if_get_by_index(int);
+//struct route_if *route_if_get_by_ifname(const char *, int, int);
 
 struct route_if_addr *route_ifaddr_get(int, const struct ipaddr *);
 struct route_if_addr *route_ifaddr_get4(be32_t);
@@ -125,9 +128,8 @@ struct route_if_addr *route_ifaddr_get4(be32_t);
 int route_get(int af, struct ipaddr *, struct route_entry *);
 int route_get4(be32_t, struct route_entry *);
 
-// ???????
-int route_if_not_empty_txr(struct route_if *, struct dev_pkt *);
-void route_if_tx(struct route_if *, struct dev_pkt *);
+int route_not_empty_txr(struct route_if *, struct dev_pkt *, int);
+void route_transmit(struct route_if *, struct dev_pkt *);
 
 int route_open(struct route_mod *);
 int route_read(int, route_msg_f);

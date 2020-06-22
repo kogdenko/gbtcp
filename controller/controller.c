@@ -4,16 +4,16 @@ int
 main(int argc, char **argv)
 {
 	int rc, opt, daemonize, affinity;
-	const char *proc_name;
+	const char *proc_comm;
 
 	daemonize = 0;
 	affinity = -1;
-	proc_name = "controller";
+	proc_comm = "sched";
 	//log_set_level(LOG_DEBUG);
 	while ((opt = getopt(argc, argv, "n:a:d")) != -1) {
 		switch (opt) {
 		case 'n':
-			proc_name = optarg;
+			proc_comm = optarg;
 			break;
 		case 'a':
 			affinity = strtoul(optarg, NULL, 10);
@@ -23,13 +23,13 @@ main(int argc, char **argv)
 			break;
 		}
 	}
-	rc = controller_init(daemonize, proc_name);
+	rc = init_sched(daemonize, proc_comm);
 	if (rc) {
 		return EXIT_FAILURE;
 	}
 	if (affinity != -1) {
 		set_affinity(affinity);
 	}
-	controller_loop();
+	sched_loop();
 	return 0;
 }

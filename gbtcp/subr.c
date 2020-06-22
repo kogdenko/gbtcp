@@ -14,50 +14,6 @@ uint64_t nanoseconds;
 uint64_t ticks;
 uint64_t mHZ = 3000; // default cpu 3 ghz
 
-#define MURMUR_MMIX(h,k) \
-do { \
-	k *= m; \
-	k ^= k >> r; \
-	k *= m; \
-	h *= m; \
-	h ^= k; \
-} while (0)
-
-static uint32_t
-murmur(const void * key, unsigned int len, uint32_t init_val)
-{
-	int r;
-	unsigned int k, l, m, h, t;
-	uint8_t *data;
-
-	r = 24;
-	m = 0x5bd1e995;
-	l = len;
-	h = init_val;
-	t = 0;
-	data = (uint8_t *)key;
-	while (len >= 4) {
-		k = *(u_int *)data;
-		MURMUR_MMIX(h, k);
-		data += 4;
-		len -= 4;
-	}
-	switch(len) {
-	case 3:
-		t ^= data[2] << 16;
-	case 2:
-		t ^= data[1] << 8;
-	case 1:
-		t ^= data[0];
-	}
-	MURMUR_MMIX(h, t);
-	MURMUR_MMIX(h, l);
-	h ^= h >> 13;
-	h *= m;
-	h ^= h >> 15;
-	return h;
-}
-
 int
 eth_addr_aton(struct eth_addr *a, const char *s)
 {
@@ -312,18 +268,6 @@ strzcpy(char *dest, const char *src, size_t n)
 	}
 	dest[i] = '\0';
 	return dest;
-}
-
-uint32_t
-custom_hash32(uint32_t data, uint32_t initval)
-{
-	return murmur(&data, sizeof(data), initval);
-}
-
-uint32_t
-custom_hash(const void *data, size_t cnt, uint32_t initval)
-{
-	return murmur(data, cnt, initval);
 }
 
 uint32_t
@@ -587,7 +531,7 @@ restart:
 	return rc;
 }
 
-#define SYS_CALL_FULL_BUF(name, fd, buf, cnt, ...) ({ \
+#define SYS_CALL_RECORD(name, fd, buf, cnt, ...) ({ \
 	ssize_t rc, ret, off; \
  \
 	ret = 0; \
@@ -603,20 +547,20 @@ restart:
 })
 
 ssize_t
-write_full_buf(int fd, const void *buf, size_t cnt)
+write_record(int fd, const void *buf, size_t cnt)
 {
 	int rc;
 
-	rc = SYS_CALL_FULL_BUF(write, fd, buf, cnt);
+	rc = SYS_CALL_RECORD(write, fd, buf, cnt);
 	return rc;
 }
 
 ssize_t
-send_full_buf(int fd, const void *buf, size_t cnt, int flags)
+send_record(int fd, const void *buf, size_t cnt, int flags)
 {
 	int rc;
 
-	rc = SYS_CALL_FULL_BUF(send, fd, buf, cnt, flags);
+	rc = SYS_CALL_RECORD(send, fd, buf, cnt, flags);
 	return rc;
 }
 
@@ -679,7 +623,7 @@ gettid()
 }
 
 int
-read_comm(char *name, int pid)
+read_proc_comm(char *name, int pid)
 {
 	int rc, len;
 	FILE *file;
@@ -722,7 +666,7 @@ gettid()
 }
 
 int
-read_comm(char *name, int pid)
+read_proc_comm(char *name, int pid)
 {
 	int rc;
 	struct kinfo_proc *info;

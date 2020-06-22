@@ -60,7 +60,7 @@ pid_file_write(int fd, int pid)
 
 	assert(pid >= 0);
 	len = snprintf(buf, sizeof(buf), "%d", pid);
-	rc = write_full_buf(fd, buf, len);
+	rc = write_record(fd, buf, len);
 	return rc;
 }
 

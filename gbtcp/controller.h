@@ -4,17 +4,12 @@
 
 #include "subr.h"
 
-#define CONTROLLER_SID 0
+#define SCHED_SID 0
 
-int controller_mod_init(void **);
-int controller_mod_attach(void *);
-void controller_mod_deinit();
-void controller_mod_detach();
-
-void controller_host_rxtx(struct dev *, short);
-int controller_bypass(struct route_if *, void *, int);
-int controller_init(int, const char *);
-void controller_loop();
-void controller_update_rss_table();
+void host_rxtx(struct dev *, short);
+int transmit_to_host(struct route_if *, void *, int);
+int init_sched(int, const char *);
+void sched_loop();
+void update_rss_table();
 
 #endif // GBTCP_CONTROLLER_H

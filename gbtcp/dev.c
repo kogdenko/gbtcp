@@ -2,7 +2,8 @@
 
 #define CURMOD dev
 
-#define DEV_BURST_SIZE 256
+#define DEV_RX_BURST_SIZE 256 // TODO: configuret dynamicly
+#define DEV_TX_BURST_SIZE 64
 
 static int
 dev_rxtx(void *udata, short revents)
@@ -13,7 +14,7 @@ dev_rxtx(void *udata, short revents)
 
 	dev = udata;
 	if (revents & POLLOUT) {
-		dev->dev_tx_full = 0;
+		dev->dev_tx_throttled = 0;
 		fd_event_clear(dev->dev_event, POLLOUT);
 	}
 	(*dev->dev_fn)(dev, revents);
@@ -123,7 +124,7 @@ dev_rx_off(struct dev *dev)
 }
 
 int
-dev_not_empty_txr(struct dev *dev, struct dev_pkt *pkt)
+dev_not_empty_txr(struct dev *dev, struct dev_pkt *pkt, int flags)
 {
 	void *buf;
 	struct netmap_ring *txr;
@@ -132,26 +133,37 @@ dev_not_empty_txr(struct dev *dev, struct dev_pkt *pkt)
 	if (dev->dev_nmd == NULL) {
 		return -ENODEV;
 	}
-	if (dev->dev_tx_full) {
+	if (dev->dev_tx_throttled) {
 		return -ENOBUFS;
 	}
 	if (dev->dev_cur_tx_ring_epoch != fd_poll_epoch) {
 		dev->dev_cur_tx_ring_epoch = fd_poll_epoch;
 		dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
 	}
+restart:
 	DEV_FOREACH_TXRING_CONTINUE(dev->dev_cur_tx_ring, txr, dev) {
 		if (!nm_ring_empty(txr)) {
 			assert(txr != NULL);
-			pkt->pkt_flags = 0;
+			pkt->pkt_len = 0;
 			pkt->pkt_sid = current->p_sid;
 			pkt->pkt_txr = txr;
 			slot = txr->slot + txr->cur;
 			buf = NETMAP_BUF(txr, slot->buf_idx);
 			pkt->pkt_data = buf;
+			if (dev->dev_tx_without_reclaim < DEV_TX_BURST_SIZE) {
+				dev->dev_tx_without_reclaim++;
+			}
 			return 0;
 		}
 	}
-	dev->dev_tx_full = 1;
+	if (dev->dev_tx_without_reclaim == DEV_TX_BURST_SIZE &&
+	    (flags & TX_CAN_RECLAIM)) {
+		dev->dev_tx_without_reclaim = 0;
+		dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
+		sys_ioctl(dev->dev_nmd->fd, NIOCTXSYNC, 0);
+		goto restart;
+	}
+	dev->dev_tx_throttled = 1;
 	fd_event_set(dev->dev_event, POLLOUT);
 	return -ENOBUFS;
 }
@@ -162,14 +174,14 @@ dev_rxr_space(struct dev *dev, struct netmap_ring *rxr)
 	int n;
 
 	n = nm_ring_space(rxr);
-	if (n > DEV_BURST_SIZE) {
-		n = DEV_BURST_SIZE;
+	if (n > DEV_RX_BURST_SIZE) {
+		n = DEV_RX_BURST_SIZE;
 	}
 	return n;
 }
 
 void
-dev_tx(struct dev_pkt *pkt)
+dev_transmit(struct dev_pkt *pkt)
 {
 	struct netmap_slot *dst;
 	struct netmap_ring *txr;

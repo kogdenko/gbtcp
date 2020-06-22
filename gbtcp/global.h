@@ -106,7 +106,7 @@ struct shm_init_hdr;
 	x(sockbuf) \
 	x(tcp) \
 	x(service) \
-	x(controller) \
+	x(sched) \
 	x(app)
 
 #define MOD_ENUM(name) MOD_##name,

@@ -919,7 +919,7 @@ sysctl_connect(int fd)
 	struct sockaddr_un a;
 
 	a.sun_family = AF_UNIX;
-	strzcpy(a.sun_path, SYSCTL_CONTROLLER_PATH, sizeof(a.sun_path));
+	strzcpy(a.sun_path, SYSCTL_SCHED_PATH, sizeof(a.sun_path));
 	to = 2 * NSEC_SEC;
 	rc = connect_timed(fd, (struct sockaddr *)&a, sizeof(a), &to);
 	return rc;
@@ -977,7 +977,7 @@ sysctl_send_req(int fd, const char *path, const char *new)
 	if (len >= sizeof(buf)) {
 		return -EINVAL;
 	}
-	rc = send_full_buf(fd, buf, len, MSG_NOSIGNAL);
+	rc = send_record(fd, buf, len, MSG_NOSIGNAL);
 	return rc;
 }
 

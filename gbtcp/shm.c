@@ -6,7 +6,6 @@
 #define SHM_MAGIC 0xb9d1
 #define SHM_NAME "gbtcp"
 #define SHM_SIZE (1024*1024*1204) // 1 Gb
-#define SHM_ADDR (void *)(0x7fffffffffff - 8llu * 1024 * 1024 * 1024)
 
 struct shm_mod {
 	struct log_scope log_scope;
@@ -209,7 +208,7 @@ shm_init()
 	}
 	shm_fd = rc;
 	sys_ftruncate(shm_fd, size);
-	rc = sys_mmap((void **)&shm, SHM_ADDR, size, PROT_READ|PROT_WRITE,
+	rc = sys_mmap((void **)&shm, NULL, size, PROT_READ|PROT_WRITE,
 	              MAP_SHARED, shm_fd, 0);
 	if (rc) {
 		goto err;

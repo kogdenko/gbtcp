@@ -1,4 +1,4 @@
-// gpl2 license
+// gpl2
 #ifndef GBTCP_SERVICE_H
 #define GBTCP_SERVICE_H
 
@@ -18,8 +18,8 @@
 #define SERVICE_LOCK do { \
 	spinlock_lock(&current->p_lock); \
 	rd_nanoseconds(); \
-	if (current->p_dirty) { \
-		service_update(); \
+	if (current->p_need_update_rss_bindings) { \
+		service_update_rss_bindings(); \
 	} \
 } while (0)
 
@@ -36,14 +36,15 @@ struct service {
 	int p_pid;
 	u_char p_inited;
 	u_char p_sid;
-	u_char p_dirty;
+	u_char p_need_update_rss_bindings;
 	u_char p_rss_nq;
 	u_char p_rr_redir;
 	int p_fd;
 	u_int p_epoch;
-	u_int p_tx_kpps;
-	uint64_t p_tx_kpps_time;
-	uint64_t p_tx_pkts;
+	uint64_t p_start_time;
+	u_int p_okpps;
+	uint64_t p_okpps_time;
+	uint64_t p_opkts;
 	struct timer_ring *p_timer_rings[TIMER_N_RINGS];
 	struct mbuf_pool *p_arp_entry_pool;
 	struct mbuf_pool *p_arp_incomplete_pool;
@@ -79,23 +80,28 @@ do { \
 	__atomic_store(&(s)->p_epoch, &tmp, __ATOMIC_SEQ_CST); \
 } while (0)
 
-int service_mod_init(void **);
-void service_mod_deinit();
-
 int service_pid_file_acquire(int, int);
+
 struct service *service_get_by_sid(u_int);
+
 int service_init_shared(struct service *, int, int);
 void service_deinit_shared(struct service *, int);
+
 int service_init_private();
 void service_deinit_private();
+
 int service_attach();
 void service_detach();
 void service_unlock();
-void service_account_tx_pkt();
-void service_update();
+
+void service_account_opkt();
+
+void service_update_rss_bindings();
+
 int service_can_connect(struct route_if *, be32_t, be32_t, be16_t, be16_t);
-int service_not_empty_txr(struct route_if *, struct dev_pkt *);
-void service_redir(struct route_if *, int, struct dev_pkt *);
+
+int vale_not_empty_txr(struct route_if *, struct dev_pkt *, int);
+void vale_transmit(struct route_if *, int, struct dev_pkt *);
 
 int service_fork();
 

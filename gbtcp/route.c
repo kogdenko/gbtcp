@@ -45,7 +45,7 @@ route_if_head()
 }
 
 struct route_if *
-route_if_get_by_ifindex(int ifindex)
+route_if_get_by_index(int ifindex)
 {
 	struct route_if *ifp;
 
@@ -122,7 +122,7 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 	nr_rx_rings = nr_tx_rings = 1;
 	if (is_pipe == 0) {
 		snprintf(host, sizeof(host), "%s^", ifp->rif_name);
-		rc = dev_init(&ifp->rif_host_dev, host, controller_host_rxtx);
+		rc = dev_init(&ifp->rif_host_dev, host, host_rxtx);
 		if (rc) {
 			shm_free(ifp);
 			return rc;
@@ -140,7 +140,7 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 	}
 	// FIXME: 
 	ifp->rif_flags |= IFF_UP;
-	controller_update_rss_table();
+	update_rss_table();
 	if (route_monitor_fd != -1) {
 		// TODO: DELETE OLD ROUTES...
 		route_dump(route_on_msg);
@@ -400,7 +400,7 @@ route_on_msg(struct route_msg *msg)
 			return;
 		}
 	}
-	ifp = route_if_get_by_ifindex(msg->rtm_if_idx);
+	ifp = route_if_get_by_index(msg->rtm_if_idx);
 	if (ifp == NULL) {
 		return;
 	}
@@ -542,7 +542,7 @@ sysctl_route_if_list(void *udata, const char *ident, const char *new,
 	struct route_if *ifp;
 
 	ifindex = strtoul(ident, NULL, 10);
-	ifp = route_if_get_by_ifindex(ifindex);
+	ifp = route_if_get_by_index(ifindex);
 	if (ifp == NULL) {
 		return -ENOENT;
 	}
@@ -681,7 +681,7 @@ route_mod_init()
 	curmod->route_default = NULL;
 	dlist_init(&curmod->route_if_head);
 	dlist_init(&curmod->route_addr_head);
-	rc = mbuf_pool_alloc(&curmod->route_pool, CONTROLLER_SID, "route.pool",
+	rc = mbuf_pool_alloc(&curmod->route_pool, SCHED_SID, "route.pool",
 	                      sizeof(struct route_entry_long), 10000);
 	if (rc) {
 		goto err;
@@ -805,7 +805,7 @@ route_get4(be32_t pref_src_ip4, struct route_entry *route)
 }
 
 int
-route_if_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt)
+route_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 {
 	int i, rc;
 	struct dev *dev;
@@ -814,26 +814,26 @@ route_if_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt)
 	for (i = 0; i < ifp->rif_rss_nq; ++i) {
 		dev = &(ifp->rif_dev[current->p_sid][i]);
 		if (dev_is_inited(dev)) {
-			rc = dev_not_empty_txr(dev, pkt);
+			rc = dev_not_empty_txr(dev, pkt, flags);
 			if (rc == 0) {
 				break;
 			}	
 		}
 	}
-	if (rc == -ENODEV) {
-		rc = service_not_empty_txr(ifp, pkt);
+	if (rc == -ENODEV && (flags & TX_CAN_REDIRECT)) {
+		rc = vale_not_empty_txr(ifp, pkt, flags);
 	}
 	return rc;
 }
 
 void
-route_if_tx(struct route_if *ifp, struct dev_pkt *pkt)
+route_transmit(struct route_if *ifp, struct dev_pkt *pkt)
 {
 	if (pkt->pkt_sid == current->p_sid) {
 		counter64_inc(&ifp->rif_tx_pkts);
 		counter64_add(&ifp->rif_tx_bytes, pkt->pkt_len);
-		dev_tx(pkt);
+		dev_transmit(pkt);
 	} else {
-		service_redir(ifp, SERVICE_MSG_TX, pkt);
+		vale_transmit(ifp, SERVICE_MSG_TX, pkt);
 	}
 }

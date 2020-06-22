@@ -873,7 +873,7 @@ gt_kevent(int kq, const struct kevent *changelist, int nchanges,
 #endif /* __linux__ */
 
 void
-gt_dbg4(const char *file, u_int line, const char *func,
+gt_dbg5(const char *file, u_int line, const char *func, int suppressed,
 	const char *fmt, ...)
 {
 	char buf[BUFSIZ];
@@ -886,6 +886,9 @@ gt_dbg4(const char *file, u_int line, const char *func,
 	va_start(ap, fmt);
 	strbuf_vaddf(&sb, fmt, ap);
 	va_end(ap);
+	if (suppressed) {
+		strbuf_addf(&sb, " (suppressed %d)", suppressed);	
+	}
 	fprintf(stderr, "%s\n", strbuf_cstr(&sb));
 	ERR(0, "%s", strbuf_cstr(&sb));
 }

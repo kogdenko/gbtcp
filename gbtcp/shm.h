@@ -20,6 +20,8 @@ void shm_garbage_pop(struct dlist *, u_char);
 uint64_t shm_get_nanoseconds();
 void shm_set_nanoseconds(uint64_t);
 
+#define shm_ns shm_get_nanoseconds()
+
 int shm_malloc(const char *, void **, size_t);
 int shm_realloc(const char *, void **, size_t);
 void shm_free(void *);

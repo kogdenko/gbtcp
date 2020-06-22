@@ -1,4 +1,4 @@
-// GPL2 license
+// gpl2
 #ifndef GBTCP_SUBR_H
 #define GBTCP_SUBR_H
 
@@ -163,6 +163,24 @@ do { \
 	} \
 } while (0)
 
+#define dbg_rl(period, fmt, ...) \
+do { \
+	static uint64_t UNIQV(last); \
+	static uint64_t UNIQV(now); \
+	static int UNIQV(cnt); \
+ \
+	UNIQV(now) = nanoseconds; \
+	if (UNIQV(now) - UNIQV(last) >= (period) * NSEC_SEC) { \
+		UNIQV(last) = UNIQV(now); \
+		gt_dbg5(__FILE__, __LINE__, __func__, UNIQV(cnt), \
+		        fmt, ##__VA_ARGS__); \
+		UNIQV(cnt) = 0; \
+	} else { \
+		UNIQV(cnt)++; \
+	} \
+} while (0)
+
+
 #define BITSET_WORD_SIZE 32
 #define BITSET_WORD_MASK (BITSET_WORD_SIZE - 1)
 #define BITSET_WORD_SHIFT 5
@@ -252,10 +270,6 @@ int strtrimcpy(char *, const char *, int);
 int strsplit(const char *, const char *, struct iovec *, int);
 char *strzcpy(char *, const char *, size_t);
 
-
-uint32_t custom_hash32(uint32_t data, uint32_t initval);
-uint32_t custom_hash(const void *data, size_t cnt, uint32_t val);
-
 uint32_t toeplitz_hash(const u_char *, int, const u_char *);
 uint32_t rss_hash4(be32_t, be32_t, be16_t, be16_t, u_char *);
 
@@ -270,13 +284,13 @@ int fcntl_setfl_nonblock(int, int *);
 
 int connect_timed(int, const struct sockaddr *, socklen_t, uint64_t *);
 ssize_t read_timed(int, void *, size_t, uint64_t *);
-ssize_t write_full_buf(int, const void *, size_t);
-ssize_t send_full_buf(int, const void *, size_t, int);
+ssize_t write_record(int, const void *, size_t);
+ssize_t send_record(int, const void *, size_t, int);
 
 int read_rss_key(const char *, u_char *);
 
 long gettid();
-int read_comm(char *, int);
+int read_proc_comm(char *, int);
 
 uint64_t rdtsc();
 

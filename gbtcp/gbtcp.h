@@ -1,4 +1,4 @@
-// GPL2 license
+// gpl2
 #ifndef GBTCP_H
 #define GBTCP_H
 
@@ -54,7 +54,7 @@
 #define GT_SYSCTL_ARP_ADD "arp.add"
 #define GT_SYSCTL_ARP_DEL "arp.del"
 #define GT_SYSCTL_ARP_LIST "arp.list"
-#define GT_SYSCTL_CONTROLLER_SERVICE_LIST "controller.service.list"
+#define GT_SYSCTL_SCHED_SERVICE_LIST "sched.service.list"
 #define GT_SYSCTL_INET_CKSUM_OFFLOAD_RX "inet.cksum.offload.rx"
 #define GT_SYSCTL_INET_CKSUM_OFFLOAD_TX "inet.cksum.offload.tx"
 
@@ -220,10 +220,10 @@ int gt_kevent(int, const struct kevent *, int, struct kevent *, int,
 	const struct timespec *);
 #endif /* __linux__ */
 
-void gt_dbg4(const char *, u_int, const char *, const char *, ...)
-	__attribute__((format(printf, 4, 5)));
+void gt_dbg5(const char *, u_int, const char *, int, const char *, ...)
+	__attribute__((format(printf, 5, 6)));
 
 #define gt_dbg(fmt, ...) \
-	gt_dbg4(__FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
+	gt_dbg5(__FILE__, __LINE__, __func__, 0, fmt, ##__VA_ARGS__)
 
 #endif // GBTCP_H

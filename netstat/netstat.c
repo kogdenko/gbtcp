@@ -291,13 +291,6 @@ sysctl_route_if(const char *path, void *udata, const char *buf)
 }
 
 static void
-alloc_interface_list(struct interface_head *head)
-{
-	LIST_INIT(head);
-	sysctl_list_foreach(GT_SYSCTL_ROUTE_IF_LIST, head, sysctl_route_if);
-}
-
-static void
 free_interface_list(struct interface_head *head)
 {
 	struct interface *ifp;
@@ -309,16 +302,34 @@ free_interface_list(struct interface_head *head)
 	}
 }
 
-static void
+static int
+alloc_interface_list(struct interface_head *head)
+{
+	int rc;
+
+	LIST_INIT(head);
+	rc = sysctl_list_foreach(GT_SYSCTL_ROUTE_IF_LIST, head,
+		                 sysctl_route_if);
+	if (rc) {
+		free_interface_list(head);
+	}
+	return rc;
+	
+}
+
+static int
 get_interfaces_stat(struct interface *stat)
 {
-	int n;
+	int n, rc;
 	struct interface *ifp;
 	struct interface_head head;
 
 	memset(stat, 0, sizeof(*stat));
 	n = 0;
-	alloc_interface_list(&head);
+	rc = alloc_interface_list(&head);
+	if (rc) {
+		return rc;
+	}
 	LIST_FOREACH(ifp, &head, list) {
 		if (n == 0) {
 			strzcpy(stat->ifname, ifp->ifname,
@@ -335,23 +346,30 @@ get_interfaces_stat(struct interface *stat)
 		strzcpy(stat->ifname, "Total", sizeof(stat->ifname));
 	}
 	free_interface_list(&head);
+	return 0;
 }
 
 static void
 print_interfaces_rate()
 {
+	int n, rc;
 	struct interface if2[2], *new, *old, *tmp, diff;
-	int n;
 
 	n = 0;
 	new = &if2[0];
 	old = &if2[1];
-	get_interfaces_stat(old);
+	rc = get_interfaces_stat(old);
+	if (rc) {
+		return;
+	}
 	print_interface_banner();
 	while (1) {
 		sleep(interval);
 		n++;
-		get_interfaces_stat(new);
+		rc = get_interfaces_stat(new);
+		if (rc) {
+			return;
+		}
 		strzcpy(diff.ifname, new->ifname, sizeof(diff.ifname));
 		diff.ipackets = new->ipackets - old->ipackets;
 		diff.idrops = new->idrops - old->idrops;
@@ -373,10 +391,14 @@ print_interfaces_rate()
 static void
 print_interfaces()
 {
+	int rc;
 	struct interface *ifp;
 	struct interface_head head;
 
-	alloc_interface_list(&head);
+	rc = alloc_interface_list(&head);
+	if (rc) {
+		return;
+	}
 	if (!LIST_EMPTY(&head)) {
 		print_interface_banner();
 		LIST_FOREACH(ifp, &head, list) {
@@ -552,20 +574,31 @@ sysctl_inet_stat(const char *name, struct stat_entry *e)
 	return 0;
 }
 
-static void
+static int
 sysctl_inet_stats(const char *name, struct stat_entry *entries)
 {
+	int rc;
 	struct stat_entry *e;
 
+	rc = 0;
 	for (e = entries; e->name != NULL; ++e) {
-		sysctl_inet_stat(name, e);
+		rc = sysctl_inet_stat(name, e);
+		if (rc) {
+			break;
+		}
 	}
+	return rc;
 }
 
-static void
+static int
 print_arp_stats()
 {
-	sysctl_inet_stats("arp", stat_arp_entries);
+	int rc;
+
+	rc = sysctl_inet_stats("arp", stat_arp_entries);
+	if (rc) {
+		return rc;
+	}
 	printf("arp:\n");
 	if (arps.txrequests || sflag > 1) {
 		printf("\t%llu ARP requests sent\n", arps.txrequests);
@@ -600,12 +633,18 @@ print_arp_stats()
 		printf("\t%llu ARP entries timed out\n", arps.timeouts);
 	}
 //	printf("\t%llu Duplicate IPs seen\n", arps.dupips);
+	return 0;
 }
 
-void
+static int
 print_ip_stats()
 {
-	sysctl_inet_stats("ip", stat_ip_entries);
+	int rc;
+
+	rc = sysctl_inet_stats("ip", stat_ip_entries);
+	if (rc) {
+		return rc;
+	}
 	printf("ip:\n");
 	if (ips.total || sflag > 1) {
 		printf("\t%llu total packets received\n", ips.total);
@@ -665,14 +704,18 @@ print_ip_stats()
 		printf("\t%llu datagrams that can't be fragmented\n",
 		       ips.cantfrag);
 	}
+	return 0;
 }
 
-void
+static int
 print_tcp_stats()
 {
-	int i, first;
+	int i, rc, first;
 
-	sysctl_inet_stats("tcp", stat_tcp_entries);
+	rc = sysctl_inet_stats("tcp", stat_tcp_entries);
+	if (rc) {
+		return rc;
+	}
 	printf("tcp:\n");
 	if (tcps.sndtotal || sflag > 1) {
 		printf("\t%llu packets sent\n",	tcps.sndtotal);
@@ -879,14 +922,19 @@ print_tcp_stats()
 			       tcps.states[i], tcpstates[i]);
 		}
 	}
+	return 0;
 }
 
-void
+static int
 print_udp_stats()
 {
+	int rc;
 	unsigned long long delivered;
 
-	sysctl_inet_stats("udp", stat_udp_entries);
+	rc = sysctl_inet_stats("udp", stat_udp_entries);
+	if (rc) {
+		return rc;
+	}
 	printf("udp:\n");
 	if (udps.ipackets || sflag > 1) {
 		printf("\t%llu datagrams received\n", udps.ipackets);
@@ -925,22 +973,37 @@ print_udp_stats()
 	if (udps.opackets || sflag > 1) {
 		printf("\t%llu datagrams output\n", udps.opackets);
 	}
+	return 0;
 }
 
 static void
 print_stats()
 {
+	int rc;
+
 	if (proto_mask & PROTO_FLAG_ARP) {
-		print_arp_stats();
+		rc = print_arp_stats();
+		if (rc) {
+			return;
+		}
 	}
 	if (proto_mask & PROTO_FLAG_IP) {
-		print_ip_stats();
+		rc = print_ip_stats();
+		if (rc) {
+			return;
+		}
 	}
 	if (proto_mask & PROTO_FLAG_TCP) {
-		print_tcp_stats();
+		rc = print_tcp_stats();
+		if (rc) {
+			return;
+		}
 	}
 	if (proto_mask & PROTO_FLAG_UDP) {
-		print_udp_stats();
+		rc = print_udp_stats();
+		if (rc) {
+			return;
+		}
 	}
 }
 

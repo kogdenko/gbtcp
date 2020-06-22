@@ -2000,9 +2000,8 @@ sock_tx_flush_if(struct route_if *ifp)
 	while (!dlist_is_empty(txq)) {
 		so = DLIST_FIRST(txq, struct sock, so_tx_list);
 		do {
-			rc = route_if_not_empty_txr(ifp, &pkt);
-			if (rc == -ENODEV) {
-				dbg("no dev!!!");
+			rc = route_not_empty_txr(ifp, &pkt, TX_CAN_REDIRECT);
+			if (rc) {
 				return;
 			}
 			rc = sock_tx(ifp, &pkt, so);
@@ -2018,7 +2017,7 @@ sock_tx_flush()
 {
 	struct route_if *ifp;
 
-	ROUTE_IF_FOREACH(ifp) {
+	ROUTE_IF_FOREACH_RCU(ifp) {
 		sock_tx_flush_if(ifp);
 	}
 }
@@ -2614,7 +2613,7 @@ tcp_tx_data(struct route_if *ifp, struct dev_pkt *pkt,
 	DBG(0, "hit; if='%s', flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
 	    ifp->rif_name, log_add_tcp_flags(so->so_ipproto, tcb.tcb_flags),
 	    tcb.tcb_len, tcb.tcb_seq, tcb.tcb_ack, so_get_fd(so));
-	service_account_tx_pkt();
+	service_account_opkt();
 	arp_resolve(ifp, so->so_next_hop, pkt);
 }
 
@@ -2672,7 +2671,7 @@ so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 		so = so_find_binded(b, so_ipproto, laddr, faddr, lport, fport);
 	}
 	if (so == NULL) {
-		dbg("??");
+		dbg_rl(1, "??");
 		return IN_BYPASS;
 	}
 	if (so->so_sid != current->p_sid) {
