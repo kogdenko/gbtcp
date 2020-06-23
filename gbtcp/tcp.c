@@ -239,13 +239,13 @@ tcp_mod_init()
 	if (rc) {
 		return rc;
 	}
-	rc = htable_init(&curmod->attached, "tcp.attached", 2048, so_hash,
+	rc = htable_init(&curmod->attached, 2048, so_hash,
 	                 HTABLE_SHARED|HTABLE_POWOF2);
 	if (rc) {
 		tcp_mod_deinit();
 		return rc;
 	}
-	rc = htable_init(&curmod->binded, "tcp.binded", EPHEMERAL_PORT_MAX,
+	rc = htable_init(&curmod->binded, EPHEMERAL_PORT_MAX,
 	                 NULL, HTABLE_SHARED);
 	if (rc) {
 		tcp_mod_deinit();
@@ -268,8 +268,6 @@ tcp_mod_deinit()
 {
 	sysctl_del(GT_SYSCTL_SOCKET);
 	sysctl_del(GT_SYSCTL_TCP);
-	mbuf_pool_free(current->p_sockbuf_pool);
-	current->p_sockbuf_pool = NULL;
 	htable_deinit(&curmod->attached);
 	curmod_deinit();
 }
@@ -281,7 +279,6 @@ service_init_tcp(struct service *s)
 
 	if (s->p_sockbuf_pool == NULL) {
 		rc = mbuf_pool_alloc(&s->p_sockbuf_pool, s->p_sid,
-		                     "tcp.sockbuf_pool",
 		                     SOCKBUF_CHUNK_SIZE, 0);
 	} else {
 		rc = 0;

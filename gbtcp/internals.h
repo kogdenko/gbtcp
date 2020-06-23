@@ -1,4 +1,4 @@
-// GPL2 license
+// gpl2
 #ifndef GBTCP_INTERNALS_H
 #define GBTCP_INTERNALS_H
 
@@ -31,6 +31,6 @@
 #include "sockbuf.h"
 #include "api.h"
 #include "service.h"
-#include "controller.h"
+#include "sched.h"
 
 #endif // GBTCP_INETRNALS_H

@@ -1,6 +1,6 @@
-// gpl2 license
-#ifndef GBTCP_CONTROLLER_H
-#define GBTCP_CONTROLLER_H
+// gpl2
+#ifndef GBTCP_SCHED_H
+#define GBTCP_SCHED_H
 
 #include "subr.h"
 
@@ -8,8 +8,11 @@
 
 void host_rxtx(struct dev *, short);
 int transmit_to_host(struct route_if *, void *, int);
-int init_sched(int, const char *);
-void sched_loop();
+
 void update_rss_table();
 
-#endif // GBTCP_CONTROLLER_H
+int sched_init(int, const char *);
+void sched_deinit();
+void sched_loop();
+
+#endif // GBTCP_SCHED_H

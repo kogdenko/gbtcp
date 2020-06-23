@@ -23,7 +23,7 @@ main(int argc, char **argv)
 			break;
 		}
 	}
-	rc = init_sched(daemonize, proc_comm);
+	rc = sched_init(daemonize, proc_comm);
 	if (rc) {
 		return EXIT_FAILURE;
 	}
@@ -31,5 +31,6 @@ main(int argc, char **argv)
 		set_affinity(affinity);
 	}
 	sched_loop();
+	sched_deinit();
 	return 0;
 }

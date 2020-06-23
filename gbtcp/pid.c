@@ -3,23 +3,30 @@
 #define CURMOD pid
 
 char *
-pid_file_path(char *path, const char *filename)
+pid_file_path(char *path, int sid)
 {
-	snprintf(path, PATH_MAX, "%s/%s", PID_PATH, filename);
+	snprintf(path, PATH_MAX, "%s/%d.pid", PID_PATH, sid);
 	return path;
 }
 
 int
-pid_file_open(const char *filename)
+pid_file_open(const char *path)
 {
-	int rc;
-	char path[PATH_MAX];
+	int fd, rc;
 
-	pid_file_path(path, filename);
 	rc = sys_open(path, O_CREAT|O_RDWR, 0666);
-	if (rc >= 0) {
-		INFO(0, "ok; fd=%d, filename='%s'", rc, filename);
+	if (rc < 0) {
+		return rc;
 	}
+	fd = rc;
+	rc = fchgrp(fd, GT_GROUP_NAME);
+	if (rc) {
+		goto err;
+	}
+	INFO(0, "ok; fd=%d, path='%s'", fd, path);
+	return fd;
+err:
+	sys_close(fd);
 	return rc;
 }
 
@@ -73,7 +80,7 @@ pid_file_acquire(int fd, int pid)
 	if (rc == -EWOULDBLOCK) {
 		rc = pid_file_read(fd);
 		if (rc >= 0) {
-			WARN(0, "busy; fd=%d, pid=%d", fd, rc);
+			WARN(0, "locked; fd=%d, pid=%d", fd, rc);
 		}
 		return rc;
 	} else if (rc < 0) {
@@ -84,139 +91,4 @@ pid_file_acquire(int fd, int pid)
 		return rc;
 	}
 	return pid;
-}
-
-int
-pid_wait_init(struct pid_wait * pw, int flags)
-{
-	pw->pw_nentries = 0;
-	pw->pw_fd = sys_inotify_init1(flags);
-	return pw->pw_fd;
-}
-
-void
-pid_wait_deinit(struct pid_wait* pw)
-{
-	if (pw->pw_fd >= 0) {
-		sys_close(pw->pw_fd);
-		pw->pw_fd = -1;
-		pw->pw_nentries = 0;
-	}
-}
-
-int
-pid_wait_is_empty(struct pid_wait *pw)
-{
-	return pw->pw_nentries == 0;
-}
-
-int
-pid_wait_add(struct pid_wait *pw, int pid)
-{
-	int i, rc;
-	char path[32];
-
-	assert(pw->pw_fd >= 0);
-	for (i = 0; i < pw->pw_nentries; ++i) {
-		if (pw->pw_entries[i].pid == pid) {
-			rc = -EEXIST;
-			goto err;
-		}
-	}
-	if (pw->pw_nentries == GT_SERVICES_MAX) {
-		rc = -ENOSPC;
-		goto err;
-	}
-	snprintf(path, sizeof(path), "/proc/%d/exe", pid);
-	rc = sys_inotify_add_watch(pw->pw_fd, path,
-	                           IN_CLOSE_NOWRITE|IN_ONESHOT);
-	if (rc >= 0) {
-		pw->pw_entries[pw->pw_nentries].pid = pid;
-		pw->pw_entries[pw->pw_nentries].wd = rc;
-		pw->pw_nentries++;
-	}
-	return rc;
-err:
-	ERR(-rc, "failed; pw_fd=%d, pid=%d", pw->pw_fd, pid);
-	return rc;
-}
-
-static int 
-pid_wait_del_entry(struct pid_wait *pw, int i)
-{
-	int rc;
-	struct pid_wait_entry *e;
-
-	e = pw->pw_entries + i;
-	rc = sys_inotify_rm_watch(pw->pw_fd, e->wd);
-	*e = pw->pw_entries[--pw->pw_nentries];
-	return rc;
-}
-
-int
-pid_wait_del(struct pid_wait *pw, int pid)
-{
-	int i, rc;
-
-	for (i = 0; i < pw->pw_nentries; ++i) {
-		if (pw->pw_entries[i].pid == pid) {
-			rc = pid_wait_del_entry(pw, i);
-			return rc;
-		}
-	}
-	rc = -ENOENT;
-	ERR(-rc, "failed; wp_fd=%d", pw->pw_fd);
-	return rc;
-}
-
-int
-pid_wait_read(struct pid_wait *pw, uint64_t *to, int *pids, int npids)
-{
-	int i, n, rc;
-	struct inotify_event ev;
-
-	assert(npids);
-	n = 0;
-	while (!pid_wait_is_empty(pw)) {
-		rc = read_timed(pw->pw_fd, &ev, sizeof(ev), to);
-		if (rc < 0) {
-			return n ? n : rc;
-		}
-		assert(rc == sizeof(ev));
-		for (i = 0; i < pw->pw_nentries; ++i) {
-			if (pw->pw_entries[i].wd == ev.wd) {
-				if (n < npids) {
-					pids[n] = pw->pw_entries[i].pid;
-				}
-				n++;
-				pid_wait_del_entry(pw, i);
-				break;
-			}
-		}
-	}
-	return n;
-}
-
-int
-pid_wait_kill(struct pid_wait *pw, int signum, int *pids, int npids)
-{
-	int i, n, rc, pid;
-
-	n = 0;
-	for (i = 0; i < pw->pw_nentries;) {
-		pid = pw->pw_entries[i].pid;
-		rc = sys_kill(pid, signum);
-		if (rc == -ESRCH) {
-			if (n < npids) {
-				pids[n] = pid;
-			}
-			n++;
-			pid_wait_del_entry(pw, i);	
-		} else if (rc < 0) {
-			return rc;
-		} else {
-			++i;
-		}
-	}
-	return n;
 }

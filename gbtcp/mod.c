@@ -46,18 +46,19 @@ mod_name(int mod_id)
 int
 mod_init2(int mod_id, size_t size)
 {
-	int rc;
 	struct log_scope *scope;
 
 	assert(shm_ih->ih_mods[mod_id] == NULL);
 	assert(size >= sizeof(*scope));
-	rc = shm_malloc(mod_name(mod_id), (void **)&scope, size);
-	if (rc == 0) {
+	scope = shm_malloc(size);
+	if (scope == NULL) {
+		return -ENOMEM;
+	} else {
 		memset(scope, 0, size);
 		log_scope_init(scope, mod_name(mod_id));
 		shm_ih->ih_mods[mod_id] = scope;
+		return 0;
 	}
-	return rc;
 }
 
 void

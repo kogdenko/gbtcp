@@ -43,7 +43,7 @@ typedef uint64_t be64_t;
 
 typedef uint32_t bitset_word_t;
 
-typedef int (*malloc_f)(const char *, void **, size_t);
+typedef void *(*malloc_f)(size_t);
 typedef void (*free_f)(void *);
 
 struct eth_addr {
@@ -278,6 +278,7 @@ uint64_t upper_pow2_64(uint64_t x);
 uint32_t lower_pow2_32(uint32_t x);
 uint64_t lower_pow2_64(uint64_t x);
 
+int fchgrp(int, const char *);
 int fcntl_setfl_nonblock(int, int *);
 #define fcntl_setfl_nonblock2(fd) \
 	fcntl_setfl_nonblock(fd, NULL)

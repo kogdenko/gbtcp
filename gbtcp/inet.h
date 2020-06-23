@@ -157,33 +157,33 @@ struct tcpcb {
 
 #define TCP_STAT_DECLARE(n) uint64_t tcps_##n;
 struct tcp_stat {
-	GT_TCP_STAT(TCP_STAT_DECLARE)
+	GT_X_TCP_STAT(TCP_STAT_DECLARE)
 	uint64_t tcps_states[GT_TCP_NSTATES];
 };
 #undef TCP_STAT_DECLARE
 
 #define UDP_STAT_DECLARE(n) uint64_t udps_##n;
 struct udp_stat {
-	GT_UDP_STAT(UDP_STAT_DECLARE)
+	GT_X_UDP_STAT(UDP_STAT_DECLARE)
 };
 #undef UDP_STAT_DECLARE
 
 #define IP_STAT_DECLARE(n) uint64_t ips_##n;
 struct ip_stat {
-	GT_IP_STAT(IP_STAT_DECLARE)
+	GT_X_IP_STAT(IP_STAT_DECLARE)
 };
 #undef IP_STAT_DECLARE
 
 #define ICMP_STAT_DECLARE(n) uint64_t icmps_##n;
 struct icmp_stat {
-	GT_ICMP_STAT(ICMP_STAT_DECLARE)
+	GT_X_ICMP_STAT(ICMP_STAT_DECLARE)
 	uint64_t icmps_inhist[ICMP_MAXTYPE + 1];
 };
 #undef ICMP_STAT_DECLARE
 
 #define ARP_STAT_DECLARE(n) uint64_t arps_##n;
 struct arp_stat {
-	GT_ARP_STAT(ARP_STAT_DECLARE)
+	GT_X_ARP_STAT(ARP_STAT_DECLARE)
 };
 #undef ARP_STAT_DECLARE
 
@@ -237,7 +237,7 @@ struct in_context {
 int inet_mod_init();
 
 void in_context_init(struct in_context *, void *, int);
-int eth_in(struct in_context *);
+int eth_input(struct in_context *);
 void ip4_set_cksum(struct ip4_hdr *, void *);
 int tcp_opts_fill(struct tcp_opts *, void *);
 int tcp_opts_len(struct tcp_opts *);

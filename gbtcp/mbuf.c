@@ -48,7 +48,7 @@ mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 	    p->mbp_n_allocated_chunks == p->mbp_chunk_map_size) {
 		return -ENOMEM;
 	}
-	rc = shm_alloc_pages(p->mbp_name, (void **)pchunk,
+	rc = shm_alloc_pages((void **)pchunk,
 	                     MBUF_CHUNK_SIZE, MBUF_CHUNK_SIZE);
 	if (rc) {
 		return rc;
@@ -90,10 +90,10 @@ mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 }
 
 int
-mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, const char *name,
-	int mbuf_size, int n_mbufs_max)
+mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, int mbuf_size,
+	int n_mbufs_max)
 {
-	int rc, size, mbuf_size_align, mbufs_per_chunk, chunk_map_size;
+	int size, mbuf_size_align, mbufs_per_chunk, chunk_map_size;
 	struct mbuf_pool *p;
 
 	assert(mbuf_size >= sizeof(struct mbuf));
@@ -105,14 +105,13 @@ mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, const char *name,
 		chunk_map_size++;
 	}
 	size = sizeof(*p) + chunk_map_size * sizeof(struct mbuf_chunk *);
-	rc = shm_malloc(name, (void **)pp, size);
-	if (rc) {
-		return rc;
+	p = shm_malloc(size);
+	if (p == NULL) {
+		return -ENOMEM;
 	}
-	p = *pp;
+	*pp = p;
 	memset(p, 0, size);
 	p->mbp_sid = sid;
-	p->mbp_name = name;
 	p->mbp_referenced = 1;
 	p->mbp_mbuf_size = mbuf_size_align;
 	p->mbp_mbufs_per_chunk = mbufs_per_chunk;
@@ -122,7 +121,7 @@ mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, const char *name,
 	if (p->mbp_chunk_map_size) {
 		p->mbp_chunk_map = (struct mbuf_chunk **)(p + 1);
 	}
-	INFO(0, "ok; pool=%p, name='%s'", p, name);
+	INFO(0, "ok; pool=%p", p);
 	return 0;
 }
 
@@ -137,7 +136,7 @@ mbuf_pool_free(struct mbuf_pool *p)
 	}
 	p->mbp_referenced = 0;
 	if (p->mbp_n_allocated_chunks == 0) {
-		INFO(0, "ok; pool=%p, name='%s'", p, p->mbp_name);
+		INFO(0, "ok; pool=%p", p);
 		shm_free(p);
 		return;
 	}

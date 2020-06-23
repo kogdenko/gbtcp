@@ -3,7 +3,7 @@
 
 static __thread int gt_called;
 
-int gt_preload_passthru;
+int gt_preload_passthru = 1;
 
 #define PRELOAD_FLAG_FD_ARG (1 << 0)
 #define PRELOAD_FLAG_FD_RET (1 << 1)
@@ -129,7 +129,7 @@ PRELOAD_SOCKET(int domain, int type, int protocol)
 	int rc, pf;
 
 	pf = PRELOAD_FLAG_FD_RET;
-	if (domain != AF_INET) {
+	if (1 || domain != AF_INET) {
 		pf |= PRELOAD_FLAG_PASSTHRU;
 	}
 	rc = PRELOAD_CALL(socket, 0, pf, domain, type, protocol);

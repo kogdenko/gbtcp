@@ -365,6 +365,23 @@ lower_pow2_64(uint64_t x)
 }
 
 int
+fchgrp(int fd, const char *group_name)
+{
+	int rc;
+	struct stat buf;
+	struct group *group;
+
+	rc = sys_getgrnam(group_name, &group);
+	if (rc == 0) {
+		rc = sys_fstat(fd, &buf);
+		if (rc == 0 && buf.st_gid != group->gr_gid)  {
+			rc = sys_fchown(fd, -1, group->gr_gid);
+		}
+	}
+	return rc;
+}
+
+int
 fcntl_setfl_nonblock(int fd, int *old_flags)
 {
 	int rc, flags;
@@ -590,8 +607,8 @@ read_rss_key(const char *ifname, u_char *rss_key)
 	}
 	size = (sizeof(rss) + rss.key_size +
 	       rss.indir_size * sizeof(rss.rss_config[0]));
-	rc = sys_malloc("rss.tmp", (void **)&rss2, size);
-	if (rc) {
+	rss2 = sys_malloc(size);
+	if (rss2 == NULL) {
 		goto out;
 	}
 	memset(rss2, 0, size);
@@ -606,7 +623,7 @@ read_rss_key(const char *ifname, u_char *rss_key)
 	off = rss2->indir_size * sizeof(rss2->rss_config[0]);
 	memcpy(rss_key, (uint8_t *)rss2->rss_config + off, RSS_KEY_SIZE);
 out2:
-	free(rss2);
+	sys_free(rss2);
 out:
 	sys_close(fd);
 	return rc;

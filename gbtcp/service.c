@@ -69,7 +69,7 @@ service_start_controller_nolog(const char *p_comm)
 	if (rc == 0) {
 		sys_close(pipe_fd[0]);
 		sys_close(service_sysctl_fd);
-		rc = init_sched(1, p_comm);
+		rc = sched_init(1, p_comm);
 		write_record(pipe_fd[1], &rc, sizeof(rc));
 		sys_close(pipe_fd[1]);
 		if (rc == 0) {
@@ -108,7 +108,7 @@ service_rx(struct in_context *p)
 {
 	int rc, ipproto;
 
-	rc = eth_in(p);
+	rc = eth_input(p);
 	assert(rc < 0);
 	if (rc != IN_OK) {
 		return rc;
@@ -293,10 +293,10 @@ int
 service_pid_file_acquire(int sid, int pid)
 {
 	int rc, fd;
-	char buf[32];
+	char path[PATH_MAX];
 
-	snprintf(buf, sizeof(buf), "%d.pid", sid);
-	rc = pid_file_open(buf);
+	pid_file_path(path, sid);
+	rc = pid_file_open(path);
 	if (rc < 0) {
 		return rc;
 	}
@@ -326,7 +326,7 @@ service_init_shared(struct service *s, int pid, int fd)
 	int i, rc;
 
 	NOTICE(0, "hit; pid=%d", pid);
-	assert(current->p_sid == CONTROLLER_SID);
+	assert(current->p_sid == SCHED_SID);
 	s->p_pid = pid;
 	s->p_sid = s - shm_ih->ih_services;
 	s->p_need_update_rss_bindings = 0;
@@ -370,7 +370,7 @@ service_deinit_shared(struct service *s, int full)
 	struct route_if *ifp;
 
 	NOTICE(0, "hit; pid=%d", s->p_pid);
-	assert(current->p_sid == CONTROLLER_SID);
+	assert(current->p_sid == SCHED_SID);
 	ROUTE_IF_FOREACH(ifp) {
 		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
 			dev = &(ifp->rif_dev[s->p_sid][i]);
@@ -378,7 +378,9 @@ service_deinit_shared(struct service *s, int full)
 		}
 	}
 	service_deinit_file(s);
-	migrate_timers(current, s);
+	if (current != s) {
+		migrate_timers(current, s);
+	}
 	if (full) {
 		service_deinit_tcp(s);
 		service_deinit_arp(s);
@@ -406,7 +408,7 @@ service_init_private()
 	dlist_init(&service_rcu_shadow_head);
 	service_rcu_max = 0;
 	memset(service_rcu, 0, sizeof(service_rcu));
-	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_pid % 1000);
+	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_pid);
 	rc = dev_init(&service_vale, buf, service_vale_rxtx);
 	return rc;
 }
@@ -442,7 +444,7 @@ service_attach()
 	gt_init(p_comm, 0);
 	NOTICE(0, "hit2;");
 	sysctl_make_sockaddr_un(&a, pid);
-	rc = sysctl_bind(&a, 0);
+	rc = sysctl_bind(&a);
 	if (rc < 0) {
 		goto err;
 	}

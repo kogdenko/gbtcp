@@ -1,20 +1,15 @@
-// gpl2 license
-#include "strbuf.h"
-#include "log.h"
+// gpl2
+#include "internals.h"
 
-#define STRBUF_ADD_FLAG4(sb, flags, flag, first) \
-({ \
-	if (flags & flag) { \
-		if (first) {\
+#define STRBUF_ADD_FLAG(flag) \
+	if (rem & flag) { \
+		if (!first) {\
 			strbuf_add_ch(sb, '|'); \
 		} \
 		strbuf_add_str(sb, #flag); \
-	} \
-	flags & ~flag; \
-})
-
-#define STRBUF_SET_FLAG(sb, flags, flag) STRBUF_ADD_FLAG4(sb, flags, flag, 1)
-#define STRBUF_ADD_FLAG(sb, flags, flag) STRBUF_ADD_FLAG4(sb, flags, flag, 0)
+		first = 0; \
+		rem &= ~flag; \
+	}
 
 void
 strbuf_init(struct strbuf *sb, void *buf, int cap)
@@ -205,30 +200,34 @@ strbuf_add_backtrace(struct strbuf *sb, int depth_off)
 static int
 strbuf_add_recv_flags_os(struct strbuf *sb, int flags)
 {
-	int rem;
+	int rem, first;
 
+	first = 1;
 	rem = flags;
-	STRBUF_SET_FLAG(sb, rem, MSG_ERRQUEUE);
+	STRBUF_ADD_FLAG(MSG_ERRQUEUE);
 	return rem;
 }
 
 static int
 strbuf_add_send_flags_os(struct strbuf *sb, int flags)
 {
-	int rem;
+	int rem, first;
 
+	first = 1;
 	rem = flags;
-	rem = STRBUF_SET_FLAG(sb, rem, MSG_CONFIRM);
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_MORE);
+	STRBUF_ADD_FLAG(MSG_CONFIRM);
+	STRBUF_ADD_FLAG(MSG_MORE);
 	return rem;
 }
 
 static short
 strbuf_add_poll_events_os(struct strbuf *sb, short events)
 {
-	int rem;
+	int rem, first;
 
-	rem = STRBUF_SET_FLAG(sb, events, POLLRDHUP);
+	first = 1;
+	rem = events;
+	STRBUF_ADD_FLAG(POLLRDHUP);
 	return rem;
 }
 #else /* __linux__ */
@@ -253,15 +252,16 @@ strbuf_add_poll_events_os(struct strbuf *sb, short events)
 void
 strbuf_add_recv_flags(struct strbuf *sb, int flags)
 {
-	int rem;
+	int rem, first;
 
+	first = 1;
 	rem = flags;
-	rem = STRBUF_SET_FLAG(sb, rem, MSG_CMSG_CLOEXEC);
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_DONTWAIT);
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_OOB);
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_PEEK);
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_TRUNC);
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_WAITALL);
+	STRBUF_ADD_FLAG(MSG_CMSG_CLOEXEC);
+	STRBUF_ADD_FLAG(MSG_DONTWAIT);
+	STRBUF_ADD_FLAG(MSG_OOB);
+	STRBUF_ADD_FLAG(MSG_PEEK);
+	STRBUF_ADD_FLAG(MSG_TRUNC);
+	STRBUF_ADD_FLAG(MSG_WAITALL);
 	rem = strbuf_add_recv_flags_os(sb, rem);
 	strbuf_add_flag_end(sb, rem);
 }
@@ -269,14 +269,15 @@ strbuf_add_recv_flags(struct strbuf *sb, int flags)
 void
 strbuf_add_send_flags(struct strbuf *sb, int flags)
 {
-	int rem;
+	int rem, first;
 
+	first = 1;
 	rem = flags;
-	rem = STRBUF_SET_FLAG(sb, rem, MSG_DONTROUTE);
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_DONTWAIT);
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_EOR);
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_NOSIGNAL);
-	rem = STRBUF_ADD_FLAG(sb, rem, MSG_OOB);
+	STRBUF_ADD_FLAG(MSG_DONTROUTE);
+	STRBUF_ADD_FLAG(MSG_DONTWAIT);
+	STRBUF_ADD_FLAG(MSG_EOR);
+	STRBUF_ADD_FLAG(MSG_NOSIGNAL);
+	STRBUF_ADD_FLAG(MSG_OOB);
 	rem = strbuf_add_send_flags_os(sb, rem);
 	strbuf_add_flag_end(sb, rem);
 }
@@ -323,11 +324,12 @@ strbuf_add_socket_type(struct strbuf *sb, int type)
 void
 strbuf_add_socket_flags(struct strbuf *sb, int flags)
 {
-	int rem;
+	int rem, first;
 
+	first = 1;
 	rem = flags;
-	rem = STRBUF_SET_FLAG(sb, rem, SOCK_NONBLOCK);
-	rem = STRBUF_ADD_FLAG(sb, rem, SOCK_CLOEXEC);
+	STRBUF_ADD_FLAG(SOCK_NONBLOCK);
+	STRBUF_ADD_FLAG(SOCK_CLOEXEC);
 	strbuf_add_flag_end(sb, rem);
 }
 
@@ -360,19 +362,20 @@ strbuf_add_fcntl_cmd(struct strbuf *sb, int cmd)
 void
 strbuf_add_fcntl_setfl(struct strbuf *sb, int flags)
 {
-	int rem;
+	int rem, first;
 
+	first = 1;
 	rem = flags;
-	rem = STRBUF_SET_FLAG(sb, rem, O_RDONLY);
-	rem = STRBUF_ADD_FLAG(sb, rem, O_WRONLY);
-	rem = STRBUF_ADD_FLAG(sb, rem, O_RDWR);
-	rem = STRBUF_ADD_FLAG(sb, rem, O_CREAT);
-	rem = STRBUF_ADD_FLAG(sb, rem, O_EXCL);
-	rem = STRBUF_ADD_FLAG(sb, rem, O_NOCTTY);
-	rem = STRBUF_ADD_FLAG(sb, rem, O_TRUNC);
-	rem = STRBUF_ADD_FLAG(sb, rem, O_APPEND);
-	rem = STRBUF_ADD_FLAG(sb, rem, O_NONBLOCK);
-	rem = STRBUF_ADD_FLAG(sb, rem, O_DIRECT);
+	STRBUF_ADD_FLAG(O_RDONLY);
+	STRBUF_ADD_FLAG(O_WRONLY);
+	STRBUF_ADD_FLAG(O_RDWR);
+	STRBUF_ADD_FLAG(O_CREAT);
+	STRBUF_ADD_FLAG(O_EXCL);
+	STRBUF_ADD_FLAG(O_NOCTTY);
+	STRBUF_ADD_FLAG(O_TRUNC);
+	STRBUF_ADD_FLAG(O_APPEND);
+	STRBUF_ADD_FLAG(O_NONBLOCK);
+	STRBUF_ADD_FLAG(O_DIRECT);
 	strbuf_add_flag_end(sb, rem);
 }
 
@@ -422,19 +425,20 @@ strbuf_add_sockopt_optname(struct strbuf *sb, int level, int optname)
 void
 strbuf_add_poll_events(struct strbuf *sb, short events)
 {
-	int rem;
+	int rem, first;
 
+	first = 1;
 	rem = events;
-	rem = STRBUF_SET_FLAG(sb, rem, POLLIN);
-	rem = STRBUF_ADD_FLAG(sb, rem, POLLPRI);
-	rem = STRBUF_ADD_FLAG(sb, rem, POLLOUT);
-	rem = STRBUF_ADD_FLAG(sb, rem, POLLHUP);
-	rem = STRBUF_ADD_FLAG(sb, rem, POLLERR);
-	rem = STRBUF_ADD_FLAG(sb, rem, POLLNVAL);
-	rem = STRBUF_ADD_FLAG(sb, rem, POLLRDNORM);
-	rem = STRBUF_ADD_FLAG(sb, rem, POLLRDBAND);
-	rem = STRBUF_ADD_FLAG(sb, rem, POLLWRNORM);
-	rem = STRBUF_ADD_FLAG(sb, rem, POLLWRBAND);
+	STRBUF_ADD_FLAG(POLLIN);
+	STRBUF_ADD_FLAG(POLLPRI);
+	STRBUF_ADD_FLAG(POLLOUT);
+	STRBUF_ADD_FLAG(POLLHUP);
+	STRBUF_ADD_FLAG(POLLERR);
+	STRBUF_ADD_FLAG(POLLNVAL);
+	STRBUF_ADD_FLAG(POLLRDNORM);
+	STRBUF_ADD_FLAG(POLLRDBAND);
+	STRBUF_ADD_FLAG(POLLWRNORM);
+	STRBUF_ADD_FLAG(POLLWRBAND);
 	rem = strbuf_add_poll_events_os(sb, rem);
 	strbuf_add_flag_end(sb, rem);
 }
@@ -502,17 +506,19 @@ void
 strbuf_add_epoll_event_events(struct strbuf *sb, short events)
 {
 	short rem;
+	int first;
 
+	first = 1;
 	rem = events;
-	rem = STRBUF_SET_FLAG(sb, rem, EPOLLIN);
-	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLOUT);
-	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLRDHUP);
-	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLPRI);
-	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLERR);
-	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLHUP);
-	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLET);
-	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLONESHOT);
-	rem = STRBUF_ADD_FLAG(sb, rem, EPOLLWAKEUP);
+	STRBUF_ADD_FLAG(EPOLLIN);
+	STRBUF_ADD_FLAG(EPOLLOUT);
+	STRBUF_ADD_FLAG(EPOLLRDHUP);
+	STRBUF_ADD_FLAG(EPOLLPRI);
+	STRBUF_ADD_FLAG(EPOLLERR);
+	STRBUF_ADD_FLAG(EPOLLHUP);
+	STRBUF_ADD_FLAG(EPOLLET);
+	STRBUF_ADD_FLAG(EPOLLONESHOT);
+	STRBUF_ADD_FLAG(EPOLLWAKEUP);
 	strbuf_add_flag_end(sb, rem);
 }
 
@@ -532,31 +538,32 @@ strbuf_add_epoll_op(struct strbuf *sb, int op)
 void
 strbuf_add_clone_flags(struct strbuf *sb, int flags)
 {
-	int rem;
+	int rem, first;
 
+	first = 1;
 	rem = flags;
-	rem = STRBUF_SET_FLAG(sb, rem, CLONE_CHILD_CLEARTID);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_CHILD_SETTID);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_FILES);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_FS);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_IO);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_NEWIPC);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_NEWNET);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_NEWNS);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_NEWPID);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_NEWUSER);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_NEWUTS);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_PARENT);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_PARENT_SETTID);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_PTRACE);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_SETTLS);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_SIGHAND);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_SYSVSEM);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_THREAD);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_UNTRACED);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_VFORK);
-	rem = STRBUF_ADD_FLAG(sb, rem, CLONE_VM);
-	strbuf_add_flag_end(sb, rem);
+	STRBUF_ADD_FLAG(CLONE_CHILD_CLEARTID);
+	STRBUF_ADD_FLAG(CLONE_CHILD_SETTID);
+	STRBUF_ADD_FLAG(CLONE_FILES);
+	STRBUF_ADD_FLAG(CLONE_FS);
+	STRBUF_ADD_FLAG(CLONE_IO);
+	STRBUF_ADD_FLAG(CLONE_NEWIPC);
+	STRBUF_ADD_FLAG(CLONE_NEWNET);
+	STRBUF_ADD_FLAG(CLONE_NEWNS);
+	STRBUF_ADD_FLAG(CLONE_NEWPID);
+	STRBUF_ADD_FLAG(CLONE_NEWUSER);
+	STRBUF_ADD_FLAG(CLONE_NEWUTS);
+	STRBUF_ADD_FLAG(CLONE_PARENT);
+	STRBUF_ADD_FLAG(CLONE_PARENT_SETTID);
+	STRBUF_ADD_FLAG(CLONE_PTRACE);
+	STRBUF_ADD_FLAG(CLONE_SETTLS);
+	STRBUF_ADD_FLAG(CLONE_SIGHAND);
+	STRBUF_ADD_FLAG(CLONE_SYSVSEM);
+	STRBUF_ADD_FLAG(CLONE_THREAD);
+	STRBUF_ADD_FLAG(CLONE_UNTRACED);
+	STRBUF_ADD_FLAG(CLONE_VFORK);
+	STRBUF_ADD_FLAG(CLONE_VM);
 	// TODO: signal  to string
+	strbuf_add_flag_end(sb, rem);
 }
-#endif /* __linux__ */
+#endif // __linux__

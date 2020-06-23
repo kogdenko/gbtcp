@@ -2,18 +2,6 @@
 
 ## Introdution
 User space TCP/IP stack based on netmap.
-For using gbtcp instead of OS TCP/IP stack process need
-to be runed under LD_PRELOAD=libgbtcp.so.
-When process started to use socket API (at first call connect(2) or bind(2))
-gbtcp go to initialization phase and demand RSS queue from daemon gbtcpd.
-After initialization each process has it's own RSS queue to TX and RX packets.
-Such architecture lay some restrictions:
-* All used interfaces must have same number of RSS queues and RSS key.
-
-* Number of processes must be equal to number of RSS queues.
-  For example:
-  If I want to start nginx with 8 workers I must set number of RSS queues
-  to 8 on each used interface.
 
 ## Build
 - Build and install netmap

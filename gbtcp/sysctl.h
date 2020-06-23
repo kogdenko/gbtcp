@@ -42,7 +42,7 @@ int sysctl_conn_open(struct sysctl_conn **, int);
 void sysctl_conn_close(struct sysctl_conn *);
 
 int sysctl_connect(int);
-int sysctl_bind(const struct sockaddr_un *, int);
+int sysctl_bind(const struct sockaddr_un *);
 int sysctl_send_req(int, const char *, const char *);
 int sysctl_recv_rpl(int, char *);
 int sysctl_req(int, const char *, char *, const char *);

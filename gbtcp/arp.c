@@ -288,7 +288,7 @@ arp_mod_init()
 	if (rc) {
 		return rc;
 	}
-	rc = htable_init(&curmod->arp_htable, "arp.htable", 32,
+	rc = htable_init(&curmod->arp_htable, 32,
 	                 arp_entry_hash, HTABLE_SHARED|HTABLE_POWOF2);
 	if (rc) {
 		curmod_deinit();
@@ -316,7 +316,6 @@ service_init_arp(struct service *s)
 
 	if (s->p_arp_entry_pool == NULL) {
 		rc = mbuf_pool_alloc(&s->p_arp_entry_pool, s->p_sid,
-		                     "arp.entry.pool",
 		                     sizeof(struct arp_entry), 0);
 		if (rc) {
 			return rc;
@@ -325,7 +324,6 @@ service_init_arp(struct service *s)
 	rc = 0;
 	if (s->p_arp_incomplete_pool == NULL) {
 		rc = mbuf_pool_alloc(&s->p_arp_incomplete_pool, s->p_sid,
-		                     "arp.incomplete.pool",
 		                     DEV_PKT_SIZE_MAX, 0);
 		if (rc) {
 			service_deinit_arp(s);

@@ -1,4 +1,4 @@
-// gpl2 license
+// gpl2
 #ifndef GBTCP_SYS_H
 #define GBTCP_SYS_H
 
@@ -9,7 +9,6 @@ do { \
 	sys_##x##_fn = dlsym(RTLD_NEXT, #x); \
 	assert(sys_##x##_fn != NULL); \
 } while (0)
-
 
 typedef pid_t (*sys_fork_f)();
 typedef int (*sys_open_f)(const char *, int, mode_t);
@@ -150,21 +149,24 @@ int sys_ppoll(struct pollfd *, nfds_t, const struct timespec *,
 void *sys_signal(int, void (*)(int));
 int sys_sigaction(int, const struct sigaction *, struct sigaction *);
 int sys_sigprocmask(int, const sigset_t *, sigset_t *);
-int sys_malloc(const char *, void **, size_t);
+void *sys_malloc(size_t);
 #define sys_free free
-int sys_realloc(const char *, void **, size_t);
+void *sys_realloc(void *, size_t);
 int sys_posix_memalign(const char *, void **, size_t, size_t);
 int sys_mmap(void **, void *, size_t, int, int, int, off_t);
 int sys_munmap(void *addr, size_t);
 int sys_mprotect(void *, size_t, int);
 int sys_fopen(FILE **, const char *, const char *);
 int sys_opendir(DIR **, const char *);
+#define sys_closedir closedir
 int sys_stat(const char *, struct stat *);
+int sys_fstat(int, struct stat *);
 int sys_ftruncate(int, off_t);
 int sys_realpath(const char *, char *);
 int sys_flock(int, int);
 int sys_getgrnam(const char *, struct group **);
 int sys_chown(const char *, uid_t, gid_t);
+int sys_fchown(int, uid_t, gid_t);
 int sys_chmod(const char *, mode_t);
 int sys_getifaddrs(struct ifaddrs **);
 int sys_if_indextoname(int, char *);

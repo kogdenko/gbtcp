@@ -91,9 +91,9 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 		*ifpp = ifp;
 		return -EEXIST;
 	}
-	rc = shm_malloc("route.if", (void **)&ifp, sizeof(*ifp));
-	if (rc < 0) {
-		return rc;
+	ifp = shm_malloc(sizeof(*ifp));
+	if (ifp == NULL) {
+		return -ENOMEM;
 	}
 	memset(ifp, 0, sizeof(*ifp));
 	dlist_init(&ifp->rif_routes);
@@ -173,14 +173,15 @@ static int
 route_ifaddr_add(struct route_if_addr **ifap,
 	struct route_if *ifp, const struct ipaddr *addr)
 {
-	int i, rc;
+	int i, size;
+	void *new_ptr;
 	struct route_if_addr *ifa, *tmp;
 
 	ifa = route_ifaddr_get(AF_INET, addr);
 	if (ifa == NULL) {
-		rc = shm_malloc("route.ifa", (void **)&ifa, sizeof(*ifa));
-		if (rc < 0) {
-			return rc;
+		ifa = shm_malloc(sizeof(*ifa));
+		if (ifa == NULL) {
+			return -ENOMEM;
 		}
 		ifa->ria_addr = *addr;
 		ifa->ria_ref_cnt = 0;
@@ -197,13 +198,14 @@ route_ifaddr_add(struct route_if_addr **ifap,
 		}
 	}
 	ifa->ria_ref_cnt++;
-	rc = shm_realloc("route.ifp.rif_addrs", (void **)&ifp->rif_addrs,
-	                 (ifp->rif_n_addrs + 1) * sizeof(ifa));
-	if (rc) {
+	size = (ifp->rif_n_addrs + 1) * sizeof(ifa);
+	new_ptr = shm_realloc(ifp->rif_addrs, size);
+	if (new_ptr == NULL) {
 		DLIST_REMOVE(ifa, ria_list);
 		shm_free(ifa);
-		return rc;
+		return -ENOMEM;
 	}
+	ifp->rif_addrs = new_ptr;
 	ifp->rif_addrs[ifp->rif_n_addrs++] = ifa;
 	route_foreach_set_srcs(ifp);
 	if (ifap != NULL) {
@@ -261,17 +263,18 @@ route_src_compar(const void *a, const void *b, void *arg)
 static int
 route_set_srcs(struct route_entry_long *route)
 {
-	int n, rc, size;
+	int n, size;
+	void *new_ptr;
 	uint32_t next_hop;
 
 	n = route->rtl_ifp->rif_n_addrs;
 	size = n * sizeof(struct route_if_addr *);
 	if (route->rtl_nsrcs < n) {
-		rc = shm_realloc("route.rtl_srcs",
-		                 (void **)&route->rtl_srcs, size);
-		if (rc) {
-			return rc;
+		new_ptr = shm_realloc(route->rtl_srcs, size);
+		if (new_ptr == NULL) {
+			return -ENOMEM;
 		}
+		route->rtl_srcs = new_ptr;
 	}
 	memcpy(route->rtl_srcs, route->rtl_ifp->rif_addrs, size);
 	route->rtl_nsrcs = n;
@@ -681,7 +684,7 @@ route_mod_init()
 	curmod->route_default = NULL;
 	dlist_init(&curmod->route_if_head);
 	dlist_init(&curmod->route_addr_head);
-	rc = mbuf_pool_alloc(&curmod->route_pool, SCHED_SID, "route.pool",
+	rc = mbuf_pool_alloc(&curmod->route_pool, SCHED_SID,
 	                      sizeof(struct route_entry_long), 10000);
 	if (rc) {
 		goto err;

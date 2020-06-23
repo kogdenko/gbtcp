@@ -68,8 +68,7 @@ service_init_file(struct service *s)
 		size = sizeof(struct sock) + sizeof(struct file_aio); // FIXME:!!!!!!
 		n = curmod->file_nofile - GT_FIRST_FD;
 		assert(n > 0);
-		rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid,
-		                     "file.pool", size, n);
+		rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid, size, n);
 	} else {
 		rc = 0;
 	}
@@ -128,7 +127,7 @@ file_alloc3(struct file **fpp, int fd, int type)
 	if (fd == 0) {
 		rc = mbuf_alloc(p, (struct mbuf **)fpp);
 	} else {
-		assert(fd >= curmod->file_first_fd);
+		assert(fd >= GT_FIRST_FD);
 		id = fd - GT_FIRST_FD;
 		rc = mbuf_alloc3(p, id, (struct mbuf **)fpp);
 	}

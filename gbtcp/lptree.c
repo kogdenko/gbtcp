@@ -1,4 +1,4 @@
-// gpl2 license 
+// gpl2
 #include "internals.h"
 
 struct lptree_node {
@@ -64,20 +64,16 @@ lptree_init(struct lptree *tree)
 
 	tree->lpt_root = NULL;
 	rc = mbuf_pool_alloc(&tree->lpt_node_pool, SCHED_SID,
-	                     "lptree.node.pool", sizeof(struct lptree_node), 0);
+	                     sizeof(struct lptree_node), 0);
 	return rc;
 }
 
 void
 lptree_deinit(struct lptree *tree)
 {
-	if (tree->lpt_root != NULL) {
-		assert(lptree_node_is_empty(tree->lpt_root));
-		lptree_node_free(tree->lpt_root);
-		tree->lpt_root = NULL;
-	}
 	mbuf_pool_free(tree->lpt_node_pool);
 	tree->lpt_node_pool = NULL;
+	tree->lpt_root = NULL;
 }
 
 struct lptree_rule *

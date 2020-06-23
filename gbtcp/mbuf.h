@@ -1,4 +1,4 @@
-// gpl2 license
+// gpl2
 #ifndef GBTCP_MBUF_H
 #define GBTCP_MBUF_H
 
@@ -28,7 +28,6 @@ struct mbuf_pool {
 	struct mbuf_chunk **mbp_chunk_map;
 	int mbp_chunk_map_size;
 	int mbp_n_allocated_chunks;
-	const char *mbp_name;
 };
 
 #define MBUF_FOREACH_SAFE(m, p, tmp_id) \
@@ -41,7 +40,7 @@ int mbuf_mod_service_init(struct service *);
 void mbuf_mod_deinit();
 void mbuf_mod_service_deinit(struct service *);
 
-int mbuf_pool_alloc(struct mbuf_pool **, u_char, const char *, int, int);
+int mbuf_pool_alloc(struct mbuf_pool **, u_char, int, int);
 void mbuf_pool_free(struct mbuf_pool *);
 
 int mbuf_alloc(struct mbuf_pool *, struct mbuf **);

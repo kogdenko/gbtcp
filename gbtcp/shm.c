@@ -4,7 +4,7 @@
 #define CURMOD shm
 
 #define SHM_MAGIC 0xb9d1
-#define SHM_NAME "gbtcp"
+#define SHM_PATH GT_PREFIX"/shm"
 #define SHM_SIZE (1024*1024*1204) // 1 Gb
 
 struct shm_mod {
@@ -35,16 +35,20 @@ static struct shm_hdr *shm = MAP_FAILED;
 
 #if 0
 static void
-check_heap()
+check_heap(const char *msg)
 {
 	int n;
 	struct mbuf *m;
 
 	n = 0;
-	dbg("heap>");
+	dbg("heap> %s", msg);
 	DLIST_FOREACH(m, &shm->shm_heap, mb_list) {
 		if (!IS_SHM_ADDR(m)) {
 			dbg("not shm %p", m);
+			assert(0);
+		}
+		if (!IS_SHM_ADDR(m->mb_list.dls_prev)) {
+			dbg("not shm prev %p", m->mb_list.dls_prev);
 			assert(0);
 		}
 		if (m->mb_magic != SHM_MAGIC) {
@@ -202,12 +206,19 @@ shm_init()
 	assert(shm_early);
 	size = ROUND_UP(SHM_SIZE, PAGE_SIZE);
 	n_pages = size >> PAGE_SHIFT;
-	rc = sys_shm_open(SHM_NAME, O_CREAT|O_RDWR, 0666);
+	rc = sys_open(SHM_PATH, O_CREAT|O_RDWR, 0666);
 	if (rc < 0) {
 		goto err;
 	}
 	shm_fd = rc;
-	sys_ftruncate(shm_fd, size);
+	rc = fchgrp(shm_fd, GT_GROUP_NAME);
+	if (rc) {
+		goto err;
+	}
+	rc = sys_ftruncate(shm_fd, size);
+	if (rc) {
+		goto err;
+	}
 	rc = sys_mmap((void **)&shm, NULL, size, PROT_READ|PROT_WRITE,
 	              MAP_SHARED, shm_fd, 0);
 	if (rc) {
@@ -263,7 +274,7 @@ shm_attach()
 	void *addr;
 
 	NOTICE(0, "hit;");
-	rc = sys_shm_open(SHM_NAME, O_RDWR, 0666);
+	rc = sys_open(SHM_PATH, O_RDWR, 0666);
 	if (rc < 0) {
 		goto err;
 	}
@@ -326,12 +337,11 @@ shm_deinit()
 	}
 	shm_ih = NULL;
 	shm_detach();
-	shm_unlink(SHM_NAME);
+	sys_unlink(SHM_PATH);
 }
 
 static int
-shm_alloc_pages_locked(const char *name, void **pp,
-	size_t alignment, size_t size)
+shm_alloc_pages_locked(void **pp, size_t alignment, size_t size)
 {
 	int i, n, rc, page, alignment_n, size_n;
 	uintptr_t addr;
@@ -413,6 +423,8 @@ shm_free_locked(void *tofree_ptr)
 	}
 	tofree_m = ((struct mbuf *)tofree_ptr) - 1;
 	assert(tofree_m->mb_magic == SHM_MAGIC);
+	assert(tofree_m->mb_freed == 0);
+	tofree_m->mb_freed = 1;
 	DLIST_FOREACH(m, &shm->shm_heap, mb_list) {
 		assert(m->mb_magic == SHM_MAGIC);
 		if ((uintptr_t)tofree_m < (uintptr_t)m) {
@@ -425,11 +437,11 @@ shm_free_locked(void *tofree_ptr)
 	shm_merge(tofree_m);
 }
 
-static int
-shm_malloc_locked(const char *name, void **pp, size_t mem_size)
+static void *
+shm_malloc_locked(size_t mem_size)
 {
 	int rc;
-	size_t size, alloc_size;
+	size_t size, new_size;
 	struct mbuf *m, *b;
 
 	size = sizeof(struct mbuf) + mem_size;
@@ -443,67 +455,64 @@ shm_malloc_locked(const char *name, void **pp, size_t mem_size)
 		}
 	}
 	if (b == NULL) {
-		alloc_size = ROUND_UP(size, PAGE_SIZE);
-		rc = shm_alloc_pages_locked(name, (void **)&b,
-		                            PAGE_SIZE, alloc_size);
+		new_size = ROUND_UP(size, PAGE_SIZE);
+		rc = shm_alloc_pages_locked((void **)&b, PAGE_SIZE, new_size);
 		if (rc) {
-			return rc;
+			return NULL;
 		}
-		b->mb_magic = SHM_MAGIC;	
-		b->mb_size = alloc_size;
+		b->mb_magic = SHM_MAGIC;
+		b->mb_size = new_size;
 	} else {
+		assert(b->mb_freed == 1);
 		DLIST_REMOVE(b, mb_list);
 	}
+	b->mb_freed = 0;
 	if (b->mb_size > size + 128) {
 		m = (struct mbuf *)(((u_char *)b) + size);
 		m->mb_magic = SHM_MAGIC;
 		m->mb_size = b->mb_size - size;
+		m->mb_freed = 0;
 		b->mb_size = size;
 		shm_free_locked(m + 1);
 	}
-	*pp = b + 1;
-	return 0;
+	return b + 1;
 }
 
-int
-shm_malloc(const char *name, void **pp, size_t size)
+void *
+shm_malloc(size_t size)
 {
-	int rc;
+	void *new_ptr;
 
 	shm_lock();
-	rc = shm_malloc_locked(name, pp, size);
-	if (rc == 0) {
-		INFO(0, "ok; name='%s', addr=%p", name, *pp);
+	new_ptr = shm_malloc_locked(size);
+	if (new_ptr != NULL) {
+		INFO(0, "ok; size=%zu, new_ptr=%p", size, new_ptr);
 	} else {
-		WARN(-rc, "failed; name='%s'", name);
+		WARN(ENOMEM, "failed; size=%zu", size);
 	}
 	shm_unlock_and_free_garbage(current);
-	return rc;
+	return new_ptr;
 }
 
-int
-shm_realloc(const char *name, void **pp, size_t size)
+void *
+shm_realloc(void *old_ptr, size_t size)
 {
-	int rc;
 	size_t old_size;
 	struct mbuf *m;
-	void *new, *old;
+	void *new_ptr;
 
-	old = *pp;
-	if (old == NULL) {
+	if (old_ptr == NULL) {
 		old_size = 0;
 	} else {
-		m = ((struct mbuf *)old) - 1;
-		old_size = m->mb_size;
+		m = ((struct mbuf *)old_ptr) - 1;
+		old_size = m->mb_size - sizeof(*m);
 	}
-	rc = shm_malloc(name, &new, size);
-	if (rc) {
-		return rc;
+	new_ptr = shm_malloc(size);
+	if (new_ptr != NULL) {
+		memcpy(new_ptr, old_ptr, old_size);
+		shm_free(old_ptr);
 	}
-	memcpy(new, *pp, old_size);
-	shm_free(old);
-	*pp = new;
-	return 0;
+	return new_ptr;
 }
 
 void
@@ -516,7 +525,7 @@ shm_free(void *ptr)
 }
 
 int
-shm_alloc_pages(const char *name, void **pp, size_t alignment, size_t size)
+shm_alloc_pages(void **pp, size_t alignment, size_t size)
 {
 	int rc;
 
@@ -527,12 +536,11 @@ shm_alloc_pages(const char *name, void **pp, size_t alignment, size_t size)
 		return -EINVAL;
 	}
 	shm_lock();
-	rc = shm_alloc_pages_locked(name, pp, alignment, size);
+	rc = shm_alloc_pages_locked(pp, alignment, size);
 	if (rc == 0) {
-		INFO(0, "ok; name='%s', size=%zu, addr=%p",
-		     name, size, *pp);
+		INFO(0, "ok; size=%zu, addr=%p", size, *pp);
 	} else {
-		WARN(-rc, "failed; name='%s', size=%zu", name, size);
+		WARN(-rc, "failed; size=%zu", size);
 	}
 	shm_unlock_and_free_garbage();
 	return rc;

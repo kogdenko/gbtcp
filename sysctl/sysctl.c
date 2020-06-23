@@ -6,6 +6,8 @@
 #include <err.h>
 #include <ctype.h>
 #include <limits.h>
+#include <assert.h>
+#include <syslog.h>
 #include <gbtcp/gbtcp.h>
 
 static int aflag;

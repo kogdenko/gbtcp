@@ -11,6 +11,7 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <syslog.h>
 #include <gbtcp/gbtcp.h>
 
 typedef uint32_t be32_t;
@@ -490,20 +491,20 @@ struct stat_entry {
 
 #define MYX(n) unsigned long long n;
 struct tcp_stat {
-	GT_TCP_STAT(MYX);
+	GT_X_TCP_STAT(MYX);
 	unsigned long long states[GT_TCP_NSTATES];
 };
 
 struct udp_stat {
-	GT_UDP_STAT(MYX);
+	GT_X_UDP_STAT(MYX);
 };
 
 struct ip_stat {
-	GT_IP_STAT(MYX);
+	GT_X_IP_STAT(MYX);
 };
 
 struct arp_stat {
-	GT_ARP_STAT(MYX);
+	GT_X_ARP_STAT(MYX);
 };
 #undef MYX
 
@@ -515,7 +516,7 @@ struct arp_stat arps;
 #define MYX(n) { .name = #n, .ptr = &tcps.n },
 #define STATE(i) { .name = "states." #i, .ptr = tcps.states + i },
 struct stat_entry stat_tcp_entries[] = {
-	GT_TCP_STAT(MYX)
+	GT_X_TCP_STAT(MYX)
 	STATE(0)
 	STATE(1)
 	STATE(2)
@@ -533,21 +534,21 @@ struct stat_entry stat_tcp_entries[] = {
 
 #define MYX(n) { .name = #n, .ptr = &udps.n },
 struct stat_entry stat_udp_entries[] = {
-	GT_UDP_STAT(MYX)
+	GT_X_UDP_STAT(MYX)
 	{ NULL, NULL }
 };
 #undef MYX
 
 #define MYX(n) { .name = #n, .ptr = &ips.n },
 struct stat_entry stat_ip_entries[] = {
-	GT_IP_STAT(MYX)
+	GT_X_IP_STAT(MYX)
 	{ NULL, NULL }
 };
 #undef MYX
 
 #define MYX(n) { .name = #n, .ptr = &arps.n },
 struct stat_entry stat_arp_entries[] = {
-	GT_ARP_STAT(MYX)
+	GT_X_ARP_STAT(MYX)
 	{ NULL, NULL }
 };
 #undef MYX

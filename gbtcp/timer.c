@@ -11,17 +11,16 @@
 static int
 timer_ring_init(struct service *s, uint64_t t, int ring_id, uint64_t seg_shift)
 {
-	int i, rc;
-	void *ptr;
+	int i;
 	struct timer_ring *ring;
 
 	assert(ring_id < TIMER_N_RINGS);
-	rc = shm_malloc("timer.ring", &ptr, sizeof(struct timer_ring));
-	if (rc) {
+	ring = shm_malloc(sizeof(struct timer_ring));
+	if (ring == NULL) {
 		deinit_timers(s);
-		return rc;
+		return -ENOMEM;
 	}
-	s->p_timer_rings[ring_id] = ring = ptr;
+	s->p_timer_rings[ring_id] = ring;
 	ring->tmr_seg_shift = seg_shift;
 	ring->tmr_cur = t >> ring->tmr_seg_shift;
 	for (i = 0; i < TIMER_RING_SIZE; ++i) {

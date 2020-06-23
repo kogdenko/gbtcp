@@ -638,34 +638,33 @@ sys_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 	return rc;
 }
 
-int
-sys_malloc(const char *name, void **pp, size_t size)
+void *
+sys_malloc(size_t size)
 {
-	*pp = malloc(size);
-	if (*pp == NULL) {
-		ERR(0, "failed; name='%s', size=%zu", name, size);
-		return -ENOMEM;
+	void *new_ptr;
+
+	new_ptr = malloc(size);
+	if (new_ptr == NULL) {
+		ERR(0, "failed; size=%zu", size);
 	} else {
-		INFO(0, "ok; name='%s', size=%zu, ptr=%p", name, size, *pp);
+		INFO(0, "ok; size=%zu, new_ptr=%p", size, new_ptr);
 	}
-	return 0;
+	return new_ptr;
 }
 
-int
-sys_realloc(const char *name, void **pp, size_t size)
+void *
+sys_realloc(void *old_ptr, size_t size)
 {
-	void *newptr;
+	void *new_ptr;
 
-	newptr = realloc(*pp, size);
-	if (newptr == NULL) {
-		ERR(0, "failed; name='%s', size=%zu", name, size);
-		return -ENOMEM;
+	new_ptr = realloc(old_ptr, size);
+	if (new_ptr == NULL) {
+		ERR(0, "failed; size=%zu", size);
 	} else {
-		INFO(0, "ok; name='%s', size=%zu, oldptr=%p, newptr=%p",
-		     name, size, *pp, newptr);
+		INFO(0, "ok; size=%zu, old_ptr=%p, new_ptr=%p",
+		     size, old_ptr, new_ptr);
 	}
-	*pp = newptr;
-	return 0;
+	return new_ptr;
 }
 
 int
@@ -777,18 +776,29 @@ sys_stat(const char *path, struct stat *buf)
 {
 	int rc;
 
-restart:
 	rc = stat(path, buf);
 	if (rc == -1) {
 		rc = -errno;
 		assert(errno);
-		if (rc == -EINTR) {
-			goto restart;
-		} else {
-			ERR(-rc, "failed; path='%s'", path);
-		}
+		ERR(-rc, "failed; path='%s'", path);
 	} else {
 		INFO(0, "ok; path='%s'", path);
+	}
+	return rc;
+}
+
+int
+sys_fstat(int fd, struct stat *buf)
+{
+	int rc;
+
+	rc = fstat(fd, buf);
+	if (rc == -1) {
+		rc = -errno;
+		assert(errno);
+		ERR(-rc, "failed; fd='%d'", fd);
+	} else {
+		INFO(0, "ok; fd='%d'", fd);
 	}
 	return rc;
 }
@@ -881,19 +891,30 @@ sys_chown(const char *path, uid_t owner, gid_t group)
 {
 	int rc;
 
-restart:
 	rc = chown(path, owner, group);
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		if (rc == -EINTR) {
-			goto restart;
-		} else {
-			ERR(-rc, "failed; path='%s', uid=%d, gid=%d",
-			    path, owner, group);
-		}
+		ERR(-rc, "failed; path='%s', uid=%d, gid=%d",
+		    path, owner, group);
 	} else {
 		INFO(0, "ok; path='%s', uid=%d, gid=%d", path, owner, group);
+	}
+	return rc;
+}
+
+int
+sys_fchown(int fd, uid_t owner, gid_t group)
+{
+	int rc;
+
+	rc = fchown(fd, owner, group);
+	if (rc == -1) {
+		rc = -errno;
+		assert(rc);
+		ERR(-rc, "failed; fd=%d, uid=%d, gid=%d", fd, owner, group);
+	} else {
+		INFO(0, "ok; fd=%d, uid=%d, gid=%d", fd, owner, group);
 	}
 	return rc;
 }

@@ -5,13 +5,13 @@
 #define _GNU_SOURCE
 #include <stdarg.h>
 #include <stdint.h>
-#include <assert.h>
+//#include <assert.h>
 #include <signal.h>
 #include <unistd.h>
 #include <poll.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <syslog.h>
+//#include <syslog.h>
 #ifdef __linux__
 #include <sys/epoll.h>
 #else // __linux__
@@ -59,7 +59,7 @@
 #define GT_SYSCTL_INET_CKSUM_OFFLOAD_RX "inet.cksum.offload.rx"
 #define GT_SYSCTL_INET_CKSUM_OFFLOAD_TX "inet.cksum.offload.tx"
 
-#define GT_TCP_STAT(x) \
+#define GT_X_TCP_STAT(x) \
 	x(sndtotal) \
 	x(sndpack) \
 	x(sndbyte) \
@@ -113,7 +113,7 @@
 	x(predack) \
 	x(preddat) \
 
-#define GT_UDP_STAT(x) \
+#define GT_X_UDP_STAT(x) \
 	x(ipackets) \
 	x(hdrops) \
 	x(badlen) \
@@ -123,7 +123,7 @@
 	x(fullsock) \
 	x(opackets) \
 
-#define GT_IP_STAT(x) \
+#define GT_X_IP_STAT(x) \
 	x(total) \
 	x(badsum) \
 	x(toosmall) \
@@ -142,14 +142,14 @@
 	x(fragmented) \
 	x(cantfrag) \
 
-#define GT_ICMP_STAT(x) \
+#define GT_X_ICMP_STAT(x) \
 	x(badcode) \
 	x(tooshort) \
 	x(checksum) \
 	x(badlen) \
 	x(reflect) \
 
-#define GT_ARP_STAT(x) \
+#define GT_X_ARP_STAT(x) \
 	x(txrequests) \
 	x(txreplies) \
 	x(txrepliesdropped) \
@@ -168,12 +168,6 @@
 	x(badplen) \
 	x(badaddr) \
 	x(badop)
-
-//#ifdef __linux__
-typedef void (*gt_sighandler_t)(int);
-//#else /* __linux__ */
-//typedef __sighandler_t gt_sighandler_t;
-//#endif /* __linux__ */
 
 extern __thread int gt_errno;
 extern int gt_preload_passthru;
@@ -214,11 +208,11 @@ int gt_clone(int (*)(void *), void *, int, void *, void *, void *, void *);
 int gt_epoll_create1(int);
 int gt_epoll_ctl(int, int, int, struct epoll_event *);
 int gt_epoll_pwait(int, struct epoll_event *, int, int, const sigset_t *);
-#else /* __linux__ */
+#else // __linux__
 int gt_kqueue();
 int gt_kevent(int, const struct kevent *, int, struct kevent *, int,
 	const struct timespec *);
-#endif /* __linux__ */
+#endif // __linux__
 
 void gt_dbg5(const char *, u_int, const char *, int, const char *, ...)
 	__attribute__((format(printf, 5, 6)));

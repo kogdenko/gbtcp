@@ -84,7 +84,7 @@ sysctl_add_inet_stat_tcp()
 #define SYSCTL_ADD_TCP_STAT(x) \
 	sysctl_add_inet_stat("tcp", #x, \
 	                     field_off(struct service, p_tcps.tcps_##x));
-	GT_TCP_STAT(SYSCTL_ADD_TCP_STAT)
+	GT_X_TCP_STAT(SYSCTL_ADD_TCP_STAT)
 #undef SYSCTL_ADD_TCP_STAT
 	for (i = 0; i < GT_TCP_NSTATES; ++i) {
 		snprintf(name, sizeof(name), "states.%d", i);
@@ -99,7 +99,7 @@ sysctl_add_inet_stat_udp()
 #define SYSCTL_ADD_UDP_STAT(x) \
 	sysctl_add_inet_stat("udp", #x, \
 	                     field_off(struct service, p_udps.udps_##x));
-	GT_UDP_STAT(SYSCTL_ADD_UDP_STAT)
+	GT_X_UDP_STAT(SYSCTL_ADD_UDP_STAT)
 #undef SYSCTL_ADD_UDP_STAT
 }
 
@@ -109,7 +109,7 @@ sysctl_add_inet_stat_ip()
 #define SYSCTL_ADD_IP_STAT(x) \
 	sysctl_add_inet_stat("ip", #x, \
 	                     field_off(struct service, p_ips.ips_##x));
-	GT_IP_STAT(SYSCTL_ADD_IP_STAT)
+	GT_X_IP_STAT(SYSCTL_ADD_IP_STAT)
 #undef SYSCTL_ADD_IP_STAT
 }
 
@@ -119,7 +119,7 @@ sysctl_add_inet_stat_arp()
 #define SYSCTL_ADD_ARP_STAT(x) \
 	sysctl_add_inet_stat("arp", #x, \
 	                     field_off(struct service, p_arps.arps_##x));
-	GT_ARP_STAT(SYSCTL_ADD_ARP_STAT)
+	GT_X_ARP_STAT(SYSCTL_ADD_ARP_STAT)
 #undef SYSCTL_ADD_ARP_STAT
 }
 
@@ -371,7 +371,7 @@ tcp_opt_len(int kind)
 }
 
 static int
-arp_in(struct in_context *in)
+arp_input(struct in_context *in)
 {
 	int i, is_req;
 	be32_t sip, tip;
@@ -466,7 +466,7 @@ arp_in(struct in_context *in)
 }
 
 static int
-tcp_opts_in(struct tcp_opts *opts, u_char *opts_buf, int opts_len)
+tcp_opts_input(struct tcp_opts *opts, u_char *opts_buf, int opts_len)
 {
 	int i, len, opt_len;
 	u_char *data, kind;
@@ -528,10 +528,8 @@ tcp_opts_in(struct tcp_opts *opts, u_char *opts_buf, int opts_len)
 	return 0;
 }
 
-
-
 static int
-tcp_in(struct in_context *in)
+tcp_input(struct in_context *in)
 {
 	int rc, len, win, cksum;
 
@@ -564,9 +562,9 @@ tcp_in(struct in_context *in)
 		}
 	}
 	in->in_th->th_cksum = cksum;
-	rc = tcp_opts_in(&in->in_tcp_opts,
-	                 (void *)(in->in_th + 1),
-	                 in->in_th_len - sizeof(*in->in_th));
+	rc = tcp_opts_input(&in->in_tcp_opts,
+	                    (void *)(in->in_th + 1),
+	                    in->in_th_len - sizeof(*in->in_th));
 	if (rc) {
 		in->in_tcps->tcps_rcvbadoff++;
 		return IN_DROP;
@@ -575,7 +573,7 @@ tcp_in(struct in_context *in)
 }
 
 static int
-icmp4_in(struct in_context *in)
+icmp_input(struct in_context *in)
 {
 	int ih_len, type, code;
 
@@ -689,7 +687,7 @@ icmp4_in(struct in_context *in)
 }
 
 static int
-ip_in(struct in_context *in)
+ip_input(struct in_context *in)
 {
 	int rc, total_len, cksum;
 
@@ -756,10 +754,10 @@ ip_in(struct in_context *in)
 		in->in_len = in->in_rem;
 		return IN_OK;
 	case IPPROTO_TCP:
-		rc = tcp_in(in);
+		rc = tcp_input(in);
 		break;
 	case IPPROTO_ICMP:
-		rc = icmp4_in(in);
+		rc = icmp_input(in);
 		return rc;
 	default:
 //		in->in_ips->ips_noproto++;
@@ -770,7 +768,7 @@ ip_in(struct in_context *in)
 }
 
 int
-eth_in(struct in_context *in)
+eth_input(struct in_context *in)
 {
 	int rc;
 
@@ -779,10 +777,10 @@ eth_in(struct in_context *in)
 	switch (in->in_eh->eh_type) {
 	case ETH_TYPE_IP4_BE:
 		in->in_ipproto = IPPROTO_IP;
-		rc = ip_in(in);
+		rc = ip_input(in);
 		break;
 	case ETH_TYPE_ARP_BE:
-		rc = arp_in(in);
+		rc = arp_input(in);
 		break;
 	default:
 		rc = IN_BYPASS;

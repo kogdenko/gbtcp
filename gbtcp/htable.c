@@ -31,7 +31,7 @@ htable_free_array(struct htable *t)
 static int
 htable_resize(struct htable *t, int size)
 {
-	int i, rc;
+	int i;
 	void *ptr;
 	int new_size, new_mask; 
 	malloc_f malloc_fn;
@@ -48,10 +48,9 @@ htable_resize(struct htable *t, int size)
 	} else {
 		malloc_fn = sys_malloc;
 	}
-	rc = (*malloc_fn)(t->ht_name, &ptr,
-	                  new_size * sizeof(struct htable_bucket));
-	if (rc) {
-		return rc;
+	ptr = (*malloc_fn)(new_size * sizeof(struct htable_bucket));
+	if (ptr == NULL) {
+		return -ENOMEM;
 	}
 	htable_free_array(t);
 	t->ht_array = ptr;
@@ -64,14 +63,12 @@ htable_resize(struct htable *t, int size)
 }
 
 int
-htable_init(struct htable *t, const char *name,
-	int size, htable_f fn, int flags)
+htable_init(struct htable *t, int size, htable_f fn, int flags)
 {
 	int rc;
 
 	t->ht_flags = flags;
 	t->ht_fn = fn;
-	t->ht_name = name;
 	t->ht_array = NULL;
 	t->ht_sysctl_fn = NULL;
 	rc = htable_resize(t, size);

@@ -142,7 +142,7 @@ gt_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	if (rc < 0) {
 		INFO(-rc, "failed");
 	} else {
-		INFO(0, "ok; laddr=%s", log_add_sockaddr_in(&laddr_in));
+		INFO(0, "ok; laddr=%s", log_add_sockaddr(addr, addrlen));
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -426,7 +426,7 @@ gt_writev(int fd, const struct iovec *iov, int iovcnt)
 	if (rc < 0) {
 		INFO(-rc, "failed");
 	} else {
-		INFO(0, "ok; rc=%d", rc);
+		INFO(0, "ok; rc=%zd", rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -456,7 +456,7 @@ gt_sendto(int fd, const void *buf, size_t len, int flags,
 	if (rc < 0) {
 		INFO(-rc, "failed");
 	} else {
-		INFO(0, "ok; rc=%d", rc);
+		INFO(0, "ok; rc=%zd", rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -482,7 +482,7 @@ gt_sendmsg(int fd, const struct msghdr *msg, int flags)
 	if (rc < 0) {
 		INFO(-rc, "failed");
 	} else {
-		INFO(0, "ok; rc=%d", rc);
+		INFO(0, "ok; rc=%zd", rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);

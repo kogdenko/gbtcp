@@ -22,10 +22,10 @@ void shm_set_nanoseconds(uint64_t);
 
 #define shm_ns shm_get_nanoseconds()
 
-int shm_malloc(const char *, void **, size_t);
-int shm_realloc(const char *, void **, size_t);
+void *shm_malloc(size_t);
+void *shm_realloc(void *, size_t);
 void shm_free(void *);
-int shm_alloc_pages(const char *, void **, size_t, size_t);
+int shm_alloc_pages(void **, size_t, size_t);
 void shm_free_pages(void *, size_t);
 
 #endif // GBTCP_SHM_H

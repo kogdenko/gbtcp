@@ -1,3 +1,4 @@
+// gpl2
 #include "internals.h"
 
 #define CURMOD sched
@@ -72,77 +73,73 @@ transmit_to_host(struct route_if *ifp, void *data, int len)
 }
 
 static int
-sched_kill_and_wait(struct pid_wait *pw)
+sched_clean_kill(int fd)
 {
-	int n, rc, fd, sid, pid, n_pids, errnum;
-	uint64_t to;
-	int pids[GT_SERVICES_MAX];
-	DIR *dir;
-	struct dirent *entry;
+	int rc, pid;
 
-	errnum = 0;
-	rc = sys_opendir(&dir, PID_PATH);
-	if (rc) {
+	rc = pid_file_acquire(fd, 0);
+	if (rc <= 0) {
 		return rc;
 	}
-	while ((entry = readdir(dir)) != NULL) {
-		rc = sscanf(entry->d_name, "%d.pid", &sid);
-		if (rc != 1 || sid == 0) {
-			continue;
-		}
-		rc = pid_file_open(entry->d_name);
+	pid = rc;
+	rc = sys_kill(pid, SIGKILL);
+	if (rc == 0) {
+		rc = sys_flock(fd, LOCK_EX);
 		if (rc < 0) {
-			continue;
-		}
-		fd = rc;
-		rc = pid_file_acquire(fd, 0);
-		sys_close(fd);
-		if (rc <= 0) {
-			continue;
-		}
-		pid = rc;
-		rc = pid_wait_add(pw, pid);
-		if (rc == -ENOSPC) {
-			errnum = -rc;
-			break;
-		} else if (rc < 0) {
-			closedir(dir);
 			return rc;
 		}
+	} else if (rc == -ESRCH) {
+		rc = 0;
 	}
-	closedir(dir);
-	n_pids = 0;
-	n = ARRAY_SIZE(pids);
-	to = 3 * NSEC_SEC;
-	while (to && !pid_wait_is_empty(pw)) {
-		rc = pid_wait_kill(pw, SIGKILL, pids, n - n_pids);
-		if (rc > 0) {
-			n_pids += rc;
-		}
-		rc = pid_wait_read(pw, &to, pids + n_pids, n - n_pids);
-		if (rc > 0) {
-			n_pids += rc;
-		}
-	}
-	if (!pid_wait_is_empty(pw)) {
-		ERR(ETIMEDOUT, "failed;");
-		return -ETIMEDOUT;
-	}
-	return -errnum;
+	return rc;
 }
 
 static int
 sched_clean()
 {
-	int rc;
-	struct pid_wait pw;
+	int rc, fd, id;
+	char path[PATH_MAX];
+	DIR *dir;
+	struct dirent *entry;
 
-	do {
-		pid_wait_init(&pw, PID_WAIT_NONBLOCK);
-		rc = sched_kill_and_wait(&pw);
-		pid_wait_deinit(&pw);
-	} while (rc == -ENOSPC);
-	return rc;
+	rc = sys_opendir(&dir, PID_PATH);
+	if (rc) {
+		return rc;
+	}
+	while ((entry = readdir(dir)) != NULL) {
+		rc = sscanf(entry->d_name, "%d.pid", &id);
+		if (rc != 1 || id == SCHED_SID) {
+			continue;
+		}
+		snprintf(path, sizeof(path), "%s/%s", PID_PATH, entry->d_name);
+		rc = pid_file_open(path);
+		if (rc < 0) {
+			sys_closedir(dir);
+			return rc;
+		}
+		fd = rc;
+		rc = sched_clean_kill(fd);
+		if (rc) {
+			sys_closedir(dir);
+			return rc;
+		}
+		sys_unlink(path);
+	}
+	sys_closedir(dir);
+	rc = sys_opendir(&dir, SYSCTL_SOCK_PATH);
+	if (rc) {
+		return rc;
+	}
+	while ((entry = readdir(dir)) != NULL) {
+		rc = sscanf(entry->d_name, "%d.sock", &id);
+		if (rc == 1) {
+			snprintf(path, sizeof(path), "%s/%s",
+			         SYSCTL_SOCK_PATH, entry->d_name);
+			sys_unlink(path);
+		}
+	}
+	sys_closedir(dir);
+	return 0;
 }
 
 static void
@@ -188,9 +185,9 @@ sched_unlock_service(struct service *s)
 static void
 sched_check_service_deadlock(struct service *s)
 {
-	
+	sched_lock_service(s);
+	sched_unlock_service(s);	
 }
-
 
 static void
 update_rss_bindings(struct service *s)
@@ -288,6 +285,7 @@ static void
 sched_del_service(struct service *s)
 {
 	int i;
+	struct sockaddr_un a;
 	struct service *new;
 
 	NOTICE(0, "hit; pid=%d", s->p_pid);
@@ -306,6 +304,8 @@ sched_del_service(struct service *s)
 		update_rss_bindings(s);
 		update_rss_bindings(new);
 	}
+	sysctl_make_sockaddr_un(&a, s->p_pid);
+	sys_unlink(a.sun_path);
 	service_deinit_shared(s, 0);
 	sid_max = 0;
 	SERVICE_FOREACH(s) {
@@ -494,11 +494,16 @@ sched_bind(int pid)
 	struct sockaddr_un a;
 
 	sysctl_make_sockaddr_un(&a, pid);
-	rc = sysctl_bind(&a, 1);
+	rc = sysctl_bind(&a);
 	if (rc < 0) {
 		return rc;
 	}
 	fd = rc;
+	rc = sys_listen(fd, 0);
+	if (rc) {
+		sys_close(fd);
+		return rc;
+	}
 	rc = sysctl_conn_open(&sched_conn, fd);
 	if (rc) {
 		sys_close(fd);
@@ -515,8 +520,20 @@ sched_bind(int pid)
 	return 0;
 }
 
+static void
+sched_unbind(int pid)
+{
+	struct sockaddr_un a;
+
+	sysctl_conn_close(sched_conn);
+	sched_conn = 0;
+	sysctl_make_sockaddr_un(&a, pid);
+	sys_unlink(a.sun_path);
+	sys_unlink(SYSCTL_SCHED_PATH);
+}
+
 int
-init_sched(int daemonize, const char *service_comm)
+sched_init(int daemonize, const char *service_comm)
 {
 	int i, rc, pid;
 	uint64_t hz;
@@ -552,7 +569,10 @@ init_sched(int daemonize, const char *service_comm)
 	set_hz(hz);
 	shm_ih->ih_hz = hz;
 	shm_ih->ih_rss_nq = 0;
-	sysctl_read_file(1, service_comm);
+	rc = sysctl_read_file(1, service_comm);
+	if (rc) {
+		goto err;
+	}
 	for (i = 0; i < ARRAY_SIZE(shm_ih->ih_rss_table); ++i) {
 		shm_ih->ih_rss_table[i] = SERVICE_ID_INVALID;
 	}
@@ -569,14 +589,29 @@ init_sched(int daemonize, const char *service_comm)
 	if (rc) {
 		goto err;
 	}
-	sysctl_read_file(0, service_comm);
+	rc = sysctl_read_file(0, service_comm);
+	if (rc) {
+		goto err;
+	}
 	sysctl_add(SYSCTL_SCHED_ADD, SYSCTL_WR, NULL, NULL, sysctl_sched_add);
 	sysctl_add_list(GT_SYSCTL_SCHED_SERVICE_LIST, SYSCTL_RD, NULL,
 	                sysctl_sched_service_list_next,
 	                sysctl_sched_service_list);
-	NOTICE(0, "ok; pid=%d", pid);
+	NOTICE(0, "ok;");
 	return 0;
 err:
+	ERR(-rc, "failed;");
+	sched_deinit();
+	return rc;
+}
+
+void
+sched_deinit()
+{
+	int pid;
+
+	pid = getpid();
+	sched_unbind(pid);
 	if (current != NULL) {
 		service_deinit_private();
 		service_deinit_shared(current, 1);
@@ -586,7 +621,6 @@ err:
 	sysctl_root_deinit();
 	sys_close(sched_pid_fd);
 	sched_pid_fd = -1;
-	return rc;
 }
 
 void
