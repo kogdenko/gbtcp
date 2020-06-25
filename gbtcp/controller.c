@@ -1,13 +1,14 @@
 // gpl2
 #include "internals.h"
 
-#define CURMOD sched
+#define CURMOD controller
 
-static struct sysctl_conn *sched_conn;
-static int sched_pid_fd = -1;
+static struct sysctl_conn *controller_conn;
+static int controller_pid_fd = -1;
 static int sid_max = 0;
 static int quit_no_services = 1;
-static int sched_done;
+
+int controller_done;
 
 static struct service *
 service_get_by_pid(int pid)
@@ -73,7 +74,7 @@ transmit_to_host(struct route_if *ifp, void *data, int len)
 }
 
 static int
-sched_clean_kill(int fd)
+controller_clean_kill(int fd)
 {
 	int rc, pid;
 
@@ -95,7 +96,7 @@ sched_clean_kill(int fd)
 }
 
 static int
-sched_clean()
+controller_clean()
 {
 	int rc, fd, id;
 	char path[PATH_MAX];
@@ -108,7 +109,7 @@ sched_clean()
 	}
 	while ((entry = readdir(dir)) != NULL) {
 		rc = sscanf(entry->d_name, "%d.pid", &id);
-		if (rc != 1 || id == SCHED_SID) {
+		if (rc != 1 || id == CONTROLLER_SID) {
 			continue;
 		}
 		snprintf(path, sizeof(path), "%s/%s", PID_PATH, entry->d_name);
@@ -118,7 +119,7 @@ sched_clean()
 			return rc;
 		}
 		fd = rc;
-		rc = sched_clean_kill(fd);
+		rc = controller_clean_kill(fd);
 		if (rc) {
 			sys_closedir(dir);
 			return rc;
@@ -143,19 +144,19 @@ sched_clean()
 }
 
 static void
-sched_lock_service(struct service *s)
+controller_lock_service(struct service *s)
 {
 	int rc;
 
 	rc = spinlock_trylock(&s->p_lock);
 	if (rc == 0) {
 		ERR(0, "deadlocked; pid=%d", s->p_pid);
-		exit(EXIT_FAILURE);
+		abort();
 	}
 }
 
 static void
-sched_lock_service_safe(struct service *s)
+controller_lock_service_safe(struct service *s)
 {
 	int i, b, rc;
 
@@ -169,24 +170,24 @@ sched_lock_service_safe(struct service *s)
 		}
 		rc = sys_recv(s->p_fd, &b, sizeof(b), MSG_PEEK|MSG_DONTWAIT);
 		if (rc == 0 || (rc < 0 && rc != -EAGAIN)) {
-			// Connection closed - service not running
-			sched_lock_service(s);
+			// connection closed - service not running
+			controller_lock_service(s);
 			return;
 		}
 	}
 }
 
 static void
-sched_unlock_service(struct service *s)
+controller_unlock_service(struct service *s)
 {
 	spinlock_unlock(&s->p_lock);
 }
 
 static void
-sched_check_service_deadlock(struct service *s)
+controller_check_service_deadlock(struct service *s)
 {
-	sched_lock_service(s);
-	sched_unlock_service(s);	
+	controller_lock_service(s);
+	controller_unlock_service(s);	
 }
 
 static void
@@ -195,14 +196,14 @@ update_rss_bindings(struct service *s)
 	if (s == current) {
 		service_update_rss_bindings(s);
 	} else {
-		sched_lock_service_safe(s);
+		controller_lock_service_safe(s);
 		s->p_need_update_rss_bindings = 1;
-		sched_unlock_service(s);
+		controller_unlock_service(s);
 	}
 }
 
 static void
-sched_alg(struct service **ppick, struct service **pkick)
+controller_sched_alg(struct service **ppick, struct service **pkick)
 {
 	int i;
 	struct service *s, *pick, *kick;
@@ -258,12 +259,12 @@ set_rss_binding(u_int rss_qid, int sid)
 }
 
 static void
-sched_balance()
+controller_sched_balance()
 {
 	int i;
 	struct service *pick, *kick;
 
-	sched_alg(&pick, &kick);
+	controller_sched_alg(&pick, &kick);
 	if (pick == current ||
 	    pick == kick ||
 	    kick->p_rss_nq == 0) {
@@ -282,16 +283,16 @@ sched_balance()
 }
 
 static void
-sched_del_service(struct service *s)
+controller_del_service(struct service *s)
 {
 	int i;
 	struct sockaddr_un a;
 	struct service *new;
 
 	NOTICE(0, "hit; pid=%d", s->p_pid);
-	sched_check_service_deadlock(s);
+	controller_check_service_deadlock(s);
 	if (s->p_rss_nq) {
-		sched_alg(&new, NULL);
+		controller_sched_alg(&new, NULL);
 		for (i = 0; i < shm_ih->ih_rss_nq; ++i) {
 			if (shm_ih->ih_rss_table[i] == s->p_sid) {
 				set_rss_binding(i, new->p_sid);
@@ -314,12 +315,12 @@ sched_del_service(struct service *s)
 		}
 	}
 	if (sid_max == 0 && quit_no_services) {
-		sched_done = 1;
+		controller_done = 1;
 	}
 }
 
 static void
-sched_add_service(struct service *s, int pid, struct sysctl_conn *cp)
+controller_add_service(struct service *s, int pid, struct sysctl_conn *cp)
 {
 	int fd;
 
@@ -358,7 +359,7 @@ rss_table_expand(int rss_nq)
 	int i; 
 	struct service *s;
 
-	sched_alg(&s, NULL);
+	controller_sched_alg(&s, NULL);
 	for (i = shm_ih->ih_rss_nq; i < rss_nq; ++i) {
 		set_rss_binding(i, s->p_sid);
 		s->p_rss_nq++;
@@ -398,7 +399,7 @@ update_rss_table()
 }
 
 static int
-sysctl_sched_add(struct sysctl_conn *cp, void *udata,
+sysctl_controller_add(struct sysctl_conn *cp, void *udata,
 	const char *new, struct strbuf *old)
 {
 	int i, pid;
@@ -418,7 +419,7 @@ sysctl_sched_add(struct sysctl_conn *cp, void *udata,
 	for (i = 0; i < ARRAY_SIZE(shm_ih->ih_services); ++i) {
 		s = shm_ih->ih_services + i;
 		if (s->p_pid == 0) {
-			sched_add_service(s, pid, cp);
+			controller_add_service(s, pid, cp);
 			return 0;
 		}
 	}
@@ -426,7 +427,7 @@ sysctl_sched_add(struct sysctl_conn *cp, void *udata,
 }
 
 static int
-sysctl_sched_service_list_next(void *udata, const char *ident,
+sysctl_controller_service_list_next(void *udata, const char *ident,
 	struct strbuf *out)
 {
 	int i;
@@ -446,8 +447,8 @@ sysctl_sched_service_list_next(void *udata, const char *ident,
 }
 
 static int
-sysctl_sched_service_list(void *udata, const char *ident, const char *new,
-	struct strbuf *out)
+sysctl_controller_service_list(void *udata, const char *ident,
+	const char *new, struct strbuf *out)
 {
 	int i;
 	u_int okpps;
@@ -483,12 +484,12 @@ service_conn_close(struct sysctl_conn *cp)
 	}
 	s = service_get_by_pid(pid);
 	if (s != NULL) {
-		sched_del_service(s);
+		controller_del_service(s);
 	}
 }
 
 static int
-sched_bind(int pid)
+controller_bind(int pid)
 {
 	int rc, fd;
 	struct sockaddr_un a;
@@ -504,41 +505,41 @@ sched_bind(int pid)
 		sys_close(fd);
 		return rc;
 	}
-	rc = sysctl_conn_open(&sched_conn, fd);
+	rc = sysctl_conn_open(&controller_conn, fd);
 	if (rc) {
 		sys_close(fd);
 		return rc;	
 	}
-	sys_unlink(SYSCTL_SCHED_PATH);
-	rc = sys_symlink(a.sun_path, SYSCTL_SCHED_PATH);
+	sys_unlink(SYSCTL_CONTROLLER_PATH);
+	rc = sys_symlink(a.sun_path, SYSCTL_CONTROLLER_PATH);
 	if (rc) {
-		sysctl_conn_close(sched_conn);
+		sysctl_conn_close(controller_conn);
 		return rc;
 	}
-	sched_conn->scc_accept_conn = 1;
-	sched_conn->scc_close_fn = service_conn_close;
+	controller_conn->scc_accept_conn = 1;
+	controller_conn->scc_close_fn = service_conn_close;
 	return 0;
 }
 
 static void
-sched_unbind(int pid)
+controller_unbind(int pid)
 {
 	struct sockaddr_un a;
 
-	sysctl_conn_close(sched_conn);
-	sched_conn = 0;
+	sysctl_conn_close(controller_conn);
+	controller_conn = NULL;
 	sysctl_make_sockaddr_un(&a, pid);
 	sys_unlink(a.sun_path);
-	sys_unlink(SYSCTL_SCHED_PATH);
+	sys_unlink(SYSCTL_CONTROLLER_PATH);
 }
 
 int
-sched_init(int daemonize, const char *service_comm)
+controller_init(int daemonize, const char *service_comm)
 {
 	int i, rc, pid;
 	uint64_t hz;
 
-	gt_init("sched", 0);
+	gt_init("controller", 0);
 	gt_preload_passthru = 1;
 	shm_ih = NULL;
 	if (daemonize) {
@@ -548,12 +549,12 @@ sched_init(int daemonize, const char *service_comm)
 		}
 	}
 	pid = getpid();
-	rc = service_pid_file_acquire(SCHED_SID, pid);
+	rc = service_pid_file_acquire(CONTROLLER_SID, pid);
 	if (rc < 0) {
 		goto err;
 	}
-	sched_pid_fd = rc;
-	rc = sched_clean();
+	controller_pid_fd = rc;
+	rc = controller_clean();
 	if (rc) {
 		goto err;
 	}
@@ -576,7 +577,7 @@ sched_init(int daemonize, const char *service_comm)
 	for (i = 0; i < ARRAY_SIZE(shm_ih->ih_rss_table); ++i) {
 		shm_ih->ih_rss_table[i] = SERVICE_ID_INVALID;
 	}
-	current = shm_ih->ih_services + SCHED_SID;
+	current = shm_ih->ih_services + CONTROLLER_SID;
 	rc = service_init_shared(current, pid, 0);
 	if (rc) {
 		goto err;
@@ -585,7 +586,7 @@ sched_init(int daemonize, const char *service_comm)
 	if (rc) {
 		goto err;
 	}
-	rc = sched_bind(pid);
+	rc = controller_bind(pid);
 	if (rc) {
 		goto err;
 	}
@@ -593,25 +594,26 @@ sched_init(int daemonize, const char *service_comm)
 	if (rc) {
 		goto err;
 	}
-	sysctl_add(SYSCTL_SCHED_ADD, SYSCTL_WR, NULL, NULL, sysctl_sched_add);
-	sysctl_add_list(GT_SYSCTL_SCHED_SERVICE_LIST, SYSCTL_RD, NULL,
-	                sysctl_sched_service_list_next,
-	                sysctl_sched_service_list);
+	sysctl_add(SYSCTL_CONTROLLER_ADD, SYSCTL_WR, NULL, NULL,
+	           sysctl_controller_add);
+	sysctl_add_list(GT_SYSCTL_CONTROLLER_SERVICE_LIST, SYSCTL_RD, NULL,
+	                sysctl_controller_service_list_next,
+	                sysctl_controller_service_list);
 	NOTICE(0, "ok;");
 	return 0;
 err:
 	ERR(-rc, "failed;");
-	sched_deinit();
+	controller_deinit();
 	return rc;
 }
 
 void
-sched_deinit()
+controller_deinit()
 {
 	int pid;
 
 	pid = getpid();
-	sched_unbind(pid);
+	controller_unbind(pid);
 	if (current != NULL) {
 		service_deinit_private();
 		service_deinit_shared(current, 1);
@@ -619,25 +621,18 @@ sched_deinit()
 	}
 	shm_deinit();
 	sysctl_root_deinit();
-	sys_close(sched_pid_fd);
-	sched_pid_fd = -1;
+	sys_close(controller_pid_fd);
+	controller_pid_fd = -1;
 }
 
 void
-sched_loop()
+controller_process()
 {
-	int i;
-
-	i = 0;
-	while (!sched_done) {
-		rd_nanoseconds();
-		shm_set_nanoseconds(nanoseconds);
-		wait_for_fd_events();
-		i++;
-		if (0 && i > 100) {
-			i = 0;
-			sched_balance();
-		}
+	rd_nanoseconds();
+	shm_set_nanoseconds(nanoseconds);
+	wait_for_fd_events();
+	if (0) {
+		controller_sched_balance();
 	}
-	NOTICE(0, "done;");
+
 }

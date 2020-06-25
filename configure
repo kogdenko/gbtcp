@@ -124,9 +124,8 @@ install:
 	grep '^gbtcp:' /etc/group || $GROUPADD gbtcp
 	mkdir -p $PREFIX/gbtcp/
 	mkdir -p $PREFIX/gbtcp/bin
-	mkdir -p $PREFIX/gbtcp/ctl
-	mkdir -p $PREFIX/gbtcp/log
 	mkdir -p $PREFIX/gbtcp/pid
+	mkdir -p $PREFIX/gbtcp/sysctl
 	mkdir -p $PREFIX/gbtcp/sock
 	chgrp -R gbtcp $PREFIX/gbtcp
 	chmod -R 775 $PREFIX/gbtcp

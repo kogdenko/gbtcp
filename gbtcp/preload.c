@@ -3,7 +3,7 @@
 
 static __thread int gt_called;
 
-int gt_preload_passthru = 1;
+int gt_preload_passthru = 0;
 
 #define PRELOAD_FLAG_FD_ARG (1 << 0)
 #define PRELOAD_FLAG_FD_RET (1 << 1)
@@ -20,7 +20,6 @@ int gt_preload_passthru = 1;
 	rc; \
 })
 
-#if 1
 #define PRELOAD_CALL(fn, fd, flags, ...) \
 ({ \
 	int new_fd; \
@@ -52,7 +51,6 @@ int gt_preload_passthru = 1;
 	} \
 	rc; \
 })
-#endif
 
 #if 1
 #define PRELOAD_FORK fork
@@ -83,7 +81,7 @@ int gt_preload_passthru = 1;
 #define PRELOAD_POLL poll
 #define PRELOAD_PSELECT pselect
 #define PRELOAD_SELECT select
-#define PRELOAD_SIGPROCMASK sigprocmask_
+#define PRELOAD_SIGPROCMASK sigprocmask
 #define PRELOAD_SIGSUSPEND sigsuspend
 
 #ifdef __linux__
@@ -129,14 +127,13 @@ PRELOAD_SOCKET(int domain, int type, int protocol)
 	int rc, pf;
 
 	pf = PRELOAD_FLAG_FD_RET;
-	if (1 || domain != AF_INET) {
+	if (domain != AF_INET) {
 		pf |= PRELOAD_FLAG_PASSTHRU;
 	}
 	rc = PRELOAD_CALL(socket, 0, pf, domain, type, protocol);
 	return rc;
 }
 
-#if 1
 int
 PRELOAD_BIND(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
@@ -384,7 +381,7 @@ PRELOAD_PSELECT(int n, fd_set *rfds, fd_set *wfds, fd_set *efds,
 	if (efds != NULL) {
 		FD_ZERO(efds);
 	}
-	n = PRELOAD_PPOLL(pfds, npfds, timeout, sigmask);
+	n = ppoll(pfds, npfds, timeout, sigmask);
 	if (n <= 0) {
 		return n;
 	}
@@ -471,11 +468,10 @@ PRELOAD_GETPEERNAME(int fd, struct sockaddr *addr, socklen_t *addrlen)
 int
 PRELOAD_SIGPROCMASK(int how, const sigset_t *set, sigset_t *oldset)
 {
-//	int rc;
+	int rc;
 
-//	rc = PRELOAD_PPOLL(NULL, 0, NULL
-	errno = EINVAL;
-	return -1;
+	rc = PRELOAD_CALL(sigprocmask, 0, 0, how, set, oldset);
+	return rc;
 }
 
 int
@@ -483,89 +479,6 @@ PRELOAD_SIGSUSPEND(const sigset_t *mask)
 {
 	return PRELOAD_PPOLL(NULL, 0, NULL, mask);
 }
-
-/*gt_sighandler_t 
-PRELOAD_SIGNAL(int signum, gt_sighandler_t fn)
-{
-	int rc;
-	struct sigaction act, oldact;
-
-	memset(&act, 0, sizeof(act));
-	act.sa_handler = fn;
-	rc = PRELOAD_CALL(sigaction, signum, &act, &oldact);
-	if (rc < 0) {
-		return SIG_ERR;
-	}
-	if (oldact.sa_flags & SA_SIGINFO) {
-		// TODO: ? check how works in OS
-		return (gt_sighandler_t)oldact.sa_sigaction;
-	} else {
-		return oldact.sa_handler;
-	}
-}
-
-int
-PRELOAD_SIGACTION(int signum, const struct sigaction *act,
-	struct sigaction *oldact)
-{
-	int rc;
-
-	rc = gt_sigaction(signum, act, oldact);
-	if (rc == -1) {
-		preload_set_errno(gt_errno);
-	}
-	return rc;
-}*/
-
-#if 0
-int
-__xstat(int ver, const char * path, struct stat * stat_buf)
-{
-	printf("-- __xstat\n");
-	assert(0);
-	return 0;
-}
-
-int
-__lxstat(int ver, const char * path, struct stat * stat_buf)
-{
-	printf("-- __lxstat\n");
-	assert(0);
-	return 0;
-}
-
-int
-__fxstat(int ver, int fildes, struct stat * stat_buf)
-{
-	printf("-- __fxstat\n");
-	assert(0);
-	return 0;
-}
-
-int
- __xstat64(int ver, const char * path, struct stat64 * stat_buf)
-{
-	printf("-- __xstat64\n");
-	//assert(0);
-	return 0;
-}
-
-int
-__lxstat64(int ver, const char * path, struct stat64 * stat_buf)
-{
-	printf("-- __lxstat64\n");
-	assert(0);
-	return 0;
-}
-
-int
-__fxstat64(int ver, int fildes, struct stat64 * stat_buf)
-{
-	printf("-- __fxstat64\n");
-	assert(0);
-	return 0;
-}
-#endif
 
 #ifdef __linux__
 int
@@ -665,4 +578,3 @@ PRELOAD_KEVENT(int kq, const struct kevent *changelist, int nchanges,
 	return rc;
 }
 #endif // __linux__
-#endif

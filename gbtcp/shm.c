@@ -201,6 +201,7 @@ shm_init()
 {
 	int i, rc, n_pages, hdr_size, superblock_size;
 	size_t size;
+	struct stat buf;
 
 	NOTICE(0, "hit;");
 	assert(shm_early);
@@ -211,10 +212,7 @@ shm_init()
 		goto err;
 	}
 	shm_fd = rc;
-	rc = fchgrp(shm_fd, GT_GROUP_NAME);
-	if (rc) {
-		goto err;
-	}
+	fchgrp(shm_fd, &buf, GT_GROUP_NAME);
 	rc = sys_ftruncate(shm_fd, size);
 	if (rc) {
 		goto err;

@@ -11,9 +11,9 @@
 
 #define SYSCTL_SOCK_PATH GT_PREFIX"/sock"
 #define SYSCTL_CONFIG_PATH GT_PREFIX"/sysctl"
-#define SYSCTL_SCHED_PATH SYSCTL_SOCK_PATH"/sched.sock"
+#define SYSCTL_CONTROLLER_PATH SYSCTL_SOCK_PATH"/controller.sock"
 
-#define SYSCTL_SCHED_ADD "sched.add"
+#define SYSCTL_CONTROLLER_ADD "controller.add"
 
 struct sysctl_conn {
 	void (*scc_close_fn)(struct sysctl_conn *);

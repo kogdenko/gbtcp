@@ -143,6 +143,8 @@ struct profiler {
 #define MEM_PREFETCH(ptr) \
 	__builtin_prefetch(ptr)
 
+#define SOCK_TYPE_FLAGS(type) ((type) & (SOCK_NONBLOCK|SOCK_CLOEXEC))
+#define SOCK_TYPE_NOFLAGS(type) ((type) & (~(SOCK_NONBLOCK|SOCK_CLOEXEC)))
 
 #define printf_rl(period, fmt, ...) \
 do { \
@@ -237,11 +239,6 @@ extern uint64_t nanoseconds;
 extern uint64_t HZ;
 extern uint64_t mHZ;
 
-int subr_mod_init(void **);
-int subr_mod_attach(void *);
-void subr_mod_deinit();
-void subr_mod_detach();
-
 int eth_addr_aton(struct eth_addr *, const char *);
 int eth_addr_is_mcast(const u_char *);
 int eth_addr_is_ucast(const u_char *);
@@ -278,7 +275,7 @@ uint64_t upper_pow2_64(uint64_t x);
 uint32_t lower_pow2_32(uint32_t x);
 uint64_t lower_pow2_64(uint64_t x);
 
-int fchgrp(int, const char *);
+int fchgrp(int, struct stat *, const char *);
 int fcntl_setfl_nonblock(int, int *);
 #define fcntl_setfl_nonblock2(fd) \
 	fcntl_setfl_nonblock(fd, NULL)

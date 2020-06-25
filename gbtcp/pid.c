@@ -13,21 +13,16 @@ int
 pid_file_open(const char *path)
 {
 	int fd, rc;
+	struct stat buf;
 
 	rc = sys_open(path, O_CREAT|O_RDWR, 0666);
 	if (rc < 0) {
 		return rc;
 	}
 	fd = rc;
-	rc = fchgrp(fd, GT_GROUP_NAME);
-	if (rc) {
-		goto err;
-	}
+	fchgrp(fd, &buf, GT_GROUP_NAME);
 	INFO(0, "ok; fd=%d, path='%s'", fd, path);
 	return fd;
-err:
-	sys_close(fd);
-	return rc;
 }
 
 int

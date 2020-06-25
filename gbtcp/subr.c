@@ -365,16 +365,15 @@ lower_pow2_64(uint64_t x)
 }
 
 int
-fchgrp(int fd, const char *group_name)
+fchgrp(int fd, struct stat *buf, const char *group_name)
 {
 	int rc;
-	struct stat buf;
 	struct group *group;
 
 	rc = sys_getgrnam(group_name, &group);
 	if (rc == 0) {
-		rc = sys_fstat(fd, &buf);
-		if (rc == 0 && buf.st_gid != group->gr_gid)  {
+		rc = sys_fstat(fd, buf);
+		if (rc == 0 && buf->st_gid != group->gr_gid)  {
 			rc = sys_fchown(fd, -1, group->gr_gid);
 		}
 	}

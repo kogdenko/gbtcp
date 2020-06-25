@@ -106,7 +106,7 @@ struct shm_init_hdr;
 	x(sockbuf) \
 	x(tcp) \
 	x(service) \
-	x(sched) \
+	x(controller) \
 	x(app)
 
 #define MOD_ENUM(name) MOD_##name,
@@ -121,7 +121,8 @@ enum {
 
 extern struct shm_init_hdr *shm_ih;
 extern struct service *current;
-extern sigset_t service_sigprocmask;
+extern sigset_t current_sigprocmask;
+extern int current_sigprocmask_set;
 extern uint64_t nanoseconds;
 
 #endif // GBTCP_GLOBAL_H

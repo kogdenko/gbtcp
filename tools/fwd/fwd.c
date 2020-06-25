@@ -73,7 +73,7 @@ loop(struct sockaddr_in *a, int affinity)
 	if (affinity >= 0) {
 		set_affinity(affinity);
 	}
-	rc = service_attach();
+	rc = service_attach("init");
 	if (rc) {
 		die(-rc, "service_attach() failed");
 	}

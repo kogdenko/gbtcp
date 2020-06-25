@@ -13,16 +13,17 @@ struct service_msg {
 static struct spinlock service_attach_lock;
 static int service_sysctl_fd = -1;
 static int service_pid_fd = -1;
-static int service_sigprocmask_set;
 static struct dev service_vale;
 static int service_rcu_max;
+static int service_signal_guard = 1;
 static struct dlist service_rcu_active_head;
 static struct dlist service_rcu_shadow_head;
 static u_int service_rcu[GT_SERVICES_MAX];
 
 struct shm_init_hdr *shm_ih;
 struct service *current;
-sigset_t service_sigprocmask;
+sigset_t current_sigprocmask;
+int current_sigprocmask_set;
 
 static int
 service_pipe_read(int fd)
@@ -69,11 +70,13 @@ service_start_controller_nolog(const char *p_comm)
 	if (rc == 0) {
 		sys_close(pipe_fd[0]);
 		sys_close(service_sysctl_fd);
-		rc = sched_init(1, p_comm);
+		rc = controller_init(1, p_comm);
 		write_record(pipe_fd[1], &rc, sizeof(rc));
 		sys_close(pipe_fd[1]);
 		if (rc == 0) {
-			sched_loop();
+			while (!controller_done) {
+				controller_process();
+			}
 		}
 		exit(EXIT_SUCCESS);
 	} else if (rc > 0) {
@@ -163,11 +166,11 @@ service_rssq_rx_one(struct route_if *ifp, void *data, int len)
 	p.in_arps = &current->p_arps;
 	rc = service_rx(&p);
 	if (rc == IN_BYPASS) {
-		if (current->p_sid == SCHED_SID) {
+		if (current->p_sid == CONTROLLER_SID) {
 			transmit_to_host(ifp, data, len);
 		} else {
 			vale_transmit5(ifp, SERVICE_MSG_BYPASS,
-			               SCHED_SID, data, len);
+			               CONTROLLER_SID, data, len);
 		}
 	} else if (rc >= 0) {
 		current->p_ips.ips_delivered++;
@@ -238,7 +241,7 @@ service_vale_rx_one(void *data, int len)
 		}
 		break;
 	case SERVICE_MSG_BYPASS:
-		if (current->p_sid == SCHED_SID) {
+		if (current->p_sid == CONTROLLER_SID) {
 			transmit_to_host(ifp, data, len);
 		}
 		break;
@@ -326,7 +329,7 @@ service_init_shared(struct service *s, int pid, int fd)
 	int i, rc;
 
 	NOTICE(0, "hit; pid=%d", pid);
-	assert(current->p_sid == SCHED_SID);
+	assert(current->p_sid == CONTROLLER_SID);
 	s->p_pid = pid;
 	s->p_sid = s - shm_ih->ih_services;
 	s->p_need_update_rss_bindings = 0;
@@ -370,7 +373,7 @@ service_deinit_shared(struct service *s, int full)
 	struct route_if *ifp;
 
 	NOTICE(0, "hit; pid=%d", s->p_pid);
-	assert(current->p_sid == SCHED_SID);
+	assert(current->p_sid == CONTROLLER_SID);
 	ROUTE_IF_FOREACH(ifp) {
 		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
 			dev = &(ifp->rif_dev[s->p_sid][i]);
@@ -420,7 +423,7 @@ service_deinit_private()
 }
 
 int
-service_attach()
+service_attach(const char *fn_name)
 {
 	int rc, pid;
 	struct sockaddr_un a;
@@ -435,14 +438,14 @@ service_attach()
 		spinlock_unlock(&service_attach_lock);
 		return 0;
 	}
-	ERR(0, "hit;");
+	ERR(0, "hit; from=%s", fn_name);
 	pid = getpid();
 	rc = read_proc_comm(p_comm, pid);
 	if (rc) {
 		goto err;
 	}
 	gt_init(p_comm, 0);
-	NOTICE(0, "hit2;");
+	NOTICE(0, "hit2; from=%s", fn_name);
 	sysctl_make_sockaddr_un(&a, pid);
 	rc = sysctl_bind(&a);
 	if (rc < 0) {
@@ -451,6 +454,7 @@ service_attach()
 	service_sysctl_fd = rc;
 	rc = sysctl_connect(service_sysctl_fd);
 	if (rc) {
+		goto err;
 		rc = service_start_controller(p_comm);
 		if (rc) {
 			goto err;
@@ -460,14 +464,16 @@ service_attach()
 			goto err;
 		}
 	}
-	sigfillset(&sigprocmask_block);
-	rc = sys_sigprocmask(SIG_BLOCK, &sigprocmask_block,
-	                     &service_sigprocmask);
-	if (rc) {
-		goto err;
+	if (service_signal_guard) {
+		sigfillset(&sigprocmask_block);
+		rc = sys_sigprocmask(SIG_BLOCK, &sigprocmask_block,
+	        	             &current_sigprocmask);
+		if (rc) {
+			goto err;
+		}
+		current_sigprocmask_set = 1;
 	}
-	service_sigprocmask_set = 1;
-	rc = sysctl_req(service_sysctl_fd, SYSCTL_SCHED_ADD, buf, "~");
+	rc = sysctl_req(service_sysctl_fd, SYSCTL_CONTROLLER_ADD, buf, "~");
 	if (rc) {
 		if (rc > 0) {
 			rc = -rc;
@@ -533,9 +539,9 @@ service_detach()
 	shm_ih = NULL;
 	shm_detach();
 	clean_fd_events();
-	if (service_sigprocmask_set) {
-		service_sigprocmask_set = 0;
-		sys_sigprocmask(SIG_SETMASK, &service_sigprocmask, NULL);
+	if (current_sigprocmask_set) {
+		current_sigprocmask_set = 0;
+		sys_sigprocmask(SIG_SETMASK, &current_sigprocmask, NULL);
 	}
 }
 
@@ -756,6 +762,23 @@ vale_transmit(struct route_if *ifp, int msg_type, struct dev_pkt *pkt)
 	dev_transmit(pkt);
 }
 
+int
+service_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
+{
+	int rc;
+	sigset_t tmp;
+
+	if (!current_sigprocmask_set) {
+		rc = sys_sigprocmask(how, set, oldset);
+	} else {
+		// unblock
+		sys_sigprocmask(SIG_SETMASK, &current_sigprocmask, &tmp);
+		rc = sys_sigprocmask(how, set, oldset);
+		sys_sigprocmask(SIG_SETMASK, &tmp, &current_sigprocmask);
+	}
+	return rc;
+}
+
 static void
 service_in_parent(int pipe_fd[2])
 {
@@ -802,39 +825,39 @@ err:
 static void
 service_in_child0()
 {
-	int rc, n, psid;
+	int rc, parent_sid, flag;
 	struct sock *so;
 
-	n = 0;
-	psid = current->p_sid;
+	flag = 0;
+	parent_sid = current->p_sid;
 	SO_FOREACH_BINDED(so) {
-		if (so->so_sid == psid &&
+		if (so->so_sid == parent_sid &&
 		    so->so_ipproto == SO_IPPROTO_TCP &&
 		    so->so_state == GT_TCPS_LISTEN) {
-			n++;
+			flag = 1;
 			break;
 		}
 	};
 	service_detach();
-	if (n == 0) {
+	if (!flag) {
 		return;
 	}
-	rc = service_attach();
+	rc = service_attach("in_child");
 	if (rc) {
 		return;
 	}
-	n = 0;
+	flag = 0;
 	SO_FOREACH_BINDED(so) {
-		if (so->so_sid == psid &&
+		if (so->so_sid == parent_sid &&
 		    so->so_ipproto == SO_IPPROTO_TCP &&
 		    so->so_state == GT_TCPS_LISTEN) {
 			rc = service_dup_so(so);
 			if (rc == 0) {
-				n++;
+				flag = 1;
 			}
 		}
 	}
-	if (n == 0) {
+	if (!flag) {
 		service_detach();
 	}
 }
@@ -875,23 +898,14 @@ service_fork()
 }
 
 #ifdef __linux__
-struct service_clone_udata {
-	void *arg;
-	int (*fn)(void *);
-	int pipe_fd[2];
-};
+static int (*service_clone_fn)(void *);
+static int service_clone_pipe_fd[2];
 
 static int
-service_clone_fn(void *arg)
+service_clone_in_child(void *arg)
 {
-	struct service *s;
-	struct service_clone_udata *udata;
-
-	udata = arg;
-	s = current;
-	service_in_child(udata->pipe_fd);
-	spinlock_unlock(&s->p_lock);
-	return (*udata->fn)(udata->arg);
+	service_in_child(service_clone_pipe_fd);
+	return (*service_clone_fn)(arg);
 }
 
 int
@@ -899,12 +913,11 @@ service_clone(int (*fn)(void *), void *child_stack,
 	int flags, void *arg, void *ptid, void *tls, void *ctid)
 {
 	int rc, clone_vm, clone_files, clone_thread;
-	struct service_clone_udata udata;
 
-	NOTICE(0, "hit;");
 	clone_vm = flags & CLONE_VM;
 	clone_files = flags & CLONE_FILES;
 	clone_thread = flags & CLONE_THREAD;
+	NOTICE(0, "hit; flags=%s", log_add_clone_flags(flags));
 	if (clone_vm) {
 		if (clone_files == 0 || clone_thread == 0) {
 			return -EINVAL;
@@ -915,24 +928,22 @@ service_clone(int (*fn)(void *), void *child_stack,
 		}
 	}
 	if (clone_vm) {
-		rc = (*sys_clone_fn)(fn, child_stack, flags, arg,
-		                     ptid, tls, ctid);
+		// Just a thread
+		rc = sys_clone(fn, child_stack, flags, arg, ptid, tls, ctid);
 	} else {
-		udata.fn = fn;
-		udata.arg = arg;
-		rc = sys_pipe(udata.pipe_fd);
+		service_clone_fn = fn;
+		rc = sys_pipe(service_clone_pipe_fd);
 		if (rc) {
 			return rc;
 		}
-		rc = (*sys_clone_fn)(service_clone_fn,
-		                     child_stack, flags,
-		                     &udata, ptid, tls, ctid);
+		rc = sys_clone(service_clone_in_child, child_stack, flags, arg,
+		               ptid, tls, ctid);
 		if (rc == -1) {
 			rc = -errno;
-			sys_close(udata.pipe_fd[0]);
-			sys_close(udata.pipe_fd[1]);
+			sys_close(service_clone_pipe_fd[0]);
+			sys_close(service_clone_pipe_fd[1]);
 		} else {
-			service_in_parent(udata.pipe_fd);
+			service_in_parent(service_clone_pipe_fd);
 		}
 	}
 	return rc;

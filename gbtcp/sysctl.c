@@ -912,7 +912,7 @@ sysctl_connect(int fd)
 	struct sockaddr_un a;
 
 	a.sun_family = AF_UNIX;
-	strzcpy(a.sun_path, SYSCTL_SCHED_PATH, sizeof(a.sun_path));
+	strzcpy(a.sun_path, SYSCTL_CONTROLLER_PATH, sizeof(a.sun_path));
 	to = 2 * NSEC_SEC;
 	rc = connect_timed(fd, (struct sockaddr *)&a, sizeof(a), &to);
 	return rc;
@@ -922,8 +922,7 @@ int
 sysctl_bind(const struct sockaddr_un *a)
 {
 	int rc, fd;
-	struct stat stat;
-	struct group *group;
+	struct stat buf;
 
 	rc = sys_socket(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0);
 	if (rc < 0) {
@@ -935,21 +934,9 @@ sysctl_bind(const struct sockaddr_un *a)
 	if (rc < 0) {
 		goto err;
 	}
-	rc = sys_getgrnam(GT_GROUP_NAME, &group);
-	if (rc) {
-		goto err;
-	}
-	rc = sys_chown(a->sun_path, -1, group->gr_gid);
-	if (rc) {
-		goto err;
-	}
-	rc = sys_stat(a->sun_path, &stat);
-	if (rc) {
-		goto err;
-	}
-	rc = sys_chmod(a->sun_path, stat.st_mode|S_IRGRP|S_IWGRP|S_IXGRP);
-	if (rc) {
-		goto err;
+	rc = fchgrp(fd, &buf, GT_GROUP_NAME);
+	if (rc == 0) {
+		sys_fchmod(fd, buf.st_mode|S_IRGRP|S_IWGRP|S_IXGRP);
 	}
 	rc = sysctl_setsockopt(fd);
 	if (rc) {

@@ -55,7 +55,7 @@
 #define GT_SYSCTL_ARP_ADD "arp.add"
 #define GT_SYSCTL_ARP_DEL "arp.del"
 #define GT_SYSCTL_ARP_LIST "arp.list"
-#define GT_SYSCTL_SCHED_SERVICE_LIST "sched.service.list"
+#define GT_SYSCTL_CONTROLLER_SERVICE_LIST "controller.service.list"
 #define GT_SYSCTL_INET_CKSUM_OFFLOAD_RX "inet.cksum.offload.rx"
 #define GT_SYSCTL_INET_CKSUM_OFFLOAD_TX "inet.cksum.offload.tx"
 
@@ -172,6 +172,7 @@
 extern __thread int gt_errno;
 extern int gt_preload_passthru;
 
+void gt_init(const char *, int);
 pid_t gt_fork();
 int gt_socket(int, int, int);
 int gt_connect(int, const struct sockaddr *, socklen_t);
@@ -188,20 +189,17 @@ ssize_t gt_recvmsg(int, struct msghdr *, int);
 ssize_t gt_write(int, const void *, size_t);
 ssize_t gt_writev(int, const struct iovec *, int);
 ssize_t gt_send(int, const void *, size_t, int);
-ssize_t gt_sendto(int, const void *, size_t, int,
-	const struct sockaddr *, socklen_t);
+ssize_t gt_sendto(int, const void *, size_t, int, const struct sockaddr *, socklen_t);
 ssize_t gt_sendmsg(int, const struct msghdr *, int);
-int gt_fcntl(int, int, uintptr_t);
-int gt_ioctl(int, unsigned long, uintptr_t);
 int gt_getsockopt(int, int, int, void *, socklen_t *);
 int gt_setsockopt(int, int, int, const void *, socklen_t);
 int gt_getpeername(int, struct sockaddr *, socklen_t *);
+int gt_fcntl(int, int, uintptr_t);
+int gt_ioctl(int, unsigned long, uintptr_t);
 int gt_poll(struct pollfd *, nfds_t, int);
-int gt_ppoll(struct pollfd *, nfds_t, const struct timespec *,
-	const sigset_t *);
+int gt_ppoll(struct pollfd *, nfds_t, const struct timespec *, const sigset_t *);
+int gt_sigprocmask(int, const sigset_t *, sigset_t *);
 int gt_sysctl(const char *, char *, const char *);
-void gt_init(const char *, int);
-int gt_sigaction(int, const struct sigaction *,	struct sigaction *);
 
 #ifdef __linux__
 int gt_clone(int (*)(void *), void *, int, void *, void *, void *, void *);

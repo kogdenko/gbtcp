@@ -1,4 +1,4 @@
-// gpl2 license
+// gpl2
 #include "internals.h"
 
 #define LOG_LEVEL_DEFAULT LOG_NOTICE
@@ -13,6 +13,8 @@ struct log_mod {
 static char log_buf[LOG_BUFSIZ];
 static struct strbuf log_sb;
 static int log_early_level = LOG_LEVEL_DEFAULT;
+
+// syslog() use ident pointer 
 static char ident_buf[SERVICE_COMM_MAX + 7];
 static const char *ident;
 

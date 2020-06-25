@@ -90,7 +90,7 @@ void service_deinit_shared(struct service *, int);
 int service_init_private();
 void service_deinit_private();
 
-int service_attach();
+int service_attach(const char *);
 void service_detach();
 void service_unlock();
 
@@ -102,6 +102,8 @@ int service_can_connect(struct route_if *, be32_t, be32_t, be16_t, be16_t);
 
 int vale_not_empty_txr(struct route_if *, struct dev_pkt *, int);
 void vale_transmit(struct route_if *, int, struct dev_pkt *);
+
+int service_sigprocmask(int, const sigset_t *, sigset_t *);
 
 int service_fork();
 

@@ -63,7 +63,7 @@ lptree_init(struct lptree *tree)
 	int rc;
 
 	tree->lpt_root = NULL;
-	rc = mbuf_pool_alloc(&tree->lpt_node_pool, SCHED_SID,
+	rc = mbuf_pool_alloc(&tree->lpt_node_pool, CONTROLLER_SID,
 	                     sizeof(struct lptree_node), 0);
 	return rc;
 }

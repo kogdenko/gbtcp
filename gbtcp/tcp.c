@@ -2651,7 +2651,6 @@ so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 		so = so_find_binded(b, so_ipproto, laddr, faddr, lport, fport);
 	}
 	if (so == NULL) {
-		dbg_rl(1, "??");
 		return IN_BYPASS;
 	}
 	if (so->so_sid != current->p_sid) {

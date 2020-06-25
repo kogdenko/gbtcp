@@ -8,20 +8,20 @@ static __thread int api_locked;
 __thread int gt_errno;
 
 #define API_LOCK \
-	if (api_lock()) { \
+	if (api_lock(__func__)) { \
 		return -1; \
 	}
 
 #define API_UNLOCK api_unlock()
 
 static inline int
-api_lock()
+api_lock(const char *fn_name)
 {
 	int rc;
 
 	if (api_locked == 0) {
 		if (current == NULL) {
-			rc = service_attach();
+			rc = service_attach(fn_name);
 			if (rc) {
 				GT_RETURN(-ECANCELED);
 			}
@@ -78,8 +78,8 @@ gt_socket(int domain, int type, int proto)
 	struct sock *so;
 
 	API_LOCK;
-	flags = type & (SOCK_NONBLOCK|SOCK_CLOEXEC);
-	type_noflags = type & (~(SOCK_NONBLOCK|SOCK_CLOEXEC));
+	flags = SOCK_TYPE_FLAGS(type);
+	type_noflags = SOCK_TYPE_NOFLAGS(type);
 	INFO(0, "hit; type=%s, flags=%s",
 	     log_add_socket_type(type_noflags),
 	     log_add_socket_flags(flags));
@@ -489,48 +489,6 @@ gt_sendmsg(int fd, const struct msghdr *msg, int flags)
 }
 
 int
-gt_fcntl(int fd, int cmd, uintptr_t arg)
-{
-	int rc;
-	struct file *fp;
-
-	API_LOCK;
-	INFO(0, "hit; fd=%d, cmd=%s", fd, log_add_fcntl_cmd(cmd));
-	rc = file_get(fd, &fp);
-	if (rc == 0) {
-		rc = file_fcntl(fp, cmd, arg);
-	}
-	if (rc < 0) {
-		INFO(-rc, "failed;");
-	} else {
-		INFO(0, "ok; rc=0x%x", rc);
-	}
-	API_UNLOCK;
-	GT_RETURN(rc);
-}
-
-int
-gt_ioctl(int fd, unsigned long req, uintptr_t arg)
-{
-	int rc;
-	struct file *fp;
-
-	API_LOCK;
-	INFO(0, "hit, fd=%d, req=%s", fd, log_add_ioctl_req(req, arg));
-	rc = file_get(fd, &fp);
-	if (rc == 0) {
-		rc = file_ioctl(fp, req, arg);
-	}
-	if (rc < 0) {
-		INFO(-rc, "failed");
-	} else {
-		INFO(0, "ok; rc=0x%x", rc);
-	}
-	API_UNLOCK;
-	GT_RETURN(rc);
-}
-
-int
 gt_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
 {
 	int rc;
@@ -603,6 +561,48 @@ gt_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 }
 
 int
+gt_fcntl(int fd, int cmd, uintptr_t arg)
+{
+	int rc;
+	struct file *fp;
+
+	API_LOCK;
+	INFO(0, "hit; fd=%d, cmd=%s", fd, log_add_fcntl_cmd(cmd));
+	rc = file_get(fd, &fp);
+	if (rc == 0) {
+		rc = file_fcntl(fp, cmd, arg);
+	}
+	if (rc < 0) {
+		INFO(-rc, "failed;");
+	} else {
+		INFO(0, "ok; rc=0x%x", rc);
+	}
+	API_UNLOCK;
+	GT_RETURN(rc);
+}
+
+int
+gt_ioctl(int fd, unsigned long req, uintptr_t arg)
+{
+	int rc;
+	struct file *fp;
+
+	API_LOCK;
+	INFO(0, "hit, fd=%d, req=%s", fd, log_add_ioctl_req(req, arg));
+	rc = file_get(fd, &fp);
+	if (rc == 0) {
+		rc = file_ioctl(fp, req, arg);
+	}
+	if (rc < 0) {
+		INFO(-rc, "failed");
+	} else {
+		INFO(0, "ok; rc=0x%x", rc);
+	}
+	API_UNLOCK;
+	GT_RETURN(rc);
+}
+
+int
 gt_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 {
 	int rc;
@@ -649,6 +649,23 @@ gt_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 	} else {
 		DBG(0, "ok; rc=%d, revents={%s}",
 		    rc, log_add_pollfds_revents(fds, rc));
+	}
+	API_UNLOCK;
+	GT_RETURN(rc);
+}
+
+int
+gt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
+{
+	int rc;
+
+	API_LOCK;
+	INFO(0, "hit; how=%s", log_add_sigprocmask_how(how));
+	rc = service_sigprocmask(how, set, oldset);
+	if (rc < 0) {
+		WARN(-rc, "failed;");
+	} else {
+		INFO(0, "ok;");
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
