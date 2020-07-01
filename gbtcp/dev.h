@@ -69,11 +69,6 @@ struct dev_pkt {
 
 #define dev_is_inited(dev) ((dev)->dev_fn != NULL)
 
-int dev_mod_init(void **);
-int dev_mod_attach(void *);
-void dev_mod_deinit(void *);
-void dev_mod_detach();
-
 int dev_init(struct dev *, const char *, dev_f);
 void dev_deinit(struct dev *);
 void dev_close_fd(struct dev *);

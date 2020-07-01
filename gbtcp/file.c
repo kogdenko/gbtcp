@@ -1,3 +1,4 @@
+// gpl2
 #include "internals.h"
 
 #define CURMOD file
@@ -10,31 +11,20 @@ struct file_mod {
 static void
 file_init(struct file *fp, int type)
 {
-	fp->fl_flags = 0;
 	fp->fl_type = type;
+	fp->fl_referenced = 0;
 	fp->fl_blocked = 1;
 	fp->fl_sid = current->p_sid;
-	dlist_init(&fp->fl_aioq);
+	file_aio_init(&fp->fl_aio);
+	dlist_init(&fp->fl_aio_head);
 }
 
 static void
-file_aio_call(struct file_aio *aio, short revents)
+file_aio_call(struct file_aio *aio, int fd, short revents)
 {
-	int fd;
-	short revents_filtered;
-	file_aio_f fn;
-
-	revents_filtered = aio->faio_filter & revents;
-	if (revents_filtered) {
-		fn = aio->faio_fn;
-		fd = aio->faio_fd;
-		aio->faio_revents |= revents_filtered;
-		DBG(0, "hit; aio=%p, fd=%d, events=%s",
-		    aio, fd, log_add_poll_events(revents_filtered));
-		if (fn != NULL) {
-			(*fn)(aio, fd, revents_filtered);
-		}
-	}
+	DBG(0, "hit; aio=%p, fd=%d, events=%s",
+	    aio, fd, log_add_poll_events(revents));
+	(*aio->faio_fn)(aio, fd, revents);
 }
 
 int
@@ -60,12 +50,12 @@ file_mod_deinit()
 }
 
 int
-service_init_file(struct service *s)
+init_files(struct service *s)
 {
 	int rc, size, n;
 
 	if (s->p_file_pool == NULL) {
-		size = sizeof(struct sock) + sizeof(struct file_aio); // FIXME:!!!!!!
+		size = sizeof(struct sock);
 		n = curmod->file_nofile - GT_FIRST_FD;
 		assert(n > 0);
 		rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid, size, n);
@@ -76,7 +66,7 @@ service_init_file(struct service *s)
 }
 
 void
-service_deinit_file(struct service *s)
+deinit_files(struct service *s)
 {
 	int tmp_fd;
 	struct file *fp;
@@ -182,24 +172,26 @@ file_free_rcu(struct file *fp)
 void
 file_close(struct file *fp)
 {
-	file_wakeup(fp, POLLNVAL);
-	fp->fl_referenced = 0;
-	switch (fp->fl_type) {
-	case FILE_SOCK:
-		so_close((struct sock *)fp);
-		break;
-	case FILE_EPOLL:
-		u_epoll_close(fp);
-		break;
-	default:
-		assert(!"bad fl_type");
+	if (fp->fl_referenced) {
+		file_wakeup(fp, POLLNVAL);
+		fp->fl_referenced = 0;
+		switch (fp->fl_type) {
+		case FILE_SOCK:
+			so_close((struct sock *)fp);
+			break;
+		case FILE_EPOLL:
+			u_epoll_close(fp);
+			break;
+		default:
+			assert(!"bad fl_type");
+		}
 	}
 }
 
 void
 file_clean(struct file *fp)
 {
-	fp->fl_referenced = 0; // dont call POLLNVAL
+	dlist_init(&fp->fl_aio_head);
 	file_close(fp);
 }
 
@@ -270,19 +262,28 @@ file_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 void
 file_wakeup(struct file *fp, short revents)
 {
+	int fd;
 	struct file_aio *aio, *tmp;
 
 	assert(revents);
-	DBG(0, "hit; fd=%d, revents=%s",
-	    file_get_fd(fp), log_add_poll_events(revents));
-	if (!fp->fl_referenced) {
-		return;
+	fd = file_get_fd(fp);
+	DBG(0, "hit; fd=%d, revents=%s", fd, log_add_poll_events(revents));
+	DLIST_FOREACH_SAFE(aio, &fp->fl_aio_head, faio_list, tmp) {
+		file_aio_call(aio, fd, revents);
 	}
-	DLIST_FOREACH_SAFE(aio, &fp->fl_aioq, faio_list, tmp) {
-		assert(aio->faio_filter);
-		file_aio_call(aio, revents);
+}
+
+static short file_wait_filter;
+
+static void
+file_wait_handler(void *aio_ptr, int fd, short event)
+{
+	struct file_aio *aio;
+
+	if (event & file_wait_filter) {
+		aio = aio_ptr;
+		file_aio_cancel(aio);
 	}
-	assert((revents & POLLNVAL) == 0 || dlist_is_empty(&fp->fl_aioq));
 }
 
 void
@@ -291,12 +292,12 @@ file_wait(struct file *fp, short events)
 	struct file_aio aio;
 
 	mbuf_init(&aio.faio_mbuf, MBUF_AREA_NONE);
+	file_wait_filter = events;
 	file_aio_init(&aio);
-	file_aio_set(fp, &aio, events, NULL);
+	file_aio_add(fp, &aio, file_wait_handler);
 	do {
 		wait_for_fd_events();
-	} while (aio.faio_revents == 0);
-	file_aio_cancel(&aio);
+	} while (aio.faio_fn != 0);
 }
 
 short
@@ -309,59 +310,42 @@ file_get_events(struct file *fp, struct file_aio *aio)
 	} else {
 		revents = 0;
 	}
-	DBG(0, "hit; aio=%p, fd=%d, events=%s",
-	    aio, file_get_fd(fp), log_add_poll_events(revents));
+	DBG(0, "hit; aio=%p, events=%s", aio, log_add_poll_events(revents));
 	return revents;
 }
 
 void
 file_aio_init(struct file_aio *aio)
 {
-	aio->faio_filter = 0;
-	aio->faio_revents = 0;
+	aio->faio_fn = NULL;
 }
 
 void
-file_aio_set(struct file *fp, struct file_aio *aio, short events,
-	file_aio_f fn)
+file_aio_add(struct file *fp, struct file_aio *aio, gt_aio_f fn)
 {
 	int fd;
-	const char *action;
-	short filter, revents;
+	short revents;
 
+	assert(fn != NULL);
 	assert(fp->fl_type == FILE_SOCK);
-	filter = events|POLLERR|POLLNVAL;
-	if (aio->faio_filter == filter) {
-		return;
-	}
-	fd = file_get_fd(fp);
-	aio->faio_fd = fd;
-	aio->faio_fn = fn;
-	if (aio->faio_filter == 0) {
-		DLIST_INSERT_HEAD(&fp->fl_aioq, aio, faio_list);
-		action = "add";
-	} else {
-		action = "mod";
-	}
-	UNUSED(action);
-	DBG(0, "%s; aio=%p, fd=%d, filter=%s",
-	    action, aio, fd, log_add_poll_events(filter));
-	aio->faio_filter |= filter;
-	revents = file_get_events(fp, aio);
-	if (revents) {
-		file_aio_call(aio, revents);
+	if (!file_aio_is_added(aio)) {
+		fd = file_get_fd(fp);
+		aio->faio_fn = fn;
+		DLIST_INSERT_HEAD(&fp->fl_aio_head, aio, faio_list);
+		DBG(0, "hit; aio=%p, fd=%d", aio, fd);
+		revents = file_get_events(fp, aio);
+		if (revents) {
+			file_aio_call(aio, fd, revents);
+		}
 	}
 }
 
 void
 file_aio_cancel(struct file_aio *aio)
 {
-	if (aio->faio_filter) {
-		DBG(0, "hit; aio=%p, fd=%d, filter=%s",
-		    aio, aio->faio_fd,
-		    log_add_poll_events(aio->faio_filter));
-		aio->faio_filter = 0;
+	if (file_aio_is_added(aio)) {
+		DBG(0, "hit; aio=%p", aio);
+		aio->faio_fn = NULL;
 		DLIST_REMOVE(aio, faio_list);
 	}
-	aio->faio_revents = 0;
 }

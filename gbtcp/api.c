@@ -26,9 +26,9 @@ api_lock(const char *fn_name)
 				GT_RETURN(-ECANCELED);
 			}
 		}
+		SERVICE_LOCK;
 	}
 	api_locked++;
-	SERVICE_LOCK;
 	return 0;
 }
 
@@ -49,6 +49,7 @@ void
 gt_init(const char *comm, int log_level)
 {
 	dlsym_all();
+//	umask(066
 	rd_nanoseconds();
 	srand48(nanoseconds ^ getpid());
 	log_init_early(comm, log_level);
@@ -654,6 +655,23 @@ gt_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 	GT_RETURN(rc);
 }
 
+/*int
+gt_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact)
+{
+	int rc;
+
+	API_LOCK;
+	INFO(0, "hit; sig=%d", sig);
+	rc = sys_sigaction(sig, act, oldact);
+	if (rc < 0) {
+		WARN(-rc, "failed;");
+	} else {
+		INFO(0, "ok;");
+	}
+	API_UNLOCK;
+	GT_RETURN(rc);
+}*/
+
 int
 gt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 {
@@ -666,6 +684,108 @@ gt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 		WARN(-rc, "failed;");
 	} else {
 		INFO(0, "ok;");
+	}
+	API_UNLOCK;
+	GT_RETURN(rc);
+}
+
+/*int
+gt_kill(int pid, int sig)
+{
+	int rc;
+
+	API_LOCK;
+	INFO(0, "hit; pid=%d, sig=%d", pid, sig);
+	rc = sys_kill(pid, sig);
+	if (rc < 0) {
+		INFO(-rc, "failed;");
+	} else {
+		INFO(0, "ok;");
+	}
+	API_UNLOCK;
+	GT_RETURN(rc);
+}*/
+
+int
+gt_aio_cancel(int fd)
+{
+	int rc;
+	struct sock *so;	
+
+	API_LOCK;
+	INFO(0, "hit; fd=%d", fd);
+	rc = so_get(fd, &so);
+	if (rc == 0) {
+		file_aio_cancel(&so->so_file.fl_aio);
+	}
+	if (rc < 0) {
+		INFO(-rc, "failed;");
+	} else {
+		INFO(0, "ok;");
+	}
+	API_UNLOCK;
+	GT_RETURN(rc);
+}
+
+int
+gt_aio_set(int fd, gt_aio_f fn)
+{
+	int rc;
+	struct sock *so;
+
+	API_LOCK;
+	INFO(0, "hit; fd=%d", fd);
+	rc = so_get(fd, &so);
+	if (rc == 0) {
+		file_aio_add(&so->so_file, &so->so_file.fl_aio, fn);
+	}
+	if (rc < 0) {
+		INFO(-rc, "failed;");
+	} else {
+		INFO(0, "ok;");
+	}
+	API_UNLOCK;
+	GT_RETURN(rc);
+}
+
+ssize_t
+gt_aio_recvfrom(int fd, struct iovec *iov, int flags,
+	struct sockaddr *addr, socklen_t *addrlen)
+{
+	ssize_t rc;
+	struct sock *so;
+
+	API_LOCK;
+	INFO(0, "hit; fd=%d", fd);
+	rc = so_get(fd, &so);
+	if (rc == 0) {
+		rc = so_aio_recvfrom(so, iov, flags, addr, addrlen);
+	}
+	if (rc < 0) {
+		INFO(-rc, "failed;");
+	} else {
+		INFO(0, "ok; rc=%zd", rc);
+	}
+	API_UNLOCK;
+	GT_RETURN(rc);
+}
+
+ssize_t
+gt_recvdrain(int fd, size_t cnt)
+{
+	ssize_t rc;
+	struct sock *so;
+
+	API_LOCK;
+	INFO(0, "hit; fd=%d", fd);
+	rc = so_get(fd, &so);
+	if (rc == 0) {
+		rc = so_recvdrain(so, cnt);
+	}
+	if (rc < 0) {
+		INFO(-rc, "failed;");
+	} else {
+		INFO(0, "ok; rc=%zd", rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);

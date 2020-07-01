@@ -7,34 +7,24 @@
 struct file_aio;
 
 enum file_type {
-	FILE_OTHER,
 	FILE_SOCK,
 	FILE_EPOLL,
 };
 
-typedef void (*file_aio_f)(struct file_aio *, int, short);
-
 struct file_aio {
 	struct mbuf faio_mbuf;
 #define faio_list faio_mbuf.mb_list
-	file_aio_f faio_fn;
-	int faio_fd;
-	short faio_filter;
-	short faio_revents;
+	gt_aio_f faio_fn;
 };
 
 struct file {
 	struct mbuf fl_mbuf;
-	union {
-		uint32_t fl_flags;
-		struct {
-			u_int fl_type : 3;
-			u_int fl_referenced : 1;
-			u_int fl_blocked : 1;
-			u_int fl_sid : 8;
-		};
-	};
-	struct dlist fl_aioq;
+	struct file_aio fl_aio;
+	struct dlist fl_aio_head;
+	u_char fl_type;
+	u_char fl_referenced;
+	u_char fl_blocked;
+	u_char fl_sid;
 };
 
 #define FILE_FOREACH2(s, fp) \
@@ -52,8 +42,8 @@ extern int file_sizeof;
 
 int file_mod_init();
 
-int service_init_file(struct service *);
-void service_deinit_file(struct service *);
+int init_files(struct service *);
+void deinit_files(struct service *);
 
 struct file *file_next(struct service *, int);
 int file_alloc3(struct file **, int, int);
@@ -69,8 +59,9 @@ int file_get_fd(struct file *);
 short file_get_events(struct file *, struct file_aio *);
 void file_wakeup(struct file *, short);
 void file_wait(struct file *, short);
-void file_aio_set(struct file *, struct file_aio *, short, file_aio_f);
-void file_aio_cancel(struct file_aio *);
+#define file_aio_is_added(aio) ((aio)->faio_fn != NULL)
 void file_aio_init(struct file_aio *);
+void file_aio_add(struct file *, struct file_aio *, gt_aio_f);
+void file_aio_cancel(struct file_aio *);
 
 #endif // GBTCP_FILE_H

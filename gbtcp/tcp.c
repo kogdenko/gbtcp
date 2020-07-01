@@ -741,24 +741,25 @@ so_recvfrom(struct sock *so, const struct iovec *iov, int iovcnt,
 static struct in_context *cur_zerocopy_in;
 
 int
-so_recvfrom_zerocopy(struct sock *so, struct iovec *iov, int flags,
+so_aio_recvfrom(struct sock *so, struct iovec *iov, int flags,
 	struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
 
-	if (cur_zerocopy_in == NULL) {
-		return -ENOTSUP;
-	}
+	//dbg("0 %p", cur_zerocopy_in);
 	if (flags) {
+		//dbg("!");
 		return -ENOTSUP;
 	}
 	rc = so_can_recv(so);
+	//dbg("rc=%d", rc);
 	if (rc <= 0) {
 		return rc;
 	}
 	assert(so->so_ipproto == SO_IPPROTO_TCP); // TODO:
 	if (so->so_rcvbuf.sob_len == 0) {
-		if (cur_zerocopy_in->in_len == 0) {
+		if (cur_zerocopy_in == NULL ||
+		    cur_zerocopy_in->in_len == 0) {
 			if (so->so_rfin) {
 				return 0;
 			} else {
@@ -778,7 +779,7 @@ so_recvfrom_zerocopy(struct sock *so, struct iovec *iov, int flags,
 }
 
 int
-so_recv_drain(struct sock *so, int len)
+so_recvdrain(struct sock *so, int len)
 {
 	int rc, off;
 
@@ -2296,7 +2297,7 @@ so_find_binded(struct htable_bucket *b, int so_ipproto,
 		if (so->so_ipproto == so_ipproto &&
 		    (so->so_laddr == 0 ||
 		     so->so_laddr == laddr)) {
-			active = !dlist_is_empty(&so->so_file.fl_aioq);
+			active = !dlist_is_empty(&so->so_file.fl_aio_head);
 			if (res == NULL ||
 			    (active && !res_active) ||
 			    (!(!active && res_active) &&
@@ -2306,9 +2307,15 @@ so_find_binded(struct htable_bucket *b, int so_ipproto,
 			}
 		}
 	}
+//	if (res != NULL) {
+//		if (res->so_sid != current->p_sid) {
+///			dbg_rl(1, "badbind");
+//		} else {
+//			dbg_rl(1, "good bind");
+//		}
+//	}
 	return res;
 }
-
 
 static int
 so_bind_ephemeral_port(struct sock *so, struct route_entry *r)

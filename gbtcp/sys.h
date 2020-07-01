@@ -55,6 +55,7 @@ typedef int (*sys_ppoll_f)(struct pollfd *, nfds_t, const struct timespec *, con
 typedef void *(*sys_signal_f)(int, void (*)(int));
 typedef int (*sys_sigaction_f)(int, const struct sigaction *, struct sigaction *);
 typedef int (*sys_sigprocmask_f)(int, const sigset_t *, sigset_t *);
+typedef int (*sys_kill_f)(int, int);
 typedef void *(*sys_mmap_f)(void *, size_t, int, int, int, off_t);
 #ifdef __linux__
 typedef int (*sys_clone_f)(int (*)(void *), void *, int, void *,
@@ -116,6 +117,7 @@ extern sys_ppoll_f sys_ppoll_fn;
 extern sys_signal_f sys_signal_fn;
 extern sys_sigaction_f sys_sigaction_fn;
 extern sys_sigprocmask_f sys_sigprocmask_fn;
+extern sys_kill_f sys_kill_fn;
 extern sys_mmap_f sys_mmap_fn;
 #ifdef __linux__
 extern sys_clone_f sys_clone_fn;
@@ -167,9 +169,12 @@ int sys_fcntl(int, int, uintptr_t);
 int sys_ioctl(int, unsigned long, uintptr_t);
 int sys_flock(int, int);
 int sys_ppoll(struct pollfd *, nfds_t, const struct timespec *,	const sigset_t *);
-void *sys_signal(int, void (*)(int));
+int sys_signal(int, void **, void (*)(int));
 int sys_sigaction(int, const struct sigaction *, struct sigaction *);
 int sys_sigprocmask(int, const sigset_t *, sigset_t *);
+int sys_kill(int, int);
+int sys_waitpid(pid_t, int *, int);
+int sys_daemon(int, int);
 void *sys_malloc(size_t);
 #define sys_free free
 void *sys_realloc(void *, size_t);
@@ -180,9 +185,6 @@ int sys_mprotect(void *, size_t, int);
 int sys_getifaddrs(struct ifaddrs **);
 int sys_if_indextoname(int, char *);
 int sys_if_nametoindex(const char *);
-int sys_kill(int, int);
-int sys_waitpid(pid_t, int *, int);
-int sys_daemon(int, int);
 
 #ifdef __linux__
 int sys_epoll_create1(int);

@@ -5,22 +5,26 @@ struct poll_entry {
 	struct file_aio pe_aio;
 #define pe_mbuf pe_aio.faio_mbuf
 	int *pe_n_triggered;
+	short pe_filter;
 	short pe_revents;
 };
 
 static void
-poll_handler(struct file_aio *aio, int fd, short revents)
+poll_handler(void *aio_ptr, int fd, short revents)
 {
+	short fr;
 	struct poll_entry *e;
 
-	assert(revents);
-	e = (struct poll_entry *)aio;
-	if (e->pe_revents == 0) {
-		(*e->pe_n_triggered)++;
-	}
-	e->pe_revents |= revents;
-	if (revents & POLLNVAL) {
-		file_aio_cancel(&e->pe_aio);
+	e = container_of(aio_ptr, struct poll_entry, pe_aio);
+	fr = revents & (e->pe_filter|POLLERR|POLLHUP|POLLNVAL);
+	if (fr != 0) {
+		if (e->pe_revents == 0) {
+			(*e->pe_n_triggered)++;
+		}
+		e->pe_revents |= fr;
+		if (fr & POLLNVAL) {
+			file_aio_cancel(&e->pe_aio);
+		}
 	}
 }
 
@@ -45,6 +49,7 @@ u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 		pfd->revents = 0;
 		fd = pfd->fd;
 		e->pe_revents = 0;
+		e->pe_filter = pfd->events;
 		e->pe_n_triggered = NULL;
 		rc = so_get(pfd->fd, &so);
 		if (rc == 0) {
@@ -53,8 +58,7 @@ u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 			mbuf_init(&e->pe_mbuf, MBUF_AREA_NONE);
 			file_aio_init(&e->pe_aio);
 			e->pe_n_triggered = &n_triggered;
-			file_aio_set(&so->so_file, &e->pe_aio,
-			             pfd->events, poll_handler);
+			file_aio_add(&so->so_file, &e->pe_aio, poll_handler);
 		}
 		rc = fd_poll_add3(&p, fd, pfd->events);
 		assert(rc == i);

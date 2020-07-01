@@ -19,6 +19,8 @@
 #include <sys/time.h>
 #endif // __linux__
 
+typedef void (*gt_aio_f)(void *, int, short);
+
 #define GT_TCPS_CLOSED 0
 #define GT_TCPS_LISTEN 1
 #define GT_TCPS_SYN_SENT 2
@@ -198,7 +200,13 @@ int gt_fcntl(int, int, uintptr_t);
 int gt_ioctl(int, unsigned long, uintptr_t);
 int gt_poll(struct pollfd *, nfds_t, int);
 int gt_ppoll(struct pollfd *, nfds_t, const struct timespec *, const sigset_t *);
+//int gt_sigaction(int, const struct sigaction *, struct sigaction *);
 int gt_sigprocmask(int, const sigset_t *, sigset_t *);
+//int gt_kill(int, int);
+int gt_aio_cancel(int);
+int gt_aio_set(int, gt_aio_f);
+ssize_t gt_aio_recvfrom(int, struct iovec *, int, struct sockaddr *, socklen_t *);
+ssize_t gt_recvdrain(int, size_t);
 int gt_sysctl(const char *, char *, const char *);
 
 #ifdef __linux__

@@ -16,6 +16,7 @@ static int service_pid_fd = -1;
 static struct dev service_vale;
 static int service_rcu_max;
 static int service_signal_guard = 1;
+static int service_autostart_controller = 1;
 static struct dlist service_rcu_active_head;
 static struct dlist service_rcu_shadow_head;
 static u_int service_rcu[GT_SERVICES_MAX];
@@ -353,7 +354,7 @@ service_init_shared(struct service *s, int pid, int fd)
 	if (rc) {
 		return rc;
 	}
-	rc = service_init_file(s);
+	rc = init_files(s);
 	if (rc) {
 		return rc;
 	}
@@ -380,7 +381,7 @@ service_deinit_shared(struct service *s, int full)
 			memset(dev, 0, sizeof(*dev));
 		}
 	}
-	service_deinit_file(s);
+	deinit_files(s);
 	if (current != s) {
 		migrate_timers(current, s);
 	}
@@ -454,7 +455,9 @@ service_attach(const char *fn_name)
 	service_sysctl_fd = rc;
 	rc = sysctl_connect(service_sysctl_fd);
 	if (rc) {
-		goto err;
+		if (!service_autostart_controller) {
+			goto err;
+		}
 		rc = service_start_controller(p_comm);
 		if (rc) {
 			goto err;
@@ -759,6 +762,7 @@ vale_transmit(struct route_if *ifp, int msg_type, struct dev_pkt *pkt)
 	msg->msg_type = msg_type;
 	msg->msg_ifindex = ifp->rif_index;
 	pkt->pkt_len += sizeof(*msg);
+	//dbg_rl(1, "redir");
 	dev_transmit(pkt);
 }
 

@@ -11,13 +11,10 @@ int gt_preload_passthru = 0;
 
 #define SYS_CALL(fn, ...) \
 ({ \
-	ssize_t rc; \
- \
 	if (sys_##fn##_fn == NULL) { \
  		SYS_DLSYM(fn); \
 	} \
-	rc = (sys_##fn##_fn)(__VA_ARGS__); \
-	rc; \
+	(sys_##fn##_fn)(__VA_ARGS__); \
 })
 
 #define PRELOAD_CALL(fn, fd, flags, ...) \
@@ -81,8 +78,11 @@ int gt_preload_passthru = 0;
 #define PRELOAD_POLL poll
 #define PRELOAD_PSELECT pselect
 #define PRELOAD_SELECT select
+//#define PRELOAD_SIGNAL signal
+//#define PRELOAD_SIGACTION sigaction
 #define PRELOAD_SIGPROCMASK sigprocmask
 #define PRELOAD_SIGSUSPEND sigsuspend
+//#define PRELOAD_KILL kill
 
 #ifdef __linux__
 #define PRELOAD_CLONE clone
@@ -465,6 +465,35 @@ PRELOAD_GETPEERNAME(int fd, struct sockaddr *addr, socklen_t *addrlen)
 	return rc;
 }
 
+/*sighandler_t
+PRELOAD_SIGNAL(int signum, void (*handler)(int))
+{
+	int rc;
+	struct sigaction act, oldact;
+
+	memset(&act, 0, sizeof(act));
+	act.sa_handler = handler;
+	rc = PRELOAD_CALL(sigaction, 0, 0, signum, &act, &oldact);
+	if (rc < 0) {
+		return SIG_ERR;
+	}
+	if (oldact.sa_flags & SA_SIGINFO) {
+		return (sighandler_t)oldact.sa_sigaction;
+	} else {
+		return oldact.sa_handler;
+	}
+}
+
+int
+PRELOAD_SIGACTION(int signum, const struct sigaction *act,
+	struct sigaction *oldact)
+{
+	int rc;
+
+	rc = PRELOAD_CALL(sigaction, 0, 0, signum, act, oldact);
+	return rc;
+}*/
+
 int
 PRELOAD_SIGPROCMASK(int how, const sigset_t *set, sigset_t *oldset)
 {
@@ -479,6 +508,12 @@ PRELOAD_SIGSUSPEND(const sigset_t *mask)
 {
 	return PRELOAD_PPOLL(NULL, 0, NULL, mask);
 }
+
+/*int
+PRELOAD_KILL(int pid, int sig)
+{
+	return PRELOAD_CALL(kill, 0, 0, pid, sig);
+}*/
 
 #ifdef __linux__
 int

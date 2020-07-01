@@ -48,6 +48,7 @@ sys_ppoll_f sys_ppoll_fn;
 sys_signal_f sys_signal_fn;
 sys_sigaction_f sys_sigaction_fn;
 sys_sigprocmask_f sys_sigprocmask_fn;
+sys_kill_f sys_kill_fn;
 sys_mmap_f sys_mmap_fn;
 #ifdef __linux__
 sys_clone_f sys_clone_fn;
@@ -128,6 +129,7 @@ dlsym_all()
 	SYS_DLSYM(signal);
 	SYS_DLSYM(sigaction);
 	SYS_DLSYM(sigprocmask);
+	SYS_DLSYM(kill);
 	SYS_DLSYM(mmap);
 	dlsym_all_os();
 }
@@ -855,8 +857,8 @@ sys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *to,
 	return rc;
 }
 
-void *
-sys_signal(int signum, void (*handler)())
+int
+sys_signal(int signum, void **pres, void (*handler)())
 {
 	int rc;
 	void (*res)(int);
@@ -868,9 +870,13 @@ sys_signal(int signum, void (*handler)())
 		ERR(-rc, "failed; signum=%d, sighandler=%s",
 		    signum, log_add_sighandler(handler));
 	} else {
+		rc = 0;
 		INFO(0, "ok; signum=%d", signum);
 	}
-	return res;
+	if (*pres != NULL) {
+		*pres = res;
+	}
+	return rc;
 }
 
 int
@@ -902,6 +908,54 @@ sys_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 		ERR(-rc, "failed; how=%s", log_add_sigprocmask_how(how));
 	} else {
 		INFO(0, "ok; how=%s", log_add_sigprocmask_how(how));
+	}
+	return rc;
+}
+
+int
+sys_kill(int pid, int sig)
+{
+	int rc;
+
+	rc = kill(pid, sig);
+	if (rc == -1) {
+		rc = -errno;
+		assert(rc);
+		ERR(-rc, "failed; pid=%d, sig=%d", pid, sig);
+	} else {
+		INFO(0, "ok; pid=%d, sig=%d", pid, sig);
+	}
+	return rc;
+}
+
+int
+sys_waitpid(pid_t pid, int *status, int options)
+{
+	int rc;
+
+	rc = waitpid(pid, status, options);
+	if (rc == -1) {
+		rc = -errno;
+		assert(rc);
+		ERR(-rc, "failed; pid=%d", (int)pid);
+	} else {
+		INFO(0, "ok; pid=%d", (int)pid);
+	}
+	return rc;
+}
+
+int
+sys_daemon(int nochdir, int noclose)
+{
+	int rc;
+
+	rc = daemon(nochdir, noclose);
+	if (rc < 0) {
+		rc = -errno;
+		assert(rc);
+		ERR(-rc, "failed;");
+	} else {
+		NOTICE(0, "ok;");
 	}
 	return rc;
 }
@@ -1053,54 +1107,6 @@ sys_if_nametoindex(const char *ifname)
 		ERR(-rc, "failed; ifname='%s'", ifname);
 	} else {
 		INFO(0, "ok; ifname=%s, ifondex=%d", ifname, rc);
-	}
-	return rc;
-}
-
-int
-sys_kill(int pid, int sig)
-{
-	int rc;
-
-	rc = kill(pid, sig);
-	if (rc == -1) {
-		rc = -errno;
-		assert(rc);
-		ERR(-rc, "failed; pid=%d, sig=%d", pid, sig);
-	} else {
-		INFO(0, "ok; pid=%d, sig=%d", pid, sig);
-	}
-	return rc;
-}
-
-int
-sys_waitpid(pid_t pid, int *status, int options)
-{
-	int rc;
-
-	rc = waitpid(pid, status, options);
-	if (rc == -1) {
-		rc = -errno;
-		assert(rc);
-		ERR(-rc, "failed; pid=%d", (int)pid);
-	} else {
-		INFO(0, "ok; pid=%d", (int)pid);
-	}
-	return rc;
-}
-
-int
-sys_daemon(int nochdir, int noclose)
-{
-	int rc;
-
-	rc = daemon(nochdir, noclose);
-	if (rc < 0) {
-		rc = -errno;
-		assert(rc);
-		ERR(-rc, "failed;");
-	} else {
-		NOTICE(0, "ok;");
 	}
 	return rc;
 }

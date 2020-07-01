@@ -1,3 +1,4 @@
+// gpl2
 #include "internals.h"
 
 #define CURMOD subr
@@ -37,13 +38,13 @@ eth_addr_is_mcast(const u_char *addr)
 {
 	return 0x01 & (addr >> ((sizeof(addr) * 8) - 8));
 }
-#else /* __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ */
+#else // __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 int
 eth_addr_is_mcast(const u_char *addr)
 {
 	return 0x01 & addr[0];
 }
-#endif /* __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ */
+#endif // __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 
 int
 eth_addr_is_ucast(const u_char *addr)
@@ -86,6 +87,7 @@ spinlock_init(struct spinlock *sl)
 	sl->spinlock_locked = 0;
 }
 
+#if 1
 void
 spinlock_lock(struct spinlock *sl)
 {
@@ -96,7 +98,6 @@ spinlock_lock(struct spinlock *sl)
 	}
 }
 
-// Return 1 if locked
 int
 spinlock_trylock(struct spinlock *sl)
 {
@@ -108,6 +109,25 @@ spinlock_unlock(struct spinlock *sl)
 {
 	__sync_lock_release(&sl->spinlock_locked);
 }
+
+#else
+void
+spinlock_lock(struct spinlock *sl)
+{
+}
+
+// return 1 if locked
+int
+spinlock_trylock(struct spinlock *sl)
+{
+	return 1;
+}
+
+void
+spinlock_unlock(struct spinlock *sl)
+{
+}
+#endif // debug
 
 uint64_t
 counter64_get(struct counter64 *c)

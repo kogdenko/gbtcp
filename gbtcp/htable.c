@@ -1,3 +1,4 @@
+// gpl2
 #include "internals.h"
 
 #define CURMOD htable
@@ -171,7 +172,7 @@ sysctl_htable_list(void *udata, const char *ident,
 	t = (struct htable *)udata;
 	assert(t->ht_sysctl_fn != NULL);
 	if (id.hi >= t->ht_size) {
-		return -ENOENT;
+		return 0;
 	}
 	b = t->ht_array + id.hi;
 	lo = 0;
@@ -179,13 +180,12 @@ sysctl_htable_list(void *udata, const char *ident,
 	dlist_foreach(e, &b->htb_head) {
 		if (lo == id.lo) {
 			(*t->ht_sysctl_fn)(e, new, out);
-			spinlock_unlock(&b->htb_lock);
-			return 0;
+			break;
 		}
 		lo++;
 	}
 	spinlock_unlock(&b->htb_lock);
-	return -ENOENT;
+	return 0;
 }
 
 void

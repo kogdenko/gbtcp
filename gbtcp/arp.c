@@ -1,3 +1,4 @@
+// gpl2
 #include "internals.h"
 
 #define CURMOD arp
@@ -430,6 +431,7 @@ arp_is_reachable_timeouted(struct arp_entry *e)
 {
 	uint64_t t;
 
+	return 0;
 	if (READ_ONCE(e->ae_admin)) {
 		return 0;
 	}

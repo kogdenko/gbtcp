@@ -285,26 +285,14 @@ controller_sched_balance()
 static void
 controller_del_service(struct service *s)
 {
-	int i;
+	int i, sid, rss_nq;
 	struct sockaddr_un a;
 	struct service *new;
 
 	NOTICE(0, "hit; pid=%d", s->p_pid);
+	sid = s->p_sid;
+	rss_nq = s->p_rss_nq;
 	controller_check_service_deadlock(s);
-	if (s->p_rss_nq) {
-		controller_sched_alg(&new, NULL);
-		for (i = 0; i < shm_ih->ih_rss_nq; ++i) {
-			if (shm_ih->ih_rss_table[i] == s->p_sid) {
-				set_rss_binding(i, new->p_sid);
-				assert(s->p_rss_nq > 0);
-				s->p_rss_nq--;
-				new->p_rss_nq++;
-			}
-		}
-		assert(s->p_rss_nq == 0);
-		update_rss_bindings(s);
-		update_rss_bindings(new);
-	}
 	sysctl_make_sockaddr_un(&a, s->p_pid);
 	sys_unlink(a.sun_path);
 	service_deinit_shared(s, 0);
@@ -313,6 +301,19 @@ controller_del_service(struct service *s)
 		if (s->p_pid) {
 			sid_max = MAX(sid_max, s->p_sid);
 		}
+	}
+	if (rss_nq) {
+		controller_sched_alg(&new, NULL);
+		for (i = 0; i < shm_ih->ih_rss_nq; ++i) {
+			if (shm_ih->ih_rss_table[i] == sid) {
+				set_rss_binding(i, new->p_sid);
+				assert(rss_nq > 0);
+				rss_nq--;
+				new->p_rss_nq++;
+			}
+		}
+		assert(rss_nq == 0);
+		update_rss_bindings(new);
 	}
 	if (sid_max == 0 && quit_no_services) {
 		controller_done = 1;
@@ -631,7 +632,7 @@ controller_process()
 	rd_nanoseconds();
 	shm_set_nanoseconds(nanoseconds);
 	wait_for_fd_events();
-	if (0) {
+	if (1) {
 		controller_sched_balance();
 	}
 

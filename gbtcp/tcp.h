@@ -137,10 +137,9 @@ void so_close(struct sock *);
 int so_recvfrom(struct sock *, const struct iovec *, int, int,
 	struct sockaddr *, socklen_t *);
 
-int so_recvfrom_zerocopy(struct sock *, struct iovec *, int,
-	struct sockaddr *, socklen_t *);
+int so_aio_recvfrom(struct sock *, struct iovec *, int, struct sockaddr *, socklen_t *);
 
-int so_recv_drain(struct sock *, int);
+int so_recvdrain(struct sock *, int);
 
 int so_sendto(struct sock *, const struct iovec *, int, int, be32_t, be16_t);
 

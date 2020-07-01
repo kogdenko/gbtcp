@@ -134,10 +134,6 @@ struct profiler {
 #define CAT3_MED(x, y, z) CAT3_RES(~, x##y##z)
 #define CAT3(x, y, z) CAT3_MED(x, y, z)
 
-//#define UNIQV_CAT3(x, res) res
-//#define UNIQV_CAT2(x, y, z) UNIQV_CAT3(~, x##y##z)
-//#define UNIQV_CAT(x, y, z) UNIQV_CAT2(x, y, z)
-//#define UNIQV(n) UNIQV_CAT(n, uniqv_, __LINE__)
 #define UNIQV(name) CAT3(name, uniqv_, __LINE__)
 
 #define MEM_PREFETCH(ptr) \
