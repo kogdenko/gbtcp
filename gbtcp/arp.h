@@ -20,7 +20,7 @@ void arp_mod_timer(struct timer *, u_char);
 int service_init_arp(struct service *);
 void service_deinit_arp(struct service *);
 
-void arp_resolve(struct route_if *, be32_t, struct dev_pkt *);
+void arp_resolve(struct route_entry *, struct dev_pkt *);
 void arp_update(struct arp_advert *);
 int arp_add(be32_t, struct eth_addr *);
 int arp_del(be32_t);

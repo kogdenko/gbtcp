@@ -108,9 +108,6 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 		}
 	}
 	ifp->rif_name_len[ROUTE_IFNAME_OS] = ifname_os_len;
-	for (i = 0; i < ARRAY_SIZE(ifp->rif_txq); ++i) {
-		dlist_init(ifp->rif_txq + i);
-	}
 	ifp->rif_mtu = 1500;
 	memcpy(ifp->rif_name, ifname_nm, ifname_nm_len);
 	ifp->rif_name[ifname_nm_len] = '\0';

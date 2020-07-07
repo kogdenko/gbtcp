@@ -46,7 +46,6 @@ struct route_if {
 	u_char rif_rss_key[RSS_KEY_SIZE];
 	struct dlist rif_routes;
 	struct dev rif_host_dev;
-	struct dlist rif_txq[GT_SERVICES_MAX];
 	struct dev rif_dev[GT_SERVICES_MAX][GT_RSS_NQ_MAX];
 	counter64_t rif_rx_pkts;
 	counter64_t rif_rx_bytes;

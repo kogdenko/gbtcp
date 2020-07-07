@@ -478,13 +478,17 @@ arp_resolve_slow(struct route_if *ifp, struct htable_bucket *b,
 }
 
 void
-arp_resolve(struct route_if *ifp, be32_t next_hop, struct dev_pkt *pkt)
+arp_resolve(struct route_entry *r, struct dev_pkt *pkt)
 {
 	int state;
 	uint32_t h;
+	be32_t next_hop;
+	struct route_if *ifp;
 	struct htable_bucket *b;
 	struct arp_entry *e;
 
+	ifp = r->rt_ifp;
+	next_hop = route_get_next_hop4(r);
 	h = arp_hash(next_hop);
 	b = htable_bucket_get(&curmod->arp_htable, h);
 	// Fast path

@@ -348,6 +348,7 @@ service_init_shared(struct service *s, int pid, int fd)
 	NOTICE(0, "hit; pid=%d", pid);
 	assert(current->p_sid == CONTROLLER_SID);
 	s->p_pid = pid;
+	dlist_init(&s->p_tx_head);
 	s->p_sid = s - shared->shm_services;
 	s->p_need_update_rss_bindings = 0;
 	s->p_rss_nq = 0;
@@ -399,6 +400,7 @@ service_deinit_shared(struct service *s, int full)
 	}
 	deinit_files(s);
 	if (current != s) {
+		dlist_splice_tail_init(&current->p_tx_head, &s->p_tx_head);
 		migrate_timers(current, s);
 	}
 	if (full) {

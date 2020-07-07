@@ -33,15 +33,13 @@
 
 struct service {
 	struct spinlock p_lock;
-	int p_pid;
+	struct dlist p_tx_head;	
 	u_char p_inited;
 	u_char p_sid;
 	u_char p_need_update_rss_bindings;
 	u_char p_rss_nq;
 	u_char p_rr_redir;
-	int p_fd;
 	u_int p_epoch;
-	uint64_t p_start_time;
 	u_int p_okpps;
 	uint64_t p_okpps_time;
 	uint64_t p_opkts;
@@ -55,6 +53,9 @@ struct service {
 	struct ip_stat p_ips;
 	struct icmp_stat p_icmps;
 	struct arp_stat p_arps;
+	int p_pid;
+	int p_fd;
+	uint64_t p_start_time;
 	int p_mbuf_garbage_max;
 	struct dlist p_mbuf_garbage_head[GT_SERVICES_MAX];
 };

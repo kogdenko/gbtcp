@@ -80,6 +80,7 @@ struct service;
 struct dev;
 struct dev_pkt;
 struct timer;
+struct route_entry;
 struct route_if;
 struct route_entry_long;
 struct shm_hdr;

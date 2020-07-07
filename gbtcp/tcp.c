@@ -128,7 +128,7 @@ static struct sock *so_find_binded(struct htable_bucket *, int, be32_t, be32_t, 
 
 static int so_bind_ephemeral_port(struct sock *, struct route_entry *);
 
-static int sock_route(struct sock *so, struct route_entry *r);
+static int so_route(struct sock *so, struct route_entry *r);
 
 static int so_in_txq(struct sock *so);
 
@@ -144,9 +144,9 @@ static int so_unref(struct sock *, struct in_context *);
 
 //static int sock_on_rcv(struct sock *, struct in_context *, be32_t, be16_t);
 
-static int sock_tx(struct route_if *, struct dev_pkt *, struct sock *);
+static int sock_tx(struct route_entry *, struct dev_pkt *, struct sock *);
 
-static void tcp_tx_data(struct route_if *, struct dev_pkt *,
+static void tcp_tx_data(struct route_entry *, struct dev_pkt *,
 	struct sock *, uint8_t, u_int);
 
 static int sock_sndbuf_add(struct sock *, const void *, int);
@@ -530,7 +530,7 @@ so_connect(struct sock *so, const struct sockaddr_in *faddr_in,
 	}
 	so->so_faddr = faddr_in->sin_addr.s_addr;
 	so->so_fport = faddr_in->sin_port;
-	rc = sock_route(so, &r);
+	rc = so_route(so, &r);
 	if (rc) {
 		return rc;
 	}
@@ -1696,9 +1696,9 @@ tcp_into_sndq(struct sock *so)
 
 	assert(GT_SOCK_ALIVE(so));
 	if (!so_in_txq(so)) {
-		rc = sock_route(so, &r);
+		rc = so_route(so, &r);
 		if (rc != 0) {
-			assert(0); // TODO: v0.3
+			assert(0); // TODO: v0.2
 			return;
 		}
 		so_add_txq(r.rt_ifp, so);
@@ -1794,7 +1794,7 @@ tcp_sender(struct sock *so, int cnt)
 }
 
 static int
-tcp_tx_established(struct route_if *ifp, struct dev_pkt *pkt, struct sock *so)
+tcp_tx_established(struct route_entry *r, struct dev_pkt *pkt, struct sock *so)
 {
 	int cnt, snt;
 	uint8_t tcp_flags;
@@ -1833,7 +1833,7 @@ tcp_tx_established(struct route_if *ifp, struct dev_pkt *pkt, struct sock *so)
 		tcp_flags |= TCP_FLAG_FIN;
 	}
 	if (tcp_flags) {
-		tcp_tx_data(ifp, pkt, so, tcp_flags, snt);
+		tcp_tx_data(r, pkt, so, tcp_flags, snt);
 		return 1;
 	} else {
 		return 0;
@@ -1843,7 +1843,7 @@ tcp_tx_established(struct route_if *ifp, struct dev_pkt *pkt, struct sock *so)
 //  0 - can send more
 //  1 - sent all
 static int
-tcp_tx(struct route_if *ifp, struct dev_pkt *pkt, struct sock *so)
+tcp_tx(struct route_entry *r, struct dev_pkt *pkt, struct sock *so)
 {
 	int rc;
 
@@ -1852,17 +1852,17 @@ tcp_tx(struct route_if *ifp, struct dev_pkt *pkt, struct sock *so)
 	case GT_TCPS_LISTEN:
 		return 1;
 	case GT_TCPS_SYN_SENT:
-		tcp_tx_data(ifp, pkt, so, TCP_FLAG_SYN, 0);
+		tcp_tx_data(r, pkt, so, TCP_FLAG_SYN, 0);
 		return 1;
 	case GT_TCPS_SYN_RCVD:
-		tcp_tx_data(ifp, pkt, so, TCP_FLAG_SYN|TCP_FLAG_ACK, 0);
+		tcp_tx_data(r, pkt, so, TCP_FLAG_SYN|TCP_FLAG_ACK, 0);
 		return 1;
 	default:
-		rc = tcp_tx_established(ifp, pkt, so);
+		rc = tcp_tx_established(r, pkt, so);
 		if (rc == 0) {
 			if (so->so_ack) {
 				so->so_ack = 0;
-				tcp_tx_data(ifp, pkt, so, TCP_FLAG_ACK, 0);
+				tcp_tx_data(r, pkt, so, TCP_FLAG_ACK, 0);
 			}
 			return 1;
 		} else {
@@ -1967,38 +1967,30 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcpcb *tcb,
 	return total_len;
 }
 
-static void
-sock_tx_flush_if(struct route_if *ifp)
-{
-	int rc, n;
-	struct dev_pkt pkt;
-	struct sock *so;
-	struct dlist *txq;
-
-	n = 0;
-	txq = ifp->rif_txq + current->p_sid;
-	while (!dlist_is_empty(txq)) {
-		so = DLIST_FIRST(txq, struct sock, so_tx_list);
-		do {
-			rc = route_not_empty_txr(ifp, &pkt, TX_CAN_REDIRECT);
-			if (rc) {
-				return;
-			}
-			rc = sock_tx(ifp, &pkt, so);
-			n++;
-		} while (rc == 0);
-		so_del_txq(so);
-		so_unref(so, NULL);
-	}
-}
-
 void
 sock_tx_flush()
 {
-	struct route_if *ifp;
+	int rc;
+	struct dev_pkt pkt;
+	struct route_entry r;
+	struct sock *so;
+	struct dlist *tx_head;
 
-	ROUTE_IF_FOREACH_RCU(ifp) {
-		sock_tx_flush_if(ifp);
+	tx_head = &current->p_tx_head;
+	while (!dlist_is_empty(tx_head)) {
+		so = DLIST_FIRST(tx_head, struct sock, so_tx_list);
+		rc = so_route(so, &r);
+		assert(rc == 0);
+		do {
+			rc = route_not_empty_txr(r.rt_ifp, &pkt,
+				TX_CAN_REDIRECT);
+			if (rc) {
+				return;
+			}
+			rc = sock_tx(&r, &pkt, so);
+		} while (rc == 0);
+		so_del_txq(so);
+		so_unref(so, NULL);
 	}
 }
 
@@ -2072,7 +2064,7 @@ gt_udp_sendto(struct sock *so, const struct iovec *iov, int iovcnt,
 	if (faddr == 0 || fport == 0) {
 		return -EDESTADDRREQ;
 	}
-	rc = sock_route(so, &dev);
+	rc = so_route(so, &dev);
 	if (rc) {
 		return rc;
 	}
@@ -2356,7 +2348,7 @@ so_bind_ephemeral_port(struct sock *so, struct route_entry *r)
 }
 
 static int
-sock_route(struct sock *so, struct route_entry *r)
+so_route(struct sock *so, struct route_entry *r)
 {
 	int rc;
 
@@ -2364,8 +2356,6 @@ sock_route(struct sock *so, struct route_entry *r)
 	rc = route_get4(so->so_laddr, r);
 	if (rc) {
 		ips.ips_noroute++;
-	} else {
-		so->so_next_hop = route_get_next_hop4(r);
 	}
 	return rc;
 }
@@ -2379,10 +2369,7 @@ so_in_txq(struct sock *so)
 static void
 so_add_txq(struct route_if *ifp, struct sock *so)
 {
-	struct dlist *txq;
-
-	txq = ifp->rif_txq + current->p_sid;
-	DLIST_INSERT_TAIL(txq, so, so_tx_list);
+	DLIST_INSERT_TAIL(&current->p_tx_head, so, so_tx_list);
 }
 
 static void
@@ -2545,7 +2532,7 @@ so_rcvbuf_add(struct sock *so, void *buf, int len/*, be32_t faddr, be16_t fport*
 }
 
 static int
-sock_tx(struct route_if *ifp, struct dev_pkt *pkt, struct sock *so)
+sock_tx(struct route_entry *r, struct dev_pkt *pkt, struct sock *so)
 {
 	int rc;
 	uint8_t tcp_flags;
@@ -2559,17 +2546,17 @@ sock_tx(struct route_if *ifp, struct dev_pkt *pkt, struct sock *so)
 			tcp_flags |= TCP_FLAG_RST;
 		}
 		if (tcp_flags) { // TODO: ????
-			tcp_tx_data(ifp, pkt, so, tcp_flags, 0);
+			tcp_tx_data(r, pkt, so, tcp_flags, 0);
 		}
 		return 1;
 	} else {
-		rc = tcp_tx(ifp, pkt, so);
+		rc = tcp_tx(r, pkt, so);
 		return rc;
 	}
 }
 
 static void
-tcp_tx_data(struct route_if *ifp, struct dev_pkt *pkt,
+tcp_tx_data(struct route_entry *r, struct dev_pkt *pkt,
 	struct sock *so, uint8_t tcp_flags, u_int len)
 {
 	int delack, sndwinup, total_len;
@@ -2597,10 +2584,10 @@ tcp_tx_data(struct route_if *ifp, struct dev_pkt *pkt,
 		}
 	}
 	DBG(0, "hit; if='%s', flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
-	    ifp->rif_name, log_add_tcp_flags(so->so_ipproto, tcb.tcb_flags),
+	    r->rt_ifp->rif_name, log_add_tcp_flags(so->so_ipproto, tcb.tcb_flags),
 	    tcb.tcb_len, tcb.tcb_seq, tcb.tcb_ack, so_get_fd(so));
 	service_account_opkt();
-	arp_resolve(ifp, so->so_next_hop, pkt);
+	arp_resolve(r, pkt);
 }
 
 static int

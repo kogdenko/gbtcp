@@ -56,7 +56,6 @@ struct sock {
 	be32_t so_faddr;
 	be32_t so_lport;
 	be32_t so_fport;
-	be32_t so_next_hop;
 	uint16_t so_lmss;
 	uint16_t so_rmss;
 	struct timer so_timer;
