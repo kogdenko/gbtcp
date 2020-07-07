@@ -10,7 +10,7 @@ struct lptree_node {
 };
 
 #define IS_LPTREE_NODE(tree, m) \
-	(mbuf_get_pool(m) == (tree)->lpt_node_pool)
+	((tree)->lpt_node_pool == mbuf_get_pool(m))
 
 static void
 lptree_node_init(struct lptree_node *node, struct lptree_node *parent)
@@ -64,7 +64,7 @@ lptree_init(struct lptree *tree)
 
 	tree->lpt_root = NULL;
 	rc = mbuf_pool_alloc(&tree->lpt_node_pool, CONTROLLER_SID,
-	                     sizeof(struct lptree_node), 0);
+		PAGE_SIZE, sizeof(struct lptree_node), 0);
 	return rc;
 }
 

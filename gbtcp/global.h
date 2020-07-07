@@ -83,6 +83,8 @@ struct timer;
 struct route_if;
 struct route_entry_long;
 struct shm_hdr;
+struct mbuf;
+struct mbuf_pool;
 
 #define MOD_FOREACH(x) \
 	x(sysctl) \

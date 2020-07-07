@@ -22,8 +22,8 @@ eth_addr_aton(struct eth_addr *a, const char *s)
 	struct eth_addr x;
 
 	rc = sscanf(s, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
-	            x.ea_bytes + 0, x.ea_bytes + 1, x.ea_bytes + 2,
-	            x.ea_bytes + 3, x.ea_bytes + 4, x.ea_bytes + 5);
+		x.ea_bytes + 0, x.ea_bytes + 1, x.ea_bytes + 2,
+		x.ea_bytes + 3, x.ea_bytes + 4, x.ea_bytes + 5);
 	if (rc == 6) {
 		*a = x;
 		return 0;

@@ -58,7 +58,8 @@ init_files(struct service *s)
 		size = sizeof(struct sock);
 		n = curmod->file_nofile - GT_FIRST_FD;
 		assert(n > 0);
-		rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid, size, n);
+		rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid,
+			2 * 1024 * 1024, size, n);
 	} else {
 		rc = 0;
 	}

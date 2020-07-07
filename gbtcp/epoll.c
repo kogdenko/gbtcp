@@ -35,7 +35,7 @@ epoll_entry_get(struct epoll *ep, struct file *fp)
 	struct epoll_entry *e;
 
 	DLIST_FOREACH(m, &fp->fl_aio_head, mb_list) {
-		if (mbuf_get_pool(m) == ep->ep_pool) {
+		if (ep->ep_pool == mbuf_get_pool(m)) {
 			e = (struct epoll_entry *)m;
 			return e;
 		}
@@ -82,7 +82,7 @@ epoll_entry_free(struct epoll_entry *e)
 	mbuf_free(&e->epe_aio.faio_mbuf);
 }
 
-void
+static void
 epoll_entry_handler(void *aio_ptr, int fd, short revents)
 {
 	struct epoll_entry *e;
@@ -331,7 +331,7 @@ u_epoll_create(int ep_fd)
 		return rc;
 	}
 	rc = mbuf_pool_alloc(&ep->ep_pool, current->p_sid,
-	                     sizeof(struct epoll_entry), 0);
+		PAGE_SIZE, sizeof(struct epoll_entry), MBUF_NO_ID);
 	if (rc) {
 		file_free(fp);
 		return rc;
@@ -541,14 +541,3 @@ u_kevent(int kq, const struct kevent *changelist, int nchanges,
 	return rc;
 }
 #endif // __linux__
-
-
-int
-epoll_is_triggered(struct sock *so)
-{
-	struct file_aio *aio;
-
-	assert(!dlist_is_empty(&so->so_file.fl_aio_head));
-	aio = DLIST_FIRST( &so->so_file.fl_aio_head, struct file_aio, faio_mbuf.mb_list);
-	return epoll_entry_is_triggered((struct epoll_entry *)aio);
-}

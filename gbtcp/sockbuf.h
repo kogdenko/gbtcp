@@ -4,7 +4,7 @@
 
 #include "list.h"
 
-#define SOCKBUF_CHUNK_SIZE 2048
+#define SOCKBUF_CHUNK_SIZE 1500
 
 struct sockbuf {
 	int sob_max;
