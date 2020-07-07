@@ -305,7 +305,6 @@ gt_log_add_sock(struct sock *so)
 	return sock_str(log_buf_alloc_space(), so);
 }
 
-
 int
 so_get(int fd, struct sock **pso)
 {
@@ -1699,7 +1698,7 @@ tcp_into_sndq(struct sock *so)
 	if (!so_in_txq(so)) {
 		rc = sock_route(so, &r);
 		if (rc != 0) {
-			assert(0); // TODO: v0.1
+			assert(0); // TODO: v0.3
 			return;
 		}
 		so_add_txq(r.rt_ifp, so);

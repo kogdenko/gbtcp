@@ -16,8 +16,8 @@ service_get_by_pid(int pid)
 	int i;
 
 	for (i = 0; i <= sid_max; ++i) {
-		if (shm_ih->ih_services[i].p_pid == pid) {
-			return shm_ih->ih_services + i;
+		if (shared->shm_services[i].p_pid == pid) {
+			return shared->shm_services + i;
 		}
 	}
 	return NULL;
@@ -151,7 +151,7 @@ controller_lock_service(struct service *s)
 	rc = spinlock_trylock(&s->p_lock);
 	if (rc == 0) {
 		ERR(0, "deadlocked; pid=%d", s->p_pid);
-		abort();
+		exit(69);
 	}
 }
 
@@ -210,7 +210,7 @@ controller_sched_alg(struct service **ppick, struct service **pkick)
 	
 	pick = kick = NULL;
 	for (i = 1; i <= sid_max; ++i) {
-		s = shm_ih->ih_services + i;
+		s = shared->shm_services + i;
 		if (s->p_pid) {
 			if (pick == NULL ||
 			    pick->p_rss_nq > s->p_rss_nq) {
@@ -247,15 +247,15 @@ set_rss_binding(u_int rss_qid, int sid)
 {
 	assert(rss_qid < GT_RSS_NQ_MAX);
 	assert(sid == SERVICE_ID_INVALID || sid < GT_SERVICES_MAX);
-	if (shm_ih->ih_rss_table[rss_qid] != sid) {
+	if (shared->shm_rss_table[rss_qid] != sid) {
 		if (sid == SERVICE_ID_INVALID) {
 			NOTICE(0, "clear; rss_qid=%d", rss_qid);
 		} else {
 			NOTICE(0, "hit; rss_qid=%d, pid=%d",
-			       rss_qid, shm_ih->ih_services[sid].p_pid);
+			       rss_qid, shared->shm_services[sid].p_pid);
 		}
 	}
-	WRITE_ONCE(shm_ih->ih_rss_table[rss_qid], sid);
+	WRITE_ONCE(shared->shm_rss_table[rss_qid], sid);
 }
 
 static void
@@ -270,8 +270,8 @@ controller_sched_balance()
 	    kick->p_rss_nq == 0) {
 		return;
 	}
-	for (i = 0; i < shm_ih->ih_rss_nq; ++i) {
-		if (shm_ih->ih_rss_table[i] == kick->p_sid) {
+	for (i = 0; i < shared->shm_rss_nq; ++i) {
+		if (shared->shm_rss_table[i] == kick->p_sid) {
 			set_rss_binding(i, pick->p_sid);
 			kick->p_rss_nq--;
 			pick->p_rss_nq++;
@@ -304,8 +304,8 @@ controller_del_service(struct service *s)
 	}
 	if (rss_nq) {
 		controller_sched_alg(&new, NULL);
-		for (i = 0; i < shm_ih->ih_rss_nq; ++i) {
-			if (shm_ih->ih_rss_table[i] == sid) {
+		for (i = 0; i < shared->shm_rss_nq; ++i) {
+			if (shared->shm_rss_table[i] == sid) {
 				set_rss_binding(i, new->p_sid);
 				assert(rss_nq > 0);
 				rss_nq--;
@@ -339,13 +339,13 @@ rss_table_reduce(int rss_nq)
 	u_char id;
 	struct service *s;
 
-	n = shm_ih->ih_rss_nq;
-	WRITE_ONCE(shm_ih->ih_rss_nq, rss_nq);
+	n = shared->shm_rss_nq;
+	WRITE_ONCE(shared->shm_rss_nq, rss_nq);
 	for (i = rss_nq; i < n; ++i) {
-		id = shm_ih->ih_rss_table[i];
+		id = shared->shm_rss_table[i];
 		set_rss_binding(i, SERVICE_ID_INVALID);
 		assert(id < GT_SERVICES_MAX);
-		s = shm_ih->ih_services + id;
+		s = shared->shm_services + id;
 		assert(s->p_rss_nq > 0);
 		s->p_rss_nq--;
 		if (s->p_rss_nq == 0) {
@@ -361,11 +361,11 @@ rss_table_expand(int rss_nq)
 	struct service *s;
 
 	controller_sched_alg(&s, NULL);
-	for (i = shm_ih->ih_rss_nq; i < rss_nq; ++i) {
+	for (i = shared->shm_rss_nq; i < rss_nq; ++i) {
 		set_rss_binding(i, s->p_sid);
 		s->p_rss_nq++;
 	}
-	WRITE_ONCE(shm_ih->ih_rss_nq, rss_nq);
+	WRITE_ONCE(shared->shm_rss_nq, rss_nq);
 }
 
 void
@@ -383,16 +383,16 @@ update_rss_table()
 			}
 		}
 	}
-	if (shm_ih->ih_rss_nq > rss_nq) {
+	if (shared->shm_rss_nq > rss_nq) {
 		rss_table_reduce(rss_nq);
-	} else if (shm_ih->ih_rss_nq < rss_nq)  {
+	} else if (shared->shm_rss_nq < rss_nq)  {
 		rss_table_expand(rss_nq);
 	}
 	if (current->p_rss_nq) {
 		update_rss_bindings(current);
 	}
 	for (i = 0; i <= sid_max; ++i) {
-		s = shm_ih->ih_services + i;
+		s = shared->shm_services + i;
 		if (s->p_pid && s->p_rss_nq) {
 			update_rss_bindings(s);
 		}
@@ -417,8 +417,8 @@ sysctl_controller_add(struct sysctl_conn *cp, void *udata,
 	if (s != NULL) {
 		return -EEXIST;
 	}
-	for (i = 0; i < ARRAY_SIZE(shm_ih->ih_services); ++i) {
-		s = shm_ih->ih_services + i;
+	for (i = 0; i < ARRAY_SIZE(shared->shm_services); ++i) {
+		s = shared->shm_services + i;
 		if (s->p_pid == 0) {
 			controller_add_service(s, pid, cp);
 			return 0;
@@ -438,8 +438,8 @@ sysctl_controller_service_list_next(void *udata, const char *ident,
 	} else {
 		i = strtoul(ident, NULL, 10) + 1;
 	}
-	for (; i < ARRAY_SIZE(shm_ih->ih_services); ++i) {
-		if (shm_ih->ih_services[i].p_pid) {
+	for (; i < ARRAY_SIZE(shared->shm_services); ++i) {
+		if (shared->shm_services[i].p_pid) {
 			strbuf_addf(out, "%d", i);
 			return 0;
 		}
@@ -460,10 +460,10 @@ sysctl_controller_service_list(void *udata, const char *ident,
 	} else {
 		i = strtoul(ident, NULL, 10);
 	}
-	if (i >= ARRAY_SIZE(shm_ih->ih_services)) {
+	if (i >= ARRAY_SIZE(shared->shm_services)) {
 		return -ENOENT;
 	}
-	s = shm_ih->ih_services + i;
+	s = shared->shm_services + i;
 	if (!s->p_pid) {
 		return -ENOENT;
 	} else {
@@ -542,7 +542,7 @@ controller_init(int daemonize, const char *service_comm)
 
 	gt_init("controller", 0);
 	gt_preload_passthru = 1;
-	shm_ih = NULL;
+	shared = NULL;
 	if (daemonize) {
 		rc = sys_daemon(1, 1);
 		if (rc) {
@@ -569,16 +569,16 @@ controller_init(int daemonize, const char *service_comm)
 	}
 	hz = sleep_compute_hz();
 	set_hz(hz);
-	shm_ih->ih_hz = hz;
-	shm_ih->ih_rss_nq = 0;
+	shared->shm_hz = hz;
+	shared->shm_rss_nq = 0;
 	rc = sysctl_read_file(1, service_comm);
 	if (rc) {
 		goto err;
 	}
-	for (i = 0; i < ARRAY_SIZE(shm_ih->ih_rss_table); ++i) {
-		shm_ih->ih_rss_table[i] = SERVICE_ID_INVALID;
+	for (i = 0; i < ARRAY_SIZE(shared->shm_rss_table); ++i) {
+		shared->shm_rss_table[i] = SERVICE_ID_INVALID;
 	}
-	current = shm_ih->ih_services + CONTROLLER_SID;
+	current = shared->shm_services + CONTROLLER_SID;
 	rc = service_init_shared(current, pid, 0);
 	if (rc) {
 		goto err;
@@ -630,7 +630,7 @@ void
 controller_process()
 {
 	rd_nanoseconds();
-	shm_set_nanoseconds(nanoseconds);
+	WRITE_ONCE(shared->shm_ns, nanoseconds);
 	wait_for_fd_events();
 	if (1) {
 		controller_sched_balance();

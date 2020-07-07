@@ -301,7 +301,7 @@ file_wait(struct file *fp, short events)
 }
 
 short
-file_get_events(struct file *fp, struct file_aio *aio)
+file_get_events(struct file *fp)
 {
 	short revents;
 
@@ -310,7 +310,7 @@ file_get_events(struct file *fp, struct file_aio *aio)
 	} else {
 		revents = 0;
 	}
-	DBG(0, "hit; aio=%p, events=%s", aio, log_add_poll_events(revents));
+	DBG(0, "hit; events=%s", log_add_poll_events(revents));
 	return revents;
 }
 
@@ -333,7 +333,7 @@ file_aio_add(struct file *fp, struct file_aio *aio, gt_aio_f fn)
 		aio->faio_fn = fn;
 		DLIST_INSERT_HEAD(&fp->fl_aio_head, aio, faio_list);
 		DBG(0, "hit; aio=%p, fd=%d", aio, fd);
-		revents = file_get_events(fp, aio);
+		revents = file_get_events(fp);
 		if (revents) {
 			file_aio_call(aio, fd, revents);
 		}

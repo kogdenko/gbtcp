@@ -1,8 +1,6 @@
 // gpl2
+// bench_gbtcp
 #include <gbtcp/internals.h>
-
-// epoll_benchmark
-// gt_aio_benchmark
 
 #define CURMOD app
 
@@ -14,7 +12,7 @@ static const char *http =
 	"Connection: close\r\n"
 	"Hi\r\n\r\n";
 
-#if 0
+#if 1
 static void
 on_read(void *aio, int fd, short revents)
 {
@@ -179,7 +177,7 @@ main(int argc, char **argv)
 	int i, rc, fd, opt, n_workers, affinity;
 	struct sockaddr_in a;
 
-	signal(SIGPIPE, SIG_IGN);
+	//signal(SIGPIPE, SIG_IGN);
 	n_workers = 1;
 	affinity = -1;
 	while ((opt = getopt(argc, argv, "a:P:")) != -1) {

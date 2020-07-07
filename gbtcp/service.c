@@ -21,13 +21,29 @@ static struct dlist service_rcu_active_head;
 static struct dlist service_rcu_shadow_head;
 static u_int service_rcu[GT_SERVICES_MAX];
 
-struct shm_init_hdr *shm_ih;
+struct shm_hdr *shared;
 struct service *current;
 sigset_t current_sigprocmask;
 int current_sigprocmask_set;
 
 static int
-service_pipe_read(int fd)
+service_pipe(int fd[2])
+{
+	int rc;
+
+	rc = socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
+	assert(rc == 0);
+	return rc;
+}
+
+static void
+service_pipe_send(int fd, int msg)
+{
+	send_record(fd, &msg, sizeof(msg), MSG_NOSIGNAL);
+}
+
+static int
+service_pipe_recv(int fd)
 {
 	int rc, msg;
 	uint64_t to;
@@ -63,7 +79,7 @@ service_start_controller_nolog(const char *p_comm)
 {
 	int rc, pipe_fd[2];
 
-	rc = sys_pipe(pipe_fd);
+	rc = service_pipe(pipe_fd);
 	if (rc) {
 		return rc;
 	}
@@ -72,7 +88,7 @@ service_start_controller_nolog(const char *p_comm)
 		sys_close(pipe_fd[0]);
 		sys_close(service_sysctl_fd);
 		rc = controller_init(1, p_comm);
-		write_record(pipe_fd[1], &rc, sizeof(rc));
+		service_pipe_send(pipe_fd[1], rc);
 		sys_close(pipe_fd[1]);
 		if (rc == 0) {
 			while (!controller_done) {
@@ -84,7 +100,7 @@ service_start_controller_nolog(const char *p_comm)
 		// child created by fork become zombie after daemon()
 		sys_waitpid(-1, NULL, 0);
 		sys_close(pipe_fd[1]);
-		rc = service_pipe_read(pipe_fd[0]);
+		rc = service_pipe_recv(pipe_fd[0]);
 		sys_close(pipe_fd[0]);
 	}
 	return rc;
@@ -320,8 +336,8 @@ service_pid_file_acquire(int sid, int pid)
 struct service *
 service_get_by_sid(u_int sid)
 {
-	assert(sid < ARRAY_SIZE(shm_ih->ih_services));
-	return shm_ih->ih_services + sid;
+	assert(sid < ARRAY_SIZE(shared->shm_services));
+	return shared->shm_services + sid;
 }
 
 int
@@ -332,13 +348,13 @@ service_init_shared(struct service *s, int pid, int fd)
 	NOTICE(0, "hit; pid=%d", pid);
 	assert(current->p_sid == CONTROLLER_SID);
 	s->p_pid = pid;
-	s->p_sid = s - shm_ih->ih_services;
+	s->p_sid = s - shared->shm_services;
 	s->p_need_update_rss_bindings = 0;
 	s->p_rss_nq = 0;
 	s->p_rr_redir = 0;
 	s->p_fd = fd;
 	service_store_epoch(s, 1);
-	s->p_start_time = shm_ns;
+	s->p_start_time = shared_ns();
 	s->p_okpps = 0;
 	s->p_okpps_time = 0;
 	s->p_opkts = 0;
@@ -487,7 +503,7 @@ service_attach(const char *fn_name)
 	if (rc) {
 		goto err;
 	}
-	set_hz(shm_ih->ih_hz);
+	set_hz(shared->shm_hz);
 	SERVICE_FOREACH(s) {
 		if (s->p_pid == pid) {
 			current = s;
@@ -539,7 +555,6 @@ service_detach()
 		}
 		current = NULL;
 	}
-	shm_ih = NULL;
 	shm_detach();
 	clean_fd_events();
 	if (current_sigprocmask_set) {
@@ -556,7 +571,7 @@ service_rcu_reload()
 
 	dlist_replace_init(&service_rcu_active_head, &service_rcu_shadow_head);
 	for (i = 0; i < GT_SERVICES_MAX; ++i) {
-		s = shm_ih->ih_services + i;
+		s = shared->shm_services + i;
 		if (s != current) {
 			service_rcu[i] = service_load_epoch(s);
 			if (service_rcu[i]) {
@@ -601,7 +616,7 @@ service_rcu_check()
 
 	rcu_max = 0;
 	for (i = 0; i < service_rcu_max; ++i) {
-		s = shm_ih->ih_services + i;
+		s = shared->shm_services + i;
 		if (service_rcu[i]) {
 			epoch = service_load_epoch(s);
 			if (service_rcu[i] != epoch) {
@@ -662,7 +677,7 @@ service_update_rss_binding(struct route_if *ifp, int rss_qid)
 	struct dev *dev;
 
 	ifflags = READ_ONCE(ifp->rif_flags);
-	id = READ_ONCE(shm_ih->ih_rss_table[rss_qid]);
+	id = READ_ONCE(shared->shm_rss_table[rss_qid]);
 	dev = &(ifp->rif_dev[current->p_sid][rss_qid]);
 	if ((ifflags & IFF_UP) && id == current->p_sid) {
 		if (!dev_is_inited(dev)) {
@@ -702,7 +717,7 @@ service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
 	}
 	rss_qid = -1;
 	for (i = 0; i < ifp->rif_rss_nq; ++i) {
-		sid = READ_ONCE(shm_ih->ih_rss_table[i]);
+		sid = READ_ONCE(shared->shm_rss_table[i]);
 		if (sid == current->p_sid) {
 			if (rss_qid == -1) {
 				h = rss_hash4(laddr, faddr, lport, fport,
@@ -725,7 +740,7 @@ vale_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 
 	n = 0;
 	for (i = 0; i < ifp->rif_rss_nq; ++i) {
-		s[n] = READ_ONCE(shm_ih->ih_rss_table[i]);
+		s[n] = READ_ONCE(shared->shm_rss_table[i]);
 		if (s[n] != SERVICE_ID_INVALID) {
 			n++;
 		}
@@ -788,7 +803,7 @@ service_in_parent(int pipe_fd[2])
 {
 	sys_close(pipe_fd[1]);
 	// wait service_in_child done
-	service_pipe_read(pipe_fd[0]);
+	service_pipe_recv(pipe_fd[0]);
 	sys_close(pipe_fd[0]);
 }
 
@@ -869,13 +884,10 @@ service_in_child0()
 static void
 service_in_child(int pipe_fd[2])
 {
-	int rc;
-
 	NOTICE(0, "hit;");
 	sys_close(pipe_fd[0]);
 	service_in_child0();
-	rc = 0;
-	write_record(pipe_fd[1], &rc, sizeof(rc));
+	service_pipe_send(pipe_fd[1], 0);
 	sys_close(pipe_fd[1]);
 }
 
@@ -885,7 +897,7 @@ service_fork()
 	int rc, pipe_fd[2];
 
 	NOTICE(0, "hit;");
-	rc = sys_pipe(pipe_fd);
+	rc = service_pipe(pipe_fd);
 	if (rc) {
 		return rc;
 	}
@@ -936,7 +948,7 @@ service_clone(int (*fn)(void *), void *child_stack,
 		rc = sys_clone(fn, child_stack, flags, arg, ptid, tls, ctid);
 	} else {
 		service_clone_fn = fn;
-		rc = sys_pipe(service_clone_pipe_fd);
+		rc = service_pipe(service_clone_pipe_fd);
 		if (rc) {
 			return rc;
 		}

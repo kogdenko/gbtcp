@@ -16,7 +16,6 @@ struct epoll {
 
 struct epoll_entry {
 	struct file_aio epe_aio;
-#define epe_mbuf epe_aio.faio_mbuf
 	struct dlist epe_list;
 	struct epoll *epe_epoll;
 	int epe_fd;
@@ -80,26 +79,28 @@ epoll_entry_free(struct epoll_entry *e)
 {
 	epoll_entry_relax(e);
 	file_aio_cancel(&e->epe_aio);
-	mbuf_free(&e->epe_mbuf);
+	mbuf_free(&e->epe_aio.faio_mbuf);
 }
 
-static void
+void
 epoll_entry_handler(void *aio_ptr, int fd, short revents)
 {
-	short fr;
 	struct epoll_entry *e;
 	struct epoll *ep;
+	struct sock *so;
 
 	e = container_of(aio_ptr, struct epoll_entry, epe_aio);
-	fr = revents & e->epe_filter;
-	if (fr & POLLNVAL) {
+	e->epe_revents |= revents & e->epe_filter;
+	if (e->epe_revents & POLLNVAL) {
 		epoll_entry_free(e);
-	} else {
-		if (!epoll_entry_is_triggered(e)) {
-			ep = e->epe_epoll;
-			DLIST_INSERT_HEAD(&ep->ep_triggered, e, epe_list);
-		}
-		e->epe_revents |= fr;
+		return;
+	} else if (e->epe_revents && !epoll_entry_is_triggered(e)) {
+		ep = e->epe_epoll;
+		DLIST_INSERT_HEAD(&ep->ep_triggered, e, epe_list);
+	}
+	so_get(e->epe_fd, &so);
+	if (so->so_rfin) {
+		assert(epoll_entry_is_triggered(e));
 	}
 }
 
@@ -190,7 +191,7 @@ epoll_get(int fd, struct epoll **ep)
 static int
 epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 {
-	int n, rc;
+	int n;
 	short revents;
 	struct sock *so;
 	struct epoll_entry *e, *tmp;
@@ -203,19 +204,17 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 		if ((e->epe_flags & EPOLL_FLAG_ENABLED) == 0) {
 			continue;
 		}
-		rc = so_get(e->epe_fd, &so);
-		UNUSED(rc);
-		assert(rc == 0); // aio removed on file close, see POLLNVAL
+		so_get(e->epe_fd, &so);
 		if (e->epe_revents == 0) {
-			revents = file_get_events(&so->so_file, &e->epe_aio);
-			revents &= e->epe_filter;
-			if (revents == 0) {
+			revents = file_get_events(&so->so_file);
+			e->epe_revents = revents & e->epe_filter;
+			if (e->epe_revents == 0) {
 				epoll_entry_relax(e);
 				continue;
 			}
-			e->epe_revents |= revents;
 		}
 		epoll_get_event(e, so, buf + n);
+		n++;
 		DBG(0, "hit; fd=%d, events=%s",
 		    e->epe_fd, log_add_poll_events(e->epe_revents));
 		e->epe_revents = 0;
@@ -225,14 +224,13 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 		if (e->epe_flags & EPOLL_FLAG_ONESHOT) {
 			epoll_entry_free(e);
 		}
-		n++;
 	}
 	return n;
 }
 
 #ifdef __linux__
 static int
-epoll_pwait0(int fd, epoll_event_t *events, int maxevents)
+fd_read_triggered(int fd, epoll_event_t *events, int maxevents)
 {
 	int rc;
 
@@ -241,7 +239,7 @@ epoll_pwait0(int fd, epoll_event_t *events, int maxevents)
 }
 #else // __linux__
 static int
-epoll_pwait0(int fd, epoll_event_t *events, int maxevents)
+fd_read_triggered(int fd, epoll_event_t *events, int maxevents)
 {
 	int rc;
 	struct timespec to;
@@ -369,28 +367,28 @@ u_epoll_close(struct file *fp)
 }
 
 int
-u_epoll_pwait(int ep_fd, epoll_event_t *events, int maxevents,
-	uint64_t to, const sigset_t *sigmask)
+u_epoll_pwait(int ep_fd, epoll_event_t *events, int m, uint64_t to,
+	const sigset_t *sigmask)
 {
-	int rc, n_triggered;
+	int rc, n;
 	struct epoll *ep;
 	struct fd_poll p;
 
-	if (maxevents <= 0) {
+	if (m <= 0) {
 		return -EINVAL;
 	}
 	rc = epoll_get(ep_fd, &ep);
 	if (rc) {
 		return rc;
 	}
-	n_triggered = epoll_read_triggered(ep, events, maxevents);
+	n = epoll_read_triggered(ep, events, m);
+	if (n) {
+		return n;
+	}
 	fd_poll_init(&p);
 	fd_poll_add3(&p, ep->ep_fd, POLLIN);
 	p.fdp_to = to;
 	do {
-		if (n_triggered) {
-			p.fdp_to = 0;
-		}
 		rc = fd_poll_wait(&p, sigmask);
 		if (rc < 0) {
 			return rc;
@@ -400,20 +398,16 @@ u_epoll_pwait(int ep_fd, epoll_event_t *events, int maxevents,
 			return rc;
 		}
 		if (p.fdp_pfds[0].revents) {
-			rc = epoll_pwait0(ep->ep_fd, events + n_triggered,
-			                  maxevents - n_triggered);
+			rc = fd_read_triggered(ep->ep_fd, events, m);
 			if (rc < 0) {
-				if (n_triggered == 0) {
-					return rc;
-				}
+				return rc;
 			} else {
-				n_triggered += rc;
+				n = rc;
 			}
 		}
-		n_triggered += epoll_read_triggered(ep, events + n_triggered,
-		                                    maxevents - n_triggered);
-	} while (n_triggered == 0 && p.fdp_to > 0);
-	return n_triggered;
+		n += epoll_read_triggered(ep, events + n, m - n);
+	} while (n == 0 && p.fdp_to > 0);
+	return n;
 }
 
 #ifdef __linux__
@@ -547,3 +541,14 @@ u_kevent(int kq, const struct kevent *changelist, int nchanges,
 	return rc;
 }
 #endif // __linux__
+
+
+int
+epoll_is_triggered(struct sock *so)
+{
+	struct file_aio *aio;
+
+	assert(!dlist_is_empty(&so->so_file.fl_aio_head));
+	aio = DLIST_FIRST( &so->so_file.fl_aio_head, struct file_aio, faio_mbuf.mb_list);
+	return epoll_entry_is_triggered((struct epoll_entry *)aio);
+}

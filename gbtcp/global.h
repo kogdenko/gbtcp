@@ -78,9 +78,11 @@ struct strbuf;
 struct arp_hdr;
 struct service;
 struct dev;
+struct dev_pkt;
+struct timer;
 struct route_if;
 struct route_entry_long;
-struct shm_init_hdr;
+struct shm_hdr;
 
 #define MOD_FOREACH(x) \
 	x(sysctl) \
@@ -119,8 +121,8 @@ enum {
 
 #define MOD_FIRST 1
 
-extern struct shm_init_hdr *shm_ih;
 extern struct service *current;
+extern struct shm_hdr *shared;
 extern sigset_t current_sigprocmask;
 extern int current_sigprocmask_set;
 extern uint64_t nanoseconds;

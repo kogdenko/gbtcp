@@ -48,7 +48,7 @@ mod_init2(int mod_id, size_t size)
 {
 	struct log_scope *scope;
 
-	assert(shm_ih->ih_mods[mod_id] == NULL);
+	assert(shared->shm_mods[mod_id] == NULL);
 	assert(size >= sizeof(*scope));
 	scope = shm_malloc(size);
 	if (scope == NULL) {
@@ -56,7 +56,7 @@ mod_init2(int mod_id, size_t size)
 	} else {
 		memset(scope, 0, size);
 		log_scope_init(scope, mod_name(mod_id));
-		shm_ih->ih_mods[mod_id] = scope;
+		shared->shm_mods[mod_id] = scope;
 		return 0;
 	}
 }
@@ -67,7 +67,7 @@ mod_deinit1(int mod_id)
 	struct log_scope *scope;
 
 	sysctl_del(mod_name(mod_id));
-	scope = shm_ih->ih_mods[mod_id];
+	scope = shared->shm_mods[mod_id];
 	log_scope_deinit(scope);
 	shm_free(scope);
 }

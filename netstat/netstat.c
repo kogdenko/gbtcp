@@ -50,17 +50,18 @@ static const char *tcpstates[GT_TCP_NSTATES] = {
 	[GT_TCPS_TIME_WAIT] = "TIME_WAIT"
 };
 
-int aflag;
-int bflag;
-int Hflag;
-int iflag;
-int lflag;
-int nflag;
-int sflag;
-int zflag;
-int proto_mask;
-int interval;
-char *interface;
+static int verbose;
+static int aflag;
+static int bflag;
+static int Hflag;
+static int iflag;
+static int lflag;
+static int nflag;
+static int sflag;
+static int zflag;
+static int proto_mask;
+static int interval;
+static char *interface;
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
@@ -182,7 +183,7 @@ sysctl_list_foreach(const char *path, void *udata,
 			return -ENAMETOOLONG;
 		}
 		rc = xsysctl(pbuf, vbuf, NULL);
-		if (rc == 0) {
+		if (rc == 0 && vbuf[0] != '\0') {
 			rc = (*fn)(path, udata, vbuf);
 			if (rc) {
 				break;
@@ -464,7 +465,11 @@ print_socket(const char *path, void *udata, const char *buf)
 	} else {
 		printf("%-11s ", "           ");
 	}
-	printf("%-7d\n", pid);
+	printf("%-7d", pid);
+	if (verbose) {
+		printf("%s", buf);
+	}
+	printf("\n");
 	return 0;
 }
 
@@ -477,8 +482,12 @@ print_sockets()
 	} else if (lflag) {
 		printf(" (only servers)");	
 	}
-	printf("\n%-5.5s %-22.22s %-22.22s %-11.11s %-7.7s\n",
+	printf("\n%-5.5s %-22.22s %-22.22s %-11.11s %-7.7s",
 	       "Proto", "Local Address", "Foreign Address", "State", "PID");
+	if (verbose) {
+		printf("Debug");
+	}
+	printf("\n");
 	sysctl_list_foreach(GT_SYSCTL_SOCKET_ATTACHED_LIST, NULL, print_socket);
 	sysctl_list_foreach(GT_SYSCTL_SOCKET_BINDED_LIST, NULL, print_socket);
 }
@@ -1012,11 +1021,12 @@ static void
 usage(void)
 {
 	printf("%s",
-	"Usage: netstat [-aln] [--tcp] [--udp] [--ip]\n"
+	"Usage: netstat [-valn] [--tcp] [--udp] [--ip]\n"
 	"       netstat -s [-z] [--tcp] [--udp] [--ip] [--arp]\n"
 	"       netstat {-i|-I interface} [-Hb] [-w wait]\n"
 	"\n"
 	"\t-h   Print this help\n"
+	"\t-v   Be verbose\n"
 	"\t-a   Display all sockets (default: connected)\n"
 	"\t-l   Display listening server sockets\n"
 	"\t-n   Don't resolve names\n"
@@ -1042,7 +1052,7 @@ main(int argc, char **argv)
 
 	gt_init("netstat", LOG_ERR);
 	gt_preload_passthru = 1;
-	while ((opt = getopt_long(argc, argv, "halnszI:iHbw:",
+	while ((opt = getopt_long(argc, argv, "hvalnszI:iHbw:",
 	                          long_opts, &long_opt)) != -1) {
 		switch(opt) {
 		case 0:
@@ -1060,6 +1070,9 @@ main(int argc, char **argv)
 		case 'h':
 			usage();
 			return 0;
+		case 'v':
+			verbose++;
+			break;
 		case 'a':
 			aflag = 1;
 			break;

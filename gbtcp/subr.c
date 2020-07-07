@@ -613,6 +613,8 @@ read_rss_key(const char *ifname, u_char *rss_key)
 		return rc;
 	}
 	fd = rc;
+	memset(&ifr, 0, sizeof(ifr));
+	memset(&rss, 0, sizeof(rss));
 	strzcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 	rss.cmd = ETHTOOL_GRSSH;
 	ifr.ifr_data = (void *)&rss;
@@ -647,7 +649,6 @@ out:
 	sys_close(fd);
 	return rc;
 }
-
 
 long
 gettid()

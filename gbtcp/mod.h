@@ -14,10 +14,10 @@ struct mod {
 extern struct mod mods[MODS_MAX];
 
 #define mod_get(id) \
-	(shm_ih == NULL ? NULL : shm_ih->ih_mods[id])
+	(shared == NULL ? NULL : shared->shm_mods[id])
 
 #define curmod ((struct CAT2(CURMOD, _mod) *) \
-	(shm_ih->ih_mods[CAT2(MOD_, CURMOD)]))
+	(shared->shm_mods[CAT2(MOD_, CURMOD)]))
 
 #define curmod_init() \
 	mod_init2(CAT2(MOD_, CURMOD), sizeof(struct CAT2(CURMOD, _mod)))

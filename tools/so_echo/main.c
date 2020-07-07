@@ -55,7 +55,7 @@ static int Cflag;
 	printf("\n"); \
 } while (0)
 
-static int on_event(int eq_fd, union my_data *data, short revents);
+static void on_event(int eq_fd, union my_data *data, short revents);
 
 static void
 log_errf(int e, const char *format, ...)
@@ -193,30 +193,15 @@ event_queue_create()
 	}
 	return rc;
 }
-#else
-static int
-event_queue_create()
-{
-	int rc;
 
-	rc = kqueue();
-	if (rc == -1) {
-		assert(errno);
-		rc = -errno;
-		log_errf(-rc, "kqueue() failed");
-	}
-	return rc;
-}
-#endif
-
-#ifdef __linux__
 static void
 event_queue_ctl(int eq_fd, int is_new, union my_data *data, int write)
 {
 	int rc;
 	struct epoll_event event;
 
-	event.events = EPOLLET|EPOLLRDHUP;
+	event.events = EPOLLRDHUP;
+	event.events |= EPOLLET;
 	event.events |= write ? EPOLLOUT : EPOLLIN;
 	event.data.u64 = data->u64;
 	rc = epoll_ctl(eq_fd,
@@ -231,7 +216,47 @@ event_queue_ctl(int eq_fd, int is_new, union my_data *data, int write)
 		exit(1);
 	}
 }
-#else /* __linux__ */
+
+static void
+event_queue_wait(int eq_fd, int to_ms)
+{
+	int i, n;
+	short revents;
+	struct epoll_event *e, events[128];
+
+	n = epoll_wait(eq_fd, events, ARRAY_SIZE(events), to_ms);
+	for (i = 0; i < n; ++i) {
+		e = events + i;
+		revents = 0;
+		assert(e->events);
+		if (e->events & EPOLLIN) {
+			revents |= POLLIN;
+		}
+		if (e->events & EPOLLOUT) {
+			revents |= POLLOUT;
+		}
+		if (e->events & (EPOLLERR|EPOLLHUP|EPOLLRDHUP)) {
+			revents |= POLLERR;	
+		}
+		assert(revents);
+		on_event(eq_fd, (union my_data *)&e->data, revents);
+	}
+}
+#else // __linux__
+static int
+event_queue_create()
+{
+	int rc;
+
+	rc = kqueue();
+	if (rc == -1) {
+		assert(errno);
+		rc = -errno;
+		log_errf(-rc, "kqueue() failed");
+	}
+	return rc;
+}
+
 static void
 event_queue_ctl(int eq_fd, int is_new, union my_data *data, int write)
 {
@@ -252,42 +277,7 @@ event_queue_ctl(int eq_fd, int is_new, union my_data *data, int write)
 		exit(1);
 	}
 }
-#endif
 
-#ifdef __linux__
-static int
-event_queue_wait(int eq_fd, int to_ms)
-{
-	int i, n, rc;
-	short revents;
-	struct epoll_event *e, events[128];
-
-	n = epoll_wait(eq_fd, events, ARRAY_SIZE(events), to_ms);
-	for (i = 0; i < n; ++i) {
-		e = events + i;
-		revents = 0;
-		assert(e->events);
-		if (e->events & EPOLLIN) {
-			revents |= POLLIN;
-		}
-		if (e->events & EPOLLOUT) {
-			revents |= POLLOUT;
-		}
-		if (e->events & (EPOLLERR|EPOLLHUP|EPOLLRDHUP)) {
-			revents |= POLLERR;	
-		}
-		if (!revents) {
-			printf("! %x\n", e->events);
-		}
-		assert(revents);
-		rc = on_event(eq_fd, (union my_data *)&e->data, revents);
-		if (rc) {
-			return rc;
-		}
-	}
-	return 0;
-}
-#else /* __linux__ */
 static void
 event_queue_wait(int eq_fd, int to_ms)
 {
@@ -314,14 +304,11 @@ event_queue_wait(int eq_fd, int to_ms)
 		}
 		data.fd = e->ident;
 		data.state = (uintptr_t)e->udata;
-		rc = on_event(eq_fd, &data, revents);
-		if (rc) {
-			return rc;
-		}
+		on_event(eq_fd, &data, revents);
 	}
 	return 0;
 }
-#endif /* __linux__ */
+#endif // __linux__
 
 static ssize_t
 write_all(int fd, const void *buf, size_t cnt)
@@ -330,7 +317,7 @@ write_all(int fd, const void *buf, size_t cnt)
 	size_t off;
 
 	for (off = 0; off < cnt; off += rc) {
-		rc = write(fd, (const uint8_t *)buf + off, cnt - off);
+		rc = write(fd, (const u_char *)buf + off, cnt - off);
 		if (rc == -1) {
 			assert(errno);
 			if (errno == EINTR) {
@@ -353,7 +340,7 @@ read_all(int fd, void *buf, int cnt, int *len)
 	*len = 0;
 	while (*len < cnt) {
 		n = cnt - *len;
-		rc = read(fd, (uint8_t *)buf + *len, n);
+		rc = read(fd, (u_char *)buf + *len, n);
 		if (rc == 0) {
 			return 0;
 		} else if (rc == -1) {
@@ -468,10 +455,10 @@ clientn(int eq_fd)
 	return 0;
 }
 
-static int
+static void
 on_event(int eq_fd, union my_data *data, short revents)
 {
-	int rc, len, listen_fd, closed;
+	int rc, fin, len, listen_fd, closed;
 	union my_data new_data;
 
 	switch (data->state) {
@@ -489,19 +476,25 @@ on_event(int eq_fd, union my_data *data, short revents)
 		}
 		break;
 	case STATE_SERVER:
-		rc = 0;
+		fin = 0;
 		len = 0;
 		assert(revents & (POLLIN|POLLERR));
 		if (revents & POLLIN) {
 			rc = read_all(data->fd, rcvbuf, sizeof(rcvbuf), &len);
+			if (rc <= 0) {
+				fin = 1;
+			}
 			if (len > 0) {
 				rc = write_all(data->fd, rcvbuf, len);
+				if (rc < 0) {
+					fin = 1;
+				}
 			}
 		}
 		if (revents & POLLERR) {
-			rc = -ECONNRESET;
+			fin = 1;
 		}
-		if (Cflag || rc <= 0) {
+		if (Cflag || fin) {
 			sys_close(data->fd);
 			requests2++;
 			conns--;
@@ -510,17 +503,14 @@ on_event(int eq_fd, union my_data *data, short revents)
 	case STATE_CONNECT:
 		if (revents & POLLERR) {
 			log_connect_failed(0, &conf_addr);
-			return -ECONNRESET;
+			break;
 		}
 		rc = write_all(data->fd, reqbuf, sizeof(reqbuf) - 1);
 		if (rc < 0) {
 			sys_close(data->fd);
 			requests2++;
 			conns--;
-			rc = clientn(eq_fd);
-			if (rc) {
-				return rc;
-			}
+			clientn(eq_fd);
 		} else {
 			data->state = STATE_CLIENT;
 			event_queue_ctl(eq_fd, 0, data, 0);
@@ -540,14 +530,12 @@ on_event(int eq_fd, union my_data *data, short revents)
 			sys_close(data->fd);
 			requests2++;
 			conns--;
-			rc = clientn(eq_fd);
-			if (rc) {
-				return rc;
-			}
+			clientn(eq_fd);
 		}
 		break;
+	default:
+		assert(0);
 	}
-	return 0;
 }
 
 static int
@@ -610,9 +598,9 @@ loop(int idx, int affinity)
 	gettimeofday(&tv, NULL);
 	signal(SIGALRM, sighandler);
 	alarm(1);
-	do {
-		rc = event_queue_wait(eq_fd, -1);
-	} while (rc == 0);
+	while (1) {
+		event_queue_wait(eq_fd, -1);
+	}
 }
 
 static void

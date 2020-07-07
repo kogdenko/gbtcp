@@ -1020,9 +1020,9 @@ sys_mmap(void **res, void *addr, size_t size, int prot, int flags,
 	} else {
 		rc = 0;
 		INFO(0, "ok; fd=%d, ptr=%p, size=%zu", fd, ptr, size);
-	}
-	if (res != NULL) {
-		*res = ptr;
+		if (res != NULL) {
+			*res = ptr;
+		}
 	}
 	return rc;
 }

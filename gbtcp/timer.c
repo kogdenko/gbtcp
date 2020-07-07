@@ -40,7 +40,7 @@ init_timers(struct service *s)
 		TIMER_RING1_SEG_SHIFT
 	};
 
-	t = shm_get_nanoseconds();
+	t = shared_ns();
 	for (i = 0; i < ARRAY_SIZE(seg_shift); ++i) {
 		rc = timer_ring_init(s, t, i, seg_shift[i]);
 		if (rc) {
@@ -111,7 +111,7 @@ run_timers()
 	struct dlist queue;
 	struct timer_ring *ring;
 
-	t = shm_get_nanoseconds();
+	t = shared_ns();
 	if (t - t_saved < TIMER_TIMEOUT) {
 		return;
 	}

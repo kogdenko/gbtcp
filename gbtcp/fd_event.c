@@ -254,7 +254,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 		p->fdp_to -= elapsed;
 	}
 	run_timers();
-	if (rc < 0 ) {
+	if (rc < 0) {
 		return rc;
 	}
 	n_triggered = rc;

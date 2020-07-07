@@ -249,7 +249,11 @@ void spinlock_lock(struct spinlock *);
 int spinlock_trylock(struct spinlock *);
 void spinlock_unlock(struct spinlock *);
 
+#if 0
+#define counter64_add(c, v)
+#else
 #define counter64_add(c, v) ((c)->cnt64[current->p_sid] += (v))
+#endif
 #define counter64_inc(c) counter64_add(c, 1)
 uint64_t counter64_get(struct counter64 *);
 

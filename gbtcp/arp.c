@@ -351,7 +351,7 @@ arp_set_state(struct arp_entry *e, int state)
 	WRITE_ONCE(e->ae_state, state);
 	if (state == ARP_REACHABLE) {
 		timer_del(&e->ae_timer);
-		e->ae_confirmed = nanoseconds;
+		e->ae_confirmed = shared_ns();
 		e->ae_n_probes = 0;
 	}
 }
@@ -431,11 +431,10 @@ arp_is_reachable_timeouted(struct arp_entry *e)
 {
 	uint64_t t;
 
-	return 0;
 	if (READ_ONCE(e->ae_admin)) {
 		return 0;
 	}
-	t = shm_get_nanoseconds();
+	t = shared_ns();
 	return t - e->ae_confirmed > curmod->arp_reachable_time;
 }
 

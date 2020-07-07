@@ -56,7 +56,7 @@ int file_fcntl(struct file *, int, uintptr_t);
 int file_ioctl(struct file *, unsigned long, uintptr_t);
 int file_get(int, struct file **);
 int file_get_fd(struct file *);
-short file_get_events(struct file *, struct file_aio *);
+short file_get_events(struct file *);
 void file_wakeup(struct file *, short);
 void file_wait(struct file *, short);
 #define file_aio_is_added(aio) ((aio)->faio_fn != NULL)
