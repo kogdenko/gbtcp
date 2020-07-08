@@ -54,8 +54,13 @@ struct spinlock {
 	volatile int spinlock_locked;
 };
 
+struct counter64_per_service {
+	uint64_t cntps_value;
+	u_char cntps_pad[CACHE_LINE_SIZE - sizeof(uint64_t)];
+};
+
 typedef struct counter64 {
-	uint64_t cnt64[GT_SERVICES_MAX];
+	struct counter64_per_service cnt_per_service[GT_SERVICES_MAX];
 } counter64_t;
 
 struct profiler {
@@ -249,11 +254,14 @@ void spinlock_lock(struct spinlock *);
 int spinlock_trylock(struct spinlock *);
 void spinlock_unlock(struct spinlock *);
 
+// TODO:
 #if 0
 #define counter64_add(c, v)
-#else
-#define counter64_add(c, v) ((c)->cnt64[current->p_sid] += (v))
-#endif
+#else // 1
+#define counter64_add(c, v) \
+	((c)->cnt_per_service[current->p_sid].cntps_value += (v))
+#endif //1
+
 #define counter64_inc(c) counter64_add(c, 1)
 uint64_t counter64_get(struct counter64 *);
 

@@ -1,10 +1,10 @@
-// gpl2 license
+// gpl2
 #ifndef GBTCP_SOCKBUF_H
 #define GBTCP_SOCKBUF_H
 
 #include "list.h"
 
-#define SOCKBUF_CHUNK_SIZE 1500
+#define SOCKBUF_CHUNK_SIZE 2048
 
 struct sockbuf {
 	int sob_max;

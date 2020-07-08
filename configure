@@ -30,7 +30,6 @@ fi
 
 if `$CC -v 2>&1 | grep 'gcc version' >/dev/null 2>&1`; then
 	CFLAGS="$CFLAGS -Wno-format-truncation"
-	CFLAGS="$CFLAGS -falign-functions=16"
 elif `$CC -v 2>&1 | grep 'clang version' >/dev/null 2>&1`; then
 	CFLAGS="$CFLAGS"
 else

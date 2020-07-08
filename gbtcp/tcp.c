@@ -48,8 +48,8 @@ struct sockbuf_msg {
 struct tcp_mod {
 	struct log_scope log_scope;
 	uint64_t tcp_fin_timeout;
-	struct htable attached;
-	struct htable binded;
+	struct htable tbl_connected;
+	struct htable tbl_binded;
 };
 
 int gt_so_udata_size;
@@ -213,7 +213,7 @@ sysctl_socket(struct sock *so, struct strbuf *out)
 }
 
 static void
-sysctl_socket_attached(void *udata, const char *new, struct strbuf *out)
+sysctl_socket_connected(void *udata, const char *new, struct strbuf *out)
 {
 	struct sock *so;
 
@@ -239,27 +239,27 @@ tcp_mod_init()
 	if (rc) {
 		return rc;
 	}
-	rc = htable_init(&curmod->attached, 2048, so_hash,
+	rc = htable_init(&curmod->tbl_connected, 65536, so_hash,
 	                 HTABLE_SHARED|HTABLE_POWOF2);
 	if (rc) {
 		tcp_mod_deinit();
 		return rc;
 	}
-	rc = htable_init(&curmod->binded, EPHEMERAL_PORT_MAX,
+	rc = htable_init(&curmod->tbl_binded, EPHEMERAL_PORT_MAX,
 	                 NULL, HTABLE_SHARED);
 	if (rc) {
 		tcp_mod_deinit();
 		return rc;
 	}
-	sysctl_add_htable_list(GT_SYSCTL_SOCKET_ATTACHED_LIST, SYSCTL_RD,
-	                       &curmod->attached, sysctl_socket_attached);
-	sysctl_add_htable_size(GT_SYSCTL_SOCKET_ATTACHED_SIZE,
-	                       &curmod->attached);
+	sysctl_add_htable_list(GT_SYSCTL_SOCKET_CONNECTED_LIST, SYSCTL_RD,
+		&curmod->tbl_connected, sysctl_socket_connected);
+	sysctl_add_htable_size(GT_SYSCTL_SOCKET_CONNECTED_SIZE,
+		&curmod->tbl_connected);
 	sysctl_add_htable_list(GT_SYSCTL_SOCKET_BINDED_LIST, SYSCTL_RD,
-	                       &curmod->binded, sysctl_socket_binded);
+		&curmod->tbl_binded, sysctl_socket_binded);
 	curmod->tcp_fin_timeout = NSEC_MINUTE;
 	sysctl_add_intfn(GT_SYSCTL_TCP_FIN_TIMEOUT, SYSCTL_WR,
-	                 &sysctl_tcp_fin_timeout, 1, 24 * 60 * 60);
+		&sysctl_tcp_fin_timeout, 1, 24 * 60 * 60);
 	return 0;
 }
 
@@ -268,7 +268,8 @@ tcp_mod_deinit()
 {
 	sysctl_del(GT_SYSCTL_SOCKET);
 	sysctl_del(GT_SYSCTL_TCP);
-	htable_deinit(&curmod->attached);
+	htable_deinit(&curmod->tbl_connected);
+	htable_deinit(&curmod->tbl_binded);
 	curmod_deinit();
 }
 
@@ -573,12 +574,12 @@ so_bind(struct sock *so, const struct sockaddr_in *addr)
 	if (so->so_laddr != 0 || so->so_lport != 0) {
 		return -EINVAL;
 	}
-	if (lport >= curmod->binded.ht_size) {
+	if (lport >= curmod->tbl_binded.ht_size) {
 		return -EADDRNOTAVAIL;
 	}
 	so->so_laddr = addr->sin_addr.s_addr;
 	so->so_lport = addr->sin_port;
-	b = htable_bucket_get(&curmod->binded, lport);
+	b = htable_bucket_get(&curmod->tbl_binded, lport);
 	BUCKET_LOCK(b);
 	so->so_binded = 1;
 	DLIST_INSERT_TAIL(&b->htb_head, so, so_binded_list);
@@ -745,13 +746,10 @@ so_aio_recvfrom(struct sock *so, struct iovec *iov, int flags,
 {
 	int rc;
 
-	//dbg("0 %p", cur_zerocopy_in);
 	if (flags) {
-		//dbg("!");
 		return -ENOTSUP;
 	}
 	rc = so_can_recv(so);
-	//dbg("rc=%d", rc);
 	if (rc <= 0) {
 		return rc;
 	}
@@ -1410,7 +1408,7 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 	tcp_set_state(so, in, GT_TCPS_SYN_RCVD);
 	tcp_into_sndq(so);
 	h = so_hash(so);
-	b = htable_bucket_get(&curmod->attached, h);
+	b = htable_bucket_get(&curmod->tbl_connected, h);
 	BUCKET_LOCK(b);
 	so->so_is_attached = 1;
 	dlist_insert_tail_rcu(&b->htb_head, &so->so_attached_list);
@@ -2256,7 +2254,7 @@ struct htable_bucket *
 so_get_binded_bucket(uint16_t lport)
 {
 	assert(lport < EPHEMERAL_PORT_MAX);
-	return htable_bucket_get(&curmod->binded, lport);
+	return htable_bucket_get(&curmod->tbl_binded, lport);
 }
 
 static struct sock *
@@ -2331,14 +2329,14 @@ so_bind_ephemeral_port(struct sock *so, struct route_entry *r)
 			continue;
 		}
 		h = SO_HASH(so->so_faddr, so->so_lport, so->so_fport);
-		b = htable_bucket_get(&curmod->attached, h);
+		b = htable_bucket_get(&curmod->tbl_connected, h);
 		BUCKET_LOCK(b);
 		tmp = so_find(b, so->so_ipproto, so->so_laddr, so->so_faddr,
 			      so->so_lport, so->so_fport);
 		if (tmp == NULL) {
 			so->so_is_attached = 1;
 			dlist_insert_tail_rcu(&b->htb_head,
-			                      &so->so_attached_list);
+				&so->so_attached_list);
 			BUCKET_UNLOCK(b);
 			return 0;
 		}
@@ -2445,7 +2443,7 @@ so_unref(struct sock *so, struct in_context *in)
 		b = NULL;
 		if (in == NULL) {
 			h = so_hash(so);
-			b = htable_bucket_get(&curmod->attached, h);
+			b = htable_bucket_get(&curmod->tbl_connected, h);
 			BUCKET_LOCK(b);
 		}
 		dlist_remove_rcu(&so->so_attached_list);
@@ -2456,8 +2454,8 @@ so_unref(struct sock *so, struct in_context *in)
 	if (so->so_binded) {
 		so->so_binded = 0;
 		lport = ntoh16(so->so_lport);
-		if (lport > 0 && lport < curmod->binded.ht_size) {
-			b = htable_bucket_get(&curmod->binded, lport);
+		if (lport > 0 && lport < curmod->tbl_binded.ht_size) {
+			b = htable_bucket_get(&curmod->tbl_binded, lport);
 			BUCKET_LOCK(b);
 			dlist_remove_rcu(&so->so_binded_list);
 			BUCKET_UNLOCK(b);
@@ -2630,17 +2628,17 @@ so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 		return IN_BYPASS;
 	}
 	h = SO_HASH(faddr, lport, fport);
-	b = htable_bucket_get(&curmod->attached, h);
+	b = htable_bucket_get(&curmod->tbl_connected, h);
 	BUCKET_LOCK(b);
 	so = so_find(b, so_ipproto, laddr, faddr, lport, fport);
 	if (so == NULL) {
 		BUCKET_UNLOCK(b);
 		b = NULL;
 		i = hton16(lport);
-		if (i >= curmod->binded.ht_size) {
+		if (i >= curmod->tbl_binded.ht_size) {
 			return IN_BYPASS;
 		}
-		b = htable_bucket_get(&curmod->binded, i); // rcv_LISTEN
+		b = htable_bucket_get(&curmod->tbl_binded, i); // rcv_LISTEN
 		so = so_find_binded(b, so_ipproto, laddr, faddr, lport, fport);
 	}
 	if (so == NULL) {

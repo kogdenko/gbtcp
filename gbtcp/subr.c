@@ -136,8 +136,8 @@ counter64_get(struct counter64 *c)
 	uint64_t accum;
 
 	accum = 0;
-	for (i = 0; i < ARRAY_SIZE(c->cnt64); ++i) {
-		accum += c->cnt64[i];
+	for (i = 0; i < ARRAY_SIZE(c->cnt_per_service); ++i) {
+		accum += c->cnt_per_service[i].cntps_value;
 	}
 	return accum;
 }

@@ -488,7 +488,7 @@ print_sockets()
 		printf("Debug");
 	}
 	printf("\n");
-	sysctl_list_foreach(GT_SYSCTL_SOCKET_ATTACHED_LIST, NULL, print_socket);
+	sysctl_list_foreach(GT_SYSCTL_SOCKET_CONNECTED_LIST, NULL, print_socket);
 	sysctl_list_foreach(GT_SYSCTL_SOCKET_BINDED_LIST, NULL, print_socket);
 }
 

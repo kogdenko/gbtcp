@@ -12,7 +12,7 @@ static const char *http =
 	"Connection: close\r\n"
 	"Hi\r\n\r\n";
 
-#if 1
+#if 0
 static void
 on_read(void *aio, int fd, short revents)
 {
