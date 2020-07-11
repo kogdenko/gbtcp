@@ -7,7 +7,7 @@
 #ifdef __linux__
 #define GT_POLLRDHUP POLLRDHUP
 #define GT_TCP_CORK TCP_CORK
-#define gt_qsort_r
+#define gt_qsort_r qsort_r
 #else // __linux__
 #define GT_POLLRDHUP 0
 #define GT_TCP_CORK TCP_NOPUSH

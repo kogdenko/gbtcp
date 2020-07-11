@@ -140,16 +140,16 @@ sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 	for (; id.hi < t->ht_size; ++id.hi) {
 		b = t->ht_array + id.hi;
 		lo = 0;
-		spinlock_lock(&b->htb_lock);
+		HTABLE_BUCKET_LOCK(b);
 		dlist_foreach(e, &b->htb_head) {
 			if (lo == id.lo) {
-				spinlock_unlock(&b->htb_lock);
+				HTABLE_BUCKET_UNLOCK(b);
 				strbuf_addf(out, "%d.%d", id.hi, id.lo);
 				return 0;
 			}
 			lo++;
 		}
-		spinlock_unlock(&b->htb_lock);
+		HTABLE_BUCKET_UNLOCK(b);
 		id.lo = 0;
 	}
 	return -ENOENT;
@@ -176,7 +176,7 @@ sysctl_htable_list(void *udata, const char *ident,
 	}
 	b = t->ht_array + id.hi;
 	lo = 0;
-	spinlock_lock(&b->htb_lock);
+	HTABLE_BUCKET_LOCK(b);
 	dlist_foreach(e, &b->htb_head) {
 		if (lo == id.lo) {
 			(*t->ht_sysctl_fn)(e, new, out);
@@ -184,7 +184,7 @@ sysctl_htable_list(void *udata, const char *ident,
 		}
 		lo++;
 	}
-	spinlock_unlock(&b->htb_lock);
+	HTABLE_BUCKET_UNLOCK(b);
 	return 0;
 }
 

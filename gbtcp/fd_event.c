@@ -1,4 +1,4 @@
-// gpl2 license
+// gpl2
 #include "internals.h"
 
 #define CURMOD fd_event
@@ -65,19 +65,13 @@ fd_event_add(struct fd_event **pe, int fd, const char *name,
 	struct fd_event *e;
 
 	assert(fn != NULL);
-	if (fd_event_n_used == ARRAY_SIZE(fd_event_used)) {
-		ERR(ENOMEM, "failed; fd=%d, event='%s', limit=%zu",
-		    fd, name, ARRAY_SIZE(fd_event_used));
-		return -ENOMEM;
-	}
+	assert(fd_event_n_used < ARRAY_SIZE(fd_event_used));
 	id = -1;
 	for (i = 0; i < ARRAY_SIZE(fd_event_buf); ++i) {
 		e = fd_event_buf + i;
 		if (e->fde_ref_cnt) {
-			if (e->fde_fd == fd) {
-				ERR(EEXIST, "failed; fd=%d, event='%s'",
-			    	    fd, name);
-				return -EEXIST;
+			if (e->fde_fn != NULL && e->fde_fd == fd) {
+				die(0, "duplicate; fd=%d", fd);
 			}
 		} else {
 			if (id == -1) {

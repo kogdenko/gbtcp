@@ -26,8 +26,13 @@ struct htable {
 	struct htable_bucket *ht_array;
 };
 
+#if 0
+#define HTABLE_BUCKET_LOCK(b) UNUSED(b)
+#define HTABLE_BUCKET_UNLOCK(b) UNUSED(b)
+#else // 1
 #define HTABLE_BUCKET_LOCK(b) spinlock_lock(&(b)->htb_lock)
 #define HTABLE_BUCKET_UNLOCK(b) spinlock_unlock(&(b)->htb_lock)
+#endif //
 
 void htable_bucket_init(struct htable_bucket *);
 int htable_init(struct htable *, int, htable_f, int);

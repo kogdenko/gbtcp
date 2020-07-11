@@ -171,14 +171,6 @@ static int sysctl_tcp_fin_timeout(const long long *new, long long *old);
 		strbuf_add_ch(sb, name); \
 	}
 
-#if 0
-#define BUCKET_LOCK(b) UNUSED(b)
-#define BUCKET_UNLOCK(b)
-#else
-#define BUCKET_LOCK(b) spinlock_lock(&(b)->htb_lock)
-#define BUCKET_UNLOCK(b) spinlock_unlock(&(b)->htb_lock)
-#endif
-
 #define SO_HASH(faddr, lport, fport) \
 	((faddr) ^ ((faddr) >> 16) ^ ntoh16((lport) ^ (fport)))
 
@@ -589,10 +581,10 @@ so_bind(struct sock *so, const struct sockaddr_in *addr)
 	so->so_laddr = addr->sin_addr.s_addr;
 	so->so_lport = addr->sin_port;
 	b = htable_bucket_get(&curmod->tbl_binded, lport);
-	BUCKET_LOCK(b);
+	HTABLE_BUCKET_LOCK(b);
 	so->so_binded = 1;
 	DLIST_INSERT_TAIL(&b->htb_head, so, so_binded_list);
-	BUCKET_UNLOCK(b);
+	HTABLE_BUCKET_UNLOCK(b);
 	return 0;
 }
 
@@ -1418,10 +1410,10 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 	tcp_into_sndq(so);
 	h = so_hash(so);
 	b = htable_bucket_get(&curmod->tbl_connected, h);
-	BUCKET_LOCK(b);
+	HTABLE_BUCKET_LOCK(b);
 	so->so_is_attached = 1;
 	dlist_insert_tail_rcu(&b->htb_head, &so->so_attached_list);
-	BUCKET_UNLOCK(b);
+	HTABLE_BUCKET_UNLOCK(b);
 }
 
 static void
@@ -2339,17 +2331,17 @@ so_bind_ephemeral_port(struct sock *so, struct route_entry *r)
 		}
 		h = SO_HASH(so->so_faddr, so->so_lport, so->so_fport);
 		b = htable_bucket_get(&curmod->tbl_connected, h);
-		BUCKET_LOCK(b);
+		HTABLE_BUCKET_LOCK(b);
 		tmp = so_find(b, so->so_ipproto, so->so_laddr, so->so_faddr,
 			      so->so_lport, so->so_fport);
 		if (tmp == NULL) {
 			so->so_is_attached = 1;
 			dlist_insert_tail_rcu(&b->htb_head,
 				&so->so_attached_list);
-			BUCKET_UNLOCK(b);
+			HTABLE_BUCKET_UNLOCK(b);
 			return 0;
 		}
-		BUCKET_UNLOCK(b);
+		HTABLE_BUCKET_UNLOCK(b);
 	}
 	return -EADDRINUSE;
 }
@@ -2453,11 +2445,11 @@ so_unref(struct sock *so, struct in_context *in)
 		if (in == NULL) {
 			h = so_hash(so);
 			b = htable_bucket_get(&curmod->tbl_connected, h);
-			BUCKET_LOCK(b);
+			HTABLE_BUCKET_LOCK(b);
 		}
 		dlist_remove_rcu(&so->so_attached_list);
 		if (b != NULL) {
-			BUCKET_UNLOCK(b);
+			HTABLE_BUCKET_UNLOCK(b);
 		}
 	}
 	if (so->so_binded) {
@@ -2465,9 +2457,9 @@ so_unref(struct sock *so, struct in_context *in)
 		lport = ntoh16(so->so_lport);
 		if (lport > 0 && lport < curmod->tbl_binded.ht_size) {
 			b = htable_bucket_get(&curmod->tbl_binded, lport);
-			BUCKET_LOCK(b);
+			HTABLE_BUCKET_LOCK(b);
 			dlist_remove_rcu(&so->so_binded_list);
-			BUCKET_UNLOCK(b);
+			HTABLE_BUCKET_UNLOCK(b);
 		}
 	}
 	if (so->so_processing) {
@@ -2638,10 +2630,10 @@ so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 	}
 	h = SO_HASH(faddr, lport, fport);
 	b = htable_bucket_get(&curmod->tbl_connected, h);
-	BUCKET_LOCK(b);
+	HTABLE_BUCKET_LOCK(b);
 	so = so_find(b, so_ipproto, laddr, faddr, lport, fport);
 	if (so == NULL) {
-		BUCKET_UNLOCK(b);
+		HTABLE_BUCKET_UNLOCK(b);
 		b = NULL;
 		i = hton16(lport);
 		if (i >= curmod->tbl_binded.ht_size) {
@@ -2655,7 +2647,7 @@ so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 	}
 	if (so->so_sid != current->p_sid) {
 		if (b != NULL) {
-			BUCKET_UNLOCK(b);
+			HTABLE_BUCKET_UNLOCK(b);
 			b = NULL;
 		}
 		return so->so_sid;
@@ -2720,7 +2712,7 @@ so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 	}
 	so_unref(so, in);
 	if (b != NULL) {
-		BUCKET_UNLOCK(b);
+		HTABLE_BUCKET_UNLOCK(b);
 	}
 	return IN_OK;
 }
@@ -2743,12 +2735,12 @@ so_input_err(int ipproto, struct in_context *p, be32_t laddr, be32_t faddr,
 	}
 	h = so_tuple_hash(so_tuple);
 	b = htable_bucket_get(&curmod->htable, h);
-	BUCKET_LOCK(b);
+	HTABLE_BUCKET_LOCK(b);
 	so = so_find(b, so_ipproto, so_tuple);
 	if (so != NULL) {
 		so_set_err(so, errnum); 
 	}
-	BUCKET_UNLOCK(b);
+	HTABLE_BUCKET_UNLOCK(b);
 	if (so != NULL) {
 		return IP_OK;
 	}
@@ -2760,7 +2752,7 @@ so_input_err(int ipproto, struct in_context *p, be32_t laddr, be32_t faddr,
 		return IP_BYPASS;
 	}
 	b = curmod->binded + lport;
-	BUCKET_LOCK(b);
+	HTABLE_BUCKET_LOCK(b);
 	rc = IP_BYPASS;
 	DLIST_FOREACH(so, b, so_binded_list) {
 		if (so->so_ipproto == SO_IPPROTO_UDP &&
@@ -2770,7 +2762,7 @@ so_input_err(int ipproto, struct in_context *p, be32_t laddr, be32_t faddr,
 			rc = IP_OK;
 		}
 	}
-	BUCKET_UNLOCK(b);
+	HTABLE_BUCKET_UNLOCK(b);
 	return rc;
 #else
 	return IN_OK;
