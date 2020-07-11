@@ -38,7 +38,6 @@ main(int argc, char **argv)
 	while (!controller_done || persist) {
 		controller_process();
 	}
-	dbg("!!!");
 	controller_deinit();
 	return 0;
 }

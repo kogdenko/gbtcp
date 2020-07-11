@@ -130,7 +130,7 @@ int route_get4(be32_t, struct route_entry *);
 int route_not_empty_txr(struct route_if *, struct dev_pkt *, int);
 void route_transmit(struct route_if *, struct dev_pkt *);
 
-int route_open(struct route_mod *);
+int route_open();
 int route_read(int, route_msg_f);
 int route_dump(route_msg_f);
 

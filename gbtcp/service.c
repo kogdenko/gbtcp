@@ -399,8 +399,10 @@ service_deinit_shared(struct service *s, int full)
 		}
 	}
 	deinit_files(s);
-	if (current != s) {
+	if (current != s && !dlist_is_empty(&s->p_tx_head)) {
 		dlist_splice_tail_init(&current->p_tx_head, &s->p_tx_head);
+	}
+	if (current != s) {
 		migrate_timers(current, s);
 	}
 	if (full) {
@@ -476,6 +478,7 @@ service_attach(const char *fn_name)
 		if (!service_autostart_controller) {
 			goto err;
 		}
+		WARN(0, "Can't connect to controller. Try to start one");
 		rc = service_start_controller(p_comm);
 		if (rc) {
 			goto err;

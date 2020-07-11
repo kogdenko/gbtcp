@@ -1,7 +1,5 @@
-// TODO: logs
-
-#include <gbtcp/gbtcp_lib.h>
-
+// gpl2
+#include "../internals.h"
 
 #define REQUIRE(type) \
 	if (msg_len < sizeof(type)) { \
@@ -52,25 +50,25 @@ get_route_addrs(void *buf, size_t count, int flags, struct sockaddr **addrs)
 }
 
 static void
-ifa_dl(struct gt_route_msg_link *link, struct ifaddrs *ifa)
+ifa_dl(struct route_msg_link *link, struct ifaddrs *ifa)
 {
 	struct sockaddr_dl *addr;
 
 	addr = (struct sockaddr_dl *)ifa->ifa_addr;
-	memcpy(link->rtml_hwaddr.etha_bytes, LLADDR(addr), 6);
+	memcpy(link->rtml_hwaddr.ea_bytes, LLADDR(addr), 6);
 	link->rtml_flags = ifa->ifa_flags;
 }
 
 static int
-handle_link(struct gt_route_msg *msg, int ifindex)
+handle_link(struct route_msg *msg, int ifindex)
 {
 	int rc;
 	char if_name[IFNAMSIZ];
 	struct ifaddrs *ifap, *ifa;
 
-	msg->rtm_type = GT_ROUTE_MSG_LINK;
+	msg->rtm_type = ROUTE_MSG_LINK;
 	msg->rtm_if_idx = ifindex;
-	rc = sys_if_indextoname(NULL, ifindex, if_name);
+	rc = sys_if_indextoname(ifindex, if_name);
 	if (rc) {
 		return rc;
 	}
@@ -93,17 +91,16 @@ handle_link(struct gt_route_msg *msg, int ifindex)
 }
 
 static int
-handle_addr(struct gt_route_msg *msg, struct ifa_msghdr *ifam)
+handle_addr(struct route_msg *msg, struct ifa_msghdr *ifam)
 {
 	int rc;
 	struct sockaddr *addrs[RTAX_MAX];
 	struct sockaddr *ifa, *ifp;
 	struct sockaddr_dl *ifp_dl;
 
-	msg->rtm_type = GT_ROUTE_MSG_ADDR;
-	rc = get_route_addrs(ifam + 1,
-	                     ifam->ifam_msglen - sizeof(*ifam),
-	                     ifam->ifam_addrs, addrs);
+	msg->rtm_type = ROUTE_MSG_ADDR;
+	rc = get_route_addrs(ifam + 1, ifam->ifam_msglen - sizeof(*ifam),
+		ifam->ifam_addrs, addrs);
 	if (rc) {
 		return rc;
 	}
@@ -130,7 +127,7 @@ handle_addr(struct gt_route_msg *msg, struct ifa_msghdr *ifam)
 } 
 
 static int
-handle_route(struct gt_route_msg *msg, struct rt_msghdr *rtm)
+handle_route(struct route_msg *msg, struct rt_msghdr *rtm)
 {
 	int rc;
 	struct sockaddr *addrs[RTAX_MAX];
@@ -138,9 +135,9 @@ handle_route(struct gt_route_msg *msg, struct rt_msghdr *rtm)
 	struct sockaddr_dl *gateway_dl;
 	struct ipaddr tmp;
 
-	msg->rtm_type = GT_ROUTE_MSG_ROUTE;
+	msg->rtm_type = ROUTE_MSG_ROUTE;
 	rc = get_route_addrs(rtm + 1, rtm->rtm_msglen - sizeof(*rtm),
-	                     rtm->rtm_addrs, addrs);
+		rtm->rtm_addrs, addrs);
 	if (rc) {
 		return rc;
 	}
@@ -185,17 +182,17 @@ handle_route(struct gt_route_msg *msg, struct rt_msghdr *rtm)
 }
 
 static int
-handle_rtmsg(struct rt_msghdr *rtm, size_t msg_len, gt_route_msg_f fn)
+handle_rtmsg(struct rt_msghdr *rtm, size_t msg_len, route_msg_f fn)
 {
 	int rc;
 	struct if_msghdr *ifm;
 	struct ifa_msghdr *ifam;
-	struct gt_route_msg msg;
+	struct route_msg msg;
 
 	if (rtm->rtm_version != RTM_VERSION) {
 		return -EPROTO;
 	}
-	msg.rtm_cmd = GT_ROUTE_MSG_DEL;
+	msg.rtm_cmd = ROUTE_MSG_DEL;
 	switch (rtm->rtm_type) {
 	case RTM_IFINFO:
 		REQUIRE(struct if_msghdr);
@@ -207,7 +204,7 @@ handle_rtmsg(struct rt_msghdr *rtm, size_t msg_len, gt_route_msg_f fn)
 		}
 		break;
 	case RTM_NEWADDR:
-		msg.rtm_cmd = GT_ROUTE_MSG_ADD;
+		msg.rtm_cmd = ROUTE_MSG_ADD;
 	case RTM_DELADDR:
 		REQUIRE(struct ifa_msghdr);
 		ifam = (struct ifa_msghdr *)rtm;
@@ -218,7 +215,7 @@ handle_rtmsg(struct rt_msghdr *rtm, size_t msg_len, gt_route_msg_f fn)
 		}
 		break;
 	case RTM_ADD:
-		msg.rtm_cmd = GT_ROUTE_MSG_ADD;
+		msg.rtm_cmd = ROUTE_MSG_ADD;
 	case RTM_DELETE:
 		if (rtm->rtm_msglen > msg_len) {
 			rc = -EPROTO;
@@ -237,17 +234,17 @@ handle_rtmsg(struct rt_msghdr *rtm, size_t msg_len, gt_route_msg_f fn)
 }
 
 static int
-route_dump_ifaddrs(gt_route_msg_f fn)
+route_dump_ifaddrs(route_msg_f fn)
 {
 	int rc, ifindex;
 	struct ifaddrs *ifap, *ifa;
-	struct gt_route_msg msg;
+	struct route_msg msg;
 
-	rc = sys_getifaddrs(NULL, &ifap);
+	rc = sys_getifaddrs(&ifap);
 	if (rc) {
 		return rc;
 	}
-	msg.rtm_cmd = GT_ROUTE_MSG_ADD;
+	msg.rtm_cmd = ROUTE_MSG_ADD;
 	for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
 		ifindex = if_nametoindex(ifa->ifa_name);
 		if (ifindex == 0 && errno) {
@@ -255,14 +252,14 @@ route_dump_ifaddrs(gt_route_msg_f fn)
 		}
 		switch (ifa->ifa_addr->sa_family) {
 		case AF_LINK:
-			msg.rtm_type = GT_ROUTE_MSG_LINK;
+			msg.rtm_type = ROUTE_MSG_LINK;
 			msg.rtm_if_idx = ifindex;
 			ifa_dl(&msg.rtm_link, ifa);			
 			(*fn)(&msg);
 			break;
 		case AF_INET:
 		case AF_INET6:
-			msg.rtm_type = GT_ROUTE_MSG_ADDR;
+			msg.rtm_type = ROUTE_MSG_ADDR;
 			msg.rtm_af = ifa->ifa_addr->sa_family;
 			msg.rtm_if_idx = ifindex;
 			rc = ipaddr_from_sockaddr(&msg.rtm_addr, ifa->ifa_addr);
@@ -278,15 +275,15 @@ route_dump_ifaddrs(gt_route_msg_f fn)
 }
 
 int
-gt_route_dump(gt_route_msg_f fn)
+route_dump(route_msg_f fn)
 {
 	int rc, mib[7];
-	uint8_t *buf;
+	u_char *buf;
 	size_t i, len;
 	uint net_fibs, net_my_fibnum;
 	size_t net_fibs_size, net_my_fib_num_size;
 	struct rt_msghdr *rtm;
-	struct gt_route_msg msg;
+	struct route_msg msg;
 
 	rc = route_dump_ifaddrs(fn);
 	if (rc) {
@@ -312,15 +309,15 @@ gt_route_dump(gt_route_msg_f fn)
 	mib[4] = NET_RT_DUMP;
 	mib[5] = 0;
 	mib[6] = net_my_fibnum;
-	rc = sysctl(mib, GT_ARRAY_SIZE(mib), NULL, &len, NULL, 0);
+	rc = sysctl(mib, ARRAY_SIZE(mib), NULL, &len, NULL, 0);
 	if (rc == -1) {
 		return -errno;
 	}
-	rc = sys_malloc(NULL, (void **)&buf, len);
-	if (rc) {
-		return rc;
+	buf = sys_malloc(len);
+	if (buf == NULL) {
+		return -ENOMEM;
 	}
-	rc = sysctl(mib, GT_ARRAY_SIZE(mib), buf, &len, NULL, 0);
+	rc = sysctl(mib, ARRAY_SIZE(mib), buf, &len, NULL, 0);
 	if (rc == -1) {
 		return -errno;
 	}
@@ -332,32 +329,32 @@ gt_route_dump(gt_route_msg_f fn)
 		if (rtm->rtm_type != RTM_GET) {
 			continue;
 		}
-		msg.rtm_cmd = GT_ROUTE_MSG_ADD;
+		msg.rtm_cmd = ROUTE_MSG_ADD;
 		rc = handle_route(&msg, rtm);
 		if (rc == 1) {
 			(*fn)(&msg);
 		}
 	}
-	free(buf);
+	sys_free(buf);
 	return 0; 
 }
 
 int
-gt_route_open(struct gt_log *log)
+route_open()
 {
 	int rc;
 
-	rc = sys_socket(log, PF_ROUTE, SOCK_RAW, 0);
+	rc = sys_socket(PF_ROUTE, SOCK_RAW, 0);
 	return rc;
 }
 
 int
-gt_route_read(int fd, gt_route_msg_f fn)
+route_read(int fd, route_msg_f fn)
 {
 	char msg[2048];
 	int rc;
 
-	rc = sys_read(NULL, fd, msg, sizeof(msg));
+	rc = sys_read(fd, msg, sizeof(msg));
 	if (rc < 0) {
 		return rc;
 	}

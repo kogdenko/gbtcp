@@ -1182,7 +1182,7 @@ sys_clone(int (*fn)(void *), void *child_stack,
 	}
 	return rc;
 }
-#else /* __linux__ */
+#else // __linux__
 int
 sys_kqueue()
 {
@@ -1198,4 +1198,23 @@ sys_kqueue()
 	}
 	return rc;
 }
-#endif /* __linux__ */
+
+int
+sys_kevent(int kq, const struct kevent *changelist, int nchanges,
+	struct kevent *eventlist, int nevents,
+	const struct timespec *timeout)
+{
+	int rc;
+
+	rc = (*sys_kevent_fn)(kq, changelist, nchanges, eventlist, nevents,
+		timeout);
+	if (rc == -1) {
+		rc = -errno;
+		assert(rc);
+		DBG(-rc, "failed; kq_fd=%d", kq);
+	} else {
+		DBG(0, "ok; kq_fd=%d", kq);
+	}
+	return rc;
+}
+#endif // __linux__

@@ -466,7 +466,7 @@ shm_malloc(size_t size)
 	} else {
 		WARN(ENOMEM, "failed; size=%zu", size);
 	}
-	shm_unlock_and_free_garbage(current);
+	shm_unlock_and_free_garbage();
 	return new_ptr;
 }
 

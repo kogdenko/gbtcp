@@ -81,10 +81,10 @@ struct sock {
 		};
 	};
 	struct sock *so_acceptor;
-	struct sockbuf so_rcvbuf;
+	struct sock_buf so_rcvbuf;
 	union {
-		struct sockbuf so_sndbuf; // TCP
-		struct sockbuf so_msgbuf; // UDP
+		struct sock_buf so_sndbuf; // TCP
+		struct sock_buf so_msgbuf; // UDP
 	};
 };
 
@@ -106,7 +106,7 @@ int so_get_fd(struct sock *);
 
 struct htable_bucket *so_get_binded_bucket(uint16_t);
 
-int sock_get_eno(struct sock *so);
+int so_get_errnum(struct sock *so);
 
 short so_get_events(struct file *fp);
 

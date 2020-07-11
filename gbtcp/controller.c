@@ -501,7 +501,7 @@ controller_bind(int pid)
 		return rc;
 	}
 	fd = rc;
-	rc = sys_listen(fd, 0);
+	rc = sys_listen(fd, GT_SERVICES_MAX);
 	if (rc) {
 		sys_close(fd);
 		return rc;
@@ -515,6 +515,7 @@ controller_bind(int pid)
 	rc = sys_symlink(a.sun_path, SYSCTL_CONTROLLER_PATH);
 	if (rc) {
 		sysctl_conn_close(controller_conn);
+		controller_conn = NULL;
 		return rc;
 	}
 	controller_conn->scc_accept_conn = 1;
@@ -527,11 +528,13 @@ controller_unbind(int pid)
 {
 	struct sockaddr_un a;
 
-	sysctl_conn_close(controller_conn);
-	controller_conn = NULL;
-	sysctl_make_sockaddr_un(&a, pid);
-	sys_unlink(a.sun_path);
-	sys_unlink(SYSCTL_CONTROLLER_PATH);
+	if (controller_conn != NULL) {
+		sysctl_conn_close(controller_conn);
+		controller_conn = NULL;
+		sysctl_make_sockaddr_un(&a, pid);
+		sys_unlink(a.sun_path);
+		sys_unlink(SYSCTL_CONTROLLER_PATH);
+	}
 }
 
 int

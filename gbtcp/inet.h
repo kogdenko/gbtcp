@@ -146,14 +146,6 @@ struct tcp_opts {
 	struct tcp_opt_ts tcp_opt_ts;
 };
 
-struct tcpcb {
-	uint16_t tcb_win;
-	uint16_t tcb_len;
-	uint8_t tcb_flags;
-	uint32_t tcb_seq;
-	uint32_t tcb_ack;
-	struct tcp_opts tcb_opts;
-};
 
 #define TCP_STAT_DECLARE(n) uint64_t tcps_##n;
 struct tcp_stat {

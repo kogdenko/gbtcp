@@ -7,16 +7,29 @@
 #ifdef __linux__
 #define GT_POLLRDHUP POLLRDHUP
 #define GT_TCP_CORK TCP_CORK
+#define gt_qsort_r
 #else // __linux__
 #define GT_POLLRDHUP 0
 #define GT_TCP_CORK TCP_NOPUSH
 typedef cpuset_t cpu_set_t;
+void gt_qsort_r(void *, size_t, size_t, int (*compar)(const void *, const void *, void *), void *);
 #endif // __linux__
 
+#ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64
+#endif // CACHE_LINE_SIZE
+
+#ifndef PAGE_SHIFT
 #define PAGE_SHIFT 12
+#endif // PAGE_SHIFT
+
+#ifndef PAGE_SIZE
 #define PAGE_SIZE (1 << PAGE_SHIFT)
+#endif // PAGE_SIZE
+
+#ifndef PAGE_MASK
 #define PAGE_MASK (PAGE_SIZE - 1)
+#endif // PAGE_MASK
 
 #define ETHADDR_STRLEN 18
 #define ETHADDR_LEN 6
@@ -103,8 +116,8 @@ struct profiler {
 #define STRSZ(s) (s), (sizeof(s) - 1)
 
 #define ALIGNMENT sizeof(void *)
-#define ALIGN(x, a) (((x) + (a - 1)) & ~(a - 1))
-#define ALIGN_PTR(x) ALIGN(x, ALIGNMENT)
+#define U_ALIGN(x, a) (((x) + (a - 1)) & ~(a - 1))
+#define ALIGN_PTR(x) U_ALIGN(x, ALIGNMENT)
 
 #define ROUND_UP(x, y) ((((x) - 1) | (((__typeof__(x))(y)) - 1)) + 1)
 #define ROUND_DOWN(x, y) ((x) & (~((y) - 1 )))

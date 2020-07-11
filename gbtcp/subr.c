@@ -693,6 +693,20 @@ err:
 	return -EPROTO;
 }
 #else // __linux__
+int
+read_rss_key(const char *ifname, u_char *rss_key)
+{
+	static uint8_t freebsd_rss_key[RSS_KEY_SIZE] = {
+		0x6d, 0x5a, 0x56, 0xda, 0x25, 0x5b, 0x0e, 0xc2,
+		0x41, 0x67, 0x25, 0x3d, 0x43, 0xa3, 0x8f, 0xb0,
+		0xd0, 0xca, 0x2b, 0xcb, 0xae, 0x7b, 0x30, 0xb4,
+		0x77, 0xcb, 0x2d, 0xa3, 0x80, 0x30, 0xf2, 0x0c,
+		0x6a, 0x42, 0xb7, 0x3b, 0xbe, 0xac, 0x01, 0xfa,
+	};
+	memcpy(rss_key, freebsd_rss_key, RSS_KEY_SIZE);
+	return 0;
+}
+
 long
 gettid()
 {
@@ -711,12 +725,37 @@ read_proc_comm(char *name, int pid)
 	info = kinfo_getproc(pid);
 	if (info == NULL) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 		return rc;
 	}
-	strzcpy(name, info->ki_comm, PROC_COMM_MAX);
+	strzcpy(name, info->ki_comm, SERVICE_COMM_MAX);
 	free(info);
 	return 0;
+}
+
+struct qsort_data {
+	int (*compar)(const void *, const void *, void *);
+	void *arg;
+};
+
+static int
+qsort_compar(void *udata, const void *a1, const void *a2)
+{
+	struct qsort_data *data;
+
+	data = udata;
+	return (*data->compar)(a1, a2, data->arg);
+}
+
+void
+gt_qsort_r(void *base, size_t nmemb, size_t size,
+	int (*compar)(const void *, const void *, void *), void *arg)
+{
+	struct qsort_data data;
+
+	data.compar = compar;
+	data.arg = arg;
+	qsort_r(base, nmemb, size, &data, qsort_compar);
 }
 #endif // __linux__
 

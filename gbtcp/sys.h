@@ -49,8 +49,6 @@ typedef int (*sys_getsockname_f)(int, struct sockaddr *, socklen_t *);
 typedef int (*sys_fcntl_f)(int, int, ...);
 typedef int (*sys_ioctl_f)(int, unsigned long, ...);
 typedef int (*sys_flock_f)(int, int);
-typedef struct group *(*sys_getgrnam_f)(const char *);
-typedef int (*sys_chown_f)(const char *, uid_t, gid_t);
 typedef int (*sys_ppoll_f)(struct pollfd *, nfds_t, const struct timespec *, const sigset_t *);
 typedef void *(*sys_signal_f)(int, void (*)(int));
 typedef int (*sys_sigaction_f)(int, const struct sigaction *, struct sigaction *);
@@ -193,6 +191,7 @@ int sys_epoll_ctl(int, int, int, struct epoll_event *);
 int sys_clone(int (*)(void *), void *, int , void *, void *, void *, void *);
 #else // __linux__
 int sys_kqueue();
+int sys_kevent(int, const struct kevent *, int, struct kevent *, int, const struct timespec *);
 #endif // __linux__
 
 #endif // GBTCP_SYS_H

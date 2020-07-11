@@ -280,9 +280,9 @@ route_set_srcs(struct route_entry_long *route)
 	} else {
 		next_hop = route->rtl_rule.lpr_key;
 	}
-	qsort_r(route->rtl_srcs, route->rtl_nsrcs,
-	        sizeof(struct route_if_addr *),
-	        route_src_compar, &next_hop);
+	gt_qsort_r(route->rtl_srcs, route->rtl_nsrcs,
+		sizeof(struct route_if_addr *),
+		route_src_compar, &next_hop);
 	return 0;
 }
 
@@ -464,7 +464,7 @@ route_monitor_start()
 	if (route_monitor_fd != -1) {
 		return -EALREADY;
 	}
-	rc = route_open(curmod);
+	rc = route_open();
 	if (rc < 0) {
 		return rc;
 	}

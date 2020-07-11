@@ -153,14 +153,14 @@ epoll_get_event(struct epoll_entry *e, struct sock *so, epoll_event_t *event)
 	data = 0;
 	if (x & POLLIN) {
 		filter = EVFILT_READ;
-		file_ioctl(fp, FIONREAD, (uintptr_t)(&data));
+		file_ioctl(&so->so_file, FIONREAD, (uintptr_t)(&data));
 	} else if (x & POLLOUT) {
 		filter = EVFILT_WRITE;
-		file_ioctl(fp, FIONSPACE, (uintptr_t)(&data));
+		file_ioctl(&so->so_file, FIONSPACE, (uintptr_t)(&data));
 	}
 	if (x & POLLERR) {
 		flags |= EV_ERROR;
-		data = sock_get_eno((struct sock *)fp);
+		data = so_get_errnum(so);
 	}
 	assert(filter || flags);
 	event->filter = filter;
@@ -251,11 +251,13 @@ fd_read_triggered(int fd, epoll_event_t *events, int maxevents)
 }
 
 static int
-kevent_mod(struct epoll *ep, struct file *fp, struct kevent *event)
+kevent_mod(struct epoll *ep, struct sock *so, struct kevent *event)
 {
 	short filter;
+	struct file *fp;
 	struct epoll_entry *e;
 
+	fp = &so->so_file;
 	if (event->flags & EV_RECEIPT) {
 		return -ENOTSUP;
 	}
@@ -495,7 +497,7 @@ u_kevent(int kq, const struct kevent *changelist, int nchanges,
 	int i, rc;
 	uint64_t to;
 	struct kevent *event;
-	struct file *fp;
+	struct sock *so;
 	struct epoll *ep;
 
 	rc = epoll_get(kq, &ep);
@@ -504,16 +506,12 @@ u_kevent(int kq, const struct kevent *changelist, int nchanges,
 	}
 	for (i = 0; i < nchanges; ++i) {
 		event = (struct kevent *)changelist + i;
-		rc = sock_get(event->ident, &fp);
+		rc = so_get(event->ident, &so);
 		if (rc) {
-			rc = (*sys_kevent_fn)(ep->ep_fd, event, 1,
-			                      NULL, 0, NULL);
-			if (rc == -1) {
-				rc = -errno;
-				assert(rc);
-			}
+			rc = sys_kevent(ep->ep_fd, event, 1,
+				NULL, 0, NULL);
 		} else {
-			rc = kevent_mod(ep, fp, event);
+			rc = kevent_mod(ep, so, event);
 		}
 		if (rc < 0) {
 			if (nevents) {
@@ -530,9 +528,9 @@ u_kevent(int kq, const struct kevent *changelist, int nchanges,
 	}
 	if (nevents) {
 		if (timeout == NULL) {
-			to = GT_NSEC_MAX;
+			to = NSEC_INFINITY;
 		} else {
-			to = GT_SEC * timeout->tv_sec + timeout->tv_nsec;
+			to = NSEC_SEC * timeout->tv_sec + timeout->tv_nsec;
 		}
 		rc = u_epoll_pwait(kq, eventlist, nevents, to, NULL);
 	} else {

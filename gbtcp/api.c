@@ -876,7 +876,7 @@ gt_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
 	API_UNLOCK;
 	GT_RETURN(rc);	
 }
-#else /* __linux__ */
+#else // __linux__
 int
 gt_kqueue()
 {
@@ -887,18 +887,18 @@ gt_kqueue()
 	rc = (*sys_kqueue_fn)();
 	if (rc == -1) {
 		rc = -errno;
-		ASSERT(rc);
+		assert(rc);
 	} else {
 		fd = rc;
-		rc = gt_epoll_create(fd);
+		rc = u_epoll_create(fd);
 		if (rc < 0) {
 			(*sys_close_fn)(fd);
 		}
 	}
 	if (rc < 0) {
-		LOGF(log, LOG_INFO, -rc, "failed");
+		INFO(-rc, "failed");
 	} else {
-		LOGF(log, LOG_INFO, 0, "ok; fd=%d", rc);
+		INFO(0, "ok; fd=%d", rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -911,19 +911,18 @@ gt_kevent(int kq, const struct kevent *changelist, int nchanges,
 	int rc;
 
 	API_LOCK;
-	log = log_trace0();
-	DBG(log, 0, "hit; kq=%d, nchanges=%d, nevents=%d",
+	DBG(0, "hit; kq=%d, nchanges=%d, nevents=%d",
 	    kq, nchanges, nevents);
-	rc = gt_epoll_kevent(kq, changelist, nchanges, eventlist, nevents, timeout);
+	rc = u_kevent(kq, changelist, nchanges, eventlist, nevents, timeout);
 	if (rc < 0) {
-		DBG(log, -rc, "failed; kq=%d", kq);
+		DBG(-rc, "failed; kq=%d", kq);
 	} else {
-		DBG(log, 0, "ok; kq=%d, rc=%d", kq, rc);
+		DBG(0, "ok; kq=%d, rc=%d", kq, rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
 }
-#endif /* __linux__ */
+#endif // __linux__
 
 void
 gt_dbg5(const char *file, u_int line, const char *func, int suppressed,

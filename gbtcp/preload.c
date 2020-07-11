@@ -168,7 +168,7 @@ PRELOAD_ACCEPT4(int fd, struct sockaddr *addr, socklen_t *addrlen,
 	int rc;
 
 	rc = PRELOAD_CALL(accept4, fd, PRELOAD_FLAG_FD_ARG|PRELOAD_FLAG_FD_RET,
-	                  fd, addr, addrlen, flags);
+		fd, addr, addrlen, flags);
 	return rc;
 }
 
@@ -233,7 +233,7 @@ PRELOAD_RECVFROM(int fd, void *buf, size_t len, int flags,
 	ssize_t rc;
 
 	rc = PRELOAD_CALL(recvfrom, fd, PRELOAD_FLAG_FD_ARG,
-	                  fd, buf, len, flags, src_addr, addrlen);
+		fd, buf, len, flags, src_addr, addrlen);
 	return rc;
 }
 
@@ -280,7 +280,7 @@ PRELOAD_SENDTO(int fd, const void *buf, size_t len, int flags,
 	ssize_t rc;
 
 	rc = PRELOAD_CALL(sendto, fd, PRELOAD_FLAG_FD_ARG,
-	                  fd, buf, len, flags, dest_addr, addrlen);
+		fd, buf, len, flags, dest_addr, addrlen);
 	return rc;
 }
 
@@ -440,7 +440,7 @@ PRELOAD_GETSOCKOPT(int fd, int level, int optname, void *optval,
 	int rc;
 
 	rc = PRELOAD_CALL(getsockopt, fd, PRELOAD_FLAG_FD_ARG,
-	                  fd, level, optname, optval, optlen);
+		fd, level, optname, optval, optlen);
 	return rc;
 }
 
@@ -451,7 +451,7 @@ PRELOAD_SETSOCKOPT(int fd, int level, int optname, const void *optval,
 	int rc;
 
 	rc = PRELOAD_CALL(setsockopt, fd, PRELOAD_FLAG_FD_ARG,
-	                  fd, level, optname, optval, optlen);
+		fd, level, optname, optval, optlen);
 	return rc;
 }
 
@@ -461,7 +461,7 @@ PRELOAD_GETPEERNAME(int fd, struct sockaddr *addr, socklen_t *addrlen)
 	int rc;
 
 	rc = PRELOAD_CALL(getpeername, fd, PRELOAD_FLAG_FD_ARG,
-	                  fd, addr, addrlen);
+		fd, addr, addrlen);
 	return rc;
 }
 
@@ -529,8 +529,8 @@ PRELOAD_CLONE(int (*fn)(void *), void *child_stack, int flags,
 	tls = va_arg(ap, void *);
 	ctid = va_arg(ap, void *);
 	va_end(ap);
-	rc = PRELOAD_CALL(clone, 0, 0,
-	                  fn, child_stack, flags, arg, ptid, tls, ctid);
+	rc = PRELOAD_CALL(clone, 0, 0, fn, child_stack, flags, arg,
+		ptid, tls, ctid);
 	return rc;
 }
 
@@ -597,7 +597,7 @@ PRELOAD_KQUEUE()
 {
 	int rc;
 
-	rc = PRELOAD_CALL2(kqueue, 0, PRELOAD_FLAG_FD_RET);
+	rc = PRELOAD_CALL(kqueue, 0, PRELOAD_FLAG_FD_RET);
 	return rc;
 }
 
@@ -608,8 +608,7 @@ PRELOAD_KEVENT(int kq, const struct kevent *changelist, int nchanges,
 	int rc;
 
 	rc = PRELOAD_CALL(kevent, kq, PRELOAD_FLAG_FD_ARG,
-	                  kq, changelist, nchanges,
-	                  eventlist, nevents, timeout);
+		kq, changelist, nchanges, eventlist, nevents, timeout);
 	return rc;
 }
 #endif // __linux__

@@ -10,11 +10,11 @@ CFLAGS="$CFLAGS -Wunused-variable"
 CFLAGS="$CFLAGS -fdiagnostics-color=never"
 LDFLAGS="$LDFLAGS -pthread -lm -L."
 
-SUBDIRS="test ./tools/so_echo"
+SUBDIRS="test ./tools/bench_epoll"
 SRCS="`find ./gbtcp -maxdepth 1 -name '*.c'`"
 SRCS="$SRCS `find ./gbtcp/$(uname) -maxdepth 1 -name '*.c'`"
 OBJS=`echo $SRCS | sed 's/\.c/.o/g'`
-BINS="sysctl netstat fwd controller"
+BINS="sysctl netstat controller bench_gbtcp"
 TARGETS=`echo $BINS | sed 's/[^ ]* */.\/bin\/&/g'`
 
 if [ "$(uname)" = "Linux" ]; then

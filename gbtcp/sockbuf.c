@@ -57,7 +57,7 @@ sockbuf_chunk_data(struct sbchunk *chunk)
 }
 
 static struct sbchunk *
-sockbuf_chunk_alloc(struct mbuf_pool *p, struct sockbuf *b)
+sockbuf_chunk_alloc(struct mbuf_pool *p, struct sock_buf *b)
 {
 	int rc;
 	struct sbchunk *chunk;
@@ -72,7 +72,7 @@ sockbuf_chunk_alloc(struct mbuf_pool *p, struct sockbuf *b)
 }
 
 void
-sockbuf_init(struct sockbuf *b, int max)
+sockbuf_init(struct sock_buf *b, int max)
 {
 	b->sob_len = 0;
 	b->sob_max = max;
@@ -80,13 +80,13 @@ sockbuf_init(struct sockbuf *b, int max)
 }
 
 int
-sockbuf_full(struct sockbuf *b)
+sockbuf_full(struct sock_buf *b)
 {
 	return b->sob_len >= b->sob_max;
 }
 
 void
-sockbuf_free(struct sockbuf *b)
+sockbuf_free(struct sock_buf *b)
 {
 	struct sbchunk *chunk;
 
@@ -99,13 +99,13 @@ sockbuf_free(struct sockbuf *b)
 }
 
 void
-sockbuf_set_max(struct sockbuf *b, int max)
+sockbuf_set_max(struct sock_buf *b, int max)
 {
 	b->sob_max = max;
 }
 
 static void
-sockbuf_free_n(struct sockbuf *b, int nr_chunks)
+sockbuf_free_n(struct sock_buf *b, int nr_chunks)
 {
 	int i;
 	struct sbchunk *chunk;
@@ -119,13 +119,13 @@ sockbuf_free_n(struct sockbuf *b, int nr_chunks)
 }
 
 int
-sockbuf_space(struct sockbuf *b)
+sockbuf_space(struct sock_buf *b)
 {
 	return b->sob_max < b->sob_len ? 0 : b->sob_max - b->sob_len;
 }
 
 static void
-sockbuf_write(struct sockbuf *b, struct sbchunk *pos,
+sockbuf_write(struct sock_buf *b, struct sbchunk *pos,
 	const void *src, int cnt)
 {
 	int n, rem, space;
@@ -149,7 +149,7 @@ sockbuf_write(struct sockbuf *b, struct sbchunk *pos,
 }
 
 int
-sockbuf_add(struct mbuf_pool *p, struct sockbuf *b, const void *buf, int cnt)
+sockbuf_add(struct mbuf_pool *p, struct sock_buf *b, const void *buf, int cnt)
 {
 	int n, rem, space, added;
 	struct sbchunk *chunk, *pos;
@@ -190,7 +190,7 @@ sockbuf_add(struct mbuf_pool *p, struct sockbuf *b, const void *buf, int cnt)
 }
 
 void
-sockbuf_copy(struct sockbuf *b, int off, u_char *dst, int cnt)
+sockbuf_copy(struct sock_buf *b, int off, u_char *dst, int cnt)
 {
 	u_char *data;
 	size_t n;
@@ -215,7 +215,7 @@ sockbuf_copy(struct sockbuf *b, int off, u_char *dst, int cnt)
 }
 
 int
-sockbuf_readv(struct sockbuf *b, const struct iovec *iov, int iovcnt,
+sockbuf_readv(struct sock_buf *b, const struct iovec *iov, int iovcnt,
 	int accum_len_max, int peek)
 {
 	int n, off;
@@ -258,7 +258,7 @@ sockbuf_readv(struct sockbuf *b, const struct iovec *iov, int iovcnt,
 }
 
 int
-sockbuf_read_zerocopy(struct sockbuf *b, void **pbuf)
+sockbuf_read_zerocopy(struct sock_buf *b, void **pbuf)
 {
 	struct sbchunk *c;
 
@@ -272,7 +272,7 @@ sockbuf_read_zerocopy(struct sockbuf *b, void **pbuf)
 }
 
 int
-sockbuf_readv4(struct sockbuf *b, const struct iovec *iov, int iovcnt, int peek)
+sockbuf_readv4(struct sock_buf *b, const struct iovec *iov, int iovcnt, int peek)
 {
 	int rc;
 
@@ -281,7 +281,7 @@ sockbuf_readv4(struct sockbuf *b, const struct iovec *iov, int iovcnt, int peek)
 }
 
 int
-sockbuf_read(struct sockbuf *b, void *buf, int cnt, int peek)
+sockbuf_read(struct sock_buf *b, void *buf, int cnt, int peek)
 {
 	int rc;
 	struct iovec iov;
@@ -293,7 +293,7 @@ sockbuf_read(struct sockbuf *b, void *buf, int cnt, int peek)
 }
 
 int
-sockbuf_drain(struct sockbuf *b, int cnt)
+sockbuf_drain(struct sock_buf *b, int cnt)
 {
 	int n, off;
 	struct sbchunk *pos, *tmp;
@@ -322,7 +322,7 @@ sockbuf_drain(struct sockbuf *b, int cnt)
 }
 
 int
-sockbuf_rewrite(struct sockbuf *b, const void *dst, int cnt)
+sockbuf_rewrite(struct sock_buf *b, const void *dst, int cnt)
 {
 	u_char *data;
 	int n, pos;

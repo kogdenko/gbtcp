@@ -53,6 +53,7 @@
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
 #else // __linux__
+#include <libgen.h>
 #include <net/if_dl.h>
 #include <net/route.h>
 #include <execinfo.h>

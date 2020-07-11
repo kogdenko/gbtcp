@@ -38,6 +38,15 @@ enum so_error {
 	SO_E_MAX
 };
 
+struct tcp_fill_info {
+	uint16_t tcb_win;
+	uint16_t tcb_len;
+	uint8_t tcb_flags;
+	uint32_t tcb_seq;
+	uint32_t tcb_ack;
+	struct tcp_opts tcb_opts;
+};
+
 struct sockbuf_msg {
 	uint16_t sobm_trunc;
 	uint16_t sobm_len;
@@ -370,7 +379,7 @@ so_err_unpack(int so_errnum)
 }
 
 int
-so_get_err(struct sock *so)
+so_get_errnum(struct sock *so)
 {
 	int errnum;
 
@@ -396,7 +405,7 @@ so_pop_errnum(struct sock *so)
 {
 	int errnum;
 
-	errnum = so_get_err(so);
+	errnum = so_get_errnum(so);
 	if (so->so_err != SO_EINPROGRESS) {
 		so->so_err = 0;
 	}
@@ -1871,7 +1880,7 @@ tcp_tx(struct route_entry *r, struct dev_pkt *pkt, struct sock *so)
 }
 
 static int
-tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcpcb *tcb,
+tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcp_fill_info *tcb,
 	uint8_t tcp_flags, u_int len)
 {
 	int cnt, emss, tcp_opts_len, th_len, total_len;
@@ -2558,7 +2567,7 @@ tcp_tx_data(struct route_entry *r, struct dev_pkt *pkt,
 	struct sock *so, uint8_t tcp_flags, u_int len)
 {
 	int delack, sndwinup, total_len;
-	struct tcpcb tcb;
+	struct tcp_fill_info tcb;
 	struct eth_hdr *eh;
 
 	assert(tcp_flags);

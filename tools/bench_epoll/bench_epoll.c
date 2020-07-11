@@ -1,3 +1,4 @@
+// gpl2
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -125,7 +126,7 @@ sys_listen(int fd, int backlog)
 		assert(errno);
 		rc = -errno;
 		log_errf(-rc, "listen(fd=%d, backlog=%d) failed",
-		         fd, backlog);
+			fd, backlog);
 	}
 	return rc;
 }
@@ -281,7 +282,7 @@ event_queue_ctl(int eq_fd, int is_new, union my_data *data, int write)
 static void
 event_queue_wait(int eq_fd, int to_ms)
 {
-	int i, n, rc;
+	int i, n;
 	short revents;
 	struct timespec ts;
 	union my_data data;
@@ -306,7 +307,6 @@ event_queue_wait(int eq_fd, int to_ms)
 		data.state = (uintptr_t)e->udata;
 		on_event(eq_fd, &data, revents);
 	}
-	return 0;
 }
 #endif // __linux__
 

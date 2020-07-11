@@ -642,17 +642,15 @@ sysctl_conn_accept(struct sysctl_conn *cp)
 	sa_len = sizeof(a);
 	fd = sysctl_conn_fd(cp);
 	rc = sys_accept4(fd, (struct sockaddr *)&a, &sa_len,
-	                 SOCK_NONBLOCK|SOCK_CLOEXEC);
+		SOCK_NONBLOCK|SOCK_CLOEXEC);
 	if (rc < 0) {
 		return rc;
 	}
 	new_fd = rc;
 	peer_pid = 0;
-	if (sa_len >= sizeof(sa_family_t)) {
-		sa_len -= sizeof(sa_family_t);
-		assert(sa_len < sizeof(a.sun_path));
-		a.sun_path[sa_len] = '\0';
-		filename = basename(a.sun_path);
+	a.sun_path[sizeof(a.sun_path) - 1] = '\0';
+	filename = basename(a.sun_path);
+	if (filename != NULL) {
 		rc = strtoul(filename, &endptr, 10);
 		if (!strcmp(endptr, ".sock")) {
 			peer_pid = rc;

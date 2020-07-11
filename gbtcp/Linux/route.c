@@ -1,3 +1,4 @@
+// gpl2
 #include "../internals.h"
 
 #define CURMOD route
@@ -351,7 +352,7 @@ route_read(int fd, route_msg_f fn)
 }
 
 int
-route_open(struct route_mod *mod)
+route_open()
 {
 	int rc, g;
 

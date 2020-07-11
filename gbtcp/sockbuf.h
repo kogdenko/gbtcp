@@ -6,30 +6,25 @@
 
 #define SOCKBUF_CHUNK_SIZE 2048
 
-struct sockbuf {
+struct sock_buf {
 	int sob_max;
 	int sob_len;
 	struct dlist sob_head;
 };
 
-int sockbuf_mod_init(void **);
-int sockbuf_mod_attach(void *);
-void sockbuf_mod_deinit();
-void sockbuf_mod_detach();
+void sockbuf_init(struct sock_buf *, int);
+void sockbuf_free(struct sock_buf *);
+int sockbuf_full(struct sock_buf *);
+void sockbuf_set_max(struct sock_buf *, int);
+int sockbuf_space(struct sock_buf *);
+int sockbuf_add(struct mbuf_pool *, struct sock_buf *, const void *, int);
+int sockbuf_readv(struct sock_buf *, const struct iovec *, int, int, int);
+int sockbuf_readv4(struct sock_buf *, const struct iovec *, int, int);
+int sockbuf_read(struct sock_buf *, void *, int, int);
+int sockbuf_read_zerocopy(struct sock_buf *, void **);
 
-void sockbuf_init(struct sockbuf *, int);
-void sockbuf_free(struct sockbuf *);
-int sockbuf_full(struct sockbuf *);
-void sockbuf_set_max(struct sockbuf *, int);
-int sockbuf_space(struct sockbuf *);
-int sockbuf_add(struct mbuf_pool *, struct sockbuf *, const void *, int);
-int sockbuf_readv(struct sockbuf *, const struct iovec *, int, int, int);
-int sockbuf_readv4(struct sockbuf *, const struct iovec *, int, int);
-int sockbuf_read(struct sockbuf *, void *, int, int);
-int sockbuf_read_zerocopy(struct sockbuf *, void **);
-
-int sockbuf_drain(struct sockbuf *, int);
-void sockbuf_copy(struct sockbuf *, int, u_char *, int);
-int sockbuf_rewrite(struct sockbuf *, const void *, int);
+int sockbuf_drain(struct sock_buf *, int);
+void sockbuf_copy(struct sock_buf *, int, u_char *, int);
+int sockbuf_rewrite(struct sock_buf *, const void *, int);
 
 #endif // GBTCP_SOCKBUF_H
