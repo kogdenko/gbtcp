@@ -85,12 +85,9 @@ Traffic Generator:
 ./con-gen -S 00:1b:21:95:69:64 -D 00:1B:21:A6:E5:3C -s 1.1.2.10 -d 1.1.2.1  -a 0 -p 80 -c 1000 -i 'eth2-0' --toy -- -s 1.1.2.11  -i 'eth2-1' -a 1 -- -s 1.1.2.12 -i 'eth2-2' -a 2 -- -s 1.1.2.13 -i 'eth2-3' -a 3
 ```
 
-nginx (pps)
-![](nginx.png)
+![](nginx_pps.png)
 
-epoll (pps)
-![](epoll.png)
+![](epoll_pps.png)
 
-applications (pps)
-![](apps.png)
+![](apps_pps.png)
 
