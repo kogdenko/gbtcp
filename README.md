@@ -1,25 +1,36 @@
 # gbtcp -- Gigabit TCP 
 
+## Status
+PoC
+
 ## Build
 - Build and install netmap. See https://github.com/luigirizzo/netmap
 
 - Build and install gbtcp
 ```bash
-./configure
-# or
-# ./configure -d # With debugging
+./configure # -d for debug
 make
 make install
 ```
 
 ## Configure environment
 
+Create configuration file and put it in /usr/local/gbtcp/sysctl/. See example.conf
+
+Each application use it's own file. For example nginx - /usr/local/gbtcp/sysctl/nginx.conf
+
+Minimal configuration file:
+```bash
+route.if.add=eth
+```
+Where eth is name of ethernet adapter
+
 ### Linux
 
 ```bash
 ethtool -K eth2 rx off tx off
 ethtool -K eth2 gso off
-ethtool -L eth2 combined 1
+ethtool -L eth2 combined 8
 ethtool -K eth2 ntuple on
 ethtool --show-ntuple eth2 rx-flow-hash tcp4
 ethtool -N eth2 rx-flow-hash tcp4 sdfn
@@ -27,8 +38,12 @@ ethtool -N eth2 rx-flow-hash udp4 sdfn
 ```
 
 ### FreeBSD
-hw.ix.num_queues=1 # /boot/loader.conf
+```bash
+hw.ix.num_queues=8 # /boot/loader.conf
 ifconfig re0 -rxcsum -txcsum
+```
+
+## Run
 
 ```bash
 LD_PRELOAD=./bin/libgbtcp.so nginx -c /etc/nginx.conf
@@ -50,42 +65,32 @@ echo performance > /sys/devices/system/cpu/cpuX/cpufreq/scaling_governor
 
 ```
 
+* Create plots
+```bash
+./tools/make_plot.sh -i ./tools/benchmark_reults/2020-07-13 5,epoll.gbtcp,green 7,epoll.linux,red 9,epoll.f-stack,blue
+```
+
 ## Benchmarks
 
-Benchmarks done on AMD fx-8350
+DUT:
 
-so_echo (ixgbe):
+    Ethernet controller: Intel Corporation 82599ES 10-Gigabit SFI/SFP+
+    CPU: AMD FX(tm)-8350 Eight-Core Processor
+    OS: CentOS Linux release 7.6.1810
+    Kernel: 4.19.69
 
-|CPUs|kcps |kpps |
-| -: | --: | --: |
-| 1  |  320| 2500|
-| 2  |  490| 3920|
-| 3  |  730| 5740|
-| 4  |  920| 7100|
-| 5  | 1100| 8270|
-| 6  | 1240| 9760|
+Traffic Generator:
 
-so_echo (veth):
+```bash
+./con-gen -S 00:1b:21:95:69:64 -D 00:1B:21:A6:E5:3C -s 1.1.2.10 -d 1.1.2.1  -a 0 -p 80 -c 1000 -i 'eth2-0' --toy -- -s 1.1.2.11  -i 'eth2-1' -a 1 -- -s 1.1.2.12 -i 'eth2-2' -a 2 -- -s 1.1.2.13 -i 'eth2-3' -a 3
+```
 
-|CPUs|kcps |kpps |
-| -: | --: | --: |
-| 1  |  330| 2620|
+nginx (pps)
+![](nginx.png)
 
-nginx (ixgbe):
+epoll (pps)
+![](epoll.png)
 
-|CPUs|kcps|kpps|
-| -: | -: | -: |
-| 1  | 140| 860|
-| 2  | 210|1330|
-| 3  | 300|1940|
-| 4  | 380|2460|
-| 5  | 480|3040|
-| 6  | 540|3340|
-| 7  | 630|4060|
-| 8  | 700|4390|
+applications (pps)
+![](apps.png)
 
----
-BUG: 
-nginx
-while true; do kill -HUP `cat /var/run/nginx.pid `; done
-timeouts occured (after a while worker process become fully unresponsive)
