@@ -164,7 +164,7 @@ profiler_leave(struct profiler *p)
 	if (elapsed > 3000000000ull) {
 		p->prf_last_print_tsc = t;
 		avg = (double)p->prf_spended / p->prf_hits;
-		printf("profile <%-10s>: %llu tsc (%.3f%%) (%zu hits)\n",
+		printf("profile <%-10s>: %llu tsc (%.3f%%) (%d hits)\n",
 			p->prf_name,
 			(unsigned long long)(avg),
 			100 * ((double)p->prf_spended) / elapsed,

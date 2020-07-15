@@ -82,8 +82,8 @@ gt_socket(int domain, int type, int proto)
 	flags = SOCK_TYPE_FLAGS(type);
 	type_noflags = SOCK_TYPE_NOFLAGS(type);
 	INFO(0, "hit; type=%s, flags=%s",
-	     log_add_socket_type(type_noflags),
-	     log_add_socket_flags(flags));
+		log_add_socket_type(type_noflags),
+		log_add_socket_flags(flags));
 	rc = so_socket(&so, domain, type_noflags, flags, proto);
 	if (rc < 0) {
 		INFO(-rc, "failed;");
@@ -122,7 +122,7 @@ restart:
 		if (rc == 0) {
 			optlen = sizeof(error);
 			rc = so_getsockopt(so, SOL_SOCKET, SO_ERROR,
-			                   &error, &optlen);
+				&error, &optlen);
 			assert(rc == 0 && "so_getsockopt");
 			rc = -error;
 			goto restart;
@@ -478,7 +478,7 @@ gt_sendmsg(int fd, const struct msghdr *msg, int flags)
 		rc = -ENOTSUP;
 	} else {
 		rc = gt_send_locked(fd, iov, iovcnt, msg->msg_flags,
-		                    msg->msg_name, msg->msg_namelen);
+			msg->msg_name, msg->msg_namelen);
 	}
 	if (rc < 0) {
 		INFO(-rc, "failed");
@@ -497,8 +497,8 @@ gt_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
 
 	API_LOCK;
 	INFO(0, "hit; fd=%d, level=%s, optname=%s",
-	     fd, log_add_sockopt_level(level),
-	     log_add_sockopt_optname(level, optname));
+		fd, log_add_sockopt_level(level),
+		log_add_sockopt_optname(level, optname));
 	rc = so_get(fd, &so);
 	if (rc == 0) {
 		rc = so_getsockopt(so, level, optname, optval, optlen);
@@ -525,8 +525,8 @@ gt_setsockopt(int fd, int level, int optname, const void *optval,
 
 	API_LOCK;
 	INFO(0, "hit; fd=%d, level=%s, optname=%s",
-	     fd, log_add_sockopt_level(level),
-	     log_add_sockopt_optname(level, optname));
+		fd, log_add_sockopt_level(level),
+		log_add_sockopt_optname(level, optname));
 	rc = so_get(fd, &so);
 	if (rc == 0) {
 		rc = so_setsockopt(so, level, optname, optval, optlen);
@@ -616,13 +616,13 @@ gt_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 	}
 	API_LOCK;
 	DBG(0, "hit; to=%d, events={%s}",
-	    timeout_ms, log_add_pollfds_events(fds, nfds));
+		timeout_ms, log_add_pollfds_events(fds, nfds));
 	rc = u_poll(fds, nfds, to, NULL);
 	if (rc < 0) {
 		DBG(-rc, "failed");
 	} else {
 		DBG(0, "ok; rc=%d, revents={%s}",
-		    rc, log_add_pollfds_revents(fds, nfds));
+			rc, log_add_pollfds_revents(fds, nfds));
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -649,7 +649,7 @@ gt_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 		DBG(-rc, "failed;");
 	} else {
 		DBG(0, "ok; rc=%d, revents={%s}",
-		    rc, log_add_pollfds_revents(fds, rc));
+			rc, log_add_pollfds_revents(fds, rc));
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -942,5 +942,4 @@ gt_dbg5(const char *file, u_int line, const char *func, int suppressed,
 		strbuf_addf(&sb, " (suppressed %d)", suppressed);	
 	}
 	fprintf(stderr, "%s\n", strbuf_cstr(&sb));
-	ERR(0, "%s", strbuf_cstr(&sb));
 }

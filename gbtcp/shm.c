@@ -5,7 +5,17 @@
 
 #define SHM_MAGIC 0xb9d1
 #define SHM_PATH GT_PREFIX"/shm"
-#define SHM_SIZE (1024*1024*1204) // 1 Gb
+
+#define SHM_SIZE (256*1024*1024) // 256Mb
+#ifdef __linux__
+  #ifdef __i386__
+    #define SHM_HINT ((void *)0x80000000)
+  #else // __i386__
+    #define SHM_HINT NULL
+  #endif // __i386__
+#else // __linux__
+  #define SHM_HINT NULL
+#endif // __linux__
 
 struct shm_mod {
 	struct log_scope log_scope;
@@ -193,8 +203,8 @@ shm_init()
 	if (rc) {
 		goto err;
 	}
-	rc = sys_mmap((void **)&shared, NULL, size, PROT_READ|PROT_WRITE,
-	              MAP_SHARED, shm_fd, 0);
+	rc = sys_mmap((void **)&shared, SHM_HINT,
+		size, PROT_READ|PROT_WRITE, MAP_SHARED, shm_fd, 0);
 	if (rc) {
 		goto err;
 	}
@@ -252,7 +262,7 @@ shm_attach()
 	}
 	shm_fd = rc;
 	rc = sys_mmap((void **)&shared, NULL, sizeof(*shared), PROT_READ,
-	              MAP_SHARED, shm_fd, 0);
+		MAP_SHARED, shm_fd, 0);
 	if (rc) {
 		goto err;
 	}
@@ -262,11 +272,15 @@ shm_attach()
 	shared = NULL;
 	sys_munmap(tmp, sizeof(*shared));
 	NOTICE(0, "hit; addr=%p", addr);
+	//dbg("2 %p %p", (void *)addr, tmp);
+	//fgetc(stdin);
+	//dbg("n");
 	rc = sys_mmap((void **)&shared, addr, size, PROT_READ|PROT_WRITE,
-	              MAP_SHARED|MAP_FIXED, shm_fd, 0);
+		MAP_SHARED|MAP_FIXED, shm_fd, 0);
 	if (rc) {
 		goto err;
 	}
+	//dbg("3 addr=%p", (void *)shared->shm_base_addr);
 	shm_early = 0;
 	NOTICE(0, "ok; addr=%p", (void *)shared->shm_base_addr);
 	return 0;

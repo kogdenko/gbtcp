@@ -339,10 +339,10 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
-			ERR(-rc, "failed; fd=%d, off=%zu", fd, off);
+			ERR(-rc, "failed; fd=%d, off=%jd", fd, (intmax_t)off);
 		}
 	} else {
-		INFO(0, "ok; fd=%d, off=%zu", fd, off);
+		INFO(0, "ok; fd=%d, off=%jd", fd, (intmax_t)off);
 	}
 	return rc;
 }

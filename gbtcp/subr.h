@@ -78,7 +78,7 @@ typedef struct counter64 {
 
 struct profiler {
 	const char *prf_name;
-	uint64_t prf_hits;
+	int prf_hits;
 	uint64_t prf_tsc;
 	uint64_t prf_last_print_tsc;
 	uint64_t prf_spended;
