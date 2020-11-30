@@ -1,0 +1,7 @@
+# tcput -l 1 -a -w 5000 -c
+
+> [] Flags [S], options [mss 1000]
+! [<10] Flags [S.]
+> [] Flags [.]
+
+! [<6000] Flags [R.]

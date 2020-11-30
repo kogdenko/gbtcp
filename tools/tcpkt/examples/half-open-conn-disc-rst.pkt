@@ -1,0 +1,14 @@
+# ???
+
+! [] Flags [S], seq 0
+> [] Flags [S.], seq 0, ack 100
+! [<1000] Flags [R], seq 100
+
+! [<5000] Flags [S], seq 0
+> [] Flags [S.]
+! [<10] Flags [.]
+
+> [] Flags [F.]
+! [<10] Flags [.]
+! [<600] Flags [F.]
+> [] Flags [.]

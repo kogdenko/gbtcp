@@ -1,0 +1,15 @@
+# ./tcput -C 127.0.0.1 -r 1
+
+! [] Flags [S], seq 0
+> [] Flags [S], seq 0
+! [<10] Flags [S.], seq 0, ack 1
+> [] Flags [S.], seq 0, ack 1
+! [<10] Flags [.], seq 1, ack 1
+
+> [] Flags [P.], seq 1, length 1
+! [<500] Flags [.], ack 2
+
+> [] Flags [F.]
+? Flags [.]
+! [<600] Flags [F.]
+> [] Flags [.]

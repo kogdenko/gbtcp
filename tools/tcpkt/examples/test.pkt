@@ -1,0 +1,7 @@
+#> [] ICMP echo request, id 13461, seq 1
+
+> [] Flags [S],  seq 3351125324, win 29200, options [mss 1460,sackOK,wscale 7]
+#! [<10] Flags [S.]
+#> [] Flags [.]
+
+#> [6000] Flags [.], length 1000

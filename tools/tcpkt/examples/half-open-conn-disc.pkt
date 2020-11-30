@@ -1,0 +1,4 @@
+# tcput -l 1 -a -w 1
+
+> [] Flags [P.], seq 0, ack 100, length 100
+[] Flags [R], seq 0

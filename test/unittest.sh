@@ -6,10 +6,8 @@ TEST_PATH=
 BIN_DIR="bin"
 BIN_PATH=
 NETSTAT=
-GBTCPD_CONF=
 TEST_CONF=
 LIBGBTCP=
-GBTCPD=
 TCPKT=
 MODE_NATIVE="native"
 MODE_GBTCP="gbtcp"
@@ -36,7 +34,7 @@ check_file()
 			t="an executabe"
 			;;
 		esac
-		die "$1 is not $t"
+			die "$1 is not $t"
 	fi
 }
 
@@ -131,6 +129,7 @@ while getopts "hvxr:lm:t:" opt; do
 		;;
 	esac
 done
+
 check_file "$ROOT_PATH" "d"
 TEST_PATH="$ROOT_PATH/$TEST_DIR"
 check_file $TEST_PATH "d"
@@ -140,17 +139,14 @@ NETSTAT="$ROOT_PATH/$BIN_DIR/netstat"
 check_file $NETSTAT "x"
 TEST_CONF="$TEST_PATH/test.conf"
 check_file $TEST_CONF "f"
-GBTCPD_CONF="$TEST_PATH/gbtcpd-test.conf"
-check_file $GBTCPD_CONF "f"
 LIBGBTCP="$ROOT_PATH/$BIN_DIR/libgbtcp.so"
 check_file $LIBGBTCP "x"
-GBTCPD="$ROOT_PATH/$BIN_DIR/gbtcpd"
-check_file $GBTCPD "x"
 TCPKT="$TEST_PATH/tcpkt.sh"
 check_file $TCPKT "x"
 LOG_PATH=$TEST_PATH/"unit_test_logs"
 mkdir -p "$LOG_PATH/$MODE_NATIVE"
 mkdir -p "$LOG_PATH/$MODE_GBTCP"
+
 TESTS=`scan_tests`
 if [ $lflag -eq 1 ]; then
 	for x in $TESTS; do 
@@ -162,12 +158,10 @@ if [ $lflag -eq 1 ]; then
 	done
 	exit 0
 fi
-killall -9 gbtcpd > /dev/null 2>&1
+
 ps aux | grep '[g]btcp_test' | awk '{print $2}' | xargs -r kill -9
-eval "$GBTCPD -c $GBTCPD_CONF &"
 for x in $TESTS; do
 	if [ "$tflag" = "" ] || [ "$tflag" = "$x" ]; then
 		exec_test_wrap $x
 	fi
 done
-killall -9 gbtcpd

@@ -1,0 +1,13 @@
+# ./tcput -M 1000 -l 1 -a -s 2000 -w 500
+
+> [] Flags [S], options [mss 1000]
+! [<10] Flags [S.], options [mss 1000]
+> [] Flags [.]
+
+! [<10] Flags [.], seq 1, length 1000
+! [<10] Flags [P.], seq 1001, length 1000
+
+> [] Flags [F.]
+? Flags [.]
+! [<510] Flags [F.]
+> [] Flags [.]

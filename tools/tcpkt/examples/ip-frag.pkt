@@ -1,0 +1,28 @@
+> [] Flags [S], options [mss 1100]
+! [<10] Flags [S.], options [mss 1100]
+> [] Flags [.]
+
+#> [] Flags [P.], length 1000
+
+> [] IP id 45, offset 0, flags [+], length 128: Flags [P.], length 1000
+> [] IP id 45, offset 128, flags [none]
+
+! [<300] Flags [.]
+
+> [] Flags [F.]
+? [<10] Flags [.]
+! [<10] Flags [F.]
+> [] Flags [.]
+
+#[< 10] Flags [.]
+#> [] ICMP unreachable - need to frag, mtu 0
+
+#> [] Flags [.], seq 1, length 100
+#[<10] Flags [.], ack 101
+
+#> [100] Flags [P.] seq 51, length 150
+#[<10] Flags [.], ack 201
+
+#[<10] Flags [F.]
+#> [] Flags [F.]
+#[<10] Flags [.]

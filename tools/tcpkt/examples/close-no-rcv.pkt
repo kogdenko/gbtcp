@@ -1,0 +1,13 @@
+# tcput -l 1 -a -w 1000 -c
+# Linux send R. instead of F.
+
+> [] Flags [S], options [mss 1000]
+! [<10] Flags [S.]
+> [] Flags [.]
+
+> [] Flags [.], length 1000
+! [<500] Flags [.]
+
+! [<1010] Flags [F.]
+> [] Flags [F.]
+! [<10] Flags [.]

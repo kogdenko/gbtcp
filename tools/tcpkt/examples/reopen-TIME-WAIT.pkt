@@ -1,0 +1,27 @@
+# ./tcput -l 2 -a -r 10 -c
+
+> [] Flags [S], seq 0
+! [] Flags [S.]
+> [] Flags [.]
+
+> [] Flags [P.], length 10
+? Flags [.]
+
+! [<10] Flags [F.]
+> [] Flags [F.]
+! [<10] Flags [.]
+
+# do _not_ quit from TIME-WAIT
+> [] Flags [S], seq 7
+! [<10] Flags [.], ack 12 
+
+# do quit from TIME-WAIT
+> [] Flags [S], seq 20
+! [<10] Flags [S.], ack 21
+
+> [] Flags [P.], length 10
+? Flags [.]
+
+! [<10] Flags [F.]
+> [] Flags [F.]
+! [<10] Flags [.]

@@ -1,0 +1,53 @@
+tcpkt is a tool for packet based testing/analysis TCP implementation.
+
+Works on Linux, FreeBSD.
+The code is under GPLv2.
+
+COMPILE:
+./configure
+make
+
+CONFIGURE:
+Configure system to use tcpkt on loopback interface:
+Linux:
+echo 1 > /proc/sys/net/ipv4/conf/lo/accept_local
+echo 1 > /proc/sys/net/ipv4/conf/lo/route_localnet
+
+Suppress RST packets from stack:
+Linux:
+iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP
+FreeBSD:
+sysctl net.inet.tcp.blackhole=2
+
+Disable offloadings:
+Linux:
+ethtool -K lo gso off
+ethtool -K lo tso off
+
+RUN:
+See examples scripts in ./examples
+Run win-probe.pkt scipt on loopback interface:
+Firstly run test program tcput in first console
+./tcput -B 127.0.0.1 -l 1 -a -R 5000 -w 5000
+
+Then run tcpkt iu second console
+./tcpkt -CLvS -i lo 127.0.0.1 ./examples/win-probe.pkt
+
+If everything ok you should see:
+ 3 > [0] Flags [S], seq 0, win 29200, options [mss 1000], length 0
+ 4 ! [0] Flags [S.], seq 3507428208, ack 1, win 5000, options [mss 65495], length 0
+ 5 > [0] Flags [.], seq 1, ack 3507428209, win 29200, length 0
+ 7 > [0] Flags [.], seq 1, ack 3507428209, win 29200, length 1000
+ 8 ! [0] Flags [.], seq 3507428209, ack 1001, win 4000, length 0
+ 9 > [0] Flags [.], seq 1001, ack 3507428209, win 29200, length 1000
+10 ! [0] Flags [.], seq 3507428209, ack 2001, win 3000, length 0
+11 > [0] Flags [.], seq 2001, ack 3507428209, win 29200, length 1000
+12 ! [40] Flags [.], seq 3507428209, ack 3001, win 2000, length 0
+13 > [0] Flags [.], seq 3001, ack 3507428209, win 29200, length 1000
+14 ! [41] Flags [.], seq 3507428209, ack 4001, win 1000, length 0
+15 > [0] Flags [.], seq 4001, ack 3507428209, win 29200, length 1000
+16 ! [41] Flags [.], seq 3507428209, ack 5001, win 0, length 0
+17 > [0] Flags [.], seq 5001, ack 3507428209, win 29200, length 1000
+18 ! [0] Flags [.], seq 3507428209, ack 5001, win 0, length 0
+21 > [201] Flags [.], seq 5000, ack 3507428209, win 29200, length 0
+22 ! [0] Flags [.], seq 3507428209, ack 5001, win 0, length 0

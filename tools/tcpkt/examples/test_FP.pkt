@@ -1,0 +1,6 @@
+> [] Flags [S], seq 1
+! [] Flags [S.]
+> [] Flags [.]
+
+> [] Flags [FP.], length 1
+! [<500] Flags [.]

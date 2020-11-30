@@ -1,0 +1,12 @@
+# tcput -B 127.0.0.1 -l 1 -a -w 10 -s 1
+
+> [] Flags [S]
+! [] Flags [S.]
+> [] Flags [.]
+
+> [] Flags [F.]
+? Flags [.]
+! [<20] Flags [P.], length 1
+
+! [<10] Flags [F.]
+> [] Flags [.]

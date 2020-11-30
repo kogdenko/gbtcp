@@ -1,0 +1,22 @@
+# ./tcput -B 127.0.0.1 -l 1 -a -s 4000
+
+> [] Flags [S], options [mss 1000], win 2020
+! [<10] Flags [S.]
+> [] Flags [.], win 2020
+
+! [<10] Flags [.], length 1000
+> [] Flags [.], win 1020
+! [<10] Flags [.], length 1000
+> [] Flags [.], ack 2001, win 20
+
+! [100-1000] Flags [.], seq 2001, length 20
+> [] Flags [.], ack 2021, win 0
+! [100-2000] Flags [.], seq 2020, length 0
+> [] Flags [.], ack 2021, win 2000
+! [<10] Flags [.]
+! [<10] Flags [P.]
+
+> [] Flags [F.]
+? Flags [.]
+! [<10] Flags [F.]
+> [] Flags [.]

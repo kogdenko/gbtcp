@@ -1,0 +1,13 @@
+# tcput -l 1 -a -s 0 -r 1 
+
+> [] Flags [S]
+! [] Flags [S.]
+> [] Flags [.]
+
+! [<10] Flags [F.]
+> [] Flags [.]
+> [] Flags [P.], length 1
+! [<500] Flags [.]
+
+> [] Flags [F.]
+! [] Flags [.]

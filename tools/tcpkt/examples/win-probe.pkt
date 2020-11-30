@@ -1,0 +1,29 @@
+# ./tcput -l 1 -a -R 5000 -w 5000
+
+> [] Flags [S], options [mss 1000]
+! [<10] Flags [S.], win 5000
+> [] Flags [.]
+
+> [] Flags [.], length 1000
+! [<500] Flags [.], win 4000
+> [] Flags [.], length 1000
+! [<500] Flags [.], win 3000
+> [] Flags [.], length 1000
+! [<500] Flags [.], win 2000
+> [] Flags [.], length 1000
+! [<500] Flags [.], win 1000
+> [] Flags [.], length 1000
+! [<500] Flags [.], win 0
+> [] Flags [.], length 1000
+! [<500] Flags [.], ack 5001, win 0
+
+# Window probe
+> [200] Flags [.], seq 5000
+! [<10] Flags [.], ack 5001
+
+! [<5000] Flags [.]
+
+> [] Flags [F.], seq 5001
+? Flags [.]
+! [<10] Flags [F.]
+> [] Flags [.]
