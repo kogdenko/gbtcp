@@ -1,12 +1,21 @@
 #!/bin/sh
-# test directory must contains kernel modules: netmap.ko, netmap_veth.ko veth.ko
 
 BASEDIR=$(dirname "$0")
+
+usage()
+{
+	echo "$0 [-hbx]"
+}
+
+insert_module()
+{
+	insmod $BASEDIR/$1-`uname -r`.ko
+}
 
 while getopts "hbx" o; do
 	case "${o}" in
 	h)
-		echo "mk_testbed.sh [-hbx]"
+		usage
 		exit 0
 		;;
 	x)
@@ -16,13 +25,17 @@ while getopts "hbx" o; do
 		;;
 	esac
 done
-ip netns d t
+
 rmmod veth
 rmmod ixgbe
 rmmod netmap
-insmod $BASEDIR/netmap-`uname -r`.ko
-#insmod $BASEDIR/netmap-veth-`uname -r`.ko
-insmod $BASEDIR/veth.ko
+
+insert_module netmap
+insert_module veth
+insert_module ixgbe
+
+chmod a+rw /dev/netmap
+
 ip l a dev veth_g type veth peer name veth_t
 ethtool -K veth_g rx off tx off
 ethtool -K veth_t rx off tx off
@@ -38,4 +51,3 @@ for x in /sys/devices/system/cpu/cpu* ; do
 		echo performance > $scaling_governor
 	fi
 done
-chmod a+rw /dev/netmap

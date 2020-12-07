@@ -1,12 +1,14 @@
-// gpl2
+// GPL v2
 #include "internals.h"
+
+#define LPTREE_NODE_N_CHILDREN_MAX 256
 
 struct lptree_node {
 	struct mbuf lpn_mbuf;
 	struct dlist lpn_rules;
 	struct lptree_rule *lpn_hidden;
 	struct lptree_node *lpn_parent;
-	void *lpn_children[UINT8_MAX];
+	void *lpn_children[LPTREE_NODE_N_CHILDREN_MAX];
 };
 
 #define IS_LPTREE_NODE(tree, m) \
@@ -42,7 +44,7 @@ lptree_node_is_empty(struct lptree_node *node)
 	if (!dlist_is_empty(&node->lpn_rules)) {
 		return 0;
 	}
-	for (i = 0; i < UINT8_MAX; ++i) {
+	for (i = 0; i < LPTREE_NODE_N_CHILDREN_MAX; ++i) {
 		if (node->lpn_children[i] != NULL) {
 			return 0;
 		}
@@ -142,7 +144,7 @@ lptree_node_unset(struct lptree_node *node)
 	struct lptree_node *parent;
 
 	parent = node->lpn_parent;
-	for (i = 0; i < UINT8_MAX; ++i) {
+	for (i = 0; i < LPTREE_NODE_N_CHILDREN_MAX; ++i) {
 		if (parent->lpn_children[i] == node) {
 			if (node->lpn_hidden != NULL) {
 				m = (struct mbuf *)node->lpn_hidden;
@@ -166,7 +168,7 @@ lptree_rule_set(struct lptree *tree, struct lptree_rule *rule)
 	struct lptree_rule *tmp;
 
 	n = 1 << (8 - rule->lpr_depth_rem);
-	assert(rule->lpr_key_rem + n <= UINT8_MAX);
+	assert(rule->lpr_key_rem + n <= LPTREE_NODE_N_CHILDREN_MAX);
 	for (i = 0; i < n; ++i) {
 		id = rule->lpr_key_rem + i;
 		slot = rule->lpr_parent->lpn_children + id;
@@ -195,7 +197,7 @@ lptree_rule_unset(struct lptree *tree, struct lptree_rule *rule)
 	struct mbuf *m;
 	struct lptree_node *node;
 
-	for (i = 0; i < UINT8_MAX; ++i) {
+	for (i = 0; i < LPTREE_NODE_N_CHILDREN_MAX; ++i) {
 		m = rule->lpr_parent->lpn_children[i];
 		if (m == NULL) {
 			continue;
@@ -262,7 +264,7 @@ lptree_traverse(struct lptree *tree, struct lptree_rule **prule,
 		k = (key >> ((3 - i) << 3)) & 0x000000FF;
 		d = depth - (i << 3);
 		assert(d);
-		assert(k < UINT8_MAX);
+		assert(k < LPTREE_NODE_N_CHILDREN_MAX);
 		if (d > 8) {
 			if (*prule == NULL) {
 				node = parent->lpn_children[k];

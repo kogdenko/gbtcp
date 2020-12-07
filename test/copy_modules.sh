@@ -1,14 +1,29 @@
 #!/bin/sh
-V=`uname -r`
-PR="copy_modules.sh"
+
+BASEDIR=$(dirname "$0")
+NETMAP_PATH=
 
 usage()
 {
-	echo "Usage: $PR {netmap-path} {dst-path}"
+	echo "Usage: $0 {netmap-path}"
 }
-if [ $# -lt 2 ]; then 
+
+copy_module()
+{
+	SRC=`find $NETMAP_PATH -name $1.ko | head -n1`
+	if [ -f "$SRC" ]; then
+		cp $SRC $BASEDIR/$1-`uname -r`.ko
+	else
+		echo "Module '$1.ko' not found in netmap directory"
+	fi
+}
+
+if [ $# -lt 1 ]; then 
 	usage
 	exit 1
-fi 
-cp `find $1 -name netmap.ko` $2/netmap-`uname -r`.ko
-cp `find $1 -name veth.ko` $2/netmap-veth-`uname -r`.ko
+fi
+NETMAP_PATH=$1
+
+copy_module "netmap"
+copy_module "veth"
+copy_module "ixgbe"

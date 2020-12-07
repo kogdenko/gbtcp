@@ -34,7 +34,7 @@ check_file()
 			t="an executabe"
 			;;
 		esac
-			die "$1 is not $t"
+		die "$1 is not $t"
 	fi
 }
 
