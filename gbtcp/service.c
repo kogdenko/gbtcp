@@ -819,7 +819,7 @@ service_dup_so(struct sock *oldso)
 	struct sockaddr_in a;
 	struct sock *newso;
 
-	fd = so_get_fd(oldso);
+	fd = oldso->so_fd;
 	flags = oldso->so_blocked ? SOCK_NONBLOCK : 0;
 	rc = so_socket6(&newso, fd, AF_INET,
 	                SOCK_STREAM, flags, 0);

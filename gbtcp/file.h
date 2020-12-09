@@ -21,22 +21,12 @@ struct file {
 	struct mbuf fl_mbuf;
 	struct file_aio fl_aio;
 	struct dlist fl_aio_head;
+	int fl_fd;
 	u_char fl_type;
 	u_char fl_referenced;
 	u_char fl_blocked;
 	u_char fl_sid;
 };
-
-#define FILE_FOREACH2(s, fp) \
-	for (int UNIQV(fd) = 0; \
-	     (fp = file_next(s, UNIQV(fd))) != NULL; \
-	     UNIQV(fd) = file_get_fd(fp) + 1)
-
-#define FILE_FOREACH_SAFE3(s, fp, tmp_fd) \
-	for (int UNIQV(fd) = 0; \
-	     ((fp = file_next(s, UNIQV(fd))) != NULL) && \
-	     ((tmp_fd = file_get_fd(fp) + 1), 1); \
-	     UNIQV(fd) = tmp_fd)
 
 extern int file_sizeof;
 
@@ -55,7 +45,6 @@ void file_clean(struct file *);
 int file_fcntl(struct file *, int, uintptr_t);
 int file_ioctl(struct file *, unsigned long, uintptr_t);
 int file_get(int, struct file **);
-int file_get_fd(struct file *);
 short file_get_events(struct file *);
 void file_wakeup(struct file *, short);
 void file_wait(struct file *, short);

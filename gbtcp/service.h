@@ -7,6 +7,7 @@
 #include "mbuf.h"
 #include "route.h"
 #include "inet.h"
+#include "itable.h"
 
 #define SERVICE_COMM_MAX 32
 #define SERVICE_ID_INVALID GT_SERVICES_MAX
@@ -47,6 +48,7 @@ struct service {
 	struct mbuf_pool *p_arp_entry_pool;
 	struct mbuf_pool *p_arp_incomplete_pool;
 	struct mbuf_pool *p_file_pool;
+	struct itable p_file_fd_table;
 	struct mbuf_pool *p_sockbuf_pool;
 	struct tcp_stat p_tcps;
 	struct udp_stat p_udps;

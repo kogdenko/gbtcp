@@ -14,6 +14,7 @@ struct sock {
 #define so_blocked so_file.fl_blocked
 #define so_referenced so_file.fl_referenced
 #define so_sid so_file.fl_sid
+#define so_fd so_file.fl_fd
 	union {
 		uint64_t so_flags;
 		struct {
@@ -102,7 +103,6 @@ int service_init_tcp(struct service *);
 void service_deinit_tcp(struct service *);
 
 int so_get(int, struct sock **);
-int so_get_fd(struct sock *);
 
 struct htable_bucket *so_get_binded_bucket(uint16_t);
 

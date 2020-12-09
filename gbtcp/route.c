@@ -623,7 +623,7 @@ sysctl_route_addr_list(void *udata, const char *ident, const char *new,
 	return -ENOENT;
 }
 
-static int
+/*static int
 sysctl_route_list_next(void *udata, const char *ident, struct strbuf *out)
 {
 	int rc, id;
@@ -667,7 +667,7 @@ sysctl_route_list(void *udata, const char *ident, const char *new,
 	strbuf_addf(out, "/%u,%s,", pfx, route->rtl_ifp->rif_name);
 	strbuf_add_ipaddr(out, AF_INET, &route->rtl_via);
 	return 0;
-}
+}*/
 
 int
 route_mod_init()
@@ -682,7 +682,7 @@ route_mod_init()
 	dlist_init(&curmod->route_if_head);
 	dlist_init(&curmod->route_addr_head);
 	rc = mbuf_pool_alloc(&curmod->route_pool, CONTROLLER_SID,
-		PAGE_SIZE, sizeof(struct route_entry_long), 10000);
+		PAGE_SIZE, sizeof(struct route_entry_long));
 	if (rc) {
 		goto err;
 	}
@@ -704,9 +704,8 @@ route_mod_init()
 	sysctl_add_list(GT_SYSCTL_ROUTE_ADDR_LIST, SYSCTL_RD, NULL,
 	                sysctl_route_addr_list_next,
 	                sysctl_route_addr_list);
-	sysctl_add_list(GT_SYSCTL_ROUTE_ROUTE_LIST, SYSCTL_RD, NULL,
-	                sysctl_route_list_next,
-	                sysctl_route_list);
+//	sysctl_add_list(GT_SYSCTL_ROUTE_ROUTE_LIST, SYSCTL_RD, NULL,
+//		sysctl_route_list_next, sysctl_route_list);
 	return 0;
 err:
 	route_mod_deinit(curmod);

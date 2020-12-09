@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #include "internals.h"
 
 #define CURMOD file
@@ -9,8 +9,9 @@ struct file_mod {
 };
 
 static void
-file_init(struct file *fp, int type)
+file_init(struct file *fp, int fd, int type)
 {
+	fp->fl_fd = fd;
 	fp->fl_type = type;
 	fp->fl_referenced = 0;
 	fp->fl_blocked = 1;
@@ -33,35 +34,35 @@ file_mod_init()
 	int rc;
 
 	rc = curmod_init();
-	if (rc == 0) {
-		curmod->file_nofile = upper_pow2_32(GT_FIRST_FD + 100000);
-		sysctl_add_int(GT_SYSCTL_FILE_NOFILE, SYSCTL_WR,
-		               &curmod->file_nofile,
-		               GT_FIRST_FD + 1, 1 << 26);
+	if (rc) {
+		return rc;
 	}
-	return rc;
+	curmod->file_nofile = upper_pow2_32(GT_FIRST_FD + 100000);
+	sysctl_add_int(GT_SYSCTL_FILE_NOFILE, SYSCTL_WR,
+		&curmod->file_nofile, GT_FIRST_FD + 1, 1 << 26);
+	return 0;
 }
 
 void
 file_mod_deinit()
 {
-	sysctl_del("file");
 	curmod_deinit();
 }
 
 int
 init_files(struct service *s)
 {
-	int rc, size, n;
+	int rc, size;
 
-	if (s->p_file_pool == NULL) {
-		size = sizeof(struct sock);
-		n = curmod->file_nofile - GT_FIRST_FD;
-		assert(n > 0);
-		rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid,
-			2 * 1024 * 1024, size, n);
-	} else {
-		rc = 0;
+	size = sizeof(struct sock);
+	rc = itable_init(&s->p_file_fd_table, sizeof(struct file *));
+	if (rc) {
+		return rc;
+	}
+	rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid,
+		2 * 1024 * 1024, size);
+	if (rc) {
+		return rc;
 	}
 	return rc;
 }
@@ -69,28 +70,21 @@ init_files(struct service *s)
 void
 deinit_files(struct service *s)
 {
-	int tmp_fd;
-	struct file *fp;
+//	int tmp_fd;
+//	struct file *fp;
 
+	itable_deinit(&s->p_file_fd_table);
 	if (s->p_file_pool != NULL) {
-		FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
-			file_clean(fp);
-		}
+		// TODO:
+		//FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
+		//	file_clean(fp);
+		//}
 		mbuf_pool_free(s->p_file_pool);
 		s->p_file_pool = NULL;
 	}
 }
 
-int
-file_get_fd(struct file *fp)
-{
-	int id;
-
-	id = mbuf_get_id(&fp->fl_mbuf);
-	return GT_FIRST_FD + id;
-}
-
-struct file *
+/*struct file *
 file_next(struct service *s, int fd)
 {
 	int id;
@@ -105,12 +99,12 @@ file_next(struct service *s, int fd)
 	m = mbuf_next(s->p_file_pool, id);
 	fp = (struct file *)m;
 	return fp;
-}
+}*/
 
 int
 file_alloc3(struct file **fpp, int fd, int type)
 {
-	int rc, id;
+	int rc;
 	struct mbuf_pool *p;
 	struct file *fp;
 
@@ -118,16 +112,26 @@ file_alloc3(struct file **fpp, int fd, int type)
 	if (fd == 0) {
 		rc = mbuf_alloc(p, (struct mbuf **)fpp);
 	} else {
-		assert(fd >= GT_FIRST_FD);
-		id = fd - GT_FIRST_FD;
-		rc = mbuf_alloc3(p, id, (struct mbuf **)fpp);
+		assert(0);
+		rc = -ENOTSUP;
+//		assert(fd >= GT_FIRST_FD);
+//		id = fd - GT_FIRST_FD;
+//		rc = mbuf_alloc3(p, id, (struct mbuf **)fpp);
 	}
 	if (rc == 0) {
 		fp = *fpp;
-		file_init(fp, type);
-		DBG(0, "ok; fp=%p, fd=%d", fp, file_get_fd(fp));
-	} else {
+		rc = itable_alloc(&current->p_file_fd_table, fpp);
+		if (rc < 0) {
+			mbuf_free(&fp->fl_mbuf);
+		} else {
+			file_init(fp, GT_FIRST_FD + rc, type);
+			rc = 0;
+		}
+	}
+	if (rc < 0) {
 		DBG(-rc, "failed;");
+	} else {
+		DBG(0, "ok; fp=%p, fd=%d", fp, fp->fl_fd);
 	}
 	return rc;
 }
@@ -135,20 +139,18 @@ file_alloc3(struct file **fpp, int fd, int type)
 int
 file_get(int fd, struct file **fpp)
 {
-	int id;
-	struct mbuf *m;
+	void *ptr;
 	struct file *fp;
 
 	*fpp = NULL;
 	if (fd < GT_FIRST_FD) {
 		return -EBADF;
 	}
-	id = fd - GT_FIRST_FD;
-	m = mbuf_get(current->p_file_pool, id);
-	fp = (struct file *)m;
-	if (fp == NULL) {
+	ptr = itable_get(&current->p_file_fd_table, fd - GT_FIRST_FD);
+	if (ptr == NULL) {
 		return -EBADF;
 	}
+	fp = *(struct file **)ptr;
 	if (fp->fl_referenced == 0) {
 		return -EBADF;
 	}
@@ -159,15 +161,9 @@ file_get(int fd, struct file **fpp)
 void
 file_free(struct file *fp)
 {
-	DBG(0, "hit; fp=%p, fd=%d", fp, file_get_fd(fp));
+	DBG(0, "hit; fp=%p, fd=%d", fp, fp->fl_fd);
+	itable_free(&current->p_file_fd_table, fp->fl_fd - GT_FIRST_FD);
 	mbuf_free(&fp->fl_mbuf);
-}
-
-void
-file_free_rcu(struct file *fp)
-{
-	DBG(0, "hit; fp=%p, fd=%d", fp, file_get_fd(fp));
-	mbuf_free_rcu(&fp->fl_mbuf);
 }
 
 void
@@ -263,14 +259,13 @@ file_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 void
 file_wakeup(struct file *fp, short revents)
 {
-	int fd;
 	struct file_aio *aio, *tmp;
 
 	assert(revents);
-	fd = file_get_fd(fp);
-	DBG(0, "hit; fd=%d, revents=%s", fd, log_add_poll_events(revents));
+	DBG(0, "hit; fd=%d, revents=%s", fp->fl_fd,
+		log_add_poll_events(revents));
 	DLIST_FOREACH_SAFE(aio, &fp->fl_aio_head, faio_list, tmp) {
-		file_aio_call(aio, fd, revents);
+		file_aio_call(aio, fp->fl_fd, revents);
 	}
 }
 
@@ -324,19 +319,17 @@ file_aio_init(struct file_aio *aio)
 void
 file_aio_add(struct file *fp, struct file_aio *aio, gt_aio_f fn)
 {
-	int fd;
 	short revents;
 
 	assert(fn != NULL);
 	assert(fp->fl_type == FILE_SOCK);
 	if (!file_aio_is_added(aio)) {
-		fd = file_get_fd(fp);
 		aio->faio_fn = fn;
 		DLIST_INSERT_HEAD(&fp->fl_aio_head, aio, faio_list);
-		DBG(0, "hit; aio=%p, fd=%d", aio, fd);
+		DBG(0, "hit; aio=%p, fd=%d", aio, fp->fl_fd);
 		revents = file_get_events(fp);
 		if (revents) {
-			file_aio_call(aio, fd, revents);
+			file_aio_call(aio, fp->fl_fd, revents);
 		}
 	}
 }

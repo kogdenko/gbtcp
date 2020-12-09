@@ -60,7 +60,7 @@ epoll_entry_alloc(struct epoll *ep, struct file *fp)
 	e->epe_flags = EPOLL_FLAG_ENABLED;
 	e->epe_epoll = ep;
 	e->epe_list.dls_next = NULL;
-	e->epe_fd = file_get_fd(fp);
+	e->epe_fd = fp->fl_fd;
 	file_aio_init(&e->epe_aio);
 	return e;
 }
@@ -317,7 +317,7 @@ kevent_mod(struct epoll *ep, struct sock *so, struct kevent *event)
 int
 u_epoll_create(int ep_fd)
 {
-	int rc, fd;
+	int rc;
 	struct file *fp;
 	struct epoll *ep;
 
@@ -333,23 +333,22 @@ u_epoll_create(int ep_fd)
 		return rc;
 	}
 	rc = mbuf_pool_alloc(&ep->ep_pool, current->p_sid,
-		PAGE_SIZE, sizeof(struct epoll_entry), MBUF_NO_ID);
+		PAGE_SIZE, sizeof(struct epoll_entry));
 	if (rc) {
 		file_free(fp);
 		return rc;
 	}
 	dlist_init(&ep->ep_triggered);
-	fd = file_get_fd(fp);
-	return fd;
+	return fp->fl_fd;
 }
 
 int
 u_epoll_close(struct file *fp)
 {
-	int rc, tmp;
-	struct mbuf *m;
+	int rc/*, tmp*/;
+//	struct mbuf *m;
 	struct epoll *ep;
-	struct epoll_entry *e;
+//	struct epoll_entry *e;
 
 	ep = (struct epoll *)fp;
 	if (ep->ep_pool->mbp_sid == current->p_sid) {
@@ -358,10 +357,11 @@ u_epoll_close(struct file *fp)
 		// u_epoll_close can be called in controller
 		rc = 0;
 	}
-	MBUF_FOREACH_SAFE(m, ep->ep_pool, tmp) {
-		e = (struct epoll_entry *)m;
-		epoll_entry_free(e);
-	}
+	// TODO:
+	//MBUF_FOREACH_SAFE(m, ep->ep_pool, tmp) {
+	//	e = (struct epoll_entry *)m;
+	//	epoll_entry_free(e);
+	//}
 	mbuf_pool_free(ep->ep_pool);
 	ep->ep_pool = NULL;
 	file_free(fp);

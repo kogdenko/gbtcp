@@ -13,6 +13,7 @@
 #include "mbuf.h"
 #include "timer.h"
 #include "htable.h"
+#include "itable.h"
 #include "lptree.h"
 #include "log.h"
 #include "fd_event.h"

@@ -115,9 +115,9 @@ struct profiler {
 
 #define STRSZ(s) (s), (sizeof(s) - 1)
 
-#define ALIGNMENT sizeof(void *)
-#define U_ALIGN(x, a) (((x) + (a - 1)) & ~(a - 1))
-#define ALIGN_PTR(x) U_ALIGN(x, ALIGNMENT)
+// ALIGN_UP vs ROUND_UP
+#define ALIGNMENT_PTR sizeof(void *)
+#define ALIGN_UP(x, a) (((x) + (a - 1)) & ~(a - 1))
 
 #define ROUND_UP(x, y) ((((x) - 1) | (((__typeof__(x))(y)) - 1)) + 1)
 #define ROUND_DOWN(x, y) ((x) & (~((y) - 1 )))

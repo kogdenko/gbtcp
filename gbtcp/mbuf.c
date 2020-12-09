@@ -25,15 +25,13 @@ mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 	struct mbuf_chunk *chunk;
 	struct mbuf *m;
 
-	if (p->mbp_chunk_map_size != 0 &&
-	    p->mbp_n_allocated_chunks == p->mbp_chunk_map_size) {
-		dbg("y");
-		return -ENOMEM;
-	}
+//	if (p->mbp_chunk_map_size != 0 &&
+//	    p->mbp_n_allocated_chunks == p->mbp_chunk_map_size) {
+//		return -ENOMEM;
+//	}
 	rc = shm_alloc_pages((void **)pchunk,
 		p->mbp_chunk_size, p->mbp_chunk_size);
 	if (rc) {
-		dbg("z %u", p->mbp_chunk_size);
 		return rc;
 	}
 	p->mbp_n_allocated_chunks++;
@@ -58,10 +56,10 @@ mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 {
 	assert(chunk->mbc_n_mbufs == p->mbp_mbufs_per_chunk);
 	if (p->mbp_referenced == 0) {
-		if (chunk->mbc_id >= 0) {
-			assert(p->mbp_chunk_map[chunk->mbc_id] == chunk);
-			p->mbp_chunk_map[chunk->mbc_id] = NULL;
-		}
+//		if (chunk->mbc_id >= 0) {
+//			assert(p->mbp_chunk_map[chunk->mbc_id] == chunk);
+//			p->mbp_chunk_map[chunk->mbc_id] = NULL;
+//		}
 		DLIST_REMOVE(chunk, mbc_list);
 		shm_free_pages(chunk, p->mbp_chunk_size);
 		p->mbp_n_allocated_chunks--;
@@ -74,24 +72,24 @@ mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 }
 
 int
-mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid,
-	int chunk_size, int mbuf_size, int n_mbufs_max)
+mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, int chunk_size,
+	int mbuf_size)
 {
-	int size, mbuf_size_align, mbufs_per_chunk, chunk_map_size;
+	int size, mbuf_size_align, mbufs_per_chunk/*, chunk_map_size*/;
 	struct mbuf_pool *p;
 
 	assert(mbuf_size >= sizeof(struct mbuf));
 	assert(chunk_size >= PAGE_SIZE);
 	assert((chunk_size & PAGE_MASK) == 0);
-	mbuf_size_align = ALIGN_PTR(mbuf_size);
+	mbuf_size_align = ALIGN_UP(mbuf_size, ALIGNMENT_PTR);
 	assert(mbuf_size_align >= mbuf_size);
 	mbufs_per_chunk = (chunk_size - sizeof(struct mbuf_chunk)) /
 		mbuf_size_align;
-	chunk_map_size = n_mbufs_max / mbufs_per_chunk;
-	if (n_mbufs_max % mbufs_per_chunk) {
-		chunk_map_size++;
-	}
-	size = sizeof(*p) + chunk_map_size * sizeof(struct mbuf_chunk *);
+	//chunk_map_size = n_mbufs_max / mbufs_per_chunk;
+	//if (n_mbufs_max % mbufs_per_chunk) {
+	//	chunk_map_size++;
+	//}
+	size = sizeof(*p) /*+ chunk_map_size * sizeof(struct mbuf_chunk *)*/;
 	p = shm_malloc(size);
 	if (p == NULL) {
 		return -ENOMEM;
@@ -105,10 +103,10 @@ mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid,
 	p->mbp_mbufs_per_chunk = mbufs_per_chunk;
 	dlist_init(&p->mbp_avail_chunk_head);
 	dlist_init(&p->mbp_not_avail_chunk_head);
-	p->mbp_chunk_map_size = chunk_map_size;
-	if (p->mbp_chunk_map_size) {
-		p->mbp_chunk_map = (struct mbuf_chunk **)(p + 1);
-	}
+//	p->mbp_chunk_map_size = chunk_map_size;
+//	if (p->mbp_chunk_map_size) {
+//		p->mbp_chunk_map = (struct mbuf_chunk **)(p + 1);
+//	}
 	INFO(0, "ok; pool=%p", p);
 	return 0;
 }
@@ -151,17 +149,17 @@ mbuf_alloc2(struct mbuf *m, struct mbuf_chunk *chunk)
 	if (chunk->mbc_n_mbufs == 0) {
 		DLIST_REMOVE(chunk, mbc_list);
 		DLIST_INSERT_HEAD(&p->mbp_not_avail_chunk_head,
-		                  chunk, mbc_list);
+			chunk, mbc_list);
 	}
 	WRITE_ONCE(m->mb_freed, 0);
 	DBG(0, "ok; m=%p, c=%p, pool=%p, n=%d",
-	    m, chunk, p, chunk->mbc_n_mbufs);
+		m, chunk, p, chunk->mbc_n_mbufs);
 }
 
 int
 mbuf_alloc(struct mbuf_pool *p, struct mbuf **mp)
 {
-	int i, rc;
+	int /*i,*/ rc;
 	struct mbuf *m;
 	struct mbuf_chunk *chunk;
 
@@ -172,14 +170,14 @@ mbuf_alloc(struct mbuf_pool *p, struct mbuf **mp)
 		if (rc) {
 			return rc;
 		}
-		for (i = 0; i < p->mbp_chunk_map_size; ++i) {
-			if (p->mbp_chunk_map[i] == NULL) {
-				chunk->mbc_id = i;
-				p->mbp_chunk_map[i] = chunk;
-				break;
-			}
-		}
-		assert(i == 0 || i < p->mbp_chunk_map_size);
+//		for (i = 0; i < p->mbp_chunk_map_size; ++i) {
+//			if (p->mbp_chunk_map[i] == NULL) {
+//				chunk->mbc_id = i;
+//				p->mbp_chunk_map[i] = chunk;
+//			}
+//		}
+//		assert(i == 0 || i < p->mbp_chunk_map_size);
+//		assert(i == 0 || i < p->mbp_chunk_map_size);
 	}
 	assert(!dlist_is_empty(&p->mbp_avail_chunk_head));
 	chunk = DLIST_FIRST(&p->mbp_avail_chunk_head,
@@ -192,7 +190,7 @@ mbuf_alloc(struct mbuf_pool *p, struct mbuf **mp)
 	return 0;
 }
 
-int
+/*int
 mbuf_alloc3(struct mbuf_pool *p, uint32_t m_id, struct mbuf **mp)
 {
 	int i, rc, chunk_id;
@@ -223,7 +221,7 @@ mbuf_alloc3(struct mbuf_pool *p, uint32_t m_id, struct mbuf **mp)
 	} else {
 		return -EBUSY;
 	}
-}
+}*/
 
 static void
 mbuf_free_garbage(struct mbuf *m)
@@ -233,7 +231,7 @@ mbuf_free_garbage(struct mbuf *m)
 
 	p = m->mb_chunk->mbc_pool;
 	DBG(0, "hit; m=%p, pool=%p, sid=%d->%d",
-	    m, p, current->p_sid, p->mbp_sid);
+		m, p, current->p_sid, p->mbp_sid);
 	assert(p->mbp_sid < GT_SERVICES_MAX);
 	if (current->p_mbuf_garbage_max < p->mbp_sid + 1) {
 		current->p_mbuf_garbage_max = p->mbp_sid + 1;
@@ -251,7 +249,7 @@ mbuf_free_direct(struct mbuf *m)
 	chunk = m->mb_chunk;
 	p = chunk->mbc_pool;
 	DBG(0, "hit; m=%p, c=%p, pool=%p, n=%d",
-	    m, chunk, p, chunk->mbc_n_mbufs);
+		m, chunk, p, chunk->mbc_n_mbufs);
 	assert(chunk->mbc_n_mbufs < p->mbp_mbufs_per_chunk);
 	DLIST_INSERT_HEAD(&chunk->mbc_mbuf_head, m, mb_list);
 	if (chunk->mbc_n_mbufs == 0) {
@@ -305,7 +303,7 @@ mbuf_free(struct mbuf *m)
 	}
 }
 
-struct mbuf *
+/*struct mbuf *
 mbuf_get(struct mbuf_pool *p, uint32_t m_id)
 {
 	int chunk_id, i;
@@ -369,4 +367,44 @@ mbuf_get_id(struct mbuf *m)
 	i = ((u_char *)m - (u_char *)(chunk + 1)) / p->mbp_mbuf_size;
 	m_id = chunk->mbc_id * p->mbp_mbufs_per_chunk + i;
 	return m_id;
-}
+}*/
+
+// struct page;
+//
+// mbuf_cache
+//
+// mbuf sizes:
+// << slab >>
+// 64
+// 128
+// 256
+// 512
+// 1024 = 1k
+// 2k
+// 4k
+// 8k
+// 16k
+// 32k
+// 64k
+// 128k
+// 256k
+// 512k
+// 1024k = 1m
+// << buddy >>
+// 2m
+// 4m
+// 8m
+// 16m
+// 32m
+// 64m
+// 128m
+//
+// mm_malloc(int mm_alloc_id)
+// {
+// 	
+//MM_ALLOC_64
+//MM_ALLOC_128M
+
+// m_alloc_page_id
+
+
