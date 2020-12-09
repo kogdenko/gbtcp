@@ -59,8 +59,7 @@ init_files(struct service *s)
 	if (rc) {
 		return rc;
 	}
-	rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid,
-		2 * 1024 * 1024, size);
+	rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid, size);
 	if (rc) {
 		return rc;
 	}

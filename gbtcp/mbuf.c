@@ -3,6 +3,8 @@
 
 #define CURMOD mbuf
 
+#define CHUNK_SIZE 1*1024*1024
+
 #define MBUF_MAGIC 0xcafe
 
 #define MBUF_GET(p, chunk, i) \
@@ -29,8 +31,7 @@ mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 //	    p->mbp_n_allocated_chunks == p->mbp_chunk_map_size) {
 //		return -ENOMEM;
 //	}
-	rc = shm_alloc_pages((void **)pchunk,
-		p->mbp_chunk_size, p->mbp_chunk_size);
+	rc = shm_alloc_pages((void **)pchunk, CHUNK_SIZE);
 	if (rc) {
 		return rc;
 	}
@@ -61,7 +62,7 @@ mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 //			p->mbp_chunk_map[chunk->mbc_id] = NULL;
 //		}
 		DLIST_REMOVE(chunk, mbc_list);
-		shm_free_pages(chunk, p->mbp_chunk_size);
+		shm_free_pages(chunk, CHUNK_SIZE);
 		p->mbp_n_allocated_chunks--;
 		if (p->mbp_n_allocated_chunks == 0) {
 			mbuf_pool_free(p);
@@ -72,18 +73,15 @@ mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 }
 
 int
-mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, int chunk_size,
-	int mbuf_size)
+mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, int mbuf_size)
 {
 	int size, mbuf_size_align, mbufs_per_chunk/*, chunk_map_size*/;
 	struct mbuf_pool *p;
 
 	assert(mbuf_size >= sizeof(struct mbuf));
-	assert(chunk_size >= PAGE_SIZE);
-	assert((chunk_size & PAGE_MASK) == 0);
 	mbuf_size_align = ALIGN_UP(mbuf_size, ALIGNMENT_PTR);
 	assert(mbuf_size_align >= mbuf_size);
-	mbufs_per_chunk = (chunk_size - sizeof(struct mbuf_chunk)) /
+	mbufs_per_chunk = (CHUNK_SIZE - sizeof(struct mbuf_chunk)) /
 		mbuf_size_align;
 	//chunk_map_size = n_mbufs_max / mbufs_per_chunk;
 	//if (n_mbufs_max % mbufs_per_chunk) {
@@ -98,7 +96,6 @@ mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, int chunk_size,
 	memset(p, 0, size);
 	p->mbp_sid = sid;
 	p->mbp_referenced = 1;
-	p->mbp_chunk_size = chunk_size;
 	p->mbp_mbuf_size = mbuf_size_align;
 	p->mbp_mbufs_per_chunk = mbufs_per_chunk;
 	dlist_init(&p->mbp_avail_chunk_head);
@@ -404,7 +401,3 @@ mbuf_get_id(struct mbuf *m)
 // 	
 //MM_ALLOC_64
 //MM_ALLOC_128M
-
-// m_alloc_page_id
-
-

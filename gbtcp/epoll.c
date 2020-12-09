@@ -333,7 +333,7 @@ u_epoll_create(int ep_fd)
 		return rc;
 	}
 	rc = mbuf_pool_alloc(&ep->ep_pool, current->p_sid,
-		PAGE_SIZE, sizeof(struct epoll_entry));
+		sizeof(struct epoll_entry));
 	if (rc) {
 		file_free(fp);
 		return rc;

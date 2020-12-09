@@ -29,4 +29,6 @@ const char *mod_name(int);
 int mod_init2(int, size_t);
 void mod_deinit1();
 
+int init_modules();
+
 #endif // GBTCP_MOD_H

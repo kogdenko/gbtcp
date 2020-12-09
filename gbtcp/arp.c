@@ -317,7 +317,7 @@ service_init_arp(struct service *s)
 
 	if (s->p_arp_entry_pool == NULL) {
 		rc = mbuf_pool_alloc(&s->p_arp_entry_pool, s->p_sid,
-			PAGE_SIZE, sizeof(struct arp_entry));
+			sizeof(struct arp_entry));
 		if (rc) {
 			return rc;
 		}
@@ -325,7 +325,7 @@ service_init_arp(struct service *s)
 	rc = 0;
 	if (s->p_arp_incomplete_pool == NULL) {
 		rc = mbuf_pool_alloc(&s->p_arp_incomplete_pool, s->p_sid,
-			10 * PAGE_SIZE, DEV_PKT_SIZE_MAX);
+			DEV_PKT_SIZE_MAX);
 		if (rc) {
 			service_deinit_arp(s);
 		}

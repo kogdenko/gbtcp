@@ -71,3 +71,21 @@ mod_deinit1(int mod_id)
 	log_scope_deinit(scope);
 	shm_free(scope);
 }
+
+int
+init_modules()
+{
+	int i, rc;
+
+	for (i = MOD_FIRST; i < MODS_MAX; ++i) {
+		if (mods[i].mod_init == NULL) {
+			rc = mod_init2(i, sizeof(struct log_scope));
+		} else {
+			rc = (*mods[i].mod_init)();
+		}
+		if (rc) {
+			return rc;
+		}
+	}	
+	return 0;
+}

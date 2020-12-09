@@ -281,7 +281,7 @@ service_init_tcp(struct service *s)
 
 	if (s->p_sockbuf_pool == NULL) {
 		rc = mbuf_pool_alloc(&s->p_sockbuf_pool, s->p_sid,
-			2 * 1024 * 1024, SOCKBUF_CHUNK_SIZE);
+			SOCKBUF_CHUNK_SIZE);
 	} else {
 		rc = 0;
 	}

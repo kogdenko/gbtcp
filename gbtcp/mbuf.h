@@ -29,9 +29,7 @@ struct mbuf_chunk {
 
 struct mbuf_pool {
 	int mbp_mbuf_size;
-	int mbp_chunk_size;
 	int mbp_mbufs_per_chunk;
-//	int mbp_chunk_map_size;
 	int mbp_n_allocated_chunks;
 	u_char mbp_sid;
 	u_char mbp_referenced;
@@ -51,7 +49,7 @@ int mbuf_mod_service_init(struct service *);
 void mbuf_mod_deinit();
 void mbuf_mod_service_deinit(struct service *);
 
-int mbuf_pool_alloc(struct mbuf_pool **, u_char, int, int);
+int mbuf_pool_alloc(struct mbuf_pool **, u_char, int);
 void mbuf_pool_free(struct mbuf_pool *);
 
 int mbuf_alloc(struct mbuf_pool *, struct mbuf **);
@@ -67,5 +65,7 @@ void mbuf_free_rcu(struct mbuf *);
 #define mbuf_get_pool(m) \
 	((m)->mb_chunk == NULL ? NULL : (m)->mb_chunk->mbc_pool)
 
+void *mem_alloc(size_t);
+void mem_free(void *);
 
 #endif // GBTCP_MBUF_H

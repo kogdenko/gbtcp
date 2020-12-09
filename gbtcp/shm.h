@@ -37,7 +37,7 @@ void shm_garbage_pop(struct dlist *, u_char);
 void *shm_malloc(size_t);
 void *shm_realloc(void *, size_t);
 void shm_free(void *);
-int shm_alloc_pages(void **, size_t, size_t);
+int shm_alloc_pages(void **, size_t);
 void shm_free_pages(void *, size_t);
 
 #define shared_ns() READ_ONCE(shared->shm_ns)

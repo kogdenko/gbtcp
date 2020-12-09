@@ -217,16 +217,10 @@ shm_init()
 	for (i = 0; i < shared->shm_n_sb_pages; ++i) {
 		shm_page_alloc(i);
 	}
-	for (i = MOD_FIRST; i < MODS_MAX; ++i) {
-		if (mods[i].mod_init == NULL) {
-			rc = mod_init2(i, sizeof(struct log_scope));
-		} else {
-			rc = (*mods[i].mod_init)();
-		}
-		if (rc) {
-			goto err;
-		}
-	}	
+	rc = init_modules();
+	if (rc) {
+		goto err;
+	}
 	shm_early = 0;
 	curmod->shm_n_allocated_pages += shm_early_n_allocated_pages;
 	shm_early_n_allocated_pages = 0;
@@ -317,18 +311,17 @@ shm_deinit()
 }
 
 static int
-shm_alloc_pages_locked(void **pp, size_t alignment, size_t size)
+shm_alloc_pages_locked(void **pp, size_t size)
 {
-	int i, n, rc, page, alignment_n, size_n;
+	int i, n, rc, page, size_n;
 	uintptr_t addr;
 
-	alignment_n = alignment >> PAGE_SHIFT;
 	size_n = size >> PAGE_SHIFT;
 	assert(size_n);
-	addr = ROUND_UP(shared->shm_base_addr, alignment);
+	addr = shared->shm_base_addr;
 	page = shm_virt_to_page(addr);
 	n = shared->shm_n_pages - size_n;
-	for (; page < n; page += alignment_n) {
+	for (; page < n; page++) {
 		rc = 0;
 		for (i = 0; i < size_n; ++i) {
 			rc = shm_page_is_allocated(page + i);
@@ -432,7 +425,7 @@ shm_malloc_locked(size_t mem_size)
 	}
 	if (b == NULL) {
 		new_size = ROUND_UP(size, PAGE_SIZE);
-		rc = shm_alloc_pages_locked((void **)&b, PAGE_SIZE, new_size);
+		rc = shm_alloc_pages_locked((void **)&b, new_size);
 		if (rc) {
 			return NULL;
 		}
@@ -501,18 +494,15 @@ shm_free(void *ptr)
 }
 
 int
-shm_alloc_pages(void **pp, size_t alignment, size_t size)
+shm_alloc_pages(void **pp, size_t size)
 {
 	int rc;
 
-	if (alignment & PAGE_MASK) {
-		return -EINVAL;
-	}
 	if (size & PAGE_MASK) {
 		return -EINVAL;
 	}
 	shm_lock();
-	rc = shm_alloc_pages_locked(pp, alignment, size);
+	rc = shm_alloc_pages_locked(pp, size);
 	if (rc == 0) {
 		INFO(0, "ok; size=%zu, addr=%p", size, *pp);
 	} else {

@@ -682,7 +682,7 @@ route_mod_init()
 	dlist_init(&curmod->route_if_head);
 	dlist_init(&curmod->route_addr_head);
 	rc = mbuf_pool_alloc(&curmod->route_pool, CONTROLLER_SID,
-		PAGE_SIZE, sizeof(struct route_entry_long));
+		sizeof(struct route_entry_long));
 	if (rc) {
 		goto err;
 	}
