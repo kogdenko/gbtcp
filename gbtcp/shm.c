@@ -21,12 +21,19 @@ struct shm_hdr *shared;
 #define IS_SHM_ADDR(p) \
 	(((uintptr_t)(p) - shared->shm_base_addr) < shared->shm_size)
 
+struct m_tmp {
+	struct dlist mb_list;
+	int mb_size;
+	int mb_magic;
+	short mb_freed;
+};
+
 #if 0
 static void
 check_heap(const char *msg)
 {
 	int n;
-	struct mbuf *m;
+	struct m_tmp *m;
 
 	n = 0;
 	dbg("heap> %s", msg);
@@ -124,52 +131,13 @@ shm_lock()
 	spinlock_lock(&shared->shm_lock);
 }
 
-void
+static void
 shm_unlock()
 {
-	spinlock_unlock(&shared->shm_lock);
-}
-
-static void
-shm_unlock_and_free_garbage()
-{
-	struct dlist head;
-
-	dlist_init(&head);
 	if (current != NULL) {
-		shm_garbage_push(current);
-		shm_garbage_pop(&head, current->p_sid);
+		garbage_collector(current);
 	}
-	shm_unlock();
-	mbuf_free_direct_list(&head);
-}
-
-void
-shm_garbage_push(struct service *s)
-{
-	int i;
-	struct dlist *dst, *src;
-
-	for (i = 0; i < s->p_mbuf_garbage_max; ++i) {
-		src = s->p_mbuf_garbage_head + i;
-		if (!dlist_is_empty(src)) {
-			assert(i != s->p_sid);
-			dst = shared->shm_garbage_head + i;
-			dlist_splice_tail_init(dst, src);
-		}
-	}
-	s->p_mbuf_garbage_max = 0;
-}
-
-void
-shm_garbage_pop(struct dlist *dst, u_char sid)
-{
-	struct dlist *src;
-
-	src = shared->shm_garbage_head + sid;
-	if (!dlist_is_empty(src)) {
-		dlist_splice_tail_init(dst, src);
-	}
+	spinlock_unlock(&shared->shm_lock);
 }
 
 int
@@ -360,12 +328,12 @@ shm_free_pages_locked(uintptr_t addr, size_t size)
 	((uintptr_t)(l) + (l)->mb_size == (uintptr_t)(r))
 
 static void
-shm_merge(struct mbuf *middle)
+shm_merge(struct m_tmp *middle)
 {
-	struct mbuf *m, *x;
+	struct m_tmp *m, *x;
 
 	m = middle;
-	if (m != DLIST_FIRST(&shared->shm_heap, struct mbuf, mb_list)) {
+	if (m != DLIST_FIRST(&shared->shm_heap, struct m_tmp, mb_list)) {
 		x = DLIST_PREV(m, mb_list);
 		if (IS_ADJACENT(x, m)) {
 			x->mb_size += m->mb_size;
@@ -373,7 +341,7 @@ shm_merge(struct mbuf *middle)
 			m = x;
 		}
 	}
-	if (m != DLIST_LAST(&shared->shm_heap, struct mbuf, mb_list)) {
+	if (m != DLIST_LAST(&shared->shm_heap, struct m_tmp, mb_list)) {
 		x = DLIST_NEXT(m, mb_list);
 		if (IS_ADJACENT(m, x)) {
 			m->mb_size += x->mb_size;
@@ -385,12 +353,12 @@ shm_merge(struct mbuf *middle)
 static void
 shm_free_locked(void *tofree_ptr)
 {
-	struct mbuf *m, *tofree_m;
+	struct m_tmp *m, *tofree_m;
 
 	if (tofree_ptr == NULL) {
 		return;
 	}
-	tofree_m = ((struct mbuf *)tofree_ptr) - 1;
+	tofree_m = ((struct m_tmp *)tofree_ptr) - 1;
 	assert(tofree_m->mb_magic == SHM_MAGIC);
 	assert(tofree_m->mb_freed == 0);
 	tofree_m->mb_freed = 1;
@@ -411,9 +379,9 @@ shm_malloc_locked(size_t mem_size)
 {
 	int rc;
 	size_t size, new_size;
-	struct mbuf *m, *b;
+	struct m_tmp *m, *b;
 
-	size = sizeof(struct mbuf) + mem_size;
+	size = sizeof(struct m_tmp) + mem_size;
 	assert(size < INT_MAX);
 	b = NULL;
 	DLIST_FOREACH(m, &shared->shm_heap, mb_list) {
@@ -437,7 +405,7 @@ shm_malloc_locked(size_t mem_size)
 	}
 	b->mb_freed = 0;
 	if (b->mb_size > size + 128) {
-		m = (struct mbuf *)(((u_char *)b) + size);
+		m = (struct m_tmp *)(((u_char *)b) + size);
 		m->mb_magic = SHM_MAGIC;
 		m->mb_size = b->mb_size - size;
 		m->mb_freed = 0;
@@ -459,7 +427,7 @@ shm_malloc(size_t size)
 	} else {
 		WARN(ENOMEM, "failed; size=%zu", size);
 	}
-	shm_unlock_and_free_garbage();
+	shm_unlock();
 	return new_ptr;
 }
 
@@ -467,13 +435,13 @@ void *
 shm_realloc(void *old_ptr, size_t size)
 {
 	size_t old_size;
-	struct mbuf *m;
+	struct m_tmp *m;
 	void *new_ptr;
 
 	if (old_ptr == NULL) {
 		old_size = 0;
 	} else {
-		m = ((struct mbuf *)old_ptr) - 1;
+		m = ((struct m_tmp *)old_ptr) - 1;
 		old_size = m->mb_size - sizeof(*m);
 	}
 	new_ptr = shm_malloc(size);
@@ -490,7 +458,7 @@ shm_free(void *ptr)
 	shm_lock();
 	shm_free_locked(ptr);
 	INFO(0, "ok; addr=%p", ptr);
-	shm_unlock_and_free_garbage();
+	shm_unlock();
 }
 
 int
@@ -508,7 +476,7 @@ shm_alloc_pages(void **pp, size_t size)
 	} else {
 		WARN(-rc, "failed; size=%zu", size);
 	}
-	shm_unlock_and_free_garbage();
+	shm_unlock();
 	return rc;
 }
 
@@ -523,5 +491,5 @@ shm_free_pages(void *ptr, size_t size)
 	shm_lock();
 	shm_free_pages_locked(addr, size);
 	INFO(0, "ok; size=%zu, addr=%p", size, ptr);
-	shm_unlock_and_free_garbage();
+	shm_unlock();
 }

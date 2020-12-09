@@ -28,11 +28,8 @@ int shm_attach();
 void shm_deinit();
 void shm_detach();
 
-void shm_lock();
-void shm_unlock();
-
-void shm_garbage_push(struct service *);
-void shm_garbage_pop(struct dlist *, u_char);
+//void shm_garbage_push(struct service *);
+//void shm_garbage_pop(struct dlist *, u_char);
 
 void *shm_malloc(size_t);
 void *shm_realloc(void *, size_t);

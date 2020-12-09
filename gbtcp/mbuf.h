@@ -4,19 +4,12 @@
 
 #include "list.h"
 
-enum mbuf_area {
-	MBUF_AREA_NONE,
-	MBUF_AREA_POOL,
-	MBUF_AREA_HEAP,
-};
-
 struct mbuf {
 	struct dlist mb_list;
 	struct mbuf_chunk *mb_chunk;
-	uint32_t mb_size;
 	uint16_t mb_magic;
+	u_char mb_worker_id;
 	u_char mb_freed;
-	u_char mb_area;
 };
 
 struct mbuf_chunk {
@@ -31,7 +24,7 @@ struct mbuf_pool {
 	int mbp_mbuf_size;
 	int mbp_mbufs_per_chunk;
 	int mbp_n_allocated_chunks;
-	u_char mbp_sid;
+	u_char mbp_worker_id;
 	u_char mbp_referenced;
 	struct dlist mbp_avail_chunk_head;
 	struct dlist mbp_not_avail_chunk_head;
@@ -53,8 +46,7 @@ int mbuf_pool_alloc(struct mbuf_pool **, u_char, int);
 void mbuf_pool_free(struct mbuf_pool *);
 
 int mbuf_alloc(struct mbuf_pool *, struct mbuf **);
-int mbuf_alloc3(struct mbuf_pool *, uint32_t, struct mbuf **);
-void mbuf_init(struct mbuf *, u_char);
+void mbuf_init(struct mbuf *);
 void mbuf_free(struct mbuf *);
 void mbuf_free_direct(struct mbuf *);
 void mbuf_free_direct_list(struct dlist *);
@@ -64,6 +56,8 @@ void mbuf_free_rcu(struct mbuf *);
 //int mbuf_get_id(struct mbuf *);
 #define mbuf_get_pool(m) \
 	((m)->mb_chunk == NULL ? NULL : (m)->mb_chunk->mbc_pool)
+
+void garbage_collector(struct service *);
 
 void *mem_alloc(size_t);
 void mem_free(void *);

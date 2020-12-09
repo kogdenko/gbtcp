@@ -286,7 +286,7 @@ file_wait(struct file *fp, short events)
 {
 	struct file_aio aio;
 
-	mbuf_init(&aio.faio_mbuf, MBUF_AREA_NONE);
+	mbuf_init(&aio.faio_mbuf);
 	file_wait_filter = events;
 	file_aio_init(&aio);
 	file_aio_add(fp, &aio, file_wait_handler);

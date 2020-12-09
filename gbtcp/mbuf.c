@@ -11,13 +11,11 @@
 	(struct mbuf *)(((u_char *)(chunk + 1)) + (i) * (p)->mbp_mbuf_size)
 
 void
-mbuf_init(struct mbuf *m, u_char area)
+mbuf_init(struct mbuf *m)
 {
 	m->mb_chunk = NULL;
-	m->mb_size = 0;
 	m->mb_magic = MBUF_MAGIC;
 	m->mb_freed = 0;
-	m->mb_area = area;
 }
 
 static int
@@ -43,8 +41,9 @@ mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 	chunk->mbc_n_mbufs = p->mbp_mbufs_per_chunk;
 	for (i = 0; i < chunk->mbc_n_mbufs; ++i) {
 		m = MBUF_GET(p, chunk, i);
-		mbuf_init(m, MBUF_AREA_POOL);
+		mbuf_init(m);
 		m->mb_freed = 1;
+		m->mb_worker_id = p->mbp_worker_id;
 		m->mb_chunk = chunk;
 		DLIST_INSERT_TAIL(&chunk->mbc_mbuf_head, m, mb_list);
 	}
@@ -94,7 +93,7 @@ mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, int mbuf_size)
 	}
 	*pp = p;
 	memset(p, 0, size);
-	p->mbp_sid = sid;
+	p->mbp_worker_id = sid;
 	p->mbp_referenced = 1;
 	p->mbp_mbuf_size = mbuf_size_align;
 	p->mbp_mbufs_per_chunk = mbufs_per_chunk;
@@ -160,7 +159,7 @@ mbuf_alloc(struct mbuf_pool *p, struct mbuf **mp)
 	struct mbuf *m;
 	struct mbuf_chunk *chunk;
 
-	assert(current->p_sid == p->mbp_sid);
+	assert(current->p_sid == p->mbp_worker_id);
 	*mp = NULL;
 	if (dlist_is_empty(&p->mbp_avail_chunk_head)) {
 		rc = mbuf_chunk_alloc(p, &chunk);
@@ -223,18 +222,9 @@ mbuf_alloc3(struct mbuf_pool *p, uint32_t m_id, struct mbuf **mp)
 static void
 mbuf_free_garbage(struct mbuf *m)
 {
-	struct dlist *head;
-	struct mbuf_pool *p;
-
-	p = m->mb_chunk->mbc_pool;
-	DBG(0, "hit; m=%p, pool=%p, sid=%d->%d",
-		m, p, current->p_sid, p->mbp_sid);
-	assert(p->mbp_sid < GT_SERVICES_MAX);
-	if (current->p_mbuf_garbage_max < p->mbp_sid + 1) {
-		current->p_mbuf_garbage_max = p->mbp_sid + 1;
-	}
-	head = current->p_mbuf_garbage_head + p->mbp_sid;
-	DLIST_INSERT_TAIL(head, m, mb_list);
+	DBG(0, "hit; m=%p, sid=%d->%d",
+		m, current->p_sid, m->mb_worker_id);
+	DLIST_INSERT_TAIL(&current->p_mbuf_garbage_head, m, mb_list);
 }
 
 void
@@ -274,97 +264,40 @@ mbuf_free_direct_list(struct dlist *head)
 void
 mbuf_free(struct mbuf *m)
 {
-	struct mbuf_chunk *chunk;
-
 	if (m == NULL) {
 		return;
 	}
 	DBG(0, "hit; m=%p", m);
 	assert(m->mb_freed == 0);
 	WRITE_ONCE(m->mb_freed, 1);
-	switch (m->mb_area) {
-	case MBUF_AREA_NONE:
-		break;
-	case MBUF_AREA_HEAP:
-		break;
-	case MBUF_AREA_POOL:
-		chunk = m->mb_chunk;
-		if (chunk->mbc_pool->mbp_sid == current->p_sid) {
-			mbuf_free_direct(m);
-		} else {
-			mbuf_free_garbage(m);
-		}
-		break;
-	default:
-		BUG("bad area");
-	}
-}
-
-/*struct mbuf *
-mbuf_get(struct mbuf_pool *p, uint32_t m_id)
-{
-	int chunk_id, i;
-	struct mbuf *m;
-	struct mbuf_chunk *chunk;
-
-	chunk_id = m_id / p->mbp_mbufs_per_chunk;
-	if (chunk_id >= p->mbp_chunk_map_size) {
-		return NULL;
-	}
-	chunk = p->mbp_chunk_map[chunk_id];
-	if (chunk == NULL) {
-		return NULL;
-	}
-	i = m_id % p->mbp_mbufs_per_chunk;
-	m = MBUF_GET(p, chunk, i);
-	if (READ_ONCE(m->mb_freed)) {
-		return NULL;
+	if (m->mb_worker_id == current->p_sid) {
+		mbuf_free_direct(m);
 	} else {
-		return m;
+		mbuf_free_garbage(m);
 	}
 }
 
-struct mbuf *
-mbuf_next(struct mbuf_pool *p, uint32_t m_id)
+void
+garbage_collector(struct service *s)
 {
-	int i, chunk_id;
-	struct mbuf_chunk *chunk;
 	struct mbuf *m;
+	struct dlist *head;
 
-	chunk_id = m_id / p->mbp_mbufs_per_chunk;
-	i = m_id % p->mbp_mbufs_per_chunk;
-	for (; chunk_id < p->mbp_chunk_map_size; ++chunk_id) {
-		chunk = p->mbp_chunk_map[chunk_id];
-		if (chunk != NULL) {
-			assert(chunk->mbc_id >= 0);
-			for (; i < p->mbp_mbufs_per_chunk; ++i) {
-				m = MBUF_GET(p, chunk, i);
-				if (!READ_ONCE(m->mb_freed)) {
-					return m;
-				}
-			}
-			i = 0;
-		}
+	while (!dlist_is_empty(&s->p_mbuf_garbage_head)) {
+		m = DLIST_FIRST(&s->p_mbuf_garbage_head, struct mbuf, mb_list);
+		DLIST_REMOVE(m, mb_list);
+		head = &shared->shm_garbage_head[m->mb_worker_id];
+		DLIST_INSERT_TAIL(head, m, mb_list);
 	}
-	return NULL;
+	head = &shared->shm_garbage_head[s->p_sid];
+	while (!dlist_is_empty(head)) {
+		m = DLIST_FIRST(head, struct mbuf, mb_list);
+		DLIST_REMOVE(m, mb_list);
+		mbuf_free_direct(m);
+	}
 }
 
-int
-mbuf_get_id(struct mbuf *m)
-{
-	int i, m_id;
-	struct mbuf_chunk *chunk;
-	struct mbuf_pool *p;
 
-	assert(m->mb_area == MBUF_AREA_POOL);
-	chunk = m->mb_chunk;
-	p = chunk->mbc_pool;
-	assert(p->mbp_chunk_map_size);
-	assert(chunk->mbc_id >= 0);
-	i = ((u_char *)m - (u_char *)(chunk + 1)) / p->mbp_mbuf_size;
-	m_id = chunk->mbc_id * p->mbp_mbufs_per_chunk + i;
-	return m_id;
-}*/
 
 // struct page;
 //

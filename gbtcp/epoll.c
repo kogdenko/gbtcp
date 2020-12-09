@@ -351,7 +351,7 @@ u_epoll_close(struct file *fp)
 //	struct epoll_entry *e;
 
 	ep = (struct epoll *)fp;
-	if (ep->ep_pool->mbp_sid == current->p_sid) {
+	if (ep->ep_pool->mbp_worker_id == current->p_sid) {
 		rc = sys_close(ep->ep_fd);	
 	} else {
 		// u_epoll_close can be called in controller

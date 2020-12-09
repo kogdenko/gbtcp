@@ -58,8 +58,7 @@ struct service {
 	int p_pid;
 	int p_fd;
 	uint64_t p_start_time;
-	int p_mbuf_garbage_max;
-	struct dlist p_mbuf_garbage_head[GT_SERVICES_MAX];
+	struct dlist p_mbuf_garbage_head;
 };
 
 #define service_load_epoch(s) \

@@ -343,7 +343,7 @@ service_get_by_sid(u_int sid)
 int
 service_init_shared(struct service *s, int pid, int fd)
 {
-	int i, rc;
+	int rc;
 
 	NOTICE(0, "hit; pid=%d", pid);
 	assert(current->p_sid == CONTROLLER_SID);
@@ -359,10 +359,7 @@ service_init_shared(struct service *s, int pid, int fd)
 	s->p_okpps = 0;
 	s->p_okpps_time = 0;
 	s->p_opkts = 0;
-	assert(s->p_mbuf_garbage_max == 0);
-	for (i = 0; i < GT_SERVICES_MAX; ++i) {
-		dlist_init(s->p_mbuf_garbage_head + i);
-	}
+	dlist_init(&s->p_mbuf_garbage_head);
 	rc = init_timers(s);
 	if (rc) {
 		return rc;
@@ -386,7 +383,6 @@ void
 service_deinit_shared(struct service *s, int full)
 {
 	int i;
-	struct dlist tofree;
 	struct dev *dev;
 	struct route_if *ifp;
 
@@ -410,14 +406,6 @@ service_deinit_shared(struct service *s, int full)
 		service_deinit_arp(s);
 		deinit_timers(s);
 	}
-	dlist_init(&tofree);
-	shm_lock();
-	shm_garbage_push(s);
-	shm_garbage_push(current);
-	shm_garbage_pop(&tofree, s->p_sid);
-	shm_garbage_pop(&tofree, current->p_sid);
-	shm_unlock();
-	mbuf_free_direct_list(&tofree);
 	service_store_epoch(s, 0);
 	s->p_pid = 0;
 }
