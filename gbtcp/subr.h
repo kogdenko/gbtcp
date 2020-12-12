@@ -67,6 +67,10 @@ struct spinlock {
 	volatile int spinlock_locked;
 };
 
+struct rwlock {
+	volatile int rwl_cnt;
+};
+
 struct counter64_per_service {
 	uint64_t cntps_value;
 	u_char cntps_pad[CACHE_LINE_SIZE - sizeof(uint64_t)];
@@ -266,6 +270,12 @@ void spinlock_init(struct spinlock *);
 void spinlock_lock(struct spinlock *);
 int spinlock_trylock(struct spinlock *);
 void spinlock_unlock(struct spinlock *);
+
+void rwlock_init(struct rwlock *);
+void rwlock_read_lock(struct rwlock *);
+void rwlock_read_unlock(struct rwlock *);
+void rwlock_write_lock(struct rwlock *);
+void rwlock_write_unlock(struct rwlock *);
 
 // TODO:
 #if 0

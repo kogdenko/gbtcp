@@ -9,8 +9,8 @@
 struct lptree_node;
 
 struct lptree_rule {
-	struct mbuf lpr_mbuf;
-#define lpr_list lpr_mbuf.mb_list
+	int lpr_is_node;
+	struct dlist lpr_list;
 	struct lptree_node *lpr_parent;
 	uint32_t lpr_key;
 	uint8_t lpr_key_rem;

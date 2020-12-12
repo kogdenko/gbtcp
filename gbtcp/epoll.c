@@ -28,16 +28,21 @@ struct epoll_entry {
 	};
 };
 
+static void epoll_entry_handler(void *, int, short);
+
+
 static struct epoll_entry *
 epoll_entry_get(struct epoll *ep, struct file *fp)
 {
-	struct mbuf *m;
+	struct file_aio *aio;
 	struct epoll_entry *e;
 
-	DLIST_FOREACH(m, &fp->fl_aio_head, mb_list) {
-		if (ep->ep_pool == mbuf_get_pool(m)) {
-			e = (struct epoll_entry *)m;
-			return e;
+	DLIST_FOREACH(aio, &fp->fl_aio_head, faio_list) {
+		if (aio->faio_fn == epoll_entry_handler) {
+			e = container_of(aio, struct epoll_entry, epe_aio);
+			if (e->epe_epoll == ep) {
+				return e;
+			}
 		}
 	}
 	return NULL;
@@ -48,11 +53,10 @@ epoll_entry_get(struct epoll *ep, struct file *fp)
 static struct epoll_entry *
 epoll_entry_alloc(struct epoll *ep, struct file *fp)
 {
-	int rc;
 	struct epoll_entry *e;
 
-	rc = mbuf_alloc(ep->ep_pool, (struct mbuf **)&e);
-	if (rc) {
+	e = mbuf_alloc(ep->ep_pool);
+	if (e == NULL) {
 		return NULL;
 	}
 	e->epe_revents = 0;
@@ -79,7 +83,7 @@ epoll_entry_free(struct epoll_entry *e)
 {
 	epoll_entry_relax(e);
 	file_aio_cancel(&e->epe_aio);
-	mbuf_free(&e->epe_aio.faio_mbuf);
+	mbuf_free(e);
 }
 
 static void
@@ -321,17 +325,13 @@ u_epoll_create(int ep_fd)
 	struct file *fp;
 	struct epoll *ep;
 
-	rc = file_alloc(&fp, FILE_EPOLL);
-	if (rc) {
-		return rc;
+	fp = file_alloc(FILE_EPOLL);
+	if (fp == NULL) {
+		return -ENOMEM;
 	}
 	fp->fl_referenced = 1;
 	ep = (struct epoll *)fp;
 	ep->ep_fd = ep_fd;
-	if (rc) {
-		file_free(fp);
-		return rc;
-	}
 	rc = mbuf_pool_alloc(&ep->ep_pool, current->p_sid,
 		sizeof(struct epoll_entry));
 	if (rc) {

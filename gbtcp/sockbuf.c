@@ -12,8 +12,7 @@ struct uio {
 };
 
 struct sbchunk {
-	struct mbuf ch_mbuf;
-#define ch_list ch_mbuf.mb_list
+	struct dlist ch_list;
 	int ch_len;
 	int ch_off;
 };
@@ -59,11 +58,10 @@ sockbuf_chunk_data(struct sbchunk *chunk)
 static struct sbchunk *
 sockbuf_chunk_alloc(struct mbuf_pool *p, struct sock_buf *b)
 {
-	int rc;
 	struct sbchunk *chunk;
 
-	rc = mbuf_alloc(p, (struct mbuf **)&chunk);
-	if (rc == 0) {
+	chunk = mbuf_alloc(p);
+	if (chunk != NULL) {
 		chunk->ch_len = 0;
 		chunk->ch_off = 0;
 		DLIST_INSERT_TAIL(&b->sob_head, chunk, ch_list);
@@ -94,7 +92,7 @@ sockbuf_free(struct sock_buf *b)
 	while (!dlist_is_empty(&b->sob_head)) {
 		chunk = DLIST_FIRST(&b->sob_head, struct sbchunk, ch_list);
 		DLIST_REMOVE(chunk, ch_list);
-		mbuf_free(&chunk->ch_mbuf);
+		mbuf_free(chunk);
 	}
 }
 
@@ -114,7 +112,7 @@ sockbuf_free_n(struct sock_buf *b, int nr_chunks)
 		assert(!dlist_is_empty(&b->sob_head));
 		chunk = DLIST_LAST(&b->sob_head, struct sbchunk, ch_list);
 		DLIST_REMOVE(chunk, ch_list);
-		mbuf_free(&chunk->ch_mbuf);
+		mbuf_free(chunk);
 	}
 }
 
@@ -246,7 +244,7 @@ sockbuf_readv(struct sock_buf *b, const struct iovec *iov, int iovcnt,
 			b->sob_len -= n;
 			if (pos->ch_len == n) {
 				DLIST_REMOVE(pos, ch_list);
-				mbuf_free(&pos->ch_mbuf);
+				mbuf_free(pos);
 			} else {
 				pos->ch_len -= n;
 				pos->ch_off += n;
@@ -311,7 +309,7 @@ sockbuf_drain(struct sock_buf *b, int cnt)
 		pos->ch_len -= n;
 		if (pos->ch_len == 0) {
 			DLIST_REMOVE(pos, ch_list);
-			mbuf_free(&pos->ch_mbuf);
+			mbuf_free(pos);
 		}
 		off += n;
 		if (off == cnt) {

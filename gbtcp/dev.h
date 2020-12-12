@@ -25,7 +25,6 @@ struct dev {
 };
 
 struct dev_pkt {
-	struct mbuf pkt_mbuf;
 	u_short pkt_len;
 	u_char pkt_sid;
 	struct netmap_ring *pkt_txr;

@@ -311,19 +311,21 @@ route_add(struct route_entry *a)
 		rc = -EEXIST;
 		goto out;
 	}
-	rc = mbuf_alloc(curmod->route_pool, (struct mbuf **)&route);
-	if (rc) {
+	route = mbuf_alloc(curmod->route_pool);
+	if (route == NULL) {
+		rc = -ENOMEM;
 		goto out;
 	}
 	rule = (struct lptree_rule *)route;
+	memset(rule, 0, sizeof(*rule));
 	if (a->rt_pfx == 0) {
 		rule->lpr_key = key; 
 		rule->lpr_depth = a->rt_pfx;
 		curmod->route_default = route;
 	} else {
-		lptree_set(&curmod->route_lptree, rule, key, a->rt_pfx);
+		rc = lptree_set(&curmod->route_lptree, rule, key, a->rt_pfx);
 		if (rc) {
-			mbuf_free((struct mbuf *)rule);
+			mbuf_free(route);
 			goto out;
 		}
 	}

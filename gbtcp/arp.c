@@ -26,8 +26,7 @@ enum arp_state {
 };
 
 struct arp_entry {
-	struct mbuf ae_mbuf;
-#define ae_list ae_mbuf.mb_list
+	struct dlist ae_list;
 	be32_t ae_next_hop;
 	short ae_state;
 	short ae_admin;
@@ -65,7 +64,6 @@ arp_set_eh(struct arp_entry *e, struct route_if *ifp, u_char *data)
 static void
 arp_entry_add_incomplete(struct arp_entry *e, struct dev_pkt *pkt)
 {
-	int rc;
 	struct dev_pkt *cp;
 
 	if (e->ae_incomplete_q != NULL) {
@@ -73,9 +71,8 @@ arp_entry_add_incomplete(struct arp_entry *e, struct dev_pkt *pkt)
 		e->ae_incomplete_q = NULL;
 		arps.arps_dropped++;
 	} else {
-		rc = mbuf_alloc(current->p_arp_incomplete_pool,
-		                (struct mbuf **)&cp);
-		if (rc) {
+		cp = mbuf_alloc(current->p_arp_incomplete_pool);
+		if (cp == NULL) {
 			arps.arps_dropped++;
 			return;
 		}
@@ -121,10 +118,10 @@ arp_tx_incomplete_q(struct arp_entry *e)
 		arp_set_eh(e, route.rt_ifp, pkt.pkt_data);
 		route_transmit(route.rt_ifp, &pkt);
 	}
-	mbuf_free(&x->pkt_mbuf);
+	mbuf_free(x);
 	return;
 err:
-	mbuf_free(&x->pkt_mbuf);
+	mbuf_free(x);
 	arps.arps_dropped++;
 }
 
@@ -356,18 +353,16 @@ arp_set_state(struct arp_entry *e, int state)
 	}
 }
 
-static int
-arp_entry_add(struct arp_entry **ep, struct htable_bucket *b, be32_t next_hop,
+static struct arp_entry *
+arp_entry_add(struct htable_bucket *b, be32_t next_hop,
 	int admin, const struct eth_addr *addr)
 {
-	int rc;
 	struct arp_entry *e;
 
-	rc = mbuf_alloc(current->p_arp_entry_pool, (struct mbuf **)ep);
-	if (rc) {
-		return rc;
+	e = mbuf_alloc(current->p_arp_entry_pool);
+	if (e == NULL) {
+		return NULL;
 	}
-	e = *ep;
 	e->ae_n_probes = 0;
 	e->ae_incomplete_q = NULL;
 	e->ae_state = ARP_NONE;
@@ -378,7 +373,7 @@ arp_entry_add(struct arp_entry **ep, struct htable_bucket *b, be32_t next_hop,
 	timer_init(&e->ae_timer);
 	e->ae_next_hop = next_hop;
 	dlist_insert_tail_rcu(&b->htb_head, &e->ae_list);
-	return 0;
+	return e;
 }
 
 static void
@@ -387,8 +382,8 @@ arp_entry_del(struct arp_entry *e)
 	dlist_remove_rcu(&e->ae_list);
 	timer_del(&e->ae_timer);
 	arp_set_state(e, ARP_NONE);
-	mbuf_free(&e->ae_incomplete_q->pkt_mbuf);
-	mbuf_free_rcu(&e->ae_mbuf);
+	mbuf_free(e->ae_incomplete_q);
+	mbuf_free_rcu(e);
 }
 
 static struct arp_entry *
@@ -442,7 +437,6 @@ void
 arp_resolve_slow(struct route_if *ifp, struct htable_bucket *b,
 	be32_t next_hop, struct dev_pkt *pkt)
 {
-	int rc;
 	struct arp_entry *e, *tmp;	
 
 	DLIST_FOREACH_SAFE(e, &b->htb_head, ae_list, tmp) {
@@ -469,8 +463,8 @@ arp_resolve_slow(struct route_if *ifp, struct htable_bucket *b,
 			return;
 		}
 	}
-	rc = arp_entry_add(&e, b, next_hop, 0, NULL);
-	if (rc == 0) {
+	e = arp_entry_add(b, next_hop, 0, NULL);
+	if (e != NULL) {
 		arp_set_state(e, ARP_INCOMPLETE);
 		arp_entry_add_incomplete(e, pkt);
 		arp_probe(e);
@@ -522,15 +516,15 @@ arp_resolve(struct route_entry *r, struct dev_pkt *pkt)
 void
 arp_update_locked(struct arp_advert *adv, struct htable_bucket *b)
 {
-	int rc, same_addr;
+	int same_addr;
 	struct arp_entry *e;
 
 	e = arp_entry_get(b, adv->arpa_next_hop);
 	if (e == NULL) {
 		if (adv->arpa_advert == 0) {
-			rc = arp_entry_add(&e, b, adv->arpa_next_hop,
-			                   0, &adv->arpa_addr);
-			if (rc == 0) {
+			e = arp_entry_add(b, adv->arpa_next_hop,
+				0, &adv->arpa_addr);
+			if (e != NULL) {
 				arp_set_state(e, ARP_STALE);
 			}
 		}
@@ -617,8 +611,8 @@ arp_add(be32_t next_hop, struct eth_addr *addr)
 	if (e != NULL) {
 		WRITE_ONCE(e->ae_admin, 1);
 	} else {
-		rc = arp_entry_add(&e, b, next_hop, 1, addr);
-		if (rc == 0) {
+		e = arp_entry_add(b, next_hop, 1, addr);
+		if (e != NULL) {
 			arp_set_state(e, ARP_REACHABLE);
 			arp_tx_incomplete_q(e);
 		}

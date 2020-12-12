@@ -4,13 +4,6 @@
 
 #include "list.h"
 
-struct mbuf {
-	struct dlist mb_list;
-	struct mbuf_chunk *mb_chunk;
-	uint16_t mb_magic;
-	u_char mb_worker_id;
-	u_char mb_freed;
-};
 
 struct mbuf_chunk {
 	struct dlist mbc_list;
@@ -45,21 +38,16 @@ void mbuf_mod_service_deinit(struct service *);
 int mbuf_pool_alloc(struct mbuf_pool **, u_char, int);
 void mbuf_pool_free(struct mbuf_pool *);
 
-int mbuf_alloc(struct mbuf_pool *, struct mbuf **);
-void mbuf_init(struct mbuf *);
-void mbuf_free(struct mbuf *);
-void mbuf_free_direct(struct mbuf *);
-void mbuf_free_direct_list(struct dlist *);
-void mbuf_free_rcu(struct mbuf *);
-//struct mbuf *mbuf_get(struct mbuf_pool *, uint32_t);
-//struct mbuf *mbuf_next(struct mbuf_pool *, uint32_t);
-//int mbuf_get_id(struct mbuf *);
-#define mbuf_get_pool(m) \
-	((m)->mb_chunk == NULL ? NULL : (m)->mb_chunk->mbc_pool)
+void *mbuf_alloc(struct mbuf_pool *);
+void mbuf_free(void *);
+void mbuf_free_rcu(void *);
 
 void garbage_collector(struct service *);
 
-void *mem_alloc(size_t);
-void mem_free(void *);
+void mem_worker_init();
+void mem_reclaim_rcu();
+
+//void *mem_alloc(size_t);
+//void mem_free(void *);
 
 #endif // GBTCP_MBUF_H

@@ -12,13 +12,11 @@ enum file_type {
 };
 
 struct file_aio {
-	struct mbuf faio_mbuf;
-#define faio_list faio_mbuf.mb_list
+	struct dlist faio_list;
 	gt_aio_f faio_fn;
 };
 
 struct file {
-	struct mbuf fl_mbuf;
 	struct file_aio fl_aio;
 	struct dlist fl_aio_head;
 	int fl_fd;
@@ -35,9 +33,9 @@ int file_mod_init();
 int init_files(struct service *);
 void deinit_files(struct service *);
 
-struct file *file_next(struct service *, int);
-int file_alloc3(struct file **, int, int);
-#define file_alloc(fpp, type) file_alloc3(fpp, 0, type)
+//struct file *file_next(struct service *, int);
+struct file *file_alloc3(int, int);
+#define file_alloc(type) file_alloc3(0, type)
 void file_free(struct file *);
 void file_free_rcu(struct file *);
 void file_close(struct file *);

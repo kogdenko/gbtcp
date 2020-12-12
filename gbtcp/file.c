@@ -100,8 +100,8 @@ file_next(struct service *s, int fd)
 	return fp;
 }*/
 
-int
-file_alloc3(struct file **fpp, int fd, int type)
+struct file *
+file_alloc3(int fd, int type)
 {
 	int rc;
 	struct mbuf_pool *p;
@@ -109,19 +109,18 @@ file_alloc3(struct file **fpp, int fd, int type)
 
 	p = current->p_file_pool;
 	if (fd == 0) {
-		rc = mbuf_alloc(p, (struct mbuf **)fpp);
+		fp = mbuf_alloc(p);
 	} else {
 		assert(0);
-		rc = -ENOTSUP;
+		fp = NULL;
 //		assert(fd >= GT_FIRST_FD);
 //		id = fd - GT_FIRST_FD;
 //		rc = mbuf_alloc3(p, id, (struct mbuf **)fpp);
 	}
-	if (rc == 0) {
-		fp = *fpp;
-		rc = itable_alloc(&current->p_file_fd_table, fpp);
+	if (fp != NULL) {
+		rc = itable_alloc(&current->p_file_fd_table, &fp);
 		if (rc < 0) {
-			mbuf_free(&fp->fl_mbuf);
+			mbuf_free(fp);
 		} else {
 			file_init(fp, GT_FIRST_FD + rc, type);
 			rc = 0;
@@ -132,7 +131,7 @@ file_alloc3(struct file **fpp, int fd, int type)
 	} else {
 		DBG(0, "ok; fp=%p, fd=%d", fp, fp->fl_fd);
 	}
-	return rc;
+	return fp;
 }
 
 int
@@ -162,7 +161,7 @@ file_free(struct file *fp)
 {
 	DBG(0, "hit; fp=%p, fd=%d", fp, fp->fl_fd);
 	itable_free(&current->p_file_fd_table, fp->fl_fd - GT_FIRST_FD);
-	mbuf_free(&fp->fl_mbuf);
+	mbuf_free(fp);
 }
 
 void
@@ -286,7 +285,6 @@ file_wait(struct file *fp, short events)
 {
 	struct file_aio aio;
 
-	mbuf_init(&aio.faio_mbuf);
 	file_wait_filter = events;
 	file_aio_init(&aio);
 	file_aio_add(fp, &aio, file_wait_handler);

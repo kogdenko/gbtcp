@@ -14,12 +14,8 @@ static struct spinlock service_attach_lock;
 static int service_sysctl_fd = -1;
 static int service_pid_fd = -1;
 static struct dev service_vale;
-static int service_rcu_max;
 static int service_signal_guard = 1;
 static int service_autostart_controller = 1;
-static struct dlist service_rcu_active_head;
-static struct dlist service_rcu_shadow_head;
-static u_int service_rcu[GT_SERVICES_MAX];
 
 struct shm_hdr *shared;
 struct service *current;
@@ -416,10 +412,7 @@ service_init_private()
 	int rc;
 	char buf[NM_IFNAMSIZ];
 
-	dlist_init(&service_rcu_active_head);
-	dlist_init(&service_rcu_shadow_head);
-	service_rcu_max = 0;
-	memset(service_rcu, 0, sizeof(service_rcu));
+	mem_worker_init();
 	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_pid);
 	rc = dev_init(&service_vale, buf, service_vale_rxtx);
 	return rc;
@@ -556,78 +549,6 @@ service_detach()
 	}
 }
 
-static void
-service_rcu_reload()
-{
-	int i;
-	struct service *s;
-
-	dlist_replace_init(&service_rcu_active_head, &service_rcu_shadow_head);
-	for (i = 0; i < GT_SERVICES_MAX; ++i) {
-		s = shared->shm_services + i;
-		if (s != current) {
-			service_rcu[i] = service_load_epoch(s);
-			if (service_rcu[i]) {
-				service_rcu_max = i + 1;
-			}
-		}
-	}
-	//if (service_rcu_max == 0) {
-	//	service_rcu_free();
-	//}
-}
-
-void
-mbuf_free_rcu(struct mbuf *m)
-{
-	DLIST_INSERT_TAIL(&service_rcu_shadow_head, m, mb_list);
-	if (service_rcu_max == 0) {
-		assert(dlist_is_empty(&service_rcu_active_head));
-		service_rcu_reload();
-	}
-}
-
-static void
-service_rcu_free()
-{
-	struct dlist *head;
-	struct mbuf *m;
-
-	head = &service_rcu_active_head;
-	while (!dlist_is_empty(head)) {
-		m = DLIST_FIRST(head, struct mbuf, mb_list);
-		DLIST_REMOVE(m, mb_list);
-		mbuf_free(m);
-	}
-}
-
-static void
-service_rcu_check()
-{
-	u_int i, epoch, rcu_max;
-	struct service *s;
-
-	rcu_max = 0;
-	for (i = 0; i < service_rcu_max; ++i) {
-		s = shared->shm_services + i;
-		if (service_rcu[i]) {
-			epoch = service_load_epoch(s);
-			if (service_rcu[i] != epoch) {
-				service_rcu[i] = 0;
-			} else {
-				rcu_max = i + 1;
-			}
-		}
-	}
-	service_rcu_max = rcu_max;
-	if (service_rcu_max == 0) {
-		service_rcu_free();
-		if (!dlist_is_empty(&service_rcu_shadow_head)) {
-			service_rcu_reload();
-		}
-	}
-}
-
 void
 service_unlock()
 {
@@ -639,7 +560,7 @@ service_unlock()
 		epoch = 1;
 	}
 	service_store_epoch(current, epoch);
-	service_rcu_check();
+	mem_reclaim_rcu();
 	spinlock_unlock(&current->p_lock);
 }
 

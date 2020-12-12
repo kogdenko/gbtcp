@@ -164,8 +164,6 @@ static void sock_sndbuf_drain(struct sock *, int);
 
 static int sysctl_tcp_fin_timeout(const long long *new, long long *old);
 
-#define GT_SOCK_ALIVE(so) ((so)->so_file.fl_mbuf.mb_freed == 0)
-
 #define GT_TCP_FLAG_ADD(val, name) \
 	if (tcp_flags & val) { \
 		strbuf_add_ch(sb, name); \
@@ -1076,7 +1074,6 @@ tcp_set_state(struct sock *so, struct in_context *in, int state)
 {
 	int rc;
 
-	assert(GT_SOCK_ALIVE(so));
 	assert(state < GT_TCP_NSTATES);
 	assert(state != so->so_state);	
 	DBG(0, "hit; state %s->%s, fd=%d",
@@ -1286,7 +1283,6 @@ tcp_mod_timer(struct timer *timer, u_char fn_id)
 		break;
 	case TCP_TIMER_REXMIT:
 		so = container_of(timer, struct sock, so_timer);
-		assert(GT_SOCK_ALIVE(so));
 		assert(so->so_sfin_acked == 0);
 		assert(so->so_retx);
 		so->so_ssnt = 0;
@@ -1310,7 +1306,6 @@ tcp_mod_timer(struct timer *timer, u_char fn_id)
 		break;
 	case TCP_TIMER_PERSIST:
 		so = container_of(timer, struct sock, so_timer);
-		assert(GT_SOCK_ALIVE(so));
 		assert(so->so_sfin_acked == 0);
 		assert(so->so_retx == 0);
 		assert(so->so_wprobe);
@@ -1690,7 +1685,6 @@ tcp_into_sndq(struct sock *so)
 	int rc;
 	struct route_entry r;
 
-	assert(GT_SOCK_ALIVE(so));
 	if (!so_in_txq(so)) {
 		rc = so_route(so, &r);
 		if (rc != 0) {
@@ -2382,12 +2376,11 @@ sock_open(struct sock *so)
 static struct sock *
 so_new(int fd, int so_ipproto)
 {
-	int rc;
 	struct file *fp;
 	struct sock *so;
 
-	rc = file_alloc3(&fp, fd, FILE_SOCK);
-	if (rc) {
+	fp = file_alloc3(fd, FILE_SOCK);
+	if (fp == NULL) {
 		return NULL;
 	}
 	so = (struct sock *)fp;
@@ -2426,7 +2419,6 @@ so_unref(struct sock *so, struct in_context *in)
 	uint32_t h;
 	struct htable_bucket *b;
 
-	assert(GT_SOCK_ALIVE(so));
 	if (so->so_state != GT_TCPS_CLOSED || so->so_referenced) {
 		return 0;
 	}

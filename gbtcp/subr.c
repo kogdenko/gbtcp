@@ -110,6 +110,37 @@ spinlock_unlock(struct spinlock *sl)
 	__sync_lock_release(&sl->spinlock_locked);
 }
 
+void rwlock_init(struct rwlock *rwl)
+{
+	rwl->rwl_cnt = 0;
+}
+
+void
+rwlock_read_lock(struct rwlock *rwl)
+{
+	int rc, x;
+
+	rc = 0;
+	while (!rc) {
+		x = rwl->rwl_cnt;
+		if (x < 0) {
+			_mm_pause();
+			continue;
+		}
+		rc = __sync_bool_compare_and_swap(&rwl->rwl_cnt, x, x + 1);
+	}
+}
+
+void
+rwlock_read_unlock(struct rwlock *rwl)
+{
+	 __sync_fetch_and_sub(&rwl->rwl_cnt, 1);
+}
+
+//void rwlock_write_lock(struct rwlock *);
+//void rwlock_write_unlock(struct rwlock *);
+
+
 #else
 void
 spinlock_lock(struct spinlock *sl)
