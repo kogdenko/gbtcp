@@ -4,6 +4,18 @@
 
 #include "list.h"
 
+#define SLAB_ORDER_MIN 6 // 64b
+#define BUDDY_ORDER_MIN 20 // ~1Mb
+#define BUDDY_ORDER_MAX 27 // ~134Mb
+
+struct mem_hdr {
+	struct dlist mmh_list;
+	struct mbuf_chunk *mmh_block;
+	uint32_t mmh_size;
+	uint16_t mmh_magic;
+	int8_t mmh_order;
+	uint8_t mmh_worker_id;
+};
 
 struct mbuf_chunk {
 	struct dlist mbc_list;
@@ -47,7 +59,8 @@ void garbage_collector(struct service *);
 void mem_worker_init();
 void mem_reclaim_rcu();
 
-//void *mem_alloc(size_t);
-//void mem_free(void *);
+void *mem_alloc(u_int);
+void *mem_realloc(void *, u_int);
+void mem_free(void *);
 
 #endif // GBTCP_MBUF_H

@@ -97,7 +97,7 @@ struct mbuf_pool;
 	x(pid) \
 	x(poll) \
 	x(epoll) \
-	x(mbuf) \
+	x(mm) \
 	x(htable) \
 	x(timer) \
 	x(fd_event) \

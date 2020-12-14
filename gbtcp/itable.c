@@ -39,7 +39,7 @@ itable_grow(struct itable *t)
 		cap = INT_MAX;
 	}
 	assert(cap > t->it_cap);
-	buf = shm_realloc(t->it_buf, cap * t->it_slot_size);
+	buf = mem_realloc(t->it_buf, cap * t->it_slot_size);
 	if (buf == NULL) {
 		return -ENOMEM;
 	}
@@ -60,7 +60,7 @@ itable_init(struct itable *t, int obj_size)
 void
 itable_deinit(struct itable *t)
 {
-	shm_free(t->it_buf);
+	mem_free(t->it_buf);
 	itable_reset(t);
 }
 

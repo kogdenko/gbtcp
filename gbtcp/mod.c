@@ -50,7 +50,7 @@ mod_init2(int mod_id, size_t size)
 
 	assert(shared->shm_mods[mod_id] == NULL);
 	assert(size >= sizeof(*scope));
-	scope = shm_malloc(size);
+	scope = mem_alloc(size);
 	if (scope == NULL) {
 		return -ENOMEM;
 	} else {
@@ -69,7 +69,7 @@ mod_deinit1(int mod_id)
 	sysctl_del(mod_name(mod_id));
 	scope = shared->shm_mods[mod_id];
 	log_scope_deinit(scope);
-	shm_free(scope);
+	mem_free(scope);
 }
 
 int

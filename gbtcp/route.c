@@ -91,7 +91,7 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 		*ifpp = ifp;
 		return -EEXIST;
 	}
-	ifp = shm_malloc(sizeof(*ifp));
+	ifp = mem_alloc(sizeof(*ifp));
 	if (ifp == NULL) {
 		return -ENOMEM;
 	}
@@ -121,7 +121,7 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 		snprintf(host, sizeof(host), "%s^", ifp->rif_name);
 		rc = dev_init(&ifp->rif_host_dev, host, host_rxtx);
 		if (rc) {
-			shm_free(ifp);
+			mem_free(ifp);
 			return rc;
 		}
 		req = &ifp->rif_host_dev.dev_nmd->req;
@@ -176,7 +176,7 @@ route_ifaddr_add(struct route_if_addr **ifap,
 
 	ifa = route_ifaddr_get(AF_INET, addr);
 	if (ifa == NULL) {
-		ifa = shm_malloc(sizeof(*ifa));
+		ifa = mem_alloc(sizeof(*ifa));
 		if (ifa == NULL) {
 			return -ENOMEM;
 		}
@@ -196,10 +196,10 @@ route_ifaddr_add(struct route_if_addr **ifap,
 	}
 	ifa->ria_ref_cnt++;
 	size = (ifp->rif_n_addrs + 1) * sizeof(ifa);
-	new_ptr = shm_realloc(ifp->rif_addrs, size);
+	new_ptr = mem_realloc(ifp->rif_addrs, size);
 	if (new_ptr == NULL) {
 		DLIST_REMOVE(ifa, ria_list);
-		shm_free(ifa);
+		mem_free(ifa);
 		return -ENOMEM;
 	}
 	ifp->rif_addrs = new_ptr;
@@ -230,7 +230,7 @@ route_ifaddr_del(struct route_if *ifp, const struct ipaddr *addr)
 				route_foreach_set_srcs(ifp);
 				if (ifa->ria_ref_cnt == 0) {
 					DLIST_REMOVE(ifa, ria_list);
-					shm_free(ifa);
+					mem_free(ifa);
 				}
 				rc = 0;
 				break;
@@ -267,7 +267,7 @@ route_set_srcs(struct route_entry_long *route)
 	n = route->rtl_ifp->rif_n_addrs;
 	size = n * sizeof(struct route_if_addr *);
 	if (route->rtl_nsrcs < n) {
-		new_ptr = shm_realloc(route->rtl_srcs, size);
+		new_ptr = mem_realloc(route->rtl_srcs, size);
 		if (new_ptr == NULL) {
 			return -ENOMEM;
 		}
@@ -358,7 +358,7 @@ route_del(struct route_entry_long *route)
 	dst = hton32(rule->lpr_key);
 	pfx = rule->lpr_depth;
 	NOTICE(0, "ok; dst=%s/%d", log_add_ipaddr(AF_INET, &dst), pfx);
-	shm_free(route->rtl_srcs);
+	mem_free(route->rtl_srcs);
 	DLIST_REMOVE(route, rtl_list);
 	lptree_del(&curmod->route_lptree, rule);
 }

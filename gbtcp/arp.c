@@ -286,14 +286,14 @@ arp_mod_init()
 	if (rc) {
 		return rc;
 	}
-	rc = htable_init(&curmod->arp_htable, 32,
-	                 arp_entry_hash, HTABLE_SHARED|HTABLE_POWOF2);
+	rc = htable_init(&curmod->arp_htable, 32, arp_entry_hash,
+		HTABLE_POWOF2);
 	if (rc) {
 		curmod_deinit();
 		return rc;
 	}
 	sysctl_add_htable_list(GT_SYSCTL_ARP_LIST, SYSCTL_RD,
-	                       &curmod->arp_htable, sysctl_arp_entry);
+		&curmod->arp_htable, sysctl_arp_entry);
 	sysctl_add(GT_SYSCTL_ARP_ADD, SYSCTL_WR, NULL, NULL, sysctl_arp_add);
 	sysctl_add(GT_SYSCTL_ARP_DEL, SYSCTL_WR, NULL, NULL, sysctl_arp_del);
 	curmod->arp_reachable_time = arp_calc_reachable_time();

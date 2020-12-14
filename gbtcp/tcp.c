@@ -239,13 +239,12 @@ tcp_mod_init()
 		return rc;
 	}
 	rc = htable_init(&curmod->tbl_connected, 65536, so_hash,
-	                 HTABLE_SHARED|HTABLE_POWOF2);
+		HTABLE_POWOF2);
 	if (rc) {
 		tcp_mod_deinit();
 		return rc;
 	}
-	rc = htable_init(&curmod->tbl_binded, EPHEMERAL_PORT_MAX,
-	                 NULL, HTABLE_SHARED);
+	rc = htable_init(&curmod->tbl_binded, EPHEMERAL_PORT_MAX, NULL, 0);
 	if (rc) {
 		tcp_mod_deinit();
 		return rc;

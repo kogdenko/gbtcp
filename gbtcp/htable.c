@@ -18,14 +18,7 @@ htable_bucket_init(struct htable_bucket *b)
 static void
 htable_free_array(struct htable *t)
 {
-	free_f free_fn;
-
-	if (t->ht_flags & HTABLE_SHARED) {
-		free_fn = shm_free;
-	} else {
-		free_fn = sys_free;
-	}
-	(*free_fn)(t->ht_array);
+	mem_free(t->ht_array);
 	t->ht_array = NULL;
 }
 
@@ -35,7 +28,6 @@ htable_resize(struct htable *t, int size)
 	int i;
 	void *ptr;
 	int new_size, new_mask; 
-	malloc_f malloc_fn;
 
 	if (t->ht_flags & HTABLE_POWOF2) {
 		new_size = upper_pow2_32(size);
@@ -44,12 +36,7 @@ htable_resize(struct htable *t, int size)
 		new_size = size;
 		new_mask = 0;
 	}
-	if (t->ht_flags & HTABLE_SHARED) {
-		malloc_fn = shm_malloc;
-	} else {
-		malloc_fn = sys_malloc;
-	}
-	ptr = (*malloc_fn)(new_size * sizeof(struct htable_bucket));
+	ptr = mem_alloc(new_size * sizeof(struct htable_bucket));
 	if (ptr == NULL) {
 		return -ENOMEM;
 	}

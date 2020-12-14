@@ -109,6 +109,10 @@ struct profiler {
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif // MAX
 
+#ifndef MIN3
+#define MIN3(a, b, c) (MIN(MIN(a, b), c))
+#endif // MIN3
+
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 #endif // ARRAY_SIZE
@@ -119,12 +123,10 @@ struct profiler {
 
 #define STRSZ(s) (s), (sizeof(s) - 1)
 
-// ALIGN_UP vs ROUND_UP
 #define ALIGNMENT_PTR sizeof(void *)
-#define ALIGN_UP(x, a) (((x) + (a - 1)) & ~(a - 1))
 
 #define ROUND_UP(x, y) ((((x) - 1) | (((__typeof__(x))(y)) - 1)) + 1)
-#define ROUND_DOWN(x, y) ((x) & (~((y) - 1 )))
+#define ROUND_DOWN(x, y) ((x) & (~((__typeof(x))(y) - 1 )))
 
 #define BSWAP16(x) \
 	(((((uint16_t)(x)) & ((uint16_t)0x00FF)) << 8) | \

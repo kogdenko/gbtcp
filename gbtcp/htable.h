@@ -4,8 +4,7 @@
 
 #include "sysctl.h"
 
-#define HTABLE_SHARED (1 << 0)
-#define HTABLE_POWOF2 (1 << 1)
+#define HTABLE_POWOF2 (1 << 0)
 
 typedef struct dlist htable_entry_t;
 

@@ -13,49 +13,8 @@ struct shm_mod {
 };
 
 static int shm_fd = -1;
-static int shm_early = 1;
-static int shm_early_n_allocated_pages;
 
 struct shm_hdr *shared;
-
-#define IS_SHM_ADDR(p) \
-	(((uintptr_t)(p) - shared->shm_base_addr) < shared->shm_size)
-
-struct m_tmp {
-	struct dlist mb_list;
-	int mb_size;
-	int mb_magic;
-	short mb_freed;
-};
-
-#if 0
-static void
-check_heap(const char *msg)
-{
-	int n;
-	struct m_tmp *m;
-
-	n = 0;
-	dbg("heap> %s", msg);
-	DLIST_FOREACH(m, &shared->shm_heap, mb_list) {
-		if (!IS_SHM_ADDR(m)) {
-			dbg("not shm %p", m);
-			assert(0);
-		}
-		if (!IS_SHM_ADDR(m->mb_list.dls_prev)) {
-			dbg("not shm prev %p", m->mb_list.dls_prev);
-			assert(0);
-		}
-		if (m->mb_magic != SHM_MAGIC) {
-			dbg("memory corrupted at %p, %d", m, n);
-			assert(0);
-		}
-		dbg("%p, %u", m, m->mb_size);
-		n++;
-	}
-	dbg("<");
-}
-#endif
 
 int
 shm_mod_init()
@@ -66,79 +25,10 @@ shm_mod_init()
 	if (rc) {
 		return rc;
 	}
-	sysctl_add_int("shm.n_allocated_pages", SYSCTL_RD,
-	               &curmod->shm_n_allocated_pages, 0, 0);
 	return 0;
 }
 
-static int
-shm_page_is_allocated(u_int page)
-{
-	int flag;
-
-	assert(page < shared->shm_n_pages);
-	flag = bitset_get(shared->shm_pages, page);
-	return flag;	
-}
-
-static void
-shm_page_alloc(u_int page)
-{
-	assert(!shm_page_is_allocated(page));
-	bitset_set(shared->shm_pages, page);
-	if (shm_early) {
-		shm_early_n_allocated_pages++;
-	} else {
-		curmod->shm_n_allocated_pages++;
-	}
-}
-
-static void
-shm_page_free(u_int page)
-{
-	assert(page < shared->shm_n_pages);
-	assert(page >= shared->shm_n_sb_pages);
-	bitset_clr(shared->shm_pages, page);
-	if (shm_early) {
-		shm_early_n_allocated_pages--;
-	} else {
-		curmod->shm_n_allocated_pages--;
-	}
-}
-
-static uintptr_t
-shm_page_to_virt(u_int page)
-{
-	assert(page < shared->shm_n_pages);
-	return shared->shm_base_addr + (page << PAGE_SHIFT);
-}
-
-static int
-shm_virt_to_page(uintptr_t addr)
-{
-	int page;
-	uintptr_t base_addr;
-
-	base_addr = ROUND_DOWN(addr, PAGE_SIZE);
-	page = (base_addr - shared->shm_base_addr) >> PAGE_SHIFT;
-	assert(page < shared->shm_n_pages);
-	return page;
-}
-
-void
-shm_lock()
-{
-	spinlock_lock(&shared->shm_lock);
-}
-
-static void
-shm_unlock()
-{
-	if (current != NULL) {
-		garbage_collector(current);
-	}
-	spinlock_unlock(&shared->shm_lock);
-}
+void init_memory();
 
 int
 shm_init()
@@ -148,7 +38,6 @@ shm_init()
 	struct stat buf;
 
 	NOTICE(0, "hit;");
-	assert(shm_early);
 	size = ROUND_UP(SHM_SIZE, PAGE_SIZE);
 	n_pages = size >> PAGE_SHIFT;
 	rc = sys_open(SHM_PATH, O_CREAT|O_RDWR, 0666);
@@ -162,7 +51,7 @@ shm_init()
 		goto err;
 	}
 	rc = sys_mmap((void **)&shared, NULL, size, PROT_READ|PROT_WRITE,
-	              MAP_SHARED, shm_fd, 0);
+		MAP_SHARED, shm_fd, 0);
 	if (rc) {
 		goto err;
 	}
@@ -172,27 +61,21 @@ shm_init()
 	sb_size = ROUND_UP(sb_size, PAGE_SIZE);
 	memset(shared, 0, sb_size);
 	shared->shm_ns = nanoseconds;
-	shared->shm_base_addr = (uintptr_t)shared;
-	spinlock_init(&shared->shm_lock);
-	dlist_init(&shared->shm_heap);
-	shared->shm_n_pages = n_pages;
-	shared->shm_size = size;
-	shared->shm_pages = (bitset_word_t *)(shared + 1);
+	shared->mmsb_begin = (uintptr_t)shared;
+	spinlock_init(&shared->mmsb_lock);
+	shared->mmsb_end = shared->mmsb_begin + size;
 	for (i = 0; i < GT_SERVICES_MAX; ++i) {
 		dlist_init(shared->shm_garbage_head + i);
 	}
-	shared->shm_n_sb_pages = sb_size >> PAGE_SHIFT;
-	for (i = 0; i < shared->shm_n_sb_pages; ++i) {
-		shm_page_alloc(i);
+	for (i = 0; i < ARRAY_SIZE(shared->mmsb_buddy_area); ++i) {
+		dlist_init(&shared->mmsb_buddy_area[i]);
 	}
+	init_memory();
 	rc = init_modules();
 	if (rc) {
 		goto err;
 	}
-	shm_early = 0;
-	curmod->shm_n_allocated_pages += shm_early_n_allocated_pages;
-	shm_early_n_allocated_pages = 0;
-	NOTICE(0, "ok; addr=%p", (void *)shared->shm_base_addr);
+	NOTICE(0, "ok; addr=%p", (void *)shared->mmsb_begin);
 	return 0;
 err:
 	ERR(-rc, "failed;");
@@ -208,34 +91,34 @@ shm_attach()
 	void *addr, *tmp;
 
 	NOTICE(0, "hit;");
+	addr = NULL;
 	rc = sys_open(SHM_PATH, O_RDWR, 0666);
 	if (rc < 0) {
 		goto err;
 	}
 	shm_fd = rc;
 	rc = sys_mmap((void **)&shared, NULL, sizeof(*shared), PROT_READ,
-	              MAP_SHARED, shm_fd, 0);
+		MAP_SHARED, shm_fd, 0);
 	if (rc) {
 		goto err;
 	}
-	size = shared->shm_size;
-	addr = (void *)shared->shm_base_addr;
+	size = shared->mmsb_end - shared->mmsb_begin;
+	addr = (void *)shared->mmsb_begin;
 	tmp = shared;
 	shared = NULL;
 	sys_munmap(tmp, sizeof(*shared));
 	NOTICE(0, "hit; addr=%p", addr);
 	rc = sys_mmap((void **)&shared, addr, size, PROT_READ|PROT_WRITE,
-	              MAP_SHARED|MAP_FIXED, shm_fd, 0);
+		MAP_SHARED|MAP_FIXED, shm_fd, 0);
 	if (rc) {
-		goto err;
-	}
-	shm_early = 0;
-	NOTICE(0, "ok; addr=%p", (void *)shared->shm_base_addr);
-	return 0;
 err:
-	ERR(-rc, "failed;");
-	shm_detach();
-	return rc;
+		ERR(-rc, "failed; addr=%p", (void *)addr);
+		shm_detach();
+		return rc;
+	} else {
+		NOTICE(0, "ok; addr=%p", (void *)addr);
+		return 0;
+	}
 }
 
 void
@@ -247,13 +130,12 @@ shm_detach()
 	NOTICE(0, "hit;");
 	if (shared != NULL) {
 		tmp = shared;
-		size = shared->shm_size;
+		size = shared->mmsb_end - shared->mmsb_begin;
 		shared = NULL;
 		sys_munmap(tmp, size);
 	}
 	sys_close(shm_fd);
 	shm_fd = -1;
-	shm_early = 1;
 }
 
 void
@@ -278,218 +160,4 @@ shm_deinit()
 	sys_unlink(SHM_PATH);
 }
 
-static int
-shm_alloc_pages_locked(void **pp, size_t size)
-{
-	int i, n, rc, page, size_n;
-	uintptr_t addr;
 
-	size_n = size >> PAGE_SHIFT;
-	assert(size_n);
-	addr = shared->shm_base_addr;
-	page = shm_virt_to_page(addr);
-	n = shared->shm_n_pages - size_n;
-	for (; page < n; page++) {
-		rc = 0;
-		for (i = 0; i < size_n; ++i) {
-			rc = shm_page_is_allocated(page + i);
-			if (rc) {
-				break;
-			}
-		}
-		if (rc == 0) {
-			for (i = 0; i < size_n; ++i) {
-				shm_page_alloc(page + i);
-			}
-			*pp = (void *)shm_page_to_virt(page);
-			return 0;
-		}
-	}
-	return -ENOMEM;
-}
-
-static void
-shm_free_pages_locked(uintptr_t addr, size_t size)
-{
-	int i, page, size_n;
-
-	size_n = size >> PAGE_SHIFT;
-	page = shm_virt_to_page(addr);
-	for (i = 0; i < size_n; ++i) {
-		if (!shm_page_is_allocated(page + i)) {
-			die(0, "double free; addr=%p",
-			    (void *)shm_page_to_virt(page + i));
-		}
-		shm_page_free(page + i);
-	}
-}
-
-#define IS_ADJACENT(l, r) \
-	((uintptr_t)(l) + (l)->mb_size == (uintptr_t)(r))
-
-static void
-shm_merge(struct m_tmp *middle)
-{
-	struct m_tmp *m, *x;
-
-	m = middle;
-	if (m != DLIST_FIRST(&shared->shm_heap, struct m_tmp, mb_list)) {
-		x = DLIST_PREV(m, mb_list);
-		if (IS_ADJACENT(x, m)) {
-			x->mb_size += m->mb_size;
-			DLIST_REMOVE(m, mb_list);
-			m = x;
-		}
-	}
-	if (m != DLIST_LAST(&shared->shm_heap, struct m_tmp, mb_list)) {
-		x = DLIST_NEXT(m, mb_list);
-		if (IS_ADJACENT(m, x)) {
-			m->mb_size += x->mb_size;
-			DLIST_REMOVE(x, mb_list);
-		}
-	}
-}
-
-static void
-shm_free_locked(void *tofree_ptr)
-{
-	struct m_tmp *m, *tofree_m;
-
-	if (tofree_ptr == NULL) {
-		return;
-	}
-	tofree_m = ((struct m_tmp *)tofree_ptr) - 1;
-	assert(tofree_m->mb_magic == SHM_MAGIC);
-	assert(tofree_m->mb_freed == 0);
-	tofree_m->mb_freed = 1;
-	DLIST_FOREACH(m, &shared->shm_heap, mb_list) {
-		assert(m->mb_magic == SHM_MAGIC);
-		if ((uintptr_t)tofree_m < (uintptr_t)m) {
-			DLIST_INSERT_BEFORE(tofree_m, m, mb_list);
-			shm_merge(tofree_m);
-			return;
-		}
-	}
-	DLIST_INSERT_TAIL(&shared->shm_heap, tofree_m, mb_list);
-	shm_merge(tofree_m);
-}
-
-static void *
-shm_malloc_locked(size_t mem_size)
-{
-	int rc;
-	size_t size, new_size;
-	struct m_tmp *m, *b;
-
-	size = sizeof(struct m_tmp) + mem_size;
-	assert(size < INT_MAX);
-	b = NULL;
-	DLIST_FOREACH(m, &shared->shm_heap, mb_list) {
-		if (m->mb_size >= size) {
-			if (b == NULL || b->mb_size > m->mb_size) {
-				b = m;
-			}
-		}
-	}
-	if (b == NULL) {
-		new_size = ROUND_UP(size, PAGE_SIZE);
-		rc = shm_alloc_pages_locked((void **)&b, new_size);
-		if (rc) {
-			return NULL;
-		}
-		b->mb_magic = SHM_MAGIC;
-		b->mb_size = new_size;
-	} else {
-		assert(b->mb_freed == 1);
-		DLIST_REMOVE(b, mb_list);
-	}
-	b->mb_freed = 0;
-	if (b->mb_size > size + 128) {
-		m = (struct m_tmp *)(((u_char *)b) + size);
-		m->mb_magic = SHM_MAGIC;
-		m->mb_size = b->mb_size - size;
-		m->mb_freed = 0;
-		b->mb_size = size;
-		shm_free_locked(m + 1);
-	}
-	return b + 1;
-}
-
-void *
-shm_malloc(size_t size)
-{
-	void *new_ptr;
-
-	shm_lock();
-	new_ptr = shm_malloc_locked(size);
-	if (new_ptr != NULL) {
-		INFO(0, "ok; size=%zu, new_ptr=%p", size, new_ptr);
-	} else {
-		WARN(ENOMEM, "failed; size=%zu", size);
-	}
-	shm_unlock();
-	return new_ptr;
-}
-
-void *
-shm_realloc(void *old_ptr, size_t size)
-{
-	size_t old_size;
-	struct m_tmp *m;
-	void *new_ptr;
-
-	if (old_ptr == NULL) {
-		old_size = 0;
-	} else {
-		m = ((struct m_tmp *)old_ptr) - 1;
-		old_size = m->mb_size - sizeof(*m);
-	}
-	new_ptr = shm_malloc(size);
-	if (new_ptr != NULL) {
-		memcpy(new_ptr, old_ptr, old_size);
-		shm_free(old_ptr);
-	}
-	return new_ptr;
-}
-
-void
-shm_free(void *ptr)
-{
-	shm_lock();
-	shm_free_locked(ptr);
-	INFO(0, "ok; addr=%p", ptr);
-	shm_unlock();
-}
-
-int
-shm_alloc_pages(void **pp, size_t size)
-{
-	int rc;
-
-	if (size & PAGE_MASK) {
-		return -EINVAL;
-	}
-	shm_lock();
-	rc = shm_alloc_pages_locked(pp, size);
-	if (rc == 0) {
-		INFO(0, "ok; size=%zu, addr=%p", size, *pp);
-	} else {
-		WARN(-rc, "failed; size=%zu", size);
-	}
-	shm_unlock();
-	return rc;
-}
-
-void
-shm_free_pages(void *ptr, size_t size)
-{
-	uintptr_t addr;
-
-	addr = (uintptr_t)ptr;
-	assert((addr & PAGE_MASK) == 0);
-	assert((size & PAGE_MASK) == 0);
-	shm_lock();
-	shm_free_pages_locked(addr, size);
-	INFO(0, "ok; size=%zu, addr=%p", size, ptr);
-	shm_unlock();
-}

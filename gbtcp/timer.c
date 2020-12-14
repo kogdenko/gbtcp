@@ -15,7 +15,7 @@ timer_ring_init(struct service *s, uint64_t t, int ring_id, uint64_t seg_shift)
 	struct timer_ring *ring;
 
 	assert(ring_id < TIMER_N_RINGS);
-	ring = shm_malloc(sizeof(struct timer_ring));
+	ring = mem_alloc(sizeof(struct timer_ring));
 	if (ring == NULL) {
 		deinit_timers(s);
 		return -ENOMEM;
@@ -56,7 +56,7 @@ deinit_timers(struct service *s)
 	int i;
 
 	for (i = 0; i < TIMER_N_RINGS; ++i) {
-		shm_free(s->p_timer_rings[i]);
+		mem_free(s->p_timer_rings[i]);
 		s->p_timer_rings[i] = NULL;
 	}
 }
