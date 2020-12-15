@@ -5,7 +5,7 @@
 
 struct itable_slot {
 	int its_next;
-} __attribute__((aligned(ALIGNMENT_PTR)));
+} __attribute__((aligned(ALIGN_PTR)));
 
 static void
 itable_reset(struct itable *t)
@@ -48,13 +48,12 @@ itable_grow(struct itable *t)
 	return 0;
 }
 
-int
+void
 itable_init(struct itable *t, int obj_size)
 {
 	assert(obj_size >= sizeof(int));
 	t->it_slot_size = sizeof(struct itable_slot) + obj_size;
 	itable_reset(t);
-	return 0;
 }
 
 void

@@ -52,18 +52,12 @@ file_mod_deinit()
 int
 init_files(struct service *s)
 {
-	int rc, size;
+	int size;
 
 	size = sizeof(struct sock);
-	rc = itable_init(&s->p_file_fd_table, sizeof(struct file *));
-	if (rc) {
-		return rc;
-	}
-	rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid, size);
-	if (rc) {
-		return rc;
-	}
-	return rc;
+	itable_init(&s->p_file_fd_table, sizeof(struct file *));
+	mem_cache_init(&s->p_file_pool, s->p_sid, size);
+	return 0;
 }
 
 void
@@ -73,14 +67,11 @@ deinit_files(struct service *s)
 //	struct file *fp;
 
 	itable_deinit(&s->p_file_fd_table);
-	if (s->p_file_pool != NULL) {
 		// TODO:
 		//FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
 		//	file_clean(fp);
 		//}
-		mbuf_pool_free(s->p_file_pool);
-		s->p_file_pool = NULL;
-	}
+	mem_cache_deinit(&s->p_file_pool);
 }
 
 /*struct file *
@@ -104,12 +95,10 @@ struct file *
 file_alloc3(int fd, int type)
 {
 	int rc;
-	struct mbuf_pool *p;
 	struct file *fp;
 
-	p = current->p_file_pool;
 	if (fd == 0) {
-		fp = mbuf_alloc(p);
+		fp = mem_cache_alloc(&current->p_file_pool);
 	} else {
 		assert(0);
 		fp = NULL;
@@ -120,7 +109,7 @@ file_alloc3(int fd, int type)
 	if (fp != NULL) {
 		rc = itable_alloc(&current->p_file_fd_table, &fp);
 		if (rc < 0) {
-			mbuf_free(fp);
+			mem_free(fp);
 		} else {
 			file_init(fp, GT_FIRST_FD + rc, type);
 			rc = 0;
@@ -161,7 +150,7 @@ file_free(struct file *fp)
 {
 	DBG(0, "hit; fp=%p, fd=%d", fp, fp->fl_fd);
 	itable_free(&current->p_file_fd_table, fp->fl_fd - GT_FIRST_FD);
-	mbuf_free(fp);
+	mem_free(fp);
 }
 
 void

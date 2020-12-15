@@ -56,11 +56,11 @@ sockbuf_chunk_data(struct sbchunk *chunk)
 }
 
 static struct sbchunk *
-sockbuf_chunk_alloc(struct mbuf_pool *p, struct sock_buf *b)
+sockbuf_chunk_alloc(struct mem_cache *cache, struct sock_buf *b)
 {
 	struct sbchunk *chunk;
 
-	chunk = mbuf_alloc(p);
+	chunk = mem_cache_alloc(cache);
 	if (chunk != NULL) {
 		chunk->ch_len = 0;
 		chunk->ch_off = 0;
@@ -92,7 +92,7 @@ sockbuf_free(struct sock_buf *b)
 	while (!dlist_is_empty(&b->sob_head)) {
 		chunk = DLIST_FIRST(&b->sob_head, struct sbchunk, ch_list);
 		DLIST_REMOVE(chunk, ch_list);
-		mbuf_free(chunk);
+		mem_free(chunk);
 	}
 }
 
@@ -112,7 +112,7 @@ sockbuf_free_n(struct sock_buf *b, int nr_chunks)
 		assert(!dlist_is_empty(&b->sob_head));
 		chunk = DLIST_LAST(&b->sob_head, struct sbchunk, ch_list);
 		DLIST_REMOVE(chunk, ch_list);
-		mbuf_free(chunk);
+		mem_free(chunk);
 	}
 }
 
@@ -147,7 +147,7 @@ sockbuf_write(struct sock_buf *b, struct sbchunk *pos,
 }
 
 int
-sockbuf_add(struct mbuf_pool *p, struct sock_buf *b, const void *buf, int cnt)
+sockbuf_add(struct mem_cache *cache, struct sock_buf *b, const void *buf, int cnt)
 {
 	int n, rem, space, added;
 	struct sbchunk *chunk, *pos;
@@ -161,7 +161,7 @@ sockbuf_add(struct mbuf_pool *p, struct sock_buf *b, const void *buf, int cnt)
 	}
 	n = 0;
 	if (dlist_is_empty(&b->sob_head)) {
-		chunk = sockbuf_chunk_alloc(p, b);
+		chunk = sockbuf_chunk_alloc(cache, b);
 		if (chunk == NULL) {
 			return -ENOMEM;
 		}
@@ -176,7 +176,7 @@ sockbuf_add(struct mbuf_pool *p, struct sock_buf *b, const void *buf, int cnt)
 		if (rem <= 0) {
 			break;
 		}
-		chunk = sockbuf_chunk_alloc(p, b);
+		chunk = sockbuf_chunk_alloc(cache, b);
 		if (chunk == NULL) {
 			sockbuf_free_n(b, n);
 			return -ENOMEM;
@@ -244,7 +244,7 @@ sockbuf_readv(struct sock_buf *b, const struct iovec *iov, int iovcnt,
 			b->sob_len -= n;
 			if (pos->ch_len == n) {
 				DLIST_REMOVE(pos, ch_list);
-				mbuf_free(pos);
+				mem_free(pos);
 			} else {
 				pos->ch_len -= n;
 				pos->ch_off += n;
@@ -309,7 +309,7 @@ sockbuf_drain(struct sock_buf *b, int cnt)
 		pos->ch_len -= n;
 		if (pos->ch_len == 0) {
 			DLIST_REMOVE(pos, ch_list);
-			mbuf_free(pos);
+			mem_free(pos);
 		}
 		off += n;
 		if (off == cnt) {

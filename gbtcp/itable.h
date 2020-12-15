@@ -10,7 +10,7 @@ struct itable {
 	u_char *it_buf;
 };
 
-int itable_init(struct itable *, int);
+void itable_init(struct itable *, int);
 void itable_deinit(struct itable *);
 void *itable_get(struct itable *, int);
 int itable_alloc(struct itable *, const void *);

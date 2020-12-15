@@ -8,59 +8,51 @@
 #define BUDDY_ORDER_MIN 20 // ~1Mb
 #define BUDDY_ORDER_MAX 27 // ~134Mb
 
-struct mem_hdr {
-	struct dlist mmh_list;
-	struct mbuf_chunk *mmh_block;
-	uint32_t mmh_size;
-	uint16_t mmh_magic;
-	int8_t mmh_order;
-	uint8_t mmh_worker_id;
+struct mem_buf {
+	struct dlist mb_list;
+	struct mem_cache_block *mb_block;
+	uint32_t mb_size;
+	uint16_t mb_magic;
+	int8_t mb_order;
+	uint8_t mb_worker_id;
 };
 
-struct mbuf_chunk {
-	struct dlist mbc_list;
-	struct dlist mbc_mbuf_head;
-	struct mbuf_pool *mbc_pool;
-	int mbc_n_mbufs;
-	short mbc_id;
+struct mem_cache_block {
+	struct dlist mcb_list;
+	struct dlist mcb_used_head;
+	struct dlist mcb_free_head;
+	struct mem_cache *mcb_cache;
+	int mcb_used;
+	int mcb_size;
 };
 
-struct mbuf_pool {
-	int mbp_mbuf_size;
-	int mbp_mbufs_per_chunk;
-	int mbp_n_allocated_chunks;
-	u_char mbp_worker_id;
-	u_char mbp_referenced;
-	struct dlist mbp_avail_chunk_head;
-	struct dlist mbp_not_avail_chunk_head;
+struct mem_cache {
+	struct dlist mc_block_head;
+	int mc_buf_size;
+	u_short mc_size;
+	uint8_t mc_worker_id;
+	char mc_name[25];
 };
 
 #if 0
-#define MBUF_FOREACH_SAFE(m, p, tmp_id) \
-	for (m = mbuf_next(p, 0); \
+#define MEM_BUF_FOREACH(m, cache) \
+	UNIQV(
+	DLIST_FOREACH(struct 
 	     m != NULL && ((tmp_id = mbuf_get_id(m) + 1), 1); \
 	     m = mbuf_next(p, tmp_id))
 #endif
 
-int mbuf_mod_init(void **);
-int mbuf_mod_service_init(struct service *);
-void mbuf_mod_deinit();
-void mbuf_mod_service_deinit(struct service *);
-
-int mbuf_pool_alloc(struct mbuf_pool **, u_char, int);
-void mbuf_pool_free(struct mbuf_pool *);
-
-void *mbuf_alloc(struct mbuf_pool *);
-void mbuf_free(void *);
-void mbuf_free_rcu(void *);
-
-void garbage_collector(struct service *);
-
-void mem_worker_init();
-void mem_reclaim_rcu();
+void mem_cache_init(struct mem_cache *, uint8_t, int);
+void mem_cache_deinit(struct mem_cache *);
+void *mem_cache_alloc(struct mem_cache *);
 
 void *mem_alloc(u_int);
 void *mem_realloc(void *, u_int);
 void mem_free(void *);
+void mem_free_rcu(void *);
+
+
+void mem_worker_init();
+void mem_reclaim_rcu();
 
 #endif // GBTCP_MBUF_H

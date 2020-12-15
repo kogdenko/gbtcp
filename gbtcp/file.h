@@ -46,6 +46,7 @@ int file_get(int, struct file **);
 short file_get_events(struct file *);
 void file_wakeup(struct file *, short);
 void file_wait(struct file *, short);
+
 #define file_aio_is_added(aio) ((aio)->faio_fn != NULL)
 void file_aio_init(struct file_aio *);
 void file_aio_add(struct file *, struct file_aio *, gt_aio_f);

@@ -32,7 +32,7 @@ lptree_alloc_node(struct lptree *tree, struct lptree_node *parent)
 {
 	struct lptree_node *node;
 
-	node = mbuf_alloc(tree->lpt_node_pool);
+	node = mem_cache_alloc(&tree->lpt_node_cache);
 	if (node != NULL) {
 		lptree_node_init(node, parent);
 	}
@@ -59,25 +59,22 @@ static void
 lptree_node_free(struct lptree_node *node)
 {
 	assert(lptree_node_is_empty(node));
-	mbuf_free(node);
+	mem_free(node);
 }
 
 int
 lptree_init(struct lptree *tree)
 {
-	int rc;
-
 	tree->lpt_root = NULL;
-	rc = mbuf_pool_alloc(&tree->lpt_node_pool, CONTROLLER_SID,
+	mem_cache_init(&tree->lpt_node_cache, CONTROLLER_SID,
 		sizeof(struct lptree_node));
-	return rc;
+	return 0;
 }
 
 void
 lptree_deinit(struct lptree *tree)
 {
-	mbuf_pool_free(tree->lpt_node_pool);
-	tree->lpt_node_pool = NULL;
+	mem_cache_deinit(&tree->lpt_node_cache);
 	tree->lpt_root = NULL;
 }
 
@@ -229,7 +226,7 @@ lptree_del(struct lptree *tree, struct lptree_rule *rule)
 			break;
 		}
 	}
-	mbuf_free(rule);
+	mem_free(rule);
 	while (1) {
 		parent = node->lpn_parent;
 		if (parent != NULL && lptree_node_is_empty(node)) {

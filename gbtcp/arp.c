@@ -71,7 +71,7 @@ arp_entry_add_incomplete(struct arp_entry *e, struct dev_pkt *pkt)
 		e->ae_incomplete_q = NULL;
 		arps.arps_dropped++;
 	} else {
-		cp = mbuf_alloc(current->p_arp_incomplete_pool);
+		cp = mem_cache_alloc(&current->p_arp_incomplete_pool);
 		if (cp == NULL) {
 			arps.arps_dropped++;
 			return;
@@ -118,10 +118,10 @@ arp_tx_incomplete_q(struct arp_entry *e)
 		arp_set_eh(e, route.rt_ifp, pkt.pkt_data);
 		route_transmit(route.rt_ifp, &pkt);
 	}
-	mbuf_free(x);
+	mem_free(x);
 	return;
 err:
-	mbuf_free(x);
+	mem_free(x);
 	arps.arps_dropped++;
 }
 
@@ -310,33 +310,18 @@ arp_mod_deinit()
 int
 service_init_arp(struct service *s)
 {
-	int rc;
-
-	if (s->p_arp_entry_pool == NULL) {
-		rc = mbuf_pool_alloc(&s->p_arp_entry_pool, s->p_sid,
-			sizeof(struct arp_entry));
-		if (rc) {
-			return rc;
-		}
-	}
-	rc = 0;
-	if (s->p_arp_incomplete_pool == NULL) {
-		rc = mbuf_pool_alloc(&s->p_arp_incomplete_pool, s->p_sid,
-			DEV_PKT_SIZE_MAX);
-		if (rc) {
-			service_deinit_arp(s);
-		}
-	}
-	return rc;
+	mem_cache_init(&s->p_arp_entry_pool, s->p_sid,
+		sizeof(struct arp_entry));
+	mem_cache_init(&s->p_arp_incomplete_pool, s->p_sid,
+		DEV_PKT_SIZE_MAX);
+	return 0;
 }
 
 void
 service_deinit_arp(struct service *s)
 {
-	mbuf_pool_free(s->p_arp_entry_pool);
-	s->p_arp_entry_pool = NULL;
-	mbuf_pool_free(s->p_arp_incomplete_pool);
-	s->p_arp_incomplete_pool = NULL;
+	mem_cache_deinit(&s->p_arp_entry_pool);
+	mem_cache_deinit(&s->p_arp_incomplete_pool);
 }
 
 static inline void
@@ -359,7 +344,7 @@ arp_entry_add(struct htable_bucket *b, be32_t next_hop,
 {
 	struct arp_entry *e;
 
-	e = mbuf_alloc(current->p_arp_entry_pool);
+	e = mem_cache_alloc(&current->p_arp_entry_pool);
 	if (e == NULL) {
 		return NULL;
 	}
@@ -382,8 +367,8 @@ arp_entry_del(struct arp_entry *e)
 	dlist_remove_rcu(&e->ae_list);
 	timer_del(&e->ae_timer);
 	arp_set_state(e, ARP_NONE);
-	mbuf_free(e->ae_incomplete_q);
-	mbuf_free_rcu(e);
+	mem_free(e->ae_incomplete_q);
+	mem_free_rcu(e);
 }
 
 static struct arp_entry *

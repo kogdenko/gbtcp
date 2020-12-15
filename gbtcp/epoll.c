@@ -10,7 +10,7 @@
 struct epoll {
 	struct file ep_file;
 	int ep_fd;
-	struct mbuf_pool *ep_pool;
+	struct mem_cache ep_entry_cache;
 	struct dlist ep_triggered;
 };
 
@@ -55,7 +55,7 @@ epoll_entry_alloc(struct epoll *ep, struct file *fp)
 {
 	struct epoll_entry *e;
 
-	e = mbuf_alloc(ep->ep_pool);
+	e = mem_cache_alloc(&ep->ep_entry_cache);
 	if (e == NULL) {
 		return NULL;
 	}
@@ -83,7 +83,7 @@ epoll_entry_free(struct epoll_entry *e)
 {
 	epoll_entry_relax(e);
 	file_aio_cancel(&e->epe_aio);
-	mbuf_free(e);
+	mem_free(e);
 }
 
 static void
@@ -321,7 +321,6 @@ kevent_mod(struct epoll *ep, struct sock *so, struct kevent *event)
 int
 u_epoll_create(int ep_fd)
 {
-	int rc;
 	struct file *fp;
 	struct epoll *ep;
 
@@ -332,12 +331,8 @@ u_epoll_create(int ep_fd)
 	fp->fl_referenced = 1;
 	ep = (struct epoll *)fp;
 	ep->ep_fd = ep_fd;
-	rc = mbuf_pool_alloc(&ep->ep_pool, current->p_sid,
+	mem_cache_init(&ep->ep_entry_cache, current->p_sid,
 		sizeof(struct epoll_entry));
-	if (rc) {
-		file_free(fp);
-		return rc;
-	}
 	dlist_init(&ep->ep_triggered);
 	return fp->fl_fd;
 }
@@ -351,7 +346,7 @@ u_epoll_close(struct file *fp)
 //	struct epoll_entry *e;
 
 	ep = (struct epoll *)fp;
-	if (ep->ep_pool->mbp_worker_id == current->p_sid) {
+	if (ep->ep_entry_cache.mc_worker_id == current->p_sid) {
 		rc = sys_close(ep->ep_fd);	
 	} else {
 		// u_epoll_close can be called in controller
@@ -362,8 +357,7 @@ u_epoll_close(struct file *fp)
 	//	e = (struct epoll_entry *)m;
 	//	epoll_entry_free(e);
 	//}
-	mbuf_pool_free(ep->ep_pool);
-	ep->ep_pool = NULL;
+	mem_cache_deinit(&ep->ep_entry_cache);
 	file_free(fp);
 	return rc;
 }

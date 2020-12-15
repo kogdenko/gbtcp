@@ -123,7 +123,7 @@ struct profiler {
 
 #define STRSZ(s) (s), (sizeof(s) - 1)
 
-#define ALIGNMENT_PTR sizeof(void *)
+#define ALIGN_PTR sizeof(void *)
 
 #define ROUND_UP(x, y) ((((x) - 1) | (((__typeof__(x))(y)) - 1)) + 1)
 #define ROUND_DOWN(x, y) ((x) & (~((__typeof(x))(y) - 1 )))
