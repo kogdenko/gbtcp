@@ -361,15 +361,7 @@ service_init_shared(struct service *s, int pid, int fd)
 	if (rc) {
 		return rc;
 	}
-	rc = service_init_arp(s);
-	if (rc) {
-		return rc;
-	}
 	rc = init_files(s);
-	if (rc) {
-		return rc;
-	}
-	rc = service_init_tcp(s);
 	if (rc) {
 		return rc;
 	}
@@ -399,8 +391,6 @@ service_deinit_shared(struct service *s, int full)
 		migrate_timers(current, s);
 	}
 	if (full) {
-		service_deinit_tcp(s);
-		service_deinit_arp(s);
 		deinit_timers(s);
 	}
 	smp_wmb();

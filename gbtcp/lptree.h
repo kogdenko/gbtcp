@@ -20,7 +20,6 @@ struct lptree_rule {
 
 struct lptree {
 	struct lptree_node *lpt_root;
-	struct mem_cache lpt_node_cache;
 };
 
 int lptree_mod_init(void **);

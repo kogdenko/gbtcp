@@ -52,11 +52,7 @@ file_mod_deinit()
 int
 init_files(struct service *s)
 {
-	int size;
-
-	size = sizeof(struct sock);
 	itable_init(&s->p_file_fd_table, sizeof(struct file *));
-	mem_cache_init(&s->p_file_pool, s->p_sid, size);
 	return 0;
 }
 
@@ -71,7 +67,6 @@ deinit_files(struct service *s)
 		//FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
 		//	file_clean(fp);
 		//}
-	mem_cache_deinit(&s->p_file_pool);
 }
 
 /*struct file *
@@ -92,13 +87,13 @@ file_next(struct service *s, int fd)
 }*/
 
 struct file *
-file_alloc3(int fd, int type)
+file_alloc3(int fd, int type, int size)
 {
 	int rc;
 	struct file *fp;
 
 	if (fd == 0) {
-		fp = mem_cache_alloc(&current->p_file_pool);
+		fp = mem_alloc(size);
 	} else {
 		assert(0);
 		fp = NULL;

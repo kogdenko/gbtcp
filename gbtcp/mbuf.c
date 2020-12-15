@@ -3,11 +3,18 @@
 
 #define CURMOD mm
 
-#define CHUNK_SIZE 1*1024*1024
-
 #define MEM_BUF_MAGIC 0xcafe
 
 #define mem_sb shared
+
+struct mem_cache_block {
+	struct dlist mcb_list;
+	struct dlist mcb_free_head;
+	struct mem_cache *mcb_cache;
+	int mcb_used;
+	int mcb_size;
+};
+
 
 static void rcu_reload();
 void garbage_collector(struct service *);
@@ -125,86 +132,29 @@ mem_buddy_free(struct mem_buf *m)
 	DLIST_INSERT_HEAD(area, coalesced, mb_list);
 }
 
-void *
-mem_realloc(void *ptr, u_int size)
-{
-	int order, order0;
-	struct mem_buf *m, *m0;
-	struct mem_cache *slab;
-
-	assert(size <= (1 << BUDDY_ORDER_MAX) - sizeof(*m));
-	order = ffs(upper_pow2_32(size + (sizeof(*m)))) - 1;
-	if (ptr == NULL) {
-		m0 = NULL;
-	} else {
-		m0 = ((struct mem_buf *)ptr) - 1;
-		assert(m0->mb_magic == MEM_BUF_MAGIC);
-		order0 = m0->mb_order;
-		assert(order0 >= SLAB_ORDER_MIN);
-		assert(order0 <= BUDDY_ORDER_MAX);
-		assert(m0->mb_size <= (1 << order0) + sizeof(*m0));
-		if (order0 == order) {
-			m0->mb_size = size;
-			return ptr; 
-		}
-	}
-	if (order < SLAB_ORDER_MIN) {
-		order = SLAB_ORDER_MIN;
-	}
-	if (order < BUDDY_ORDER_MIN) {
-		slab = &current->wmm_slab[order - SLAB_ORDER_MIN];
-		m = mem_cache_alloc(slab);
-		m--;
-	} else {
-		mem_lock();
-		m = mem_buddy_alloc(order);
-		mem_unlock();
-	}
-	if (m != NULL) {
-		if (m0 != NULL) {
-			memcpy(m + 1, m0 + 1, MIN(size, m0->mb_size));
-			mem_free(m0 + 1);
-		}
-		m->mb_size = size;
-		return m + 1;
-	} else {
-		return NULL;
-	}
-}
-
-void *
-mem_alloc(u_int size)
-{
-	return mem_realloc(NULL, size);
-}
-
 static struct mem_cache_block *
 mem_cache_block_alloc(struct mem_cache *cache)
 {
-	int i, order, data_size;
+	int i, data_size;
 	uintptr_t addr;
 	struct mem_cache_block *b;
 	struct mem_buf *m;
 
 	// TODO: choose data size
-	data_size = CHUNK_SIZE - sizeof(struct mem_buf);
+	data_size = (1 << BUDDY_ORDER_MIN) - sizeof(struct mem_buf);
 	b = mem_alloc(data_size);
 	if (b == NULL) {
 		return NULL;
 	}
-	order = ffs(cache->mc_buf_size) + 1;
-	dlist_init(&b->mcb_used_head);
 	dlist_init(&b->mcb_free_head);
 	b->mcb_cache = cache;
 	b->mcb_used = 0;
-	b->mcb_size = data_size / cache->mc_buf_size;
+	b->mcb_size = data_size / (1 << cache->mc_order);
 	for (i = 0; i < b->mcb_size; ++i) {
-		addr = (uintptr_t)(b + 1) + i * cache->mc_buf_size;
+		addr = (uintptr_t)(b + 1) + (i << cache->mc_order);
 		m = (struct mem_buf *)addr;
 		m->mb_magic = MEM_BUF_MAGIC;
-		m->mb_order = order;
-		m->mb_size = cache->mc_buf_size - sizeof(*m);
-		assert(m->mb_size <= (1 << m->mb_order) + sizeof(*m));
+		m->mb_order = cache->mc_order;
 		m->mb_block = b;
 		m->mb_worker_id = cache->mc_worker_id;
 		DLIST_INSERT_TAIL(&b->mcb_free_head, m, mb_list);
@@ -214,13 +164,10 @@ mem_cache_block_alloc(struct mem_cache *cache)
 	return b;
 }
 
-void
-mem_cache_init(struct mem_cache *cache, uint8_t worker_id, int data_size)
+static void
+mem_cache_init(struct mem_cache *cache, uint8_t worker_id, int order)
 {
-	int buf_size;
-
-	buf_size = ROUND_UP(sizeof(struct mem_buf) + data_size, ALIGN_PTR);
-	cache->mc_buf_size = buf_size;
+	cache->mc_order = order;
 	cache->mc_size = 0;
 	cache->mc_worker_id = worker_id;
 	dlist_init(&cache->mc_block_head);
@@ -253,7 +200,7 @@ mem_cache_get_free_block(struct mem_cache *cache)
 	}
 }
 
-void *
+static struct mem_buf *
 mem_cache_alloc(struct mem_cache *cache)
 {
 	struct mem_buf *m;
@@ -268,13 +215,12 @@ mem_cache_alloc(struct mem_cache *cache)
 	assert(!dlist_is_empty(&b->mcb_free_head));
 	m = DLIST_FIRST(&b->mcb_free_head, struct mem_buf, mb_list);
 	DLIST_REMOVE(m, mb_list);
-	DLIST_INSERT_HEAD(&b->mcb_used_head, m, mb_list);
 	b->mcb_used++;
 	if (b->mcb_used == b->mcb_size) {
 		DLIST_REMOVE(b, mcb_list);
 		DLIST_INSERT_TAIL(&cache->mc_block_head, b, mcb_list);
 	}
-	return m + 1;
+	return m;
 }
 
 static void
@@ -287,7 +233,6 @@ mem_cache_free_reclaim(struct mem_buf *m)
 	assert(b != NULL);
 	assert(b->mcb_used);
 	cache = b->mcb_cache;
-	DLIST_REMOVE(m, mb_list);
 	DLIST_INSERT_HEAD(&b->mcb_free_head, m, mb_list);
 	if (b->mcb_used == b->mcb_size && cache != NULL) {
 		DLIST_REMOVE(b, mcb_list);
@@ -304,6 +249,58 @@ mem_cache_free_reclaim(struct mem_buf *m)
 		}
 		mem_free(b);
 	}
+}
+
+void *
+mem_realloc(void *ptr, u_int size)
+{
+	int order, order0;
+	struct mem_buf *m, *m0;
+	struct mem_cache *slab;
+
+	assert(size <= (1 << BUDDY_ORDER_MAX) - sizeof(*m));
+	order = ffs(upper_pow2_32(size + (sizeof(*m)))) - 1;
+	if (ptr == NULL) {
+		m0 = NULL;
+	} else {
+		m0 = ((struct mem_buf *)ptr) - 1;
+		assert(m0->mb_magic == MEM_BUF_MAGIC);
+		order0 = m0->mb_order;
+		assert(order0 >= SLAB_ORDER_MIN);
+		assert(order0 <= BUDDY_ORDER_MAX);
+		assert(m0->mb_size <= (1 << order0) + sizeof(*m0));
+		if (order0 == order) {
+			m0->mb_size = size;
+			return ptr; 
+		}
+	}
+	if (order < SLAB_ORDER_MIN) {
+		order = SLAB_ORDER_MIN;
+	}
+	if (order < BUDDY_ORDER_MIN) {
+		slab = &current->wmm_slab[order - SLAB_ORDER_MIN];
+		m = mem_cache_alloc(slab);
+	} else {
+		mem_lock();
+		m = mem_buddy_alloc(order);
+		mem_unlock();
+	}
+	if (m != NULL) {
+		if (m0 != NULL) {
+			memcpy(m + 1, m0 + 1, MIN(size, m0->mb_size));
+			mem_free(m0 + 1);
+		}
+		m->mb_size = size;
+		return m + 1;
+	} else {
+		return NULL;
+	}
+}
+
+void *
+mem_alloc(u_int size)
+{
+	return mem_realloc(NULL, size);
 }
 
 void
@@ -367,7 +364,7 @@ garbage_collector(struct service *s)
 // ^ - read barrier
 // e - worker rcu epoch (wmm_rcu_epoch)
 // 
-// Between @L and @U worker can touch already freed RCU objects.
+// Between @< and @> worker can touch already freed RCU objects.
 // The purpose of updater is realise when we can reclaim freed
 // rcu object (we can reclaim object when nobody has reference to it).
 //
@@ -461,7 +458,7 @@ init_worker_mem(struct service *w)
 	dlist_init(&w->wmm_garbage);
 	for (i = 0; i < ARRAY_SIZE(w->wmm_slab); ++i) {
 		order = i + SLAB_ORDER_MIN;
-		mem_cache_init(&w->wmm_slab[i], w->p_sid, 1 << order); 
+		mem_cache_init(&w->wmm_slab[i], w->p_sid, order);
 	}
 	for (i = 0; i < ARRAY_SIZE(w->wmm_rcu_head); ++i) {
 		dlist_init(&w->wmm_rcu_head[i]);	

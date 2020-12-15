@@ -2,8 +2,7 @@
 
 #define CURMOD sockbuf
 
-#define SOCKBUF_CHUNK_DATA_SIZE \
-	(SOCKBUF_CHUNK_SIZE - sizeof(struct sbchunk))
+#define SOCKBUF_CHUNK_DATA_SIZE (PACKET_BUFSZ - sizeof(struct sbchunk))
 
 struct uio {
 	struct iovec *uio_iov;
@@ -56,11 +55,11 @@ sockbuf_chunk_data(struct sbchunk *chunk)
 }
 
 static struct sbchunk *
-sockbuf_chunk_alloc(struct mem_cache *cache, struct sock_buf *b)
+sockbuf_chunk_alloc(struct sock_buf *b)
 {
 	struct sbchunk *chunk;
 
-	chunk = mem_cache_alloc(cache);
+	chunk = mem_alloc(PACKET_BUFSZ);
 	if (chunk != NULL) {
 		chunk->ch_len = 0;
 		chunk->ch_off = 0;
@@ -147,7 +146,7 @@ sockbuf_write(struct sock_buf *b, struct sbchunk *pos,
 }
 
 int
-sockbuf_add(struct mem_cache *cache, struct sock_buf *b, const void *buf, int cnt)
+sockbuf_add(struct sock_buf *b, const void *buf, int cnt)
 {
 	int n, rem, space, added;
 	struct sbchunk *chunk, *pos;
@@ -161,7 +160,7 @@ sockbuf_add(struct mem_cache *cache, struct sock_buf *b, const void *buf, int cn
 	}
 	n = 0;
 	if (dlist_is_empty(&b->sob_head)) {
-		chunk = sockbuf_chunk_alloc(cache, b);
+		chunk = sockbuf_chunk_alloc(b);
 		if (chunk == NULL) {
 			return -ENOMEM;
 		}
@@ -176,7 +175,7 @@ sockbuf_add(struct mem_cache *cache, struct sock_buf *b, const void *buf, int cn
 		if (rem <= 0) {
 			break;
 		}
-		chunk = sockbuf_chunk_alloc(cache, b);
+		chunk = sockbuf_chunk_alloc(b);
 		if (chunk == NULL) {
 			sockbuf_free_n(b, n);
 			return -ENOMEM;

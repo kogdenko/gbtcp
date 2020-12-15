@@ -53,11 +53,7 @@ struct service {
 	struct dlist wmm_garbage;
 
 	struct timer_ring *p_timer_rings[TIMER_N_RINGS];
-	struct mem_cache p_arp_entry_pool;
-	struct mem_cache p_arp_incomplete_pool;
-	struct mem_cache p_file_pool;
 	struct itable p_file_fd_table;
-	struct mem_cache p_sockbuf_pool;
 	struct tcp_stat p_tcps;
 	struct udp_stat p_udps;
 	struct ip_stat p_ips;

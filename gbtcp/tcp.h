@@ -99,9 +99,6 @@ int tcp_mod_init();
 void tcp_mod_deinit();
 void tcp_mod_timer(struct timer *, u_char);
 
-int service_init_tcp(struct service *);
-void service_deinit_tcp(struct service *);
-
 int so_get(int, struct sock **);
 
 struct htable_bucket *so_get_binded_bucket(uint16_t);

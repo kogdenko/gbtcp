@@ -5,7 +5,7 @@
 #include "subr.h"
 #include "strbuf.h"
 
-#define LOG_BUFSIZ 1024
+#define LOG_BUFSZ 1024
 
 struct log_scope {
 	char lgs_name[16];

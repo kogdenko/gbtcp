@@ -311,7 +311,7 @@ route_add(struct route_entry *a)
 		rc = -EEXIST;
 		goto out;
 	}
-	route = mem_cache_alloc(&curmod->route_cache);
+	route = mem_alloc(sizeof(*route));
 	if (route == NULL) {
 		rc = -ENOMEM;
 		goto out;
@@ -683,8 +683,6 @@ route_mod_init()
 	curmod->route_default = NULL;
 	dlist_init(&curmod->route_if_head);
 	dlist_init(&curmod->route_addr_head);
-	mem_cache_init(&curmod->route_cache, CONTROLLER_SID,
-		sizeof(struct route_entry_long));
 	rc = lptree_init(&curmod->route_lptree);
 	if (rc) {
 		goto err;
@@ -717,7 +715,6 @@ route_mod_deinit()
 	sysctl_del(GT_SYSCTL_ROUTE);
 	route_monitor_stop();
 	lptree_deinit(&curmod->route_lptree);
-	mem_cache_deinit(&curmod->route_cache);
 	curmod_deinit();
 }
 

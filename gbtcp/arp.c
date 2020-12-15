@@ -71,14 +71,14 @@ arp_entry_add_incomplete(struct arp_entry *e, struct dev_pkt *pkt)
 		e->ae_incomplete_q = NULL;
 		arps.arps_dropped++;
 	} else {
-		cp = mem_cache_alloc(&current->p_arp_incomplete_pool);
+		cp = mem_alloc(PACKET_BUFSZ);
 		if (cp == NULL) {
 			arps.arps_dropped++;
 			return;
 		}
 	}
 	cp->pkt_len = pkt->pkt_len;
-	cp->pkt_data = (uint8_t *)cp + sizeof(*cp);
+	cp->pkt_data = (u_char *)cp + sizeof(*cp);
 	DEV_PKT_COPY(cp->pkt_data, pkt->pkt_data, pkt->pkt_len);
 	e->ae_incomplete_q = cp;
 }
@@ -307,23 +307,6 @@ arp_mod_deinit()
 	curmod_deinit();
 }
 
-int
-service_init_arp(struct service *s)
-{
-	mem_cache_init(&s->p_arp_entry_pool, s->p_sid,
-		sizeof(struct arp_entry));
-	mem_cache_init(&s->p_arp_incomplete_pool, s->p_sid,
-		DEV_PKT_SIZE_MAX);
-	return 0;
-}
-
-void
-service_deinit_arp(struct service *s)
-{
-	mem_cache_deinit(&s->p_arp_entry_pool);
-	mem_cache_deinit(&s->p_arp_incomplete_pool);
-}
-
 static inline void
 arp_set_state(struct arp_entry *e, int state)
 {
@@ -344,7 +327,7 @@ arp_entry_add(struct htable_bucket *b, be32_t next_hop,
 {
 	struct arp_entry *e;
 
-	e = mem_cache_alloc(&current->p_arp_entry_pool);
+	e = mem_alloc(sizeof(*e));
 	if (e == NULL) {
 		return NULL;
 	}

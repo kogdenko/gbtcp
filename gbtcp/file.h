@@ -34,8 +34,8 @@ int init_files(struct service *);
 void deinit_files(struct service *);
 
 //struct file *file_next(struct service *, int);
-struct file *file_alloc3(int, int);
-#define file_alloc(type) file_alloc3(0, type)
+struct file *file_alloc3(int, int, int);
+#define file_alloc(type, size) file_alloc3(0, type, size)
 void file_free(struct file *);
 void file_free_rcu(struct file *);
 void file_close(struct file *);

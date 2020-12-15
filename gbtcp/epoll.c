@@ -9,9 +9,9 @@
 
 struct epoll {
 	struct file ep_file;
-	int ep_fd;
-	struct mem_cache ep_entry_cache;
 	struct dlist ep_triggered;
+	int ep_fd;
+	int ep_worker_id;
 };
 
 struct epoll_entry {
@@ -55,7 +55,7 @@ epoll_entry_alloc(struct epoll *ep, struct file *fp)
 {
 	struct epoll_entry *e;
 
-	e = mem_cache_alloc(&ep->ep_entry_cache);
+	e = mem_alloc(sizeof(*e));
 	if (e == NULL) {
 		return NULL;
 	}
@@ -324,15 +324,14 @@ u_epoll_create(int ep_fd)
 	struct file *fp;
 	struct epoll *ep;
 
-	fp = file_alloc(FILE_EPOLL);
+	fp = file_alloc(FILE_EPOLL, sizeof(*ep));
 	if (fp == NULL) {
 		return -ENOMEM;
 	}
 	fp->fl_referenced = 1;
 	ep = (struct epoll *)fp;
 	ep->ep_fd = ep_fd;
-	mem_cache_init(&ep->ep_entry_cache, current->p_sid,
-		sizeof(struct epoll_entry));
+	ep->ep_worker_id = current->p_sid;
 	dlist_init(&ep->ep_triggered);
 	return fp->fl_fd;
 }
@@ -346,7 +345,7 @@ u_epoll_close(struct file *fp)
 //	struct epoll_entry *e;
 
 	ep = (struct epoll *)fp;
-	if (ep->ep_entry_cache.mc_worker_id == current->p_sid) {
+	if (ep->ep_worker_id == current->p_sid) {
 		rc = sys_close(ep->ep_fd);	
 	} else {
 		// u_epoll_close can be called in controller
@@ -357,7 +356,6 @@ u_epoll_close(struct file *fp)
 	//	e = (struct epoll_entry *)m;
 	//	epoll_entry_free(e);
 	//}
-	mem_cache_deinit(&ep->ep_entry_cache);
 	file_free(fp);
 	return rc;
 }

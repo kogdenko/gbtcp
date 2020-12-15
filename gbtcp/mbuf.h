@@ -5,8 +5,12 @@
 #include "list.h"
 
 #define SLAB_ORDER_MIN 6 // 64b
-#define BUDDY_ORDER_MIN 20 // ~1Mb
+#define BUDDY_ORDER_MIN 21 // ~2Mb
 #define BUDDY_ORDER_MAX 27 // ~134Mb
+
+#define MEM_HDRSZ sizeof(struct mem_buf)
+
+#define PACKET_BUFSZ (2048 - MEM_HDRSZ)
 
 struct mem_buf {
 	struct dlist mb_list;
@@ -17,28 +21,15 @@ struct mem_buf {
 	uint8_t mb_worker_id;
 };
 
-struct mem_cache_block {
-	struct dlist mcb_list;
-	struct dlist mcb_used_head;
-	struct dlist mcb_free_head;
-	struct mem_cache *mcb_cache;
-	int mcb_used;
-	int mcb_size;
-};
-
 struct mem_cache {
 	struct dlist mc_block_head;
-	int mc_buf_size;
 	u_short mc_size;
+	int8_t mc_order;
 	uint8_t mc_worker_id;
 };
 
 void init_worker_mem();
 void deinit_worker_mem();
-
-void mem_cache_init(struct mem_cache *, uint8_t, int);
-void mem_cache_deinit(struct mem_cache *);
-void *mem_cache_alloc(struct mem_cache *);
 
 void *mem_alloc(u_int);
 void *mem_realloc(void *, u_int);

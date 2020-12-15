@@ -10,7 +10,7 @@ struct log_mod {
 	int log_level;
 };
 
-static char log_buf[LOG_BUFSIZ];
+static char log_buf[LOG_BUFSZ];
 static struct strbuf log_sb;
 static int log_early_level = LOG_LEVEL_DEFAULT;
 
@@ -105,7 +105,7 @@ void
 log_vprintf(int level, const char *func, int errnum,
 	const char *fmt, va_list ap)
 {
-	char buf[LOG_BUFSIZ];
+	char buf[LOG_BUFSZ];
 	struct strbuf sb;
 
 	strbuf_init(&sb, buf, sizeof(buf));
@@ -131,7 +131,7 @@ void
 log_hexdump_ascii(uint8_t *data, int count)
 {
 	int i, j, k, x, ch;
-	char buf[LOG_BUFSIZ];
+	char buf[LOG_BUFSZ];
 	struct strbuf sb;
 	strbuf_init(&sb, buf, sizeof(buf));
 	for (i = 0; i < count;) {

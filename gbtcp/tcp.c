@@ -271,19 +271,6 @@ tcp_mod_deinit()
 	curmod_deinit();
 }
 
-int
-service_init_tcp(struct service *s)
-{
-	mem_cache_init(&s->p_sockbuf_pool, s->p_sid, SOCKBUF_CHUNK_SIZE);
-	return 0;
-}
-
-void
-service_deinit_tcp(struct service *s)
-{
-	mem_cache_deinit(&s->p_sockbuf_pool);
-}
-
 const char *
 log_add_tcp_flags(int proto, uint8_t tcp_flags)
 {
@@ -2370,7 +2357,7 @@ so_new(int fd, int so_ipproto)
 	struct file *fp;
 	struct sock *so;
 
-	fp = file_alloc3(fd, FILE_SOCK);
+	fp = file_alloc3(fd, FILE_SOCK, sizeof(*so));
 	if (fp == NULL) {
 		return NULL;
 	}
@@ -2469,7 +2456,7 @@ so_rcvbuf_add(struct sock *so, void *buf, int len/*, be32_t faddr, be16_t fport*
 {
 	int rc;
 
-	rc = sockbuf_add(&current->p_sockbuf_pool, &so->so_rcvbuf, buf, len);
+	rc = sockbuf_add(&so->so_rcvbuf, buf, len);
 	return rc;
 
 
@@ -2568,8 +2555,7 @@ sock_sndbuf_add(struct sock *so, const void *src, int cnt)
 {
 	int rc;
 
-	rc = sockbuf_add(&current->p_sockbuf_pool,
-		&so->so_sndbuf, src, cnt);
+	rc = sockbuf_add(&so->so_sndbuf, src, cnt);
 	DBG(0, "hit; cnt=%d, buflen=%d, fd=%d",
 	    cnt, so->so_sndbuf.sob_len, so->so_fd);
 	return rc;

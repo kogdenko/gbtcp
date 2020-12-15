@@ -32,7 +32,7 @@ lptree_alloc_node(struct lptree *tree, struct lptree_node *parent)
 {
 	struct lptree_node *node;
 
-	node = mem_cache_alloc(&tree->lpt_node_cache);
+	node = mem_alloc(sizeof(*node));
 	if (node != NULL) {
 		lptree_node_init(node, parent);
 	}
@@ -66,15 +66,12 @@ int
 lptree_init(struct lptree *tree)
 {
 	tree->lpt_root = NULL;
-	mem_cache_init(&tree->lpt_node_cache, CONTROLLER_SID,
-		sizeof(struct lptree_node));
 	return 0;
 }
 
 void
 lptree_deinit(struct lptree *tree)
 {
-	mem_cache_deinit(&tree->lpt_node_cache);
 	tree->lpt_root = NULL;
 }
 
