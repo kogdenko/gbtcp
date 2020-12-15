@@ -1,4 +1,4 @@
-// GPL2 license
+// GPL v2
 #ifndef GBTCP_LPTREE_H
 #define GBTCP_LPTREE_H
 

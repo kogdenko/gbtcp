@@ -343,6 +343,8 @@ service_init_shared(struct service *s, int pid, int fd)
 
 	NOTICE(0, "hit; pid=%d", pid);
 	assert(current->p_sid == CONTROLLER_SID);
+	WRITE_ONCE(s->wmm_rcu_epoch, 1);
+	smp_wmb();
 	s->p_pid = pid;
 	dlist_init(&s->p_tx_head);
 	s->p_sid = s - shared->shm_services;
@@ -350,12 +352,11 @@ service_init_shared(struct service *s, int pid, int fd)
 	s->p_rss_nq = 0;
 	s->p_rr_redir = 0;
 	s->p_fd = fd;
-	service_store_epoch(s, 1);
 	s->p_start_time = shared_ns();
 	s->p_okpps = 0;
 	s->p_okpps_time = 0;
 	s->p_opkts = 0;
-	dlist_init(&s->p_mbuf_garbage_head);
+	init_worker_mem(s);
 	rc = init_timers(s);
 	if (rc) {
 		return rc;
@@ -402,7 +403,8 @@ service_deinit_shared(struct service *s, int full)
 		service_deinit_arp(s);
 		deinit_timers(s);
 	}
-	service_store_epoch(s, 0);
+	smp_wmb();
+	WRITE_ONCE(s->wmm_rcu_epoch, 0);
 	s->p_pid = 0;
 }
 
@@ -412,7 +414,6 @@ service_init_private()
 	int rc;
 	char buf[NM_IFNAMSIZ];
 
-	mem_worker_init();
 	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_pid);
 	rc = dev_init(&service_vale, buf, service_vale_rxtx);
 	return rc;
@@ -500,6 +501,7 @@ service_attach(const char *fn_name)
 		rc = -ENOENT;
 		goto err;
 	}
+	init_worker_mem(current);
 	rc = service_pid_file_acquire(current->p_sid, pid);
 	if (rc < 0) {
 		goto err;
@@ -552,15 +554,7 @@ service_detach()
 void
 service_unlock()
 {
-	u_int epoch;
-
-	epoch = current->p_epoch;
-	epoch++;
-	if (epoch == 0) {
-		epoch = 1;
-	}
-	service_store_epoch(current, epoch);
-	mem_reclaim_rcu();
+	rcu_update();
 	spinlock_unlock(&current->p_lock);
 }
 

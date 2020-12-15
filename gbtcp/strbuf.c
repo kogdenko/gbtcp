@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #include "internals.h"
 
 #define STRBUF_ADD_FLAG(flag) \

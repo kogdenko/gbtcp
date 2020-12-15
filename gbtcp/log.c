@@ -101,14 +101,6 @@ log_is_enabled(int mod_id, int level, int debug)
 	return level <= thresh;
 }
 
-static void
-log_fill_errnum(struct strbuf *sb, int errnum)
-{
-	if (errnum) {
-		strbuf_addf(sb, " (%d:%s)", errnum, strerror(errnum));
-	}
-}
-
 void
 log_vprintf(int level, const char *func, int errnum,
 	const char *fmt, va_list ap)
@@ -120,7 +112,7 @@ log_vprintf(int level, const char *func, int errnum,
 	strbuf_addf(&sb, "%s: ", func);
 	strbuf_vaddf(&sb, fmt, ap);
 	if (errnum) {
-		log_fill_errnum(&sb, errnum);
+		strbuf_addf(&sb, " (%d:%s)", errnum, strerror(errnum));
 	}
 	syslog(level, "%s", strbuf_cstr(&sb));
 }

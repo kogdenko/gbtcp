@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #ifndef GBTCP_SUBR_H
 #define GBTCP_SUBR_H
 
@@ -12,24 +12,13 @@
 #define GT_POLLRDHUP 0
 #define GT_TCP_CORK TCP_NOPUSH
 typedef cpuset_t cpu_set_t;
-void gt_qsort_r(void *, size_t, size_t, int (*compar)(const void *, const void *, void *), void *);
+void gt_qsort_r(void *, size_t, size_t,
+	int (*)(const void *, const void *, void *), void *);
 #endif // __linux__
 
 #ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64
 #endif // CACHE_LINE_SIZE
-
-#ifndef PAGE_SHIFT
-#define PAGE_SHIFT 12
-#endif // PAGE_SHIFT
-
-#ifndef PAGE_SIZE
-#define PAGE_SIZE (1 << PAGE_SHIFT)
-#endif // PAGE_SIZE
-
-#ifndef PAGE_MASK
-#define PAGE_MASK (PAGE_SIZE - 1)
-#endif // PAGE_MASK
 
 #define ETHADDR_STRLEN 18
 #define ETHADDR_LEN 6
@@ -226,6 +215,11 @@ do { \
 #define rmb _mm_sfence
 #define wmb _mm_lfence
 #define cpu_pause _mm_pause
+
+// x86
+#define smp_rmb()
+#define smp_wmb()
+#define smp_mb mb
 
 #define READ_ONCE(x) \
 ({ \

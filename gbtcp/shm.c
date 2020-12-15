@@ -16,30 +16,17 @@ static int shm_fd = -1;
 
 struct shm_hdr *shared;
 
-int
-shm_mod_init()
-{
-	int rc;
-
-	rc = curmod_init();
-	if (rc) {
-		return rc;
-	}
-	return 0;
-}
-
-void init_memory();
+void mem_buddy_init();
 
 int
 shm_init()
 {
-	int i, rc, n_pages, sb_size;
+	int i, rc;
 	size_t size;
 	struct stat buf;
 
 	NOTICE(0, "hit;");
-	size = ROUND_UP(SHM_SIZE, PAGE_SIZE);
-	n_pages = size >> PAGE_SHIFT;
+	size = SHM_SIZE;
 	rc = sys_open(SHM_PATH, O_CREAT|O_RDWR, 0666);
 	if (rc < 0) {
 		goto err;
@@ -55,26 +42,18 @@ shm_init()
 	if (rc) {
 		goto err;
 	}
-	assert(!(((uintptr_t)shared) & PAGE_MASK));
-	sb_size = sizeof(*shared);
-	sb_size += BITSET_WORD_ARRAY_SIZE(n_pages) * sizeof(bitset_word_t);
-	sb_size = ROUND_UP(sb_size, PAGE_SIZE);
-	memset(shared, 0, sb_size);
+	memset(shared, 0, sizeof(*shared));
 	shared->shm_ns = nanoseconds;
 	shared->mmsb_begin = (uintptr_t)shared;
 	spinlock_init(&shared->mmsb_lock);
 	shared->mmsb_end = shared->mmsb_begin + size;
-	for (i = 0; i < GT_SERVICES_MAX; ++i) {
-		dlist_init(shared->shm_garbage_head + i);
+	for (i = 0; i < ARRAY_SIZE(shared->mmsb_garbage); ++i) {
+		dlist_init(shared->mmsb_garbage + i);
 	}
 	for (i = 0; i < ARRAY_SIZE(shared->mmsb_buddy_area); ++i) {
 		dlist_init(&shared->mmsb_buddy_area[i]);
 	}
-	init_memory();
-	rc = init_modules();
-	if (rc) {
-		goto err;
-	}
+	mem_buddy_init();
 	NOTICE(0, "ok; addr=%p", (void *)shared->mmsb_begin);
 	return 0;
 err:
@@ -159,5 +138,3 @@ shm_deinit()
 	shm_detach();
 	sys_unlink(SHM_PATH);
 }
-
-

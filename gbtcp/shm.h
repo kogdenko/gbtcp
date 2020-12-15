@@ -11,6 +11,7 @@ struct shm_hdr {
 	uintptr_t mmsb_begin;
 	uintptr_t mmsb_end;
 	struct dlist mmsb_buddy_area[BUDDY_ORDER_MAX - BUDDY_ORDER_MIN + 1];
+	struct dlist mmsb_garbage[GT_SERVICES_MAX];
 
 	uint64_t shm_ns;
 	uint64_t shm_hz;
@@ -18,7 +19,7 @@ struct shm_hdr {
 	void *shm_mods[MODS_MAX];
 	struct service shm_services[GT_SERVICES_MAX];
 	int shm_rss_table[GT_RSS_NQ_MAX];
-	struct dlist shm_garbage_head[GT_SERVICES_MAX];
+
 };
 
 int shm_mod_init();

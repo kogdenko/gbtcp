@@ -40,10 +40,18 @@ struct service {
 	u_char p_need_update_rss_bindings;
 	u_char p_rss_nq;
 	u_char p_rr_redir;
-	u_int p_epoch;
 	u_int p_okpps;
 	uint64_t p_okpps_time;
 	uint64_t p_opkts;
+
+	struct mem_cache wmm_slab[BUDDY_ORDER_MIN - SLAB_ORDER_MIN];
+	u_int wmm_rcu_epoch;
+	short wmm_rcu_max;
+	short wmm_rcu_active;
+	struct dlist wmm_rcu_head[2];
+	u_int wmm_rcu[GT_SERVICES_MAX];
+	struct dlist wmm_garbage;
+
 	struct timer_ring *p_timer_rings[TIMER_N_RINGS];
 	struct mem_cache p_arp_entry_pool;
 	struct mem_cache p_arp_incomplete_pool;
@@ -58,21 +66,7 @@ struct service {
 	int p_pid;
 	int p_fd;
 	uint64_t p_start_time;
-	struct dlist p_mbuf_garbage_head;
 };
-
-#define service_load_epoch(s) \
-({ \
-	u_int epoch; \
-	__atomic_load(&(s)->p_epoch, &epoch, __ATOMIC_SEQ_CST); \
-	epoch; \
-})
-
-#define service_store_epoch(s, epoch) \
-do { \
-	u_int tmp = epoch; \
-	__atomic_store(&(s)->p_epoch, &tmp, __ATOMIC_SEQ_CST); \
-} while (0)
 
 int service_pid_file_acquire(int, int);
 

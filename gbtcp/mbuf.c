@@ -9,6 +9,7 @@
 
 #define mem_sb shared
 
+static void rcu_reload();
 void garbage_collector(struct service *);
 
 static void
@@ -34,7 +35,7 @@ mem_is_buddy(uintptr_t ptr, size_t size)
 }
 
 void
-init_memory()
+mem_buddy_init()
 {
 	int order, algn_order, size_order;
 	uintptr_t addr, begin, size;
@@ -60,37 +61,6 @@ init_memory()
 		area = &mem_sb->mmsb_buddy_area[order - BUDDY_ORDER_MIN];
 		DLIST_INSERT_HEAD(area, m, mb_list);
 	}
-}
-
-void
-mem_buddy_free(struct mem_buf *m)
-{
-	int order, size;
-	uintptr_t addr, buddy_addr;
-	struct dlist *area;
-	struct mem_buf *buddy, *coalesced;
-
-	order = m->mb_order;
-	addr = (uintptr_t)m;
-	assert(order >= BUDDY_ORDER_MIN);
-	assert(order <= BUDDY_ORDER_MAX);
-	area = &mem_sb->mmsb_buddy_area[order - BUDDY_ORDER_MIN];
-	for (; order < BUDDY_ORDER_MAX; ++order, ++area) {
-		size = 1 << order;
-		buddy_addr = addr ^ size;
-		if (mem_is_buddy(buddy_addr, size))  {
-			break;
-		}
-		buddy = (struct mem_buf *)buddy_addr;
-		if (buddy->mb_order != -1) {
-			break;
-		}
-		DLIST_REMOVE(buddy, mb_list);
-		addr &= buddy_addr;
-	}
-	coalesced = (struct mem_buf *)addr;
-	coalesced->mb_order = -1;
-	DLIST_INSERT_HEAD(area, coalesced, mb_list);
 }
 
 static struct mem_buf *
@@ -124,11 +94,43 @@ mem_buddy_alloc(int order)
 	return m;
 }
 
+static void
+mem_buddy_free(struct mem_buf *m)
+{
+	int order, size;
+	uintptr_t addr, buddy_addr;
+	struct dlist *area;
+	struct mem_buf *buddy, *coalesced;
+
+	order = m->mb_order;
+	addr = (uintptr_t)m;
+	assert(order >= BUDDY_ORDER_MIN);
+	assert(order <= BUDDY_ORDER_MAX);
+	area = &mem_sb->mmsb_buddy_area[order - BUDDY_ORDER_MIN];
+	for (; order < BUDDY_ORDER_MAX; ++order, ++area) {
+		size = 1 << order;
+		buddy_addr = addr ^ size;
+		if (mem_is_buddy(buddy_addr, size))  {
+			break;
+		}
+		buddy = (struct mem_buf *)buddy_addr;
+		if (buddy->mb_order != -1) {
+			break;
+		}
+		DLIST_REMOVE(buddy, mb_list);
+		addr &= buddy_addr;
+	}
+	coalesced = (struct mem_buf *)addr;
+	coalesced->mb_order = -1;
+	DLIST_INSERT_HEAD(area, coalesced, mb_list);
+}
+
 void *
 mem_realloc(void *ptr, u_int size)
 {
 	int order, order0;
 	struct mem_buf *m, *m0;
+	struct mem_cache *slab;
 
 	assert(size <= (1 << BUDDY_ORDER_MAX) - sizeof(*m));
 	order = ffs(upper_pow2_32(size + (sizeof(*m)))) - 1;
@@ -142,27 +144,30 @@ mem_realloc(void *ptr, u_int size)
 		assert(order0 <= BUDDY_ORDER_MAX);
 		assert(m0->mb_size <= (1 << order0) + sizeof(*m0));
 		if (order0 == order) {
-			m = m0;
-			goto ok;
+			m0->mb_size = size;
+			return ptr; 
 		}
 	}
+	if (order < SLAB_ORDER_MIN) {
+		order = SLAB_ORDER_MIN;
+	}
 	if (order < BUDDY_ORDER_MIN) {
-		order = BUDDY_ORDER_MIN;
-	}	
-	mem_lock();
-	m = mem_buddy_alloc(order);
-	mem_unlock();
+		slab = &current->wmm_slab[order - SLAB_ORDER_MIN];
+		m = mem_cache_alloc(slab);
+		m--;
+	} else {
+		mem_lock();
+		m = mem_buddy_alloc(order);
+		mem_unlock();
+	}
 	if (m != NULL) {
 		if (m0 != NULL) {
 			memcpy(m + 1, m0 + 1, MIN(size, m0->mb_size));
 			mem_free(m0 + 1);
 		}
-ok:
 		m->mb_size = size;
-		INFO(0, "ok; size=%d, ptr=%p", size, m + 1);
 		return m + 1;
 	} else {
-		WARN(ENOMEM, "failed; size=%d", size);
 		return NULL;
 	}
 }
@@ -198,6 +203,8 @@ mem_cache_block_alloc(struct mem_cache *cache)
 		m = (struct mem_buf *)addr;
 		m->mb_magic = MEM_BUF_MAGIC;
 		m->mb_order = order;
+		m->mb_size = cache->mc_buf_size - sizeof(*m);
+		assert(m->mb_size <= (1 << m->mb_order) + sizeof(*m));
 		m->mb_block = b;
 		m->mb_worker_id = cache->mc_worker_id;
 		DLIST_INSERT_TAIL(&b->mcb_free_head, m, mb_list);
@@ -208,8 +215,7 @@ mem_cache_block_alloc(struct mem_cache *cache)
 }
 
 void
-mem_cache_init(struct mem_cache *cache, uint8_t worker_id,
-	int data_size)
+mem_cache_init(struct mem_cache *cache, uint8_t worker_id, int data_size)
 {
 	int buf_size;
 
@@ -218,8 +224,6 @@ mem_cache_init(struct mem_cache *cache, uint8_t worker_id,
 	cache->mc_size = 0;
 	cache->mc_worker_id = worker_id;
 	dlist_init(&cache->mc_block_head);
-//	strzcpy(cache->mc_name, name, sizeof(cache->mc_name));
-//	INFO(0, "ok; cache=%s", name);
 }
 
 void
@@ -289,7 +293,6 @@ mem_cache_free_reclaim(struct mem_buf *m)
 		DLIST_REMOVE(b, mcb_list);
 		DLIST_INSERT_HEAD(&cache->mc_block_head, b, mcb_list);
 	}
-	assert(b->mcb_used);
 	b->mcb_used--;
 	if (b->mcb_used == 0) {
 		if (cache != NULL) {
@@ -312,6 +315,7 @@ mem_free(void *ptr)
 		return;
 	}
 	m = ((struct mem_buf *)ptr) - 1;
+	assert(m->mb_magic == MEM_BUF_MAGIC);
 	if (m->mb_block == NULL) {
 		mem_lock();
 		mem_buddy_free(m);
@@ -319,8 +323,21 @@ mem_free(void *ptr)
 	} else if (m->mb_worker_id == current->p_sid) {
 		mem_cache_free_reclaim(m);
 	} else {
-		DLIST_INSERT_TAIL(&current->p_mbuf_garbage_head, m, mb_list);
+		DLIST_INSERT_TAIL(&current->wmm_garbage, m, mb_list);
 	}
+}
+
+#define RCU_ACTIVE(w) &((w)->wmm_rcu_head[(w)->wmm_rcu_active])
+#define RCU_SHADOW(w) &((w)->wmm_rcu_head[(1 - (w)->wmm_rcu_active)])
+
+void
+mem_free_rcu(void *ptr)
+{
+	struct mem_buf *m;
+
+	m = ((struct mem_buf *)ptr) - 1;
+	DLIST_INSERT_TAIL(RCU_SHADOW(current), m, mb_list);
+	rcu_reload();
 }
 
 void
@@ -329,13 +346,13 @@ garbage_collector(struct service *s)
 	struct mem_buf *m;
 	struct dlist *head;
 
-	while (!dlist_is_empty(&s->p_mbuf_garbage_head)) {
-		m = DLIST_FIRST(&s->p_mbuf_garbage_head, struct mem_buf, mb_list);
+	while (!dlist_is_empty(&s->wmm_garbage)) {
+		m = DLIST_FIRST(&s->wmm_garbage, struct mem_buf, mb_list);
 		DLIST_REMOVE(m, mb_list);
-		head = &shared->shm_garbage_head[m->mb_worker_id];
+		head = &mem_sb->mmsb_garbage[m->mb_worker_id];
 		DLIST_INSERT_TAIL(head, m, mb_list);
 	}
-	head = &shared->shm_garbage_head[s->p_sid];
+	head = &mem_sb->mmsb_garbage[s->p_sid];
 	while (!dlist_is_empty(head)) {
 		m = DLIST_FIRST(head, struct mem_buf, mb_list);
 		DLIST_REMOVE(m, mb_list);
@@ -343,92 +360,128 @@ garbage_collector(struct service *s)
 	}
 }
 
-static int service_rcu_max;
-static struct dlist service_rcu_active_head;
-static struct dlist service_rcu_shadow_head;
-static u_int service_rcu[GT_SERVICES_MAX];
-
-void
-mem_worker_init()
-{
-	dlist_init(&service_rcu_active_head);
-	dlist_init(&service_rcu_shadow_head);
-	service_rcu_max = 0;
-	memset(service_rcu, 0, sizeof(service_rcu));
-}
+// RCU (Read Copy Update)
+//
+// < - lock (acequire barrier)
+// > - unlock (release barrier)
+// ^ - read barrier
+// e - worker rcu epoch (wmm_rcu_epoch)
+// 
+// Between @L and @U worker can touch already freed RCU objects.
+// The purpose of updater is realise when we can reclaim freed
+// rcu object (we can reclaim object when nobody has reference to it).
+//
+// e: 0      1          2            3           4  
+// Reader  < e++ >     < e++ >     < e++ >     < e++ >
+// Memory-------------------------------------------
+// Updater   ^      ^    ^      ^    ^
+// e:        0/1    1    1/2    2    2/3
 
 static void
-service_rcu_reload()
-{
-	int i;
-	struct service *s;
-
-	dlist_replace_init(&service_rcu_active_head, &service_rcu_shadow_head);
-	for (i = 0; i < GT_SERVICES_MAX; ++i) {
-		s = shared->shm_services + i;
-		if (s != current) {
-			service_rcu[i] = service_load_epoch(s);
-			if (service_rcu[i]) {
-				service_rcu_max = i + 1;
-			}
-		}
-	}
-	//if (service_rcu_max == 0) {
-	//	service_rcu_free();
-	//}
-}
-
-void
-mem_free_rcu(void *ptr)
+rcu_free()
 {
 	struct mem_buf *m;
 
-	m = ((struct mem_buf *)ptr) - 1;
-	DLIST_INSERT_TAIL(&service_rcu_shadow_head, m, mb_list);
-	if (service_rcu_max == 0) {
-		assert(dlist_is_empty(&service_rcu_active_head));
-		service_rcu_reload();
-	}
-}
-
-static void
-service_rcu_free()
-{
-	struct dlist *head;
-	struct mem_buf *m;
-
-	head = &service_rcu_active_head;
-	while (!dlist_is_empty(head)) {
-		m = DLIST_FIRST(head, struct mem_buf, mb_list);
+	while (!dlist_is_empty(RCU_ACTIVE(current))) {
+		m = DLIST_FIRST(RCU_ACTIVE(current), struct mem_buf, mb_list);
 		DLIST_REMOVE(m, mb_list);
 		mem_free(m + 1);
 	}
 }
 
-void
-mem_reclaim_rcu()
+static void
+rcu_reload()
 {
-	u_int i, epoch, rcu_max;
-	struct service *s;
+	int i;
+	struct service *w;
 
+	if (current->wmm_rcu_max) {
+		return;
+	}
+	assert(dlist_is_empty(RCU_ACTIVE(current)));
+	if (dlist_is_empty(RCU_SHADOW(current))) {
+		return;
+	}
+	// swap shadow/active
+	current->wmm_rcu_active = 1 - current->wmm_rcu_active;
+	smp_rmb();
+	for (i = 0; i < GT_SERVICES_MAX; ++i) {
+		w = shared->shm_services + i;
+		if (w != current) {
+			current->wmm_rcu[i] = READ_ONCE(w->wmm_rcu_epoch);
+			if (current->wmm_rcu[i]) {
+				current->wmm_rcu_max = i + 1;
+			}
+		}
+	}
+	if (current->wmm_rcu_max == 0) {
+		rcu_free();
+	}
+}
+
+void
+rcu_update()
+{
+	u_int i, e, rcu_max;
+	struct service *w;
+
+	e = current->wmm_rcu_epoch + 1;
+	if (e == 0) {
+		e++;
+	}
+	WRITE_ONCE(current->wmm_rcu_epoch, e);
+	if (current->wmm_rcu_max == 0) {
+		return;
+	}
+	smp_rmb();
 	rcu_max = 0;
-	for (i = 0; i < service_rcu_max; ++i) {
-		s = shared->shm_services + i;
-		if (service_rcu[i]) {
-			epoch = service_load_epoch(s);
-			if (service_rcu[i] != epoch) {
-				service_rcu[i] = 0;
+	for (i = 0; i < current->wmm_rcu_max; ++i) {
+		w = shared->shm_services + i;
+		if (current->wmm_rcu[i]) {
+			e = READ_ONCE(w->wmm_rcu_epoch);
+			if (abs(e - current->wmm_rcu[i]) > 2) {
+				current->wmm_rcu[i] = 0;
 			} else {
 				rcu_max = i + 1;
 			}
 		}
 	}
-	service_rcu_max = rcu_max;
-	if (service_rcu_max == 0) {
-		service_rcu_free();
-		if (!dlist_is_empty(&service_rcu_shadow_head)) {
-			service_rcu_reload();
-		}
+	current->wmm_rcu_max = rcu_max;
+	if (current->wmm_rcu_max == 0) {
+		rcu_free();
+		rcu_reload();
 	}
 }
 
+void
+init_worker_mem(struct service *w)
+{
+	int i, order;
+
+	dlist_init(&w->wmm_garbage);
+	for (i = 0; i < ARRAY_SIZE(w->wmm_slab); ++i) {
+		order = i + SLAB_ORDER_MIN;
+		mem_cache_init(&w->wmm_slab[i], w->p_sid, 1 << order); 
+	}
+	for (i = 0; i < ARRAY_SIZE(w->wmm_rcu_head); ++i) {
+		dlist_init(&w->wmm_rcu_head[i]);	
+	}
+	w->wmm_rcu_active = 0;
+	w->wmm_rcu_max = 0;
+	memset(w->wmm_rcu, 0, sizeof(w->wmm_rcu));
+}
+
+void
+deinit_worker_mem(struct service *w)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(w->wmm_slab); ++i) {
+		mem_cache_deinit(&w->wmm_slab[i]);
+	}
+	for (i = 0; i < ARRAY_SIZE(w->wmm_rcu_head); ++i) {
+		dlist_splice_tail_init(RCU_SHADOW(current),
+			&w->wmm_rcu_head[i]);
+	}
+	rcu_reload();
+}

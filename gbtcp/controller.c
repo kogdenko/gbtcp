@@ -570,6 +570,12 @@ controller_init(int daemonize, const char *service_comm)
 	if (rc) {
 		goto err;
 	}
+	current = shared->shm_services + CONTROLLER_SID;
+	init_worker_mem(current);
+	rc = init_modules();
+	if (rc) {
+		goto err;
+	}
 	hz = sleep_compute_hz();
 	set_hz(hz);
 	shared->shm_hz = hz;
@@ -581,7 +587,6 @@ controller_init(int daemonize, const char *service_comm)
 	for (i = 0; i < ARRAY_SIZE(shared->shm_rss_table); ++i) {
 		shared->shm_rss_table[i] = SERVICE_ID_INVALID;
 	}
-	current = shared->shm_services + CONTROLLER_SID;
 	rc = service_init_shared(current, pid, 0);
 	if (rc) {
 		goto err;

@@ -31,16 +31,10 @@ struct mem_cache {
 	int mc_buf_size;
 	u_short mc_size;
 	uint8_t mc_worker_id;
-	char mc_name[25];
 };
 
-#if 0
-#define MEM_BUF_FOREACH(m, cache) \
-	UNIQV(
-	DLIST_FOREACH(struct 
-	     m != NULL && ((tmp_id = mbuf_get_id(m) + 1), 1); \
-	     m = mbuf_next(p, tmp_id))
-#endif
+void init_worker_mem();
+void deinit_worker_mem();
 
 void mem_cache_init(struct mem_cache *, uint8_t, int);
 void mem_cache_deinit(struct mem_cache *);
@@ -51,8 +45,6 @@ void *mem_realloc(void *, u_int);
 void mem_free(void *);
 void mem_free_rcu(void *);
 
-
-void mem_worker_init();
-void mem_reclaim_rcu();
+void rcu_update();
 
 #endif // GBTCP_MBUF_H

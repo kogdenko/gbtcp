@@ -5,9 +5,6 @@ struct mod mods[MODS_MAX] = {
 	[MOD_log] = {
 		.mod_init = log_mod_init,
 	},
-	[MOD_shm] = {
-		.mod_init = shm_mod_init,
-	},
 	[MOD_route] = {
 		.mod_init = route_mod_init,
 		.mod_deinit = route_mod_deinit,
