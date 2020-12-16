@@ -1,6 +1,9 @@
 .PHONY: clean
 
-../../bin/bench_epoll: bench_epoll.c
-	$(CC) -Wall -g -O2 -pthread bench_epoll.c -o ../../bin/bench_epoll
+SRC = epoll_helloworld.c
+BIN = ../../bin/epoll_helloworld
+
+$(BIN): $(SRC)
+	$(CC) -Wall -g -O2 -pthread $(SRC) -o $(BIN)
 clean:
-	rm -rf *.o ../../bin/bench_epoll
+	rm -rf *.o $(BIN)

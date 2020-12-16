@@ -714,8 +714,7 @@ service_dup_so(struct sock *oldso)
 
 	fd = oldso->so_fd;
 	flags = oldso->so_blocked ? SOCK_NONBLOCK : 0;
-	rc = so_socket6(&newso, fd, AF_INET,
-	                SOCK_STREAM, flags, 0);
+	rc = so_socket6(&newso, fd, AF_INET, SOCK_STREAM, flags, 0);
 	if (rc < 0) {
 		return rc;
 	}

@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +12,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/mman.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <getopt.h>
@@ -24,7 +25,7 @@
 typedef cpuset_t cpu_set_t;
 #endif
 
-#define PROCS_MAX 32
+#define N_WORKERS_MAX 32
 
 union my_data {
 	struct {
@@ -34,21 +35,36 @@ union my_data {
 	uint64_t u64;
 };
 
-static int lflag;
-static int proc_idx;
-static char reqbuf[] =
+static char req_GET[] =
 	"GET / HTTP/1.0\r\n"
         "Host: %s\r\n"
-        "User-Agent: so_echo\r\n"
+        "User-Agent: epoll_helloworld\r\n"
         "\r\n";
-static char rcvbuf[65536];
+
+static char rpl_200OK[] = 
+	"HTTP/1.0 200 OK\r\n"
+	"Server: epoll_helloworld\r\n"
+	"Content-Type: text/html\r\n"
+	"Connection: close\r\n"
+	"Hi\r\n"
+	"\r\n";
+
+static __thread int worker_id;
+static __thread int conns;
+
+static void *counters;
 static struct sockaddr_in conf_addr;
-static unsigned long long requests2;
+static int worker_eq_fd;
+static int n_workers;
+static int affinity = -1;
 static int concurrency = 1;
-static int conns;
+static int Lflag;
 static int Cflag;
 
+#define CACHE_LINE_SIZE 64
+
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
+#define STRSZ(s) s, sizeof(s) - 1
 
 #define dbg(fmt, ...) do { \
 	printf("%-20s %-5d %-20s: ", __FILE__, __LINE__, __func__); \
@@ -88,7 +104,7 @@ sys_socket(int domain, int type, int protocol)
 		assert(errno);
 		rc = -errno;
 		log_errf(-rc, "socket(domain=0x%x, type=0x%x) failed",
-		         domain, type);
+			domain, type);
 	}
 	return rc;
 }
@@ -97,7 +113,7 @@ static void
 log_connect_failed(int err, struct sockaddr_in *addr)
 {
 	log_errf(err, "connect(%s:%hu) failed",
-	         inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));
+		inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));
 }
 
 static int
@@ -125,8 +141,7 @@ sys_listen(int fd, int backlog)
 	if (rc == -1) {
 		assert(errno);
 		rc = -errno;
-		log_errf(-rc, "listen(fd=%d, backlog=%d) failed",
-			fd, backlog);
+		log_errf(-rc, "listen(fd=%d, backlog=%d) failed", fd, backlog);
 	}
 	return rc;
 }
@@ -141,8 +156,7 @@ sys_bind(int fd, struct sockaddr_in *addr)
 		assert(errno);
 		rc = -errno;
 		log_errf(-rc, "bind(fd=%d, addr=%s, port=%hu) failed",
-		         fd, inet_ntoa(addr->sin_addr),
-		         ntohs(addr->sin_port));
+			fd, inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));
 	}
 	return rc;
 }
@@ -158,7 +172,7 @@ sys_accept4(int fd, int flags)
 		rc = -errno;
 		if (errno != EAGAIN) {
 			log_errf(-rc, "accept4(fd=%d, flags=0x%x) failed",
-			         fd, flags);
+				fd, flags);
 		}
 	}
 	return rc;
@@ -175,7 +189,7 @@ sys_setsockopt(int fd, int level, int optname,
 		assert(errno);
 		rc = -errno;
 		log_errf(-rc, "setsockopt(fd=%d, level=%d, optname=%d) failed",
-			 fd, level, optname);
+			fd, level, optname);
 	}
 	return rc;
 }
@@ -333,14 +347,14 @@ write_all(int fd, const void *buf, size_t cnt)
 }
 
 static int
-read_all(int fd, void *buf, int cnt, int *len)
+read_all(int fd, int *len)
 {
-	int rc, n;
+	int rc;
+	char buf[2048];
 
 	*len = 0;
-	while (*len < cnt) {
-		n = cnt - *len;
-		rc = read(fd, (u_char *)buf + *len, n);
+	while (1) {
+		rc = read(fd, buf, sizeof(buf));
 		if (rc == 0) {
 			return 0;
 		} else if (rc == -1) {
@@ -354,12 +368,25 @@ read_all(int fd, void *buf, int cnt, int *len)
 			}
 		} else {
 			*len += rc;
-			if (rc < n) {
+			if (rc < sizeof(buf)) {
 				break;
 			}
 		}
 	}
 	return 1;
+}
+
+static uint64_t *
+get_requests(int id)
+{
+	return (uint64_t *)((u_char *)counters + id * CACHE_LINE_SIZE);
+
+}
+
+static void
+inc_requests()
+{
+	(*get_requests(worker_id))++;
 }
 
 #define STATE_LISTEN 33
@@ -421,7 +448,7 @@ client(int eq_fd)
 	data.fd = fd;
 	rc = sys_connect(fd, &conf_addr);
 	if (rc == 0) {
-		rc = write_all(fd, reqbuf, sizeof(reqbuf) - 1);
+		rc = write_all(fd, STRSZ(req_GET));
 		if (rc < 0) {
 			goto err;
 		}
@@ -480,12 +507,12 @@ on_event(int eq_fd, union my_data *data, short revents)
 		len = 0;
 		assert(revents & (POLLIN|POLLERR));
 		if (revents & POLLIN) {
-			rc = read_all(data->fd, rcvbuf, sizeof(rcvbuf), &len);
+			rc = read_all(data->fd, &len);
 			if (rc <= 0) {
 				fin = 1;
 			}
 			if (len > 0) {
-				rc = write_all(data->fd, rcvbuf, len);
+				rc = write_all(data->fd, STRSZ(rpl_200OK));
 				if (rc < 0) {
 					fin = 1;
 				}
@@ -496,7 +523,7 @@ on_event(int eq_fd, union my_data *data, short revents)
 		}
 		if (Cflag || fin) {
 			sys_close(data->fd);
-			requests2++;
+			inc_requests();
 			conns--;
 		}
 		break;
@@ -505,10 +532,10 @@ on_event(int eq_fd, union my_data *data, short revents)
 			log_connect_failed(0, &conf_addr);
 			break;
 		}
-		rc = write_all(data->fd, reqbuf, sizeof(reqbuf) - 1);
+		rc = write_all(data->fd, STRSZ(req_GET));
 		if (rc < 0) {
 			sys_close(data->fd);
-			requests2++;
+			inc_requests();
 			conns--;
 			clientn(eq_fd);
 		} else {
@@ -521,14 +548,14 @@ on_event(int eq_fd, union my_data *data, short revents)
 		if (revents & POLLERR) {
 			closed = 1;
 		} else {
-			rc = read_all(data->fd, rcvbuf, sizeof(rcvbuf), &len);
+			rc = read_all(data->fd, &len);
 			if (rc <= 0) {
 				closed = 1;
 			}
 		}
 		if (Cflag || closed) {
 			sys_close(data->fd);
-			requests2++;
+			inc_requests();
 			conns--;
 			clientn(eq_fd);
 		}
@@ -559,12 +586,18 @@ static unsigned long long requests;
 static void
 sighandler(int signum)
 {
+	int i;
 	double rps;
 	suseconds_t usec;
+	unsigned long long requests2;
 
 	gettimeofday(&tv2, NULL);
 	usec = 1000000 * (tv2.tv_sec - tv.tv_sec) + 
 		(tv2.tv_usec - tv.tv_usec);
+	requests2 = 0;
+	for (i = 0; i < n_workers; ++i) {
+		requests2 += *get_requests(i);
+	}
 	rps = 1000000.0 * (requests2 - requests) / usec;
 	printf("%d: rps=%d\n", (int)getpid(), (int)rps);
 	tv = tv2;
@@ -573,75 +606,75 @@ sighandler(int signum)
 }
 
 static void
-loop(int idx, int affinity)
+worker_loop(int idx)
 {
-	int rc, eq_fd;
+	int rc;
 
 	if (affinity != -1) {
 		set_affinity(affinity + idx);
 	}
-	proc_idx = idx;
-	rc = event_queue_create();
-	if (rc < 0) {
-		return;
-	}
-	eq_fd = rc;
-	if (lflag) {
-		rc = server(eq_fd);
+	worker_id = idx;;
+	if (Lflag) {
+		rc = server(worker_eq_fd);
 	} else {
-		rc = clientn(eq_fd);
+		rc = clientn(worker_eq_fd);
 	}
 	if (rc < 0) {
-		sys_close(eq_fd);
+		sys_close(worker_eq_fd);
 		return;
 	}
-	gettimeofday(&tv, NULL);
-	signal(SIGALRM, sighandler);
-	alarm(1);
 	while (1) {
-		event_queue_wait(eq_fd, -1);
+		event_queue_wait(worker_eq_fd, -1);
 	}
 }
 
+static void *
+worker_routine(void *arg)
+{
+	worker_loop((uintptr_t)arg);
+	return NULL;
+}
+
 static void
-usage()
+usage(const char *comm)
 {
 	printf(
-	"Usage: so_echo [address]\n"
+	"Usage: %s [address]\n"
 	"\n"
 	"\tOptions:\n"
 	"\t-h              Print this help\n"
 	"\t-p port         Port number (default: 80)\n"
-	"\t-l              Listen incoming connections\n"
+	"\t-L              Listen incoming connections\n"
 	"\t-c concurrency  Number of parallel connections (default: 1)\n"
 	"\t-C              Close connection after data transmit\n"
-	"\t-P n            Number of processes\n"
-	"\t-a cpu          Affinity of first process\n"
-	);
+	"\t-w n            Number of worker\n"
+	"\t-F              Fork worker instead of create thread\n"
+	"\t-a cpu          Affinity of first worker\n",
+	comm);
 	exit(EXIT_SUCCESS);
 }
 
 int
 main(int argc, char **argv)
 {
-	int i, rc, opt, nr_procs, affinity;
+	int i, rc, opt, Fflag;
+	pthread_t t;
 
-	nr_procs = 1;
-	affinity = -1;
+	Fflag = 0;
 	assert(sizeof(union my_data) == sizeof(uint64_t));
 	conf_addr.sin_family = AF_INET;
 	conf_addr.sin_port = htons(80);
 	conf_addr.sin_addr.s_addr = INADDR_ANY;
-	while ((opt = getopt(argc, argv, "hp:lc:CP:a:")) != -1) {
+	while ((opt = getopt(argc, argv, "hp:Lc:Cw:Fa:")) != -1) {
 		switch (opt) {
 		case 'h':
-			usage();
-			break;
+			usage(argv[0]);
+			return 0;
 		case 'p':
 			conf_addr.sin_port = htons(strtoul(optarg, NULL, 10));
 			break;
-		case 'l':
-			lflag = 1;
+		case 'L':
+			Lflag = 1;
 			break;
 		case 'c':
 			concurrency = strtoul(optarg, NULL, 10); 
@@ -652,18 +685,16 @@ main(int argc, char **argv)
 		case 'C':
 			Cflag = 1;
 			break;
-		case 'P':
-			nr_procs = strtoul(optarg, NULL, 10);
+		case 'w':
+			n_workers = strtoul(optarg, NULL, 10);
+			break;
+		case 'F':
+			Fflag = 1;
 			break;
 		case 'a':
 			affinity = strtoul(optarg, NULL, 10);
 			break;
 		}
-	}
-	if (nr_procs < 1) {
-		nr_procs = 1;
-	} else if (nr_procs >= PROCS_MAX) {
-		nr_procs = PROCS_MAX;
 	}
 	if (optind < argc) {
 		rc = inet_aton(argv[optind], &conf_addr.sin_addr);
@@ -672,20 +703,49 @@ main(int argc, char **argv)
 			return 1;
 		}
 	} else {
-		if (lflag == 0) {
-			log_errf(0, "Address or '-l' flag must be specified");
+		if (Lflag == 0) {
+			log_errf(0, "Address or '-L' flag must be specified");
 			return 2;
 		}
 	}
-	printf("%s %s:%hu\n", lflag ? "Listening on" : "Connecting to",
-	       inet_ntoa(conf_addr.sin_addr),
-	       ntohs(conf_addr.sin_port));
-	for (i = 1; i < nr_procs; ++i) {
-		rc = fork();
-		if (rc == 0) {
-			loop(i, affinity);
+	if (n_workers < 1) {
+		n_workers = 1;
+	} else if (n_workers > N_WORKERS_MAX) {
+		n_workers = N_WORKERS_MAX;
+	}
+	counters = mmap(NULL, n_workers * CACHE_LINE_SIZE,
+		PROT_READ|PROT_WRITE,
+		MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+	if (counters == MAP_FAILED) {
+		log_errf(errno, "mmap() failed");
+		return 3;
+	}
+	rc = event_queue_create();
+	if (rc < 0) {
+		return 4;
+	}
+	worker_eq_fd = rc;
+	printf("%s %s:%hu\n", Lflag ? "Listening on" : "Connecting to",
+		inet_ntoa(conf_addr.sin_addr), ntohs(conf_addr.sin_port));	
+	for (i = 1; i < n_workers; ++i) {
+		if (Fflag) {
+			rc = fork();
+			if (rc == 0) {
+				worker_loop(i);
+			} else if (rc == -1) {
+				log_errf(errno, "fork() failed");
+			}
+		} else {
+			rc = pthread_create(&t, NULL, worker_routine,
+				(void*)(uintptr_t)i);
+			if (rc) {
+				log_errf(rc, "pthread_create() failed");
+			}
 		}
 	}
-	loop(0, affinity);
+	gettimeofday(&tv, NULL);
+	signal(SIGALRM, sighandler);
+	alarm(1);
+	worker_loop(0);
 	return 0;
 }

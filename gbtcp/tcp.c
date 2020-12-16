@@ -2244,6 +2244,11 @@ so_find_binded(struct htable_bucket *b, int so_ipproto,
 	int active, res_active;
 	struct sock *so, *res;
 
+	//static __thread struct sock *xso = NULL;
+	//if (xso != NULL) {
+	//	if (xso->so_sid == current->p_sid)
+	//		return xso;
+	//}
 	res = NULL;
 	res_active = 0;
 	DLIST_FOREACH_RCU(so, &b->htb_head, so_binded_list) {
@@ -2267,6 +2272,7 @@ so_find_binded(struct htable_bucket *b, int so_ipproto,
 //			dbg_rl(1, "good bind");
 //		}
 //	}
+	//xso = res;
 	return res;
 }
 
