@@ -52,7 +52,7 @@ gt_init(const char *comm, int log_level)
 //	umask(066
 	rd_nanoseconds();
 	srand48(nanoseconds ^ getpid());
-	log_init_early(comm, log_level);
+	log_init(comm, log_level);
 }
 
 pid_t

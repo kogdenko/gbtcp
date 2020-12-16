@@ -350,14 +350,12 @@ out:
 static void
 route_del(struct route_entry_long *route)
 {
-	int pfx;
-	uint32_t dst;
 	struct lptree_rule *rule;
 
 	rule = &route->rtl_rule;
-	dst = hton32(rule->lpr_key);
-	pfx = rule->lpr_depth;
-	NOTICE(0, "ok; dst=%s/%d", log_add_ipaddr(AF_INET, &dst), pfx);
+	NOTICE(0, "ok; dst=%s/%d",
+		log_add_ipaddr(AF_INET, &hton32(rule->lpr_key)),
+		rule->lpr_depth);
 	mem_free(route->rtl_srcs);
 	DLIST_REMOVE(route, rtl_list);
 	lptree_del(&curmod->route_lptree, rule);

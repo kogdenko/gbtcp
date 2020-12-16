@@ -7,11 +7,11 @@
 
 struct shm_hdr {
 
-	struct spinlock mmsb_lock;
-	uintptr_t mmsb_begin;
-	uintptr_t mmsb_end;
-	struct dlist mmsb_buddy_area[BUDDY_ORDER_MAX - BUDDY_ORDER_MIN + 1];
-	struct dlist mmsb_garbage[GT_SERVICES_MAX];
+	struct spinlock msb_lock;
+	uintptr_t msb_begin;
+	uintptr_t msb_end;
+	struct dlist msb_buddy_area[BUDDY_ORDER_MAX - BUDDY_ORDER_MIN + 1];
+	struct dlist msb_garbage[GT_SERVICES_MAX];
 
 	uint64_t shm_ns;
 	uint64_t shm_hz;

@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #include "internals.h"
 
 #define CURMOD sys
@@ -143,9 +143,9 @@ sys_fork()
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		ERR(-rc, "failed;");
+		ERR(-rc, "fork() failed;");
 	} else {
-		NOTICE(0, "ok; pid=%d", rc);
+		NOTICE(0, "fork(); pid=%d", rc);
 	}
 	return rc;
 }
@@ -163,10 +163,10 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
-			ERR(-rc, "failed; path='%s'", path);
+			ERR(-rc, "open() failed; path='%s'", path);
 		}
 	} else {
-		INFO(0, "ok; path='%s'", path);
+		INFO(0, "open(); path='%s'", path);
 	}
 	return rc;
 }
@@ -421,23 +421,21 @@ sys_pipe(int pipefd[2])
 int
 sys_socket(int domain, int type, int protocol)
 {
-	int rc, type_noflags, flags;
+	int rc;
 	
-	flags = SOCK_TYPE_FLAGS(type);
-	type_noflags = SOCK_TYPE_NOFLAGS(type);
 	rc = (*sys_socket_fn)(domain, type, protocol);
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc < 0);
 		ERR(-rc, "failed; domain=%s, type=%s, flags=%s",
 		    log_add_socket_domain(domain),
-		    log_add_socket_type(type_noflags),
-		    log_add_socket_flags(flags));
+		    log_add_socket_type(SOCK_TYPE_NOFLAGS(type)),
+		    log_add_socket_flags(SOCK_TYPE_FLAGS(type)));
 	} else {
 		INFO(0, "ok; fd=%d, domain=%s, type=%s, flags=%s",
 		     rc, log_add_socket_domain(domain),
-		     log_add_socket_type(type_noflags),
-		     log_add_socket_flags(flags));
+		     log_add_socket_type(SOCK_TYPE_NOFLAGS(type)),
+		     log_add_socket_flags(SOCK_TYPE_FLAGS(type)));
 	}
 	return rc;
 }

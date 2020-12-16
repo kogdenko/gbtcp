@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #include "internals.h"
 
 #define CURMOD epoll
@@ -6,12 +6,14 @@
 #define EPOLL_FLAG_ENABLED (1 << 0)
 #define EPOLL_FLAG_ONESHOT (1 << 1)
 #define EPOLL_FLAG_ET (1 << 2)
+#define EPOLL_FLAG_TRIGGERED (1 << 3)
 
 struct epoll {
 	struct file ep_file;
 	struct dlist ep_triggered;
+	struct dlist ep_relaxed;
 	int ep_fd;
-	int ep_worker_id;
+	int ep_pid;
 };
 
 struct epoll_entry {
@@ -28,8 +30,7 @@ struct epoll_entry {
 	};
 };
 
-static void epoll_entry_handler(void *, int, short);
-
+static void do_epoll_entry_io(void *, int, short);
 
 static struct epoll_entry *
 epoll_entry_get(struct epoll *ep, struct file *fp)
@@ -38,7 +39,7 @@ epoll_entry_get(struct epoll *ep, struct file *fp)
 	struct epoll_entry *e;
 
 	DLIST_FOREACH(aio, &fp->fl_aio_head, faio_list) {
-		if (aio->faio_fn == epoll_entry_handler) {
+		if (aio->faio_fn == do_epoll_entry_io) {
 			e = container_of(aio, struct epoll_entry, epe_aio);
 			if (e->epe_epoll == ep) {
 				return e;
@@ -47,8 +48,6 @@ epoll_entry_get(struct epoll *ep, struct file *fp)
 	}
 	return NULL;
 }
-
-#define epoll_entry_is_triggered(e) ((e)->epe_list.dls_next != NULL)
 
 static struct epoll_entry *
 epoll_entry_alloc(struct epoll *ep, struct file *fp)
@@ -63,48 +62,63 @@ epoll_entry_alloc(struct epoll *ep, struct file *fp)
 	e->epe_filter = 0;
 	e->epe_flags = EPOLL_FLAG_ENABLED;
 	e->epe_epoll = ep;
-	e->epe_list.dls_next = NULL;
 	e->epe_fd = fp->fl_fd;
+	DLIST_INSERT_HEAD(&ep->ep_relaxed, e, epe_list);
 	file_aio_init(&e->epe_aio);
+	
 	return e;
 }
 
 static void
 epoll_entry_relax(struct epoll_entry *e)
 {
-	if (epoll_entry_is_triggered(e)) {
+	if (e->epe_flags & EPOLL_FLAG_TRIGGERED) {
+		e->epe_flags &= ~EPOLL_FLAG_TRIGGERED;
 		DLIST_REMOVE(e, epe_list);
-		e->epe_list.dls_next = NULL;
+		DLIST_INSERT_HEAD(&e->epe_epoll->ep_relaxed, e, epe_list);
+	}
+}
+
+static void
+epoll_entry_trigger(struct epoll_entry *e)
+{
+	if ((e->epe_flags & EPOLL_FLAG_TRIGGERED) == 0) {
+		e->epe_flags |= EPOLL_FLAG_TRIGGERED;
+		DLIST_REMOVE(e, epe_list);
+		DLIST_INSERT_HEAD(&e->epe_epoll->ep_triggered, e, epe_list);
 	}
 }
 
 static void
 epoll_entry_free(struct epoll_entry *e)
 {
-	epoll_entry_relax(e);
+	DLIST_REMOVE(e, epe_list);
 	file_aio_cancel(&e->epe_aio);
 	mem_free(e);
 }
 
 static void
-epoll_entry_handler(void *aio_ptr, int fd, short revents)
+epoll_entry_free_list(struct dlist *head)
 {
 	struct epoll_entry *e;
-	struct epoll *ep;
-	struct sock *so;
+
+	while (!dlist_is_empty(head)) {
+		e = DLIST_FIRST(head, struct epoll_entry, epe_list);
+		epoll_entry_free(e);
+	}
+}
+
+static void
+do_epoll_entry_io(void *aio_ptr, int fd, short revents)
+{
+	struct epoll_entry *e;
 
 	e = container_of(aio_ptr, struct epoll_entry, epe_aio);
 	e->epe_revents |= revents & e->epe_filter;
 	if (e->epe_revents & POLLNVAL) {
 		epoll_entry_free(e);
-		return;
-	} else if (e->epe_revents && !epoll_entry_is_triggered(e)) {
-		ep = e->epe_epoll;
-		DLIST_INSERT_HEAD(&ep->ep_triggered, e, epe_list);
-	}
-	so_get(e->epe_fd, &so);
-	if (so->so_rfin) {
-		assert(epoll_entry_is_triggered(e));
+	} else if (e->epe_revents) {
+		epoll_entry_trigger(e);
 	}
 }
 
@@ -115,7 +129,7 @@ epoll_entry_set(struct epoll_entry *e, struct file *fp, short filter)
 	e->epe_revents = 0;
 	epoll_entry_relax(e);
 	file_aio_cancel(&e->epe_aio);
-	file_aio_add(fp, &e->epe_aio, epoll_entry_handler);
+	file_aio_add(fp, &e->epe_aio, do_epoll_entry_io);
 }
 
 #ifdef __linux__
@@ -219,8 +233,8 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 		}
 		epoll_get_event(e, so, buf + n);
 		n++;
-		DBG(0, "hit; fd=%d, events=%s",
-		    e->epe_fd, log_add_poll_events(e->epe_revents));
+		DBG(0, "epoll: rd; fd=%d, ev=%s",
+			e->epe_fd, log_add_poll_events(e->epe_revents));
 		e->epe_revents = 0;
 		if (e->epe_flags & EPOLL_FLAG_ET) {
 			epoll_entry_relax(e);
@@ -331,8 +345,9 @@ u_epoll_create(int ep_fd)
 	fp->fl_referenced = 1;
 	ep = (struct epoll *)fp;
 	ep->ep_fd = ep_fd;
-	ep->ep_worker_id = current->p_sid;
+	ep->ep_pid = getpid();
 	dlist_init(&ep->ep_triggered);
+	dlist_init(&ep->ep_relaxed);
 	return fp->fl_fd;
 }
 
@@ -345,17 +360,14 @@ u_epoll_close(struct file *fp)
 //	struct epoll_entry *e;
 
 	ep = (struct epoll *)fp;
-	if (ep->ep_worker_id == current->p_sid) {
+	if (ep->ep_pid == getpid()) {
 		rc = sys_close(ep->ep_fd);	
 	} else {
 		// u_epoll_close can be called in controller
 		rc = 0;
 	}
-	// TODO:
-	//MBUF_FOREACH_SAFE(m, ep->ep_pool, tmp) {
-	//	e = (struct epoll_entry *)m;
-	//	epoll_entry_free(e);
-	//}
+	epoll_entry_free_list(&ep->ep_relaxed);
+	epoll_entry_free_list(&ep->ep_triggered);
 	file_free(fp);
 	return rc;
 }

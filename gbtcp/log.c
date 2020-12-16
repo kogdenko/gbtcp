@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #include "internals.h"
 
 #define LOG_LEVEL_DEFAULT LOG_NOTICE
@@ -12,14 +12,14 @@ struct log_mod {
 
 static char log_buf[LOG_BUFSZ];
 static struct strbuf log_sb;
-static int log_early_level = LOG_LEVEL_DEFAULT;
 
+static int log_level = LOG_LEVEL_DEFAULT;
 // syslog() use ident pointer 
 static char ident_buf[SERVICE_COMM_MAX + 7];
 static const char *ident;
 
 void
-log_init_early(const char *comm, u_int log_level)
+log_init(const char *comm, u_int log_level)
 {
 	if (comm == NULL) {
 		ident = NULL;
@@ -35,7 +35,7 @@ log_init_early(const char *comm, u_int log_level)
 }
 
 int
-log_mod_init(void **pp)
+log_mod_init()
 {
 	int rc;
 
@@ -43,9 +43,9 @@ log_mod_init(void **pp)
 	if (rc) {
 		return rc;
 	}
-	curmod->log_level = log_early_level;
+	curmod->log_level = log_level;
 	sysctl_add_int("log.level", SYSCTL_WR, &curmod->log_level,
-	               LOG_EMERG, LOG_DEBUG); 
+		LOG_EMERG, LOG_DEBUG); 
 	return 0;
 }
 
@@ -61,7 +61,7 @@ log_scope_init(struct log_scope *scope, const char *name)
 	assert(scope->lgs_name_len);
 	snprintf(path, sizeof(path), "log.scope.%s.level", name);
 	sysctl_add_int(path, SYSCTL_WR, &scope->lgs_level,
-	               LOG_EMERG, LOG_DEBUG);
+		LOG_EMERG, LOG_DEBUG);
 }
 
 void
@@ -76,24 +76,22 @@ log_scope_deinit(struct log_scope *scope)
 void
 log_set_level(int level)
 {
-	if (mod_get(MOD_log) == NULL) {
-		log_early_level = level;
+	if (current == NULL) {
+		log_level = level;
 	} else {
 		curmod->log_level = level;
 	}
 }
 
 int
-log_is_enabled(int mod_id, int level, int debug)
+log_is_enabled(struct log_scope *scope, int level, int debug)
 {
 	int thresh;
-	struct log_scope *scope;
 
-	if (mod_get(MOD_log) == NULL) {
-		thresh = log_early_level;
+	if (current == NULL) {
+		thresh = log_level;
 	} else {
 		thresh = curmod->log_level;
-		scope = mod_get(mod_id);
 		if (scope != NULL && thresh < scope->lgs_level) {
 			thresh = scope->lgs_level;
 		}
@@ -102,14 +100,12 @@ log_is_enabled(int mod_id, int level, int debug)
 }
 
 void
-log_vprintf(int level, const char *func, int errnum,
-	const char *fmt, va_list ap)
+log_vprintf(int level, int errnum, const char *fmt, va_list ap)
 {
 	char buf[LOG_BUFSZ];
 	struct strbuf sb;
 
 	strbuf_init(&sb, buf, sizeof(buf));
-	strbuf_addf(&sb, "%s: ", func);
 	strbuf_vaddf(&sb, fmt, ap);
 	if (errnum) {
 		strbuf_addf(&sb, " (%d:%s)", errnum, strerror(errnum));
@@ -118,23 +114,26 @@ log_vprintf(int level, const char *func, int errnum,
 }
 
 void
-log_printf(int level, const char *func, int err, const char *fmt, ...)
+log_printf(int level, int err, const char *fmt, ...)
 {
 	va_list ap;
 
 	va_start(ap, fmt);
-	log_vprintf(level, func, err, fmt, ap);
+	log_vprintf(level, err, fmt, ap);
 	va_end(ap);
 }
 
+// Print data in 'tcpdum -X' format
+// 4528 0034 fbbc 4000 3506 7fbc c610 4263  E(.4..@.5.....Bc
 void
-log_hexdump_ascii(uint8_t *data, int count)
+log_hexdump_ascii(int level, u_char *data, int count)
 {
 	int i, j, k, x, ch;
-	char buf[LOG_BUFSZ];
+	char buf[64];
 	struct strbuf sb;
-	strbuf_init(&sb, buf, sizeof(buf));
+
 	for (i = 0; i < count;) {
+		strbuf_init(&sb, buf, sizeof(buf));
 		x = i;
 		for (j = 0; j < 8; ++j) {
 			for (k = 0; k < 2; ++k) {
@@ -152,7 +151,7 @@ log_hexdump_ascii(uint8_t *data, int count)
 			ch = data[j];
 			strbuf_add_ch(&sb, isprint(ch) ? ch : '.');
 		}
-		strbuf_add(&sb, STRSZ("\n"));
+		syslog(level, "%s", strbuf_cstr(&sb));
 	}
 }
 
@@ -413,4 +412,4 @@ log_add_epoll_event_events(short events)
 	strbuf_add_epoll_event_events(sb, events);
 	return strbuf_cstr(sb);
 }
-#endif /* __linux__ */
+#endif // __linux__

@@ -44,17 +44,17 @@ shm_init()
 	}
 	memset(shared, 0, sizeof(*shared));
 	shared->shm_ns = nanoseconds;
-	shared->mmsb_begin = (uintptr_t)shared;
-	spinlock_init(&shared->mmsb_lock);
-	shared->mmsb_end = shared->mmsb_begin + size;
-	for (i = 0; i < ARRAY_SIZE(shared->mmsb_garbage); ++i) {
-		dlist_init(shared->mmsb_garbage + i);
+	shared->msb_begin = (uintptr_t)shared;
+	spinlock_init(&shared->msb_lock);
+	shared->msb_end = shared->msb_begin + size;
+	for (i = 0; i < ARRAY_SIZE(shared->msb_garbage); ++i) {
+		dlist_init(shared->msb_garbage + i);
 	}
-	for (i = 0; i < ARRAY_SIZE(shared->mmsb_buddy_area); ++i) {
-		dlist_init(&shared->mmsb_buddy_area[i]);
+	for (i = 0; i < ARRAY_SIZE(shared->msb_buddy_area); ++i) {
+		dlist_init(&shared->msb_buddy_area[i]);
 	}
 	mem_buddy_init();
-	NOTICE(0, "ok; addr=%p", (void *)shared->mmsb_begin);
+	NOTICE(0, "ok; addr=%p", (void *)shared->msb_begin);
 	return 0;
 err:
 	ERR(-rc, "failed;");
@@ -81,8 +81,8 @@ shm_attach()
 	if (rc) {
 		goto err;
 	}
-	size = shared->mmsb_end - shared->mmsb_begin;
-	addr = (void *)shared->mmsb_begin;
+	size = shared->msb_end - shared->msb_begin;
+	addr = (void *)shared->msb_begin;
 	tmp = shared;
 	shared = NULL;
 	sys_munmap(tmp, sizeof(*shared));
@@ -109,7 +109,7 @@ shm_detach()
 	NOTICE(0, "hit;");
 	if (shared != NULL) {
 		tmp = shared;
-		size = shared->mmsb_end - shared->mmsb_begin;
+		size = shared->msb_end - shared->msb_begin;
 		shared = NULL;
 		sys_munmap(tmp, size);
 	}

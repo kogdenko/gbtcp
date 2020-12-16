@@ -5,7 +5,7 @@
 
 #define MEM_BUF_MAGIC 0xcafe
 
-#define mem_sb shared
+#define super shared
 
 struct mem_cache_block {
 	struct dlist mcb_list;
@@ -22,7 +22,7 @@ void garbage_collector(struct service *);
 static void
 mem_lock()
 {
-	spinlock_lock(&mem_sb->mmsb_lock);
+	spinlock_lock(&super->msb_lock);
 }
 
 static void
@@ -31,14 +31,14 @@ mem_unlock()
 	if (current != NULL) {
 		garbage_collector(current);
 	}
-	spinlock_unlock(&mem_sb->mmsb_lock);
+	spinlock_unlock(&super->msb_lock);
 }
 
 static int
 mem_is_buddy(uintptr_t ptr, size_t size)
 {
-	return ptr > mem_sb->mmsb_begin + sizeof(*mem_sb) &&
-		ptr + size <= mem_sb->mmsb_end;
+	return ptr > super->msb_begin + sizeof(*super) &&
+		ptr + size <= super->msb_end;
 }
 
 void
@@ -49,12 +49,12 @@ mem_buddy_init()
 	struct dlist *area;
 	struct mem_buf *m;
 
-	begin = mem_sb->mmsb_begin + sizeof(*mem_sb);
+	begin = super->msb_begin + sizeof(*super);
 	addr = ROUND_UP(begin, 1 << BUDDY_ORDER_MIN);
 	while (1) {
 		algn_order = ffsll(addr) - 1;
 		assert(algn_order >= BUDDY_ORDER_MIN);
-		size = lower_pow2_64(mem_sb->mmsb_end - addr);
+		size = lower_pow2_64(super->msb_end - addr);
 		size_order = ffsll(size) - 1;
 		order = MIN3(algn_order, size_order, BUDDY_ORDER_MAX);
 		if (order < BUDDY_ORDER_MIN) {
@@ -65,7 +65,7 @@ mem_buddy_init()
 		m->mb_magic = MEM_BUF_MAGIC;
 		m->mb_block = NULL;
 		m->mb_order = -1;
-		area = &mem_sb->mmsb_buddy_area[order - BUDDY_ORDER_MIN];
+		area = &super->msb_buddy_area[order - BUDDY_ORDER_MIN];
 		DLIST_INSERT_HEAD(area, m, mb_list);
 	}
 }
@@ -77,7 +77,7 @@ mem_buddy_alloc(int order)
 	struct dlist *area;
 	struct mem_buf *m, *buddy;
 
-	area = &mem_sb->mmsb_buddy_area[order - BUDDY_ORDER_MIN];
+	area = &super->msb_buddy_area[order - BUDDY_ORDER_MIN];
 	for (i = order; i <= BUDDY_ORDER_MAX; ++i, ++area) {
 		if (!dlist_is_empty(area)) {
 			m = DLIST_FIRST(area, struct mem_buf, mb_list);
@@ -113,7 +113,7 @@ mem_buddy_free(struct mem_buf *m)
 	addr = (uintptr_t)m;
 	assert(order >= BUDDY_ORDER_MIN);
 	assert(order <= BUDDY_ORDER_MAX);
-	area = &mem_sb->mmsb_buddy_area[order - BUDDY_ORDER_MIN];
+	area = &super->msb_buddy_area[order - BUDDY_ORDER_MIN];
 	for (; order < BUDDY_ORDER_MAX; ++order, ++area) {
 		size = 1 << order;
 		buddy_addr = addr ^ size;
@@ -346,10 +346,10 @@ garbage_collector(struct service *s)
 	while (!dlist_is_empty(&s->wmm_garbage)) {
 		m = DLIST_FIRST(&s->wmm_garbage, struct mem_buf, mb_list);
 		DLIST_REMOVE(m, mb_list);
-		head = &mem_sb->mmsb_garbage[m->mb_worker_id];
+		head = &super->msb_garbage[m->mb_worker_id];
 		DLIST_INSERT_TAIL(head, m, mb_list);
 	}
-	head = &mem_sb->mmsb_garbage[s->p_sid];
+	head = &super->msb_garbage[s->p_sid];
 	while (!dlist_is_empty(head)) {
 		m = DLIST_FIRST(head, struct mem_buf, mb_list);
 		DLIST_REMOVE(m, mb_list);

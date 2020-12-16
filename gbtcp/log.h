@@ -1,10 +1,11 @@
-// gpl2 license
+// GPL v2
 #ifndef GBTCP_LOG_H
 #define GBTCP_LOG_H
 
 #include "subr.h"
 #include "strbuf.h"
 
+#define LOG_DISABLED
 #define LOG_BUFSZ 1024
 
 struct log_scope {
@@ -48,26 +49,22 @@ do { \
 #define WARN(err, ...) LOGF(LOG_WARNING, err, __VA_ARGS__)
 #define ERR(err, ...) LOGF(LOG_ERR, err, __VA_ARGS__)
 
-void log_init_early(const char *, u_int);
-
-int log_mod_init(void **);
+int log_mod_init();
 
 void log_scope_init(struct log_scope *, const char *);
 void log_scope_deinit(struct log_scope *);
 
+
+void log_init(const char *, u_int);
 void log_set_level(int);
-
-int log_is_enabled(int, int, int);
-
-void log_vprintf(int, const char *, int, const char *, va_list);
-void log_printf(int, const char *, int, const char *, ...)
-	__attribute__((format(printf, 4, 5)));
-
-void log_hexdump_ascii(uint8_t *data, int cnt);
+int log_is_enabled(struct log_scope *, int, int);
+void log_vprintf(int,  int, const char *, va_list);
+void log_printf(int, int, const char *, ...)
+	__attribute__((format(printf, 3, 4)));
+void log_hexdump_ascii(int, u_char *data, int cnt);
 
 void log_buf_init();
 struct strbuf *log_buf_alloc_space();
-
 const char *log_add_ipaddr(int, const void *);
 const char *log_add_sockaddr_in(const struct sockaddr_in *);
 const char *log_add_sockaddr_un(const struct sockaddr_un *, int);
