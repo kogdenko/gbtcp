@@ -14,7 +14,6 @@
 #define ROUTE_IFNAME_NM 0 // pipe1{0
 #define ROUTE_IFNAME_OS 1 // pipe1
 
-
 struct route_mod {
 	struct log_scope log_scope;
 	struct lptree route_lptree;
@@ -29,8 +28,6 @@ struct route_if_addr {
 	int ria_ref_cnt;
 	uint16_t ria_ephemeral_port;
 };
-
-#define PER_SERVICE(x) x[GT_SERVICE_COUNT_MAX]
 
 struct route_if {
 	struct dlist rif_list;

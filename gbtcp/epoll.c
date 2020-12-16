@@ -248,7 +248,7 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 
 #ifdef __linux__
 static int
-fd_read_triggered(int fd, epoll_event_t *events, int maxevents)
+epoll_fd_read_triggered(int fd, epoll_event_t *events, int maxevents)
 {
 	int rc;
 
@@ -257,7 +257,7 @@ fd_read_triggered(int fd, epoll_event_t *events, int maxevents)
 }
 #else // __linux__
 static int
-fd_read_triggered(int fd, epoll_event_t *events, int maxevents)
+epoll_fd_read_triggered(int fd, epoll_event_t *events, int maxevents)
 {
 	int rc;
 	struct timespec to;
@@ -404,7 +404,7 @@ u_epoll_pwait(int ep_fd, epoll_event_t *events, int m, uint64_t to,
 			return rc;
 		}
 		if (p.fdp_pfds[0].revents) {
-			rc = fd_read_triggered(ep->ep_fd, events, m);
+			rc = epoll_fd_read_triggered(ep->ep_fd, events, m);
 			if (rc < 0) {
 				return rc;
 			} else {

@@ -30,7 +30,7 @@ struct timer {
 typedef struct htable_bucket timer_seg_t;
 
 struct timer_ring {
-	uint64_t tmr_seg_shift;
+	uint64_t tmr_seg_order;
 	uint64_t tmr_cur;
 	timer_seg_t tmr_segs[TIMER_RING_SIZE];
 };

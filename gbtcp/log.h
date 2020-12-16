@@ -24,7 +24,7 @@ struct log_scope {
 do { \
 	if (log_is_enabled(CAT2(MOD_, CURMOD), level, 0)) { \
 		log_buf_init(); \
-		log_printf(level, __func__, errnum, fmt, ##__VA_ARGS__); \
+		log_printf(level, errnum, fmt, ##__VA_ARGS__); \
 	} \
 } while (0)
 #endif // LOG_DISABLED

@@ -49,7 +49,6 @@ void
 gt_init(const char *comm, int log_level)
 {
 	dlsym_all();
-//	umask(066
 	rd_nanoseconds();
 	srand48(nanoseconds ^ getpid());
 	log_init(comm, log_level);

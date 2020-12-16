@@ -9,7 +9,7 @@
 #define SEG_UNLOCK(seg) spinlock_unlock(&seg->htb_lock)
 
 static int
-timer_ring_init(struct service *s, uint64_t t, int ring_id, uint64_t seg_shift)
+timer_ring_init(struct service *s, uint64_t t, int ring_id, uint64_t seg_order)
 {
 	int i;
 	struct timer_ring *ring;
@@ -21,12 +21,13 @@ timer_ring_init(struct service *s, uint64_t t, int ring_id, uint64_t seg_shift)
 		return -ENOMEM;
 	}
 	s->p_timer_rings[ring_id] = ring;
-	ring->tmr_seg_shift = seg_shift;
-	ring->tmr_cur = t >> ring->tmr_seg_shift;
+	ring->tmr_seg_order = seg_order;
+	ring->tmr_cur = t >> ring->tmr_seg_order;
 	for (i = 0; i < TIMER_RING_SIZE; ++i) {
 		htable_bucket_init(ring->tmr_segs + i);
 	}
-	INFO(0, "ok; ring=%d, seg=%llu", ring_id, 1llu << ring->tmr_seg_shift);
+	INFO(0, "init timer ring; ring=%d, seg_size=%llu",
+		ring_id, 1llu << ring->tmr_seg_order);
 	return 0;
 }
 
@@ -87,7 +88,7 @@ run_ring_timers(struct timer_ring *ring, uint64_t t, struct dlist *queue)
 	timer_seg_t *seg;
 
 	pos = ring->tmr_cur;
-	ring->tmr_cur = t >> ring->tmr_seg_shift;
+	ring->tmr_cur = t >> ring->tmr_seg_order;
 	assert(pos <= ring->tmr_cur);
 	for (i = 0; pos <= ring->tmr_cur && i < TIMER_RING_SIZE; ++pos, ++i) {
 		seg = ring->tmr_segs + (pos & TIMER_RING_MASK);
@@ -196,7 +197,7 @@ timer_timeout(struct timer *timer)
 			} else {
 				dist = e + TIMER_RING_SIZE - b;
 			}
-			return dist >> ring->tmr_seg_shift;
+			return dist >> ring->tmr_seg_order;
 		}
 	}
 	assert(!"bad ring");
@@ -223,7 +224,7 @@ timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 		ring_id = 1;
 	}
 	ring = current->p_timer_rings[ring_id];
-	dist = expire >> ring->tmr_seg_shift;
+	dist = expire >> ring->tmr_seg_order;
 	assert(dist < TIMER_RING_SIZE);
 	assert(dist > 1);
 	pos = ring->tmr_cur + dist;
@@ -237,7 +238,7 @@ timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 	SEG_LOCK(seg);
 	DLIST_INSERT_HEAD(&seg->htb_head, timer, tm_list);
 	SEG_UNLOCK(seg);
-	DBG(0, "ok; timer=%p, mod_id=%d, fn_id=%d, ring=%d, seg_id=%hu",
+	DBG(0, "set timer; t=%p, mod=%d, fn=%d, ring=%d, seg=%hu",
 	    timer, mod_id, fn_id, ring_id, seg_id);
 }
 
@@ -251,7 +252,7 @@ timer_del(struct timer *timer)
 
 	if (timer_is_running(timer)) {
 restart:
-		// timer_del executed while migrate_timers
+		// timer_del() can be executed while migrate_timers()
 		sid = READ_ONCE(timer->tm_sid);
 		s = service_get_by_sid(sid);
 		ring = s->p_timer_rings[timer->tm_ring_id];
@@ -265,6 +266,6 @@ restart:
 		DLIST_REMOVE(timer, tm_list);
 		SEG_UNLOCK(seg);
 		timer->tm_ring_id = TIMER_RING_POISON;
-		DBG(0, "ok; timer=%p", timer);
+		DBG(0, "del timer; t=%p", timer);
 	}
 }
