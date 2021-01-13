@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #ifndef GBTCP_DEV_H
 #define GBTCP_DEV_H
 

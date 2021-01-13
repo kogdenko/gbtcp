@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #ifndef GBTCP_FILE_H
 #define GBTCP_FILE_H
 
@@ -39,7 +39,6 @@ struct file *file_alloc3(int, int, int);
 void file_free(struct file *);
 void file_free_rcu(struct file *);
 void file_close(struct file *);
-void file_clean(struct file *);
 int file_fcntl(struct file *, int, uintptr_t);
 int file_ioctl(struct file *, unsigned long, uintptr_t);
 int file_get(int, struct file **);

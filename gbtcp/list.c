@@ -113,20 +113,20 @@ dlist_replace_init(struct dlist *new, struct dlist *old)
 	dlist_init(old);	
 }
 
-// prev <-> {list} <-> next
 void
 dlist_splice(struct dlist *prev, struct dlist *next, struct dlist *list)
 {
-	list->dls_next->dls_prev = prev;
-	prev->dls_next = list->dls_next;
-	list->dls_prev->dls_next = next;
-	next->dls_prev = list->dls_prev;
+	if (!dlist_is_empty(list)) {
+		list->dls_next->dls_prev = prev;
+		prev->dls_next = list->dls_next;
+		list->dls_prev->dls_next = next;
+		next->dls_prev = list->dls_prev;
+	}
 }
 
 void
 dlist_splice_tail_init(struct dlist *dst, struct dlist *src)
 {
-	assert(!dlist_is_empty(src));
 	dlist_splice(dst->dls_prev, dst, src);
 	dlist_init(src);
 }

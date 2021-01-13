@@ -54,7 +54,8 @@ static __thread int conns;
 
 static void *counters;
 static struct sockaddr_in conf_addr;
-static int worker_eq_fd;
+static int worker_eq_fd = -1;
+static int worker_listen_fd = -1;
 static int n_workers;
 static int affinity = -1;
 static int concurrency = 1;
@@ -395,10 +396,9 @@ inc_requests()
 #define STATE_CLIENT 66
 
 static int
-server(int eq_fd)
+server_socket()
 {
 	int rc, fd, o;
-	union my_data data;
 
 	rc = sys_socket(AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0);
 	if (rc < 0) {
@@ -425,16 +425,24 @@ server(int eq_fd)
 	if (rc < 0) {
 		sys_close(fd);
 		return rc;
+	} else {
+		return fd;
 	}
+}
+
+static void
+create_server(int fd, int eq_fd)
+{
+	union my_data data;
+
 	data.u64 = 0;
 	data.fd = fd;
 	data.state = STATE_LISTEN;
 	event_queue_ctl(eq_fd, 1, &data, 0);
-	return 0;
 }
 
 static int
-client(int eq_fd)
+create_client(int eq_fd)
 {
 	int rc, fd, write;
 	union my_data data;
@@ -469,12 +477,12 @@ err:
 }
 
 static int
-clientn(int eq_fd)
+create_clients(int eq_fd)
 {
 	int rc;
 
 	while (conns < concurrency) {
-		rc = client(eq_fd);
+		rc = create_client(eq_fd);
 		if (rc) {
 			return rc;
 		}
@@ -537,7 +545,7 @@ on_event(int eq_fd, union my_data *data, short revents)
 			sys_close(data->fd);
 			inc_requests();
 			conns--;
-			clientn(eq_fd);
+			create_clients(eq_fd);
 		} else {
 			data->state = STATE_CLIENT;
 			event_queue_ctl(eq_fd, 0, data, 0);
@@ -557,7 +565,7 @@ on_event(int eq_fd, union my_data *data, short revents)
 			sys_close(data->fd);
 			inc_requests();
 			conns--;
-			clientn(eq_fd);
+			create_clients(eq_fd);
 		}
 		break;
 	default:
@@ -608,23 +616,33 @@ sighandler(int signum)
 static void
 worker_loop(int idx)
 {
-	int rc;
+	int rc, eq_fd, listen_fd;
 
 	if (affinity != -1) {
 		set_affinity(affinity + idx);
 	}
-	worker_id = idx;;
-	if (Lflag) {
-		rc = server(worker_eq_fd);
+	worker_id = idx;
+	if (worker_eq_fd == -1) {
+		rc = event_queue_create();
+		if (rc < 0) {
+			return;
+		}
+		eq_fd = rc;
 	} else {
-		rc = clientn(worker_eq_fd);
+		eq_fd = worker_eq_fd;
 	}
-	if (rc < 0) {
-		sys_close(worker_eq_fd);
-		return;
+	if (Lflag) {
+		if (worker_listen_fd == -1) {
+			listen_fd = server_socket();
+		} else {
+			listen_fd = worker_listen_fd;
+		}
+		create_server(listen_fd, eq_fd);
+	} else {
+		create_clients(eq_fd);
 	}
 	while (1) {
-		event_queue_wait(worker_eq_fd, -1);
+		event_queue_wait(eq_fd, -1);
 	}
 }
 
@@ -635,6 +653,13 @@ worker_routine(void *arg)
 	return NULL;
 }
 
+static struct option long_options[] = {
+	{ "help", no_argument, 0, 'h' },
+	{ "fork", no_argument, 0, 'F' },
+	{ "one-listen", no_argument, 0, 0 },
+	{ "one-epoll", no_argument, 0, 0 },
+};
+
 static void
 usage(const char *comm)
 {
@@ -642,14 +667,16 @@ usage(const char *comm)
 	"Usage: %s [address]\n"
 	"\n"
 	"\tOptions:\n"
-	"\t-h              Print this help\n"
-	"\t-p port         Port number (default: 80)\n"
-	"\t-L              Listen incoming connections\n"
-	"\t-c concurrency  Number of parallel connections (default: 1)\n"
-	"\t-C              Close connection after data transmit\n"
-	"\t-w n            Number of worker\n"
-	"\t-F              Fork worker instead of create thread\n"
-	"\t-a cpu          Affinity of first worker\n",
+	"\t-h, --help:  Print this help\n"
+	"\t-p {port}: Port number (default: 80)\n"
+	"\t-L: Listen incoming connections\n"
+	"\t-c {concurrency}: Number of parallel connections (default: 1)\n"
+	"\t-C: Close connection after data transmit\n"
+	"\t-w {n}: Number of worker\n"
+	"\t-F, --fork: Use fork instead of pthread_create\n"
+	"\t-a {cpu}: Affinity of the first worker\n"
+	"\t--one-listen: Use one listen fd\n"
+	"\t--one-epoll: Use one epoll fd\n",
 	comm);
 	exit(EXIT_SUCCESS);
 }
@@ -657,16 +684,32 @@ usage(const char *comm)
 int
 main(int argc, char **argv)
 {
-	int i, rc, opt, Fflag;
+	int i, rc, opt, Fflag, option_index, one_listen, one_epoll;
+	const char *optname;
 	pthread_t t;
 
 	Fflag = 0;
+	one_listen = 0;
+	one_epoll = 0;
 	assert(sizeof(union my_data) == sizeof(uint64_t));
 	conf_addr.sin_family = AF_INET;
 	conf_addr.sin_port = htons(80);
 	conf_addr.sin_addr.s_addr = INADDR_ANY;
-	while ((opt = getopt(argc, argv, "hp:Lc:Cw:Fa:")) != -1) {
+	while (1) {
+		opt = getopt_long(argc, argv, "hp:Lc:Cw:Fa:",
+			long_options, &option_index);
+		if (opt == -1) {
+			break;
+		}
 		switch (opt) {
+		case 0:
+			optname = long_options[option_index].name;
+			if (!strcmp(optname, "one-listen")) {
+				one_listen = 1;
+			} else if (!strcmp(optname, "one-epoll")) {
+				one_epoll = 1;
+			}
+			break;
 		case 'h':
 			usage(argv[0]);
 			return 0;
@@ -720,11 +763,18 @@ main(int argc, char **argv)
 		log_errf(errno, "mmap() failed");
 		return 3;
 	}
-	rc = event_queue_create();
-	if (rc < 0) {
-		return 4;
+	if (one_epoll) {
+		worker_eq_fd = event_queue_create();
+		if (worker_eq_fd < 0) {
+			return 4;
+		}
 	}
-	worker_eq_fd = rc;
+	if (Lflag && one_listen) {
+		worker_listen_fd = server_socket();
+		if (worker_listen_fd < 0) {
+			return 5;		
+		}
+	}
 	printf("%s %s:%hu\n", Lflag ? "Listening on" : "Connecting to",
 		inet_ntoa(conf_addr.sin_addr), ntohs(conf_addr.sin_port));	
 	for (i = 1; i < n_workers; ++i) {

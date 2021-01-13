@@ -40,17 +40,14 @@ struct service {
 	u_char p_need_update_rss_bindings;
 	u_char p_rss_nq;
 	u_char p_rr_redir;
-	u_int p_okpps;
-	uint64_t p_okpps_time;
-	uint64_t p_opkts;
 
-	struct mem_cache wmm_slab[BUDDY_ORDER_MIN - SLAB_ORDER_MIN];
-	u_int wmm_rcu_epoch;
-	short wmm_rcu_max;
-	short wmm_rcu_active;
-	struct dlist wmm_rcu_head[2];
-	u_int wmm_rcu[GT_SERVICES_MAX];
-	struct dlist wmm_garbage;
+	struct mem_cache mw_slab[BUDDY_ORDER_MIN - SLAB_ORDER_MIN];
+	u_int mw_rcu_epoch;
+	short mw_rcu_max;
+	short mw_rcu_active;
+	struct dlist mw_rcu_head[2];
+	u_int mw_rcu[GT_SERVICES_MAX];
+	struct dlist mw_garbage;
 
 	struct timer_ring *p_timer_rings[TIMER_N_RINGS];
 	struct itable p_file_fd_table;
@@ -66,7 +63,7 @@ struct service {
 
 int service_pid_file_acquire(int, int);
 
-struct service *service_get_by_sid(u_int);
+struct service *worker_get(u_int);
 
 int service_init_shared(struct service *, int, int);
 void service_deinit_shared(struct service *, int);
@@ -77,8 +74,6 @@ void service_deinit_private();
 int service_attach(const char *);
 void service_detach();
 void service_unlock();
-
-void service_account_opkt();
 
 void service_update_rss_bindings();
 

@@ -198,7 +198,7 @@ sysctl_socket(struct sock *so, struct strbuf *out)
 {
 	struct service *s;
 
-	s = service_get_by_sid(so->so_sid);
+	s = worker_get(so->so_sid);
 	assert(s->p_pid);
 	strbuf_addf(out, "%d,%d,%d,%d,%x,%hu,%x,%hu",
 		so->so_fd,
@@ -2552,7 +2552,6 @@ tcp_tx_data(struct route_entry *r, struct dev_pkt *pkt,
 	DBG(0, "hit; if='%s', flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
 	    r->rt_ifp->rif_name, log_add_tcp_flags(so->so_ipproto, tcb.tcb_flags),
 	    tcb.tcb_len, tcb.tcb_seq, tcb.tcb_ack, so->so_fd);
-	service_account_opkt();
 	arp_resolve(r, pkt);
 }
 

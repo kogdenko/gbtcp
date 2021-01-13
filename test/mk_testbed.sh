@@ -33,6 +33,8 @@ rmmod netmap
 insert_module netmap
 insert_module veth
 insert_module ixgbe
+# Don't forget to disabel pause for performance
+# ethtool -A ethX tx off rx off
 
 chmod a+rw /dev/netmap
 

@@ -1,12 +1,17 @@
 # gbtcp -- Gigabit TCP 
 
 ## Status
-PoC
+Proof of Concept
+
+## What is gbtcp?
+
 
 ## Build
-- Build and install netmap. See https://github.com/luigirizzo/netmap
+### Build and install netmap
+See https://github.com/luigirizzo/netmap
+Especially LINUX/README.md how to build external drivers (--no-ext-drivers)
 
-- Build and install gbtcp
+### Build and install gbtcp
 ```bash
 ./configure # -d for debug
 make
@@ -14,12 +19,16 @@ make install
 ```
 
 ## Configure environment
+First off all we must be sure that netmap worked well in out environent.
+
+
 
 Create configuration file and put it in /usr/local/gbtcp/sysctl/. See example.conf
 
-Each application use it's own file. For example nginx - /usr/local/gbtcp/sysctl/nginx.conf
+Each application use it's own configur file.
+For example nginx - /usr/local/gbtcp/sysctl/nginx.conf
 
-Minimal configuration file:
+Minimal configur file:
 ```bash
 route.if.add=eth
 ```
@@ -52,22 +61,20 @@ LD_PRELOAD=./bin/libgbtcp.so nginx -c /etc/nginx.conf
 ## Notes
 * LD_PRELOAD cannot be used with setuid
 
-* Run tcpdump. tcpdump must be started after netmap application
+* To dump traffic we must use  https://github.com/luigirizzo/netmap-libpcap library
+tcpdump must be started after netmap application
 ```bash
 LD_PRELOAD=libpcap.so.1.6.0-PRE-GIT tcpdump -Snni 'netmap:eth2^/rt'
 ```
 
 * For maximal performance set scaling_governor
 ```bash
-echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-...
 echo performance > /sys/devices/system/cpu/cpuX/cpufreq/scaling_governor
-
 ```
 
-* Create plots
+* There make_plot.sh script for creating plots
 ```bash
-./tools/make_plot.sh -i ./tools/benchmark_reults/2020-07-13 5,epoll.gbtcp,green 7,epoll.linux,red 9,epoll.f-stack,blue
+./scripts/make_plot.sh -i ./benchmarks/gbtcp-20200713 -L epoll 5,gbtcp,green 7,linux,red 9,f-stack,blue
 ```
 
 ## Benchmarks

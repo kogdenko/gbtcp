@@ -245,21 +245,21 @@ timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 void
 timer_del(struct timer *timer)
 {
-	u_char sid;
-	struct service *s;
+	int worker_id;
+	struct service *w;
 	struct timer_ring *ring;
 	timer_seg_t *seg;
 
 	if (timer_is_running(timer)) {
 restart:
 		// timer_del() can be executed while migrate_timers()
-		sid = READ_ONCE(timer->tm_sid);
-		s = service_get_by_sid(sid);
-		ring = s->p_timer_rings[timer->tm_ring_id];
+		worker_id = READ_ONCE(timer->tm_sid);
+		w = worker_get(worker_id);
+		ring = w->p_timer_rings[timer->tm_ring_id];
 		assert(ring != NULL);
 		seg = ring->tmr_segs + timer->tm_seg_id;
 		SEG_LOCK(seg);
-		if (sid != READ_ONCE(timer->tm_sid)) {
+		if (worker_id != READ_ONCE(timer->tm_sid)) {
 			SEG_UNLOCK(seg);
 			goto restart;
 		}

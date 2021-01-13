@@ -135,7 +135,7 @@ controller_clean()
 		rc = sscanf(entry->d_name, "%d.sock", &id);
 		if (rc == 1) {
 			snprintf(path, sizeof(path), "%s/%s",
-			         SYSCTL_SOCK_PATH, entry->d_name);
+				SYSCTL_SOCK_PATH, entry->d_name);
 			sys_unlink(path);
 		}
 	}
@@ -452,7 +452,6 @@ sysctl_controller_service_list(void *udata, const char *ident,
 	const char *new, struct strbuf *out)
 {
 	int i;
-	u_int okpps;
 	struct service *s;
 
 	if (ident == NULL) {
@@ -467,8 +466,7 @@ sysctl_controller_service_list(void *udata, const char *ident,
 	if (!s->p_pid) {
 		return -ENOENT;
 	} else {
-		okpps = READ_ONCE(s->p_okpps);
-		strbuf_addf(out, "%d,%d,%u", s->p_pid, s->p_rss_nq, okpps);
+		strbuf_addf(out, "%d,%d", s->p_pid, s->p_rss_nq);
 		return 0;
 	}
 }

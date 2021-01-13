@@ -1,9 +1,9 @@
-// gpl2
+// GPL v2
 #include "internals.h"
 
 #define CURMOD fd_event
 
-// System should periodically RX netmap devices or packets would be lost
+// We need periodically RX devices to avoid packet loss 
 #define FD_EVENT_TIMEOUT_MIN (20 * NSEC_USEC)
 #define FD_EVENT_TIMEOUT_MAX (60 * NSEC_USEC) 
 
@@ -71,7 +71,7 @@ fd_event_add(struct fd_event **pe, int fd, const char *name,
 		e = fd_event_buf + i;
 		if (e->fde_ref_cnt) {
 			if (e->fde_fn != NULL && e->fde_fd == fd) {
-				die(0, "duplicate; fd=%d", fd);
+				die(0, "fd event already exists; fd=%d", fd);
 			}
 		} else {
 			if (id == -1) {
@@ -91,7 +91,7 @@ fd_event_add(struct fd_event **pe, int fd, const char *name,
 	fd_event_used[e->fde_id] = e;
 	fd_event_n_used++;
 	*pe = e;
-	INFO(0, "ok; fd=%d, event='%s'", e->fde_fd, name);
+	INFO(0, "Add fd event; fd=%d, event='%s'", e->fde_fd, name);
 	return 0;
 }
 
@@ -121,7 +121,7 @@ void
 fd_event_del(struct fd_event *e)
 {
 	if (e != NULL) {
-		INFO(0, "hit; fd=%d", e->fde_fd);
+		INFO(0, "Del fd event; fd=%d", e->fde_fd);
 		assert(e->fde_fn != NULL);
 		assert(e->fde_id < fd_event_n_used);
 		assert(e == fd_event_used[e->fde_id]);
@@ -233,8 +233,8 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	}
 	t = nanoseconds;
 	fd_poll_sigmask = sigmask;
-	if (fd_poll_sigmask == NULL && current_sigprocmask_set) {
-		fd_poll_sigmask = &current_sigprocmask;
+	if (fd_poll_sigmask == NULL) {
+		fd_poll_sigmask = signal_sigprocmask_get();
 	}
 	SERVICE_UNLOCK;
 	rc = sys_ppoll(p->fdp_pfds, p->fdp_n_added + p->fdp_n_events,

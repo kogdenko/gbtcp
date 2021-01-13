@@ -1,5 +1,59 @@
+// GPL v2
 #include "internals.h"
 
+static sigset_t current_sigprocmask;
+static int current_sigprocmask_set;
+
+int
+init_signals()
+{
+	int rc;
+	sigset_t sigprocmask_block;
+
+	sigfillset(&sigprocmask_block);
+	rc = sys_sigprocmask(SIG_BLOCK, &sigprocmask_block,
+		&current_sigprocmask);
+	if (rc) {
+		return rc;
+	}
+	current_sigprocmask_set = 1;
+	return 0;
+}
+
+void
+deinit_signals()
+{
+	if (current_sigprocmask_set) {
+		current_sigprocmask_set = 0;
+		sys_sigprocmask(SIG_SETMASK, &current_sigprocmask, NULL);
+	}
+}
+
+int
+signal_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
+{
+	int rc;
+	sigset_t tmp;
+
+	if (!current_sigprocmask_set) {
+		rc = sys_sigprocmask(how, set, oldset);
+	} else {
+		// unblock
+		sys_sigprocmask(SIG_SETMASK, &current_sigprocmask, &tmp);
+		rc = sys_sigprocmask(how, set, oldset);
+		sys_sigprocmask(SIG_SETMASK, &tmp, &current_sigprocmask);
+	}
+	return rc;
+}
+
+const sigset_t *
+signal_sigprocmask_get()
+{
+	return current_sigprocmask_set ? &current_sigprocmask : NULL;
+}
+
+
+// ALT stack implementation
 #if 0
 void *gt_signal_stack;
 size_t gt_signal_stack_size;

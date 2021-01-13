@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #include "internals.h"
 
 #define CURMOD api
@@ -121,7 +121,7 @@ restart:
 		if (rc == 0) {
 			optlen = sizeof(error);
 			rc = so_getsockopt(so, SOL_SOCKET, SO_ERROR,
-			                   &error, &optlen);
+				&error, &optlen);
 			assert(rc == 0 && "so_getsockopt");
 			rc = -error;
 			goto restart;
@@ -137,12 +137,14 @@ gt_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	int rc;
 
 	API_LOCK;
-	INFO(0, "hit; fd=%d, faddr=%s", fd, log_add_sockaddr(addr, addrlen));
+	INFO(0, ">connect(); fd=%d, faddr=%s",
+		fd, log_add_sockaddr(addr, addrlen));
 	rc = gt_connect_locked(fd, addr, addrlen);
 	if (rc < 0) {
-		INFO(-rc, "failed");
+		INFO(-rc, "connect() failed");
 	} else {
-		INFO(0, "ok; laddr=%s", log_add_sockaddr(addr, addrlen));
+		INFO(0, "connect(); laddr=%s",
+			log_add_sockaddr(addr, addrlen));
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -677,8 +679,8 @@ gt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 	int rc;
 
 	API_LOCK;
-	INFO(0, "hit; how=%s", log_add_sigprocmask_how(how));
-	rc = service_sigprocmask(how, set, oldset);
+	INFO(0, ">sigprocmask(); how=%s", log_add_sigprocmask_how(how));
+	rc = signal_sigprocmask(how, set, oldset);
 	if (rc < 0) {
 		WARN(-rc, "failed;");
 	} else {

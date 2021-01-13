@@ -83,9 +83,10 @@ sysctl_add_inet_stat_tcp()
 
 #define SYSCTL_ADD_TCP_STAT(x) \
 	sysctl_add_inet_stat("tcp", #x, \
-	                     field_off(struct service, p_tcps.tcps_##x));
+		field_off(struct service, p_tcps.tcps_##x));
 	GT_X_TCP_STAT(SYSCTL_ADD_TCP_STAT)
 #undef SYSCTL_ADD_TCP_STAT
+
 	for (i = 0; i < GT_TCP_NSTATES; ++i) {
 		snprintf(name, sizeof(name), "states.%d", i);
 		off = field_off(struct service, p_tcps.tcps_states[i]);
@@ -98,7 +99,7 @@ sysctl_add_inet_stat_udp()
 {
 #define SYSCTL_ADD_UDP_STAT(x) \
 	sysctl_add_inet_stat("udp", #x, \
-	                     field_off(struct service, p_udps.udps_##x));
+		field_off(struct service, p_udps.udps_##x));
 	GT_X_UDP_STAT(SYSCTL_ADD_UDP_STAT)
 #undef SYSCTL_ADD_UDP_STAT
 }
@@ -108,7 +109,7 @@ sysctl_add_inet_stat_ip()
 {
 #define SYSCTL_ADD_IP_STAT(x) \
 	sysctl_add_inet_stat("ip", #x, \
-	                     field_off(struct service, p_ips.ips_##x));
+		field_off(struct service, p_ips.ips_##x));
 	GT_X_IP_STAT(SYSCTL_ADD_IP_STAT)
 #undef SYSCTL_ADD_IP_STAT
 }
@@ -137,9 +138,9 @@ inet_mod_init()
 	sysctl_add_inet_stat_ip();
 	sysctl_add_inet_stat_arp();
 	sysctl_add_int(GT_SYSCTL_INET_CKSUM_OFFLOAD_RX, SYSCTL_WR,
-	               &curmod->inet_cksum_offload_rx, 0, 1);
+		&curmod->inet_cksum_offload_rx, 0, 1);
 	sysctl_add_int(GT_SYSCTL_INET_CKSUM_OFFLOAD_TX, SYSCTL_WR,
-	               &curmod->inet_cksum_offload_tx, 0, 1);
+		&curmod->inet_cksum_offload_tx, 0, 1);
 	return 0;
 }
 

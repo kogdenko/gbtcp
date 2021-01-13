@@ -1,6 +1,8 @@
 // GPL v2
 #include "internals.h"
 
+// TODO: duplicate epoll
+
 #define CURMOD epoll
 
 #define EPOLL_FLAG_ENABLED (1 << 0)

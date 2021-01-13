@@ -127,8 +127,6 @@ enum {
 
 extern struct service *current;
 extern struct shm_hdr *shared;
-extern sigset_t current_sigprocmask;
-extern int current_sigprocmask_set;
 extern uint64_t nanoseconds;
 
 #endif // GBTCP_GLOBAL_H

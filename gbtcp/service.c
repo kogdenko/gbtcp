@@ -10,17 +10,12 @@ struct service_msg {
 	struct eth_addr msg_orig_daddr;
 };
 
-static struct spinlock service_attach_lock;
 static int service_sysctl_fd = -1;
 static int service_pid_fd = -1;
 static struct dev service_vale;
-static int service_signal_guard = 1;
-static int service_autostart_controller = 1;
 
 struct shm_hdr *shared;
 struct service *current;
-sigset_t current_sigprocmask;
-int current_sigprocmask_set;
 
 static int
 service_pipe(int fd[2])
@@ -71,7 +66,7 @@ service_pipe_recv(int fd)
 }
 
 static int
-service_start_controller_nolog(const char *p_comm)
+service_start_controller(const char *p_comm)
 {
 	int rc, pipe_fd[2];
 
@@ -98,23 +93,6 @@ service_start_controller_nolog(const char *p_comm)
 		sys_close(pipe_fd[1]);
 		rc = service_pipe_recv(pipe_fd[0]);
 		sys_close(pipe_fd[0]);
-	}
-	return rc;
-}
-
-static int
-service_start_controller(const char *p_comm)
-{
-	int rc;
-
-	NOTICE(0, "hit;");
-	rc = service_start_controller_nolog(p_comm);
-	if (rc < 0) {
-		ERR(-rc, "failed;");
-	} else if (rc > 0) {
-		WARN(rc, "error;");
-	} else {
-		NOTICE(0, "ok;");
 	}
 	return rc;
 }
@@ -330,7 +308,7 @@ service_pid_file_acquire(int sid, int pid)
 }
 
 struct service *
-service_get_by_sid(u_int sid)
+worker_get(u_int sid)
 {
 	assert(sid < ARRAY_SIZE(shared->shm_services));
 	return shared->shm_services + sid;
@@ -343,7 +321,6 @@ service_init_shared(struct service *s, int pid, int fd)
 
 	NOTICE(0, "hit; pid=%d", pid);
 	assert(current->p_sid == CONTROLLER_SID);
-	WRITE_ONCE(s->wmm_rcu_epoch, 1);
 	smp_wmb();
 	s->p_pid = pid;
 	dlist_init(&s->p_tx_head);
@@ -353,9 +330,6 @@ service_init_shared(struct service *s, int pid, int fd)
 	s->p_rr_redir = 0;
 	s->p_fd = fd;
 	s->p_start_time = shared_ns();
-	s->p_okpps = 0;
-	s->p_okpps_time = 0;
-	s->p_opkts = 0;
 	init_worker_mem(s);
 	rc = init_timers(s);
 	if (rc) {
@@ -384,7 +358,7 @@ service_deinit_shared(struct service *s, int full)
 		}
 	}
 	deinit_files(s);
-	if (current != s && !dlist_is_empty(&s->p_tx_head)) {
+	if (current != s) {
 		dlist_splice_tail_init(&current->p_tx_head, &s->p_tx_head);
 	}
 	if (current != s) {
@@ -393,8 +367,7 @@ service_deinit_shared(struct service *s, int full)
 	if (full) {
 		deinit_timers(s);
 	}
-	smp_wmb();
-	WRITE_ONCE(s->wmm_rcu_epoch, 0);
+	deinit_worker_mem(s);
 	s->p_pid = 0;
 }
 
@@ -422,15 +395,8 @@ service_attach(const char *fn_name)
 	struct sockaddr_un a;
 	char p_comm[SERVICE_COMM_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
-	sigset_t sigprocmask_block;
 	struct service *s;
 
-	spinlock_lock(&service_attach_lock);
-	// check again under the lock
-	if (current != NULL) {
-		spinlock_unlock(&service_attach_lock);
-		return 0;
-	}
 	ERR(0, "hit; from=%s", fn_name);
 	pid = getpid();
 	rc = read_proc_comm(p_comm, pid);
@@ -447,10 +413,8 @@ service_attach(const char *fn_name)
 	service_sysctl_fd = rc;
 	rc = sysctl_connect(service_sysctl_fd);
 	if (rc) {
-		if (!service_autostart_controller) {
-			goto err;
-		}
-		WARN(0, "Can't connect to controller. Try to start one");
+		WARN(0, "Starting controller daemon");
+		dbg("start");
 		rc = service_start_controller(p_comm);
 		if (rc) {
 			goto err;
@@ -459,15 +423,6 @@ service_attach(const char *fn_name)
 		if (rc) {
 			goto err;
 		}
-	}
-	if (service_signal_guard) {
-		sigfillset(&sigprocmask_block);
-		rc = sys_sigprocmask(SIG_BLOCK, &sigprocmask_block,
-	        	             &current_sigprocmask);
-		if (rc) {
-			goto err;
-		}
-		current_sigprocmask_set = 1;
 	}
 	rc = sysctl_req(service_sysctl_fd, SYSCTL_CONTROLLER_ADD, buf, "~");
 	if (rc) {
@@ -502,12 +457,10 @@ service_attach(const char *fn_name)
 		goto err;
 	}
 	ERR(0, "ok; current=%p", current);
-	spinlock_unlock(&service_attach_lock);
 	return 0;
 err:
 	service_detach();
 	ERR(-rc, "failed;");
-	spinlock_unlock(&service_attach_lock);
 	return rc;
 }
 
@@ -535,10 +488,7 @@ service_detach()
 	}
 	shm_detach();
 	clean_fd_events();
-	if (current_sigprocmask_set) {
-		current_sigprocmask_set = 0;
-		sys_sigprocmask(SIG_SETMASK, &current_sigprocmask, NULL);
-	}
+	// TODO: deinit_signals() if no worker in process
 }
 
 void
@@ -546,25 +496,6 @@ service_unlock()
 {
 	rcu_update();
 	spinlock_unlock(&current->p_lock);
-}
-
-void
-service_account_opkt()
-{
-	uint64_t dt;
-
-	current->p_opkts++;
-	dt = nanoseconds - current->p_okpps_time;
-	if (dt >= NSEC_MSEC) {
-		if (dt > 2 * NSEC_MSEC) {
-			// Gap in more then 1 millisecond
-			WRITE_ONCE(current->p_okpps, 0);
-		} else {
-			WRITE_ONCE(current->p_okpps, current->p_opkts);
-		}
-		current->p_okpps_time = nanoseconds;
-		current->p_opkts = 0;
-	}
 }
 
 static void
@@ -677,23 +608,6 @@ vale_transmit(struct route_if *ifp, int msg_type, struct dev_pkt *pkt)
 	pkt->pkt_len += sizeof(*msg);
 	//dbg_rl(1, "redir");
 	dev_transmit(pkt);
-}
-
-int
-service_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
-{
-	int rc;
-	sigset_t tmp;
-
-	if (!current_sigprocmask_set) {
-		rc = sys_sigprocmask(how, set, oldset);
-	} else {
-		// unblock
-		sys_sigprocmask(SIG_SETMASK, &current_sigprocmask, &tmp);
-		rc = sys_sigprocmask(how, set, oldset);
-		sys_sigprocmask(SIG_SETMASK, &tmp, &current_sigprocmask);
-	}
-	return rc;
 }
 
 static void
@@ -850,7 +764,7 @@ service_clone(int (*fn)(void *), void *child_stack,
 			return rc;
 		}
 		rc = sys_clone(service_clone_in_child, child_stack, flags, arg,
-		               ptid, tls, ctid);
+			ptid, tls, ctid);
 		if (rc == -1) {
 			rc = -errno;
 			sys_close(service_clone_pipe_fd[0]);

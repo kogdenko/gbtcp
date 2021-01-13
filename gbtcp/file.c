@@ -23,8 +23,8 @@ file_init(struct file *fp, int fd, int type)
 static void
 file_aio_call(struct file_aio *aio, int fd, short revents)
 {
-	DBG(0, "hit; aio=%p, fd=%d, events=%s",
-	    aio, fd, log_add_poll_events(revents));
+	DBG(0, "call aio; aio=%p, fd=%d, events=%s",
+		aio, fd, log_add_poll_events(revents));
 	(*aio->faio_fn)(aio, fd, revents);
 }
 
@@ -69,23 +69,6 @@ deinit_files(struct service *s)
 		//}
 }
 
-/*struct file *
-file_next(struct service *s, int fd)
-{
-	int id;
-	struct mbuf *m;
-	struct file *fp;
-
-	if (fd < GT_FIRST_FD) {
-		id = 0;
-	} else {
-		id = fd - GT_FIRST_FD;
-	}
-	m = mbuf_next(s->p_file_pool, id);
-	fp = (struct file *)m;
-	return fp;
-}*/
-
 struct file *
 file_alloc3(int fd, int type, int size)
 {
@@ -111,9 +94,9 @@ file_alloc3(int fd, int type, int size)
 		}
 	}
 	if (rc < 0) {
-		DBG(-rc, "failed;");
+		DBG(-rc, "file alloc failed;");
 	} else {
-		DBG(0, "ok; fp=%p, fd=%d", fp, fp->fl_fd);
+		DBG(0, "file alloc; fp=%p, fd=%d", fp, fp->fl_fd);
 	}
 	return fp;
 }
@@ -143,7 +126,7 @@ file_get(int fd, struct file **fpp)
 void
 file_free(struct file *fp)
 {
-	DBG(0, "hit; fp=%p, fd=%d", fp, fp->fl_fd);
+	DBG(0, "file free; fp=%p, fd=%d", fp, fp->fl_fd);
 	itable_free(&current->p_file_fd_table, fp->fl_fd - GT_FIRST_FD);
 	mem_free(fp);
 }
@@ -167,12 +150,12 @@ file_close(struct file *fp)
 	}
 }
 
-void
+/*static void
 file_clean(struct file *fp)
 {
 	dlist_init(&fp->fl_aio_head);
 	file_close(fp);
-}
+}*/
 
 int
 file_fcntl(struct file *fp, int cmd, uintptr_t arg)
@@ -244,7 +227,7 @@ file_wakeup(struct file *fp, short revents)
 	struct file_aio *aio, *tmp;
 
 	assert(revents);
-	DBG(0, "hit; fd=%d, revents=%s", fp->fl_fd,
+	DBG(0, "file wakeup; fd=%d, revents=%s", fp->fl_fd,
 		log_add_poll_events(revents));
 	DLIST_FOREACH_SAFE(aio, &fp->fl_aio_head, faio_list, tmp) {
 		file_aio_call(aio, fp->fl_fd, revents);
@@ -287,7 +270,7 @@ file_get_events(struct file *fp)
 	} else {
 		revents = 0;
 	}
-	DBG(0, "hit; events=%s", log_add_poll_events(revents));
+	DBG(0, "get file events; events=%s", log_add_poll_events(revents));
 	return revents;
 }
 
@@ -307,7 +290,7 @@ file_aio_add(struct file *fp, struct file_aio *aio, gt_aio_f fn)
 	if (!file_aio_is_added(aio)) {
 		aio->faio_fn = fn;
 		DLIST_INSERT_HEAD(&fp->fl_aio_head, aio, faio_list);
-		DBG(0, "hit; aio=%p, fd=%d", aio, fp->fl_fd);
+		DBG(0, "add file aio; aio=%p, fd=%d", aio, fp->fl_fd);
 		revents = file_get_events(fp);
 		if (revents) {
 			file_aio_call(aio, fp->fl_fd, revents);
@@ -319,7 +302,7 @@ void
 file_aio_cancel(struct file_aio *aio)
 {
 	if (file_aio_is_added(aio)) {
-		DBG(0, "hit; aio=%p", aio);
+		DBG(0, "cancel file aio; aio=%p", aio);
 		aio->faio_fn = NULL;
 		DLIST_REMOVE(aio, faio_list);
 	}

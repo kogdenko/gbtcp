@@ -356,6 +356,10 @@ read_once(const volatile void *p, void *data, int size)
 	case 2: *(uint16_t *)data = *(volatile uint16_t *)p; break;
 	case 4: *(uint32_t *)data = *(volatile uint32_t *)p; break;
 	case 8: *(uint64_t *)data = *(volatile uint64_t *)p; break;
+	default:
+		barrier();
+		memcpy(data, (void *)p, size);
+		barrier();
 	}
 }
 
@@ -367,6 +371,11 @@ write_once(volatile void *p, void *data, int size)
 	case 2: *(volatile uint16_t *)p = *(uint16_t *)data; break;
 	case 4: *(volatile uint32_t *)p = *(uint32_t *)data; break;
 	case 8: *(volatile uint64_t *)p = *(uint64_t *)data; break;
+	default:
+		barrier();
+		memcpy((void *)p, data, size);
+		barrier();
+		break;
 	}
 }
 
