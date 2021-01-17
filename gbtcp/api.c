@@ -63,7 +63,7 @@ gt_fork()
 	INFO(0, "hit;");
 	rc = service_fork();
 	if (rc >= 0) {
-		INFO(0, "ok; pid=%d", rc);
+		INFO(0, "fork(); pid=%d", rc);
 	} else {
 		ERR(-rc, "failed;");
 	}

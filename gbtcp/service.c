@@ -110,14 +110,14 @@ service_rx(struct in_context *p)
 	ipproto = p->in_ipproto;
 	if (ipproto == IPPROTO_UDP || ipproto == IPPROTO_TCP) {
 		rc = so_input(ipproto, p,
-		              p->in_ih->ih_daddr, p->in_ih->ih_saddr,
-		              p->in_uh->uh_dport, p->in_uh->uh_sport);
+			p->in_ih->ih_daddr, p->in_ih->ih_saddr,
+			p->in_uh->uh_dport, p->in_uh->uh_sport);
 	} else if (ipproto == IPPROTO_ICMP && p->in_errnum &&
 	           (p->in_emb_ipproto == IPPROTO_UDP ||
 	            p->in_emb_ipproto == IPPROTO_TCP)) {
 		rc = so_input_err(p->in_emb_ipproto, p,
-		                  p->in_ih->ih_daddr, p->in_ih->ih_saddr,
-		                  p->in_uh->uh_dport, p->in_uh->uh_sport);
+			p->in_ih->ih_daddr, p->in_ih->ih_saddr,
+			p->in_uh->uh_dport, p->in_uh->uh_sport);
 	} else {
 		rc = IN_DROP;
 	}
@@ -393,7 +393,7 @@ service_attach(const char *fn_name)
 {
 	int rc, pid;
 	struct sockaddr_un a;
-	char p_comm[SERVICE_COMM_MAX];
+	char p_comm[GT_COMMLEN + 1];
 	char buf[GT_SYSCTL_BUFSIZ];
 	struct service *s;
 
@@ -414,7 +414,6 @@ service_attach(const char *fn_name)
 	rc = sysctl_connect(service_sysctl_fd);
 	if (rc) {
 		WARN(0, "Starting controller daemon");
-		dbg("start");
 		rc = service_start_controller(p_comm);
 		if (rc) {
 			goto err;

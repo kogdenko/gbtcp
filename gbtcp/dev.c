@@ -1,8 +1,9 @@
+// GPL v2
 #include "internals.h"
 
 #define CURMOD dev
 
-#define DEV_RX_BURST_SIZE 256 // TODO: configuret dynamicly
+#define DEV_RX_BURST_SIZE 256 // TODO: configure
 #define DEV_TX_BURST_SIZE 64
 
 static int
@@ -47,18 +48,19 @@ dev_nm_open(struct dev *dev, const char *dev_name)
 	flags = 0;
 	dev->dev_nmd = nm_open(dev_name, &nmr, flags, NULL);
 	if (dev->dev_nmd != NULL) {
+		dbg("opne %s", dev_name);
 		assert(dev->dev_nmd->nifp != NULL);
 		sys_fcntl(dev->dev_nmd->fd, F_SETFD, FD_CLOEXEC);
 		nmr = dev->dev_nmd->req;
-		NOTICE(0, "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
-		       dev_name, dev->dev_nmd,
-	               nmr.nr_rx_rings, nmr.nr_rx_slots,
-		       nmr.nr_tx_rings, nmr.nr_tx_slots);
+		NOTICE(0, "open dev; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
+			dev_name, dev->dev_nmd,
+			nmr.nr_rx_rings, nmr.nr_rx_slots,
+			nmr.nr_tx_rings, nmr.nr_tx_slots);
 		return 0;
 	} else {
 		rc = -errno;
 		assert(rc);
-		ERR(-rc, "failed; dev='%s'", dev_name);
+		ERR(-rc, "nm_open() failed; dev='%s'", dev_name);
 		return rc;
 	}
 }

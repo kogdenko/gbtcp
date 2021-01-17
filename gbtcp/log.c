@@ -15,7 +15,7 @@ static struct strbuf log_sb;
 
 static int log_level = LOG_LEVEL_DEFAULT;
 // syslog() use ident pointer 
-static char ident_buf[SERVICE_COMM_MAX + 7];
+static char ident_buf[GT_COMMLEN + 8];
 static const char *ident;
 
 void
@@ -32,6 +32,7 @@ log_init(const char *comm, u_int log_level)
 		log_set_level(log_level);
 	}
 	openlog(ident, LOG_PID, LOG_DAEMON);
+	syslog(LOG_NOTICE, "Log subsytem initalized");
 }
 
 int
@@ -180,12 +181,24 @@ log_buf_alloc_space()
 }
 
 const char *
-log_add_ipaddr(int af, const void *ip)
+log_add_ipaddr(int af, const void *ia)
 {
 	struct strbuf *sb; 
 
 	sb = log_buf_alloc_space();
-	strbuf_add_ipaddr(sb, af, ip);
+	strbuf_add_ipaddr(sb, af, ia);
+	return strbuf_cstr(sb);
+}
+
+const char *
+log_add_ip_addr4(be32_t ia4)
+{
+	struct ipaddr ia;
+	struct strbuf *sb;
+
+	ia.ipa_4 = ia4;
+	sb = log_buf_alloc_space();
+	strbuf_add_ipaddr(sb, AF_INET, &ia);
 	return strbuf_cstr(sb);
 }
 

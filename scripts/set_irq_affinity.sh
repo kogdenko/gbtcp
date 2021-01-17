@@ -29,7 +29,7 @@ fi
 for I in $(grep $INTERFACE-TxRx /proc/interrupts | cut -f 1 -d ':'); do
 	Md=`echo 2^$C | bc`
 	Mx=`printf "%x" $Md`
-	echo "int $I -> core $C (0x$Mx)"
+	echo "irq $I -> core $C (0x$Mx)"
 	echo $Mx > /proc/irq/$I/smp_affinity
 	C=$((C+1))
 done

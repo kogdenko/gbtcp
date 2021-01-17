@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #include "internals.h"
 
 #define CURMOD controller
@@ -578,6 +578,7 @@ controller_init(int daemonize, const char *service_comm)
 	set_hz(hz);
 	shared->shm_hz = hz;
 	shared->shm_rss_nq = 0;
+	dbg("read_file %s", service_comm);
 	rc = sysctl_read_file(1, service_comm);
 	if (rc) {
 		goto err;

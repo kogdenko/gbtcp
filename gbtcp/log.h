@@ -5,7 +5,10 @@
 #include "subr.h"
 #include "strbuf.h"
 
-#define LOG_DISABLED
+#ifndef LOG_LEVEL
+#error "LOG_LEVEL not defined"
+#endif
+
 #define LOG_BUFSZ 1024
 
 struct log_scope {
@@ -14,30 +17,27 @@ struct log_scope {
 	int lgs_level;
 };
 
-#ifdef LOG_DISABLED
-#define LOGF(level, errnum, fmt, ...) \
-	do { \
-		UNUSED(errnum); \
-	} while (0)
-#else // LOG_DISABLED
 #define LOGF(level, errnum, fmt, ...) \
 do { \
-	if (log_is_enabled(CAT2(MOD_, CURMOD), level, 0)) { \
-		log_buf_init(); \
-		log_printf(level, errnum, fmt, ##__VA_ARGS__); \
-	} \
+	log_buf_init(); \
+	log_printf(level, errnum, fmt, ##__VA_ARGS__); \
 } while (0)
-#endif // LOG_DISABLED
 
-#define log_trace0() log_trace(NULL)
-
-#ifdef NDEBUG
-#define DBG(...)
-#define INFO(...)
-#else /*NDEBUG */
+#if LOG_LEVEL >= LOG_DEBUG
 #define DBG(err, ...) LOGF(LOG_DEBUG, err, __VA_ARGS__)
+#else
+#define DBG(err, ...)
+#endif
+
+#if LOG_LEVEL >= LOG_INFO
 #define INFO(err, ...) LOGF(LOG_INFO, err, __VA_ARGS__)
-#endif /* NDEBUG */
+#else
+#define INFO(err, ...)
+#endif
+
+#define NOTICE(err, ...) LOGF(LOG_NOTICE, err, __VA_ARGS__)
+#define WARN(err, ...) LOGF(LOG_WARNING, err, __VA_ARGS__)
+#define ERR(err, ...) LOGF(LOG_ERR, err, __VA_ARGS__)
 
 #define die(errnum, fmt, ...) \
 do { \
@@ -45,15 +45,10 @@ do { \
 	abort(); \
 } while (0)
 
-#define NOTICE(err, ...) LOGF(LOG_NOTICE, err, __VA_ARGS__)
-#define WARN(err, ...) LOGF(LOG_WARNING, err, __VA_ARGS__)
-#define ERR(err, ...) LOGF(LOG_ERR, err, __VA_ARGS__)
-
 int log_mod_init();
 
 void log_scope_init(struct log_scope *, const char *);
 void log_scope_deinit(struct log_scope *);
-
 
 void log_init(const char *, u_int);
 void log_set_level(int);
@@ -66,6 +61,7 @@ void log_hexdump_ascii(int, u_char *data, int cnt);
 void log_buf_init();
 struct strbuf *log_buf_alloc_space();
 const char *log_add_ipaddr(int, const void *);
+const char *log_add_ip_addr4(be32_t);
 const char *log_add_sockaddr_in(const struct sockaddr_in *);
 const char *log_add_sockaddr_un(const struct sockaddr_un *, int);
 const char *log_add_sockaddr(const struct sockaddr *, int);

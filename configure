@@ -8,6 +8,7 @@ CFLAGS="$CFLAGS -finline-functions -pthread -fPIC"
 CFLAGS="$CFLAGS -D_LIBC_REENTRANT"
 CFLAGS="$CFLAGS -Wunused-variable"
 CFLAGS="$CFLAGS -fdiagnostics-color=never"
+CFLAGS="$CFLAGS -DLOG_LEVEL=5"
 LDFLAGS="$LDFLAGS -pthread -lm -L."
 
 SUBDIRS="test ./tools/epoll_helloworld"

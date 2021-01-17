@@ -578,6 +578,7 @@ icmp_input(struct in_context *in)
 {
 	int ih_len, type, code;
 
+	dbg("x");
 	if (in->in_rem < sizeof(struct icmp4_hdr)) {
 		in->in_icmps->icmps_tooshort++;
 		return IN_DROP;

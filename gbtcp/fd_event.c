@@ -238,7 +238,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	}
 	SERVICE_UNLOCK;
 	rc = sys_ppoll(p->fdp_pfds, p->fdp_n_added + p->fdp_n_events,
-	               &to, fd_poll_sigmask);
+		&to, fd_poll_sigmask);
 	SERVICE_LOCK;
 	fd_poll_epoch++;
 	elapsed = nanoseconds - t;

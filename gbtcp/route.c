@@ -81,6 +81,7 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 	struct route_if *ifp;
 	struct nmreq *req;
 
+	dbg("ifadd");
 	if (ifpp != NULL) {
 		*ifpp = NULL;
 	}
@@ -354,7 +355,7 @@ route_del(struct route_entry_long *route)
 
 	rule = &route->rtl_rule;
 	NOTICE(0, "ok; dst=%s/%d",
-		log_add_ipaddr(AF_INET, &hton32(rule->lpr_key)),
+		log_add_ip_addr4(hton32(rule->lpr_key)),
 		rule->lpr_depth);
 	mem_free(route->rtl_srcs);
 	DLIST_REMOVE(route, rtl_list);

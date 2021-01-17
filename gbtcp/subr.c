@@ -715,8 +715,8 @@ read_proc_comm(char *name, int pid)
 	if (memcmp(s, STRSZ("Name:"))) {
 		goto err;
 	}
-	len = strtrimcpy(name, s + 6, SERVICE_COMM_MAX);
-	if (len > 0 && len < SERVICE_COMM_MAX) {
+	len = strtrimcpy(name, s + 6, GT_COMMLEN);
+	if (len > 0 && len < GT_COMMLEN) {
 		return 0;
 	}
 err:
@@ -759,7 +759,7 @@ read_proc_comm(char *name, int pid)
 		assert(rc);
 		return rc;
 	}
-	strzcpy(name, info->ki_comm, SERVICE_COMM_MAX);
+	strzcpy(name, info->ki_comm, GT_COMMLEN);
 	free(info);
 	return 0;
 }

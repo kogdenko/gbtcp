@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2
 #ifndef GBTCP_SERVICE_H
 #define GBTCP_SERVICE_H
 
@@ -9,7 +9,14 @@
 #include "inet.h"
 #include "itable.h"
 
-#define SERVICE_COMM_MAX 32
+#ifdef __linux__
+#define GT_COMMLEN 32
+#elif __FreeBSD__
+#define GT_COMMLEN COMMLEN
+#else
+#error "Unsupported platform"
+#endif
+
 #define SERVICE_ID_INVALID GT_SERVICES_MAX
 
 #define SERVICE_MSG_RX 0

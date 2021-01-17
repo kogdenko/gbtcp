@@ -245,7 +245,7 @@ sysctl_read_file(int loader, const char *comm)
 	char buf[2000];
 	FILE *file;
 
-	path = getenv("GBTCP_CTL");
+	path = getenv("GBTCP_CONF");
 	if (path != NULL) { 
 		rc = sys_realpath(path, path_buf);
 		if (rc) {
@@ -254,10 +254,9 @@ sysctl_read_file(int loader, const char *comm)
 	}
 	if (path == NULL) {
 		snprintf(path_buf, sizeof(path_buf), "%s/%s.conf",
-		         SYSCTL_CONFIG_PATH, comm);
+			SYSCTL_CONFIG_PATH, comm);
 	}
 	path = path_buf;
-	NOTICE(0, "hit; path='%s'", path);
 	rc = sys_fopen(&file, path, "r");
 	if (rc) {
 		return rc == -ENOENT ? 0 : rc;
@@ -268,11 +267,10 @@ sysctl_read_file(int loader, const char *comm)
 		line++;
 		rc = sysctl_parse_line(loader, s);
 		if (rc) {
-			ERR(-rc, "bad line; file='%s', line=%d",  path, line);
+			ERR(-rc, "Config error at %s:%d",  path, line);
 		}
 	}
-	fclose(file);
-	INFO(0, "ok; file='%s'", path);
+	fclose(file);	
 	return rc;
 }
 
@@ -1012,17 +1010,16 @@ sysctl_req(int fd, const char *path, char *old, const char *new)
 {
 	int rc;
 
-	INFO(0, "hit; path='%s'", path);
 	rc = sysctl_send_req(fd, path, new);
 	if (rc == 0) {
 		rc = sysctl_recv_rpl(fd, old);
 	}
 	if (rc < 0) {
-		ERR(-rc, "failed; path='%s'", path);
+		ERR(-rc, "Sysctl request failed; path='%s'", path);
 	} else if (rc > 0) {
-		WARN(rc, "error; path='%s'", path);
+		WARN(rc, "Sysctl request error; path='%s'", path);
 	} else {
-		INFO(0, "ok;");
+		INFO(0, "Sysctl request ok; path='%s';", path);
 	}
 	return rc;
 }
@@ -1067,16 +1064,16 @@ gt_sysctl(const char *path, char *old, const char *new)
 {
 	int rc;
 
-	INFO(0, "hit; path='%s'", path);
 	rc = sysctl_req_safe(path, old, new);
 	if (rc < 0) {
 		if (new == NULL) {
-			INFO(-rc, "failed; path='%s'", path);
+			INFO(-rc, "gt_sysctl() failed; path='%s'", path);
 		} else {
-			INFO(-rc, "failed; path='%s', new='%s'", path, new);
+			INFO(-rc, "gt_sysctl() failed; path='%s', new='%s'",
+				path, new);
 		}
 	} else {
-		INFO(0, "ok");
+		INFO(0, "gt_sysctl(); path='%s', new='%s'", path,  new);
 	}
 	GT_RETURN(rc);
 }
