@@ -11,13 +11,12 @@
 #define EPHEMERAL_PORT_MAX 65535
 #define NEPHEMERAL_PORTS (EPHEMERAL_PORT_MAX - EPHEMERAL_PORT_MIN + 1)
 
-#define ROUTE_IFNAME_NM 0 // pipe1{0
-#define ROUTE_IFNAME_OS 1 // pipe1
+#define N_INTERFACES_MAX 32
 
 struct route_mod {
 	struct log_scope log_scope;
 	struct lptree route_lptree;
-	struct dlist route_if_head;
+	struct route_if *route_ifs[N_INTERFACES_MAX];
 	struct route_entry_long *route_default;
 	struct dlist route_addr_head;
 };
@@ -30,19 +29,21 @@ struct route_if_addr {
 };
 
 struct route_if {
-	struct dlist rif_list;
+	u_char rif_id;
+	u_char rif_n_queues;
 	int rif_index;
 	int rif_flags;
 	int rif_mtu;
-	u_char rif_rss_nq;
 	int rif_n_addrs;
-	int rif_name_len[2];
 	struct route_if_addr **rif_addrs;
 	struct eth_addr rif_hwaddr;
 	u_char rif_rss_key[RSS_KEY_SIZE];
-	struct dlist rif_routes;
+
+//	u_char if_cpu_queue[N_CPUS];
+	u_char if_queue_cpu[N_CPUS];
+
+	struct dlist rif_route_head;
 	struct dev rif_host_dev;
-	struct dev rif_dev[GT_SERVICES_MAX][GT_RSS_NQ_MAX];
 	counter64_t rif_rx_pkts;
 	counter64_t rif_rx_bytes;
 	counter64_t rif_rx_drop;
@@ -105,15 +106,13 @@ struct route_msg {
 typedef void (*route_msg_f)(struct route_msg *);
 
 #define ROUTE_IF_FOREACH(ifp) \
-	DLIST_FOREACH(ifp, route_if_head(), rif_list)
-
-#define ROUTE_IF_FOREACH_RCU(ifp) \
-	DLIST_FOREACH_RCU(ifp, route_if_head(), rif_list)
+	for (int UNIQV(i) = 0; UNIQV(i) < N_INTERFACES_MAX; ++UNIQV(i)) \
+		if ((ifp = route_if_get(UNIQV(i))) != NULL)
 
 int route_mod_init();
 void route_mod_deinit();
 
-struct dlist *route_if_head();
+struct route_if *route_if_get(int);
 struct route_if *route_if_get_by_index(int);
 //struct route_if *route_if_get_by_ifname(const char *, int, int);
 

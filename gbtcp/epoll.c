@@ -363,7 +363,7 @@ u_epoll_close(struct file *fp)
 
 	ep = (struct epoll *)fp;
 	if (ep->ep_pid == getpid()) {
-		rc = sys_close(ep->ep_fd);	
+		rc = sys_close(&ep->ep_fd);
 	} else {
 		// u_epoll_close can be called in controller
 		rc = 0;

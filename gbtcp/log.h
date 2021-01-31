@@ -50,7 +50,9 @@ int log_mod_init();
 void log_scope_init(struct log_scope *, const char *);
 void log_scope_deinit(struct log_scope *);
 
-void log_init(const char *, u_int);
+int init_log();
+int fini_log();
+
 void log_set_level(int);
 int log_is_enabled(struct log_scope *, int, int);
 void log_vprintf(int,  int, const char *, va_list);

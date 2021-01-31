@@ -53,14 +53,14 @@ eth_addr_is_ucast(const u_char *addr)
 }
 
 void
-eth_addr_make_ip6_mcast(struct eth_addr *addr, const u_char *ip6) 
+eth_addr_make_ip6_mcast(struct eth_addr *addr, const u_char *ia6) 
 {   
 	addr->ea_bytes[0] = 0x33;
 	addr->ea_bytes[1] = 0x33;
-	addr->ea_bytes[2] = ip6[12];
-	addr->ea_bytes[3] = ip6[13];
-	addr->ea_bytes[4] = ip6[14];
-	addr->ea_bytes[5] = ip6[15];
+	addr->ea_bytes[2] = ia6[12];
+	addr->ea_bytes[3] = ia6[13];
+	addr->ea_bytes[4] = ia6[14];
+	addr->ea_bytes[5] = ia6[15];
 }
 
 void
@@ -139,7 +139,6 @@ rwlock_read_unlock(struct rwlock *rwl)
 
 //void rwlock_write_lock(struct rwlock *);
 //void rwlock_write_unlock(struct rwlock *);
-
 
 #else
 void
@@ -639,6 +638,7 @@ read_rss_key(const char *ifname, u_char *rss_key)
 	struct ifreq ifr;
 	struct ethtool_rxfh rss, *rss2;
 
+	rss2 = NULL;
 	rc = sys_socket(AF_INET, SOCK_DGRAM, 0);
 	if (rc < 0) {
 		return rc;
@@ -654,11 +654,12 @@ read_rss_key(const char *ifname, u_char *rss_key)
 		goto out;
 	}
 	if (rss.key_size != RSS_KEY_SIZE) {
-		ERR(0, "invalid rss key_size; key_size=%d", rss.key_size);
+		ERR(0, "%s: Bad RSS key size %d vs %d",
+			ifname, rss.key_size, RSS_KEY_SIZE);
 		goto out;
 	}
 	size = (sizeof(rss) + rss.key_size +
-	       rss.indir_size * sizeof(rss.rss_config[0]));
+		rss.indir_size * sizeof(rss.rss_config[0]));
 	rss2 = sys_malloc(size);
 	if (rss2 == NULL) {
 		goto out;
@@ -670,14 +671,96 @@ read_rss_key(const char *ifname, u_char *rss_key)
 	ifr.ifr_data = (void *)rss2;
 	rc = sys_ioctl(fd, SIOCETHTOOL, (uintptr_t)&ifr);
 	if (rc) {
-		goto out2;
+		goto out;
 	}
 	off = rss2->indir_size * sizeof(rss2->rss_config[0]);
-	memcpy(rss_key, (uint8_t *)rss2->rss_config + off, RSS_KEY_SIZE);
-out2:
-	sys_free(rss2);
+	memcpy(rss_key, (u_char *)rss2->rss_config + off, RSS_KEY_SIZE);
 out:
-	sys_close(fd);
+	sys_free(rss2);
+	sys_close(&fd);
+	return rc;
+}
+
+int
+read_irq_table(const char *ifname, u_char *q2cpu)
+{
+	int rc, irq, cpu_id, n_queues, queue_id, queue_id_max;
+	unsigned long long cpu_mask;
+	char *s, buf[256], pattern[IFNAMSIZ + 16], path[PATH_MAX];
+	struct iovec f[12];
+	FILE *file_interrupts, *file_irq;
+
+	n_queues = 0;
+	queue_id_max = -1;
+	snprintf(pattern, sizeof(pattern), "%s-TxRx-%%d", ifname);
+	rc = sys_fopen(&file_interrupts, "/proc/interrupts", "r");
+	if (rc) {
+		return rc;
+	}
+	while ((s = fgets(buf, sizeof(buf), file_interrupts)) != NULL) {
+		rc = strsplit(s, "\r\n\t ", f, ARRAY_SIZE(f));
+		if (rc < 12) {
+			continue;
+		}
+		((char *)f[11].iov_base)[f[11].iov_len] = '\0';
+		rc = sscanf(f[11].iov_base, pattern, &queue_id);
+		if (rc != 1) {
+			continue;
+		}
+		if (queue_id >= N_WORKER_CPUS) {
+			ERR(0, "%s: Too many RSS queues (>%d)",
+				ifname, N_WORKER_CPUS);
+			rc = -EINVAL;
+			goto err;
+		}
+		n_queues++;
+		queue_id_max = MAX(queue_id_max, queue_id);
+		irq = strtoul(f[0].iov_base, NULL, 10);
+		snprintf(path, sizeof(path), "/proc/irq/%d/smp_affinity", irq);
+		rc = sys_fopen(&file_irq, path, "r");
+		if (rc < 0) {
+			goto err;
+		}
+		s = sys_fgets(path, buf, sizeof(buf), file_irq);
+		fclose(file_irq);
+		if (s == NULL) {
+			goto err;
+		}
+		cpu_mask = strtoull(buf, NULL, 16);
+		if (cpu_mask == 0) {
+			ERR(0, "%s: Unexpected cpu mask (0)", path);
+			goto err_bad_format;
+		}
+		cpu_id = ffsl(cpu_mask) - 1;
+		if (cpu_id >= N_CPUS) {
+			ERR(0, "%s: cpu %d exceeds maximum support size %d",
+				path, cpu_id, N_CPUS);
+			goto err_bad_format;
+		}
+		if (cpu_mask != (1llu << cpu_id)) {
+			ERR(0, "%s: cpu mask (0x%llx) must be power of 2",
+				path, cpu_mask);
+			goto err_bad_format;
+		}
+		q2cpu[queue_id] = cpu_id;
+			
+	}
+	if (!n_queues) {
+		ERR(0, "Cannot find RSS queues: grep %s-TxRx /proc/interrupts",
+			ifname);
+		goto err_bad_format;
+	}
+	if (n_queues != queue_id_max + 1) {
+		ERR(0, "RSS queue is missing: grep %s-TxRx /proc/interrupts",
+			ifname);
+		goto err_bad_format;
+	}
+	fclose(file_interrupts);
+	return n_queues;
+err_bad_format:
+	rc = -EINVAL;
+err:
+	fclose(file_interrupts);
 	return rc;
 }
 
@@ -691,12 +774,12 @@ gettid()
 }
 
 int
-read_proc_comm(char *name, int pid)
+read_proc_name(char *name, int pid)
 {
 	int rc, len;
 	FILE *file;
 	char *s;
-	char buf[256];
+	char buf[PROC_NAME_MAX + 32];
 
 	snprintf(buf, sizeof(buf), "/proc/%d/status", pid);
 	rc = sys_fopen(&file, buf, "r");
@@ -709,18 +792,15 @@ read_proc_comm(char *name, int pid)
 		goto err;
 	}
 	len = strlen(s);
-	if (len < 5) {
+	if (len < 5 || memcmp(s, STRSZ("Name:"))) {
 		goto err;
 	}
-	if (memcmp(s, STRSZ("Name:"))) {
-		goto err;
-	}
-	len = strtrimcpy(name, s + 6, GT_COMMLEN);
-	if (len > 0 && len < GT_COMMLEN) {
+	len = strtrimcpy(name, s + 6, PROC_NAME_MAX);
+	if (len > 0 && len < PROC_NAME_MAX) {
 		return 0;
 	}
 err:
-	ERR(0, "bad format; path=/proc/%d/status", pid);
+	ERR(0, "/proc/%d/status: unexpected format", pid);
 	return -EPROTO;
 }
 #else // __linux__
@@ -830,13 +910,13 @@ int
 set_affinity(int cpu_id)
 {
 	int rc;
-	cpu_set_t cpumask;
+	cpu_set_t mask;
 
-	CPU_ZERO(&cpumask);
-	CPU_SET(cpu_id, &cpumask);
-	rc = pthread_setaffinity_np(pthread_self(), sizeof(cpumask), &cpumask);
+	CPU_ZERO(&mask);
+	CPU_SET(cpu_id, &mask);
+	rc = pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
 	if (rc != 0) {
-		ERR(rc, "failed; cpu_id=%d", cpu_id);
+		ERR(rc, "pthread_setaffinity_np() failed; cpu_id=%d", cpu_id);
 	}
 	return -rc;
 }

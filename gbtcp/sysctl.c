@@ -124,13 +124,13 @@ sysctl_setsockopt(int fd)
 
 	opt = GT_SYSCTL_BUFSIZ;
 	rc = sys_setsockopt(fd, SOL_SOCKET, SO_SNDBUF,
-			    &opt, sizeof(opt));
+		&opt, sizeof(opt));
 	if (rc < 0) {
 		return rc;
 	}
 	opt = GT_SYSCTL_BUFSIZ;
 	rc = sys_setsockopt(fd, SOL_SOCKET, SO_RCVBUF,
-			    &opt, sizeof(opt));
+		&opt, sizeof(opt));
 	if (rc < 0) {
 		return rc;
 	}
@@ -143,7 +143,7 @@ sysctl_make_sockaddr_un(struct sockaddr_un *a, int pid)
 {
 	a->sun_family = AF_UNIX;
 	snprintf(a->sun_path, sizeof(a->sun_path), "%s/%d.sock",
-	         SYSCTL_SOCK_PATH, pid);
+		SYSCTL_SOCK_PATH, pid);
 }
 
 static void
@@ -267,7 +267,7 @@ sysctl_read_file(int loader, const char *comm)
 		line++;
 		rc = sysctl_parse_line(loader, s);
 		if (rc) {
-			ERR(-rc, "Config error at %s:%d",  path, line);
+			ERR(-rc, "sysctl config error at %s:%d",  path, line);
 		}
 	}
 	fclose(file);	
@@ -605,26 +605,25 @@ sysctl_conn_fd(struct sysctl_conn *cp)
 	return cp->scc_event->fde_fd;
 }
 
-int
-sysctl_conn_open(struct sysctl_conn **cpp, int fd)
+struct sysctl_conn *
+sysctl_conn_open(int fd)
 {
-	int rc;
 	struct sysctl_conn *cp;
 
 	cp = sys_malloc(sizeof(*cp));
 	if (cp == NULL) {
-		return -ENOMEM;
+		return NULL;
 	}
 	memset(cp, 0, sizeof(*cp));
-	rc = fd_event_add(&cp->scc_event, fd, "sysctl",
-	                  cp, sysctl_process_events);
-	if (rc < 0) {
+	cp->scc_event = fd_event_add(current_fd_thread, fd, cp,
+		sysctl_process_events);
+	if (cp->scc_event == NULL) {
 		sys_free(cp);
+		return NULL;
 	} else {
 		fd_event_set(cp->scc_event, POLLIN);
-		*cpp = cp;
+		return cp;
 	}
-	return rc;
 }
 
 static int
@@ -658,8 +657,8 @@ sysctl_conn_accept(struct sysctl_conn *cp)
 	if (rc) {
 		goto err;
 	}
-	rc = sysctl_conn_open(&new_cp, new_fd);
-	if (rc) {
+	new_cp = sysctl_conn_open(new_fd);
+	if (new_cp == NULL) {
 		goto err;
 	}
 	new_cp->scc_accept_conn = 0;
@@ -667,7 +666,7 @@ sysctl_conn_accept(struct sysctl_conn *cp)
 	new_cp->scc_close_fn = cp->scc_close_fn;
 	return 0;
 err:
-	sys_close( fd);
+	sys_close(&fd);
 	return rc;
 }
 
@@ -704,13 +703,16 @@ sysctl_conn_recv(struct sysctl_conn *cp)
 void
 sysctl_conn_close(struct sysctl_conn *cp)
 {
+	int fd;
+
 	if (cp == NULL) {
 		return;
 	}
 	if (cp->scc_close_fn != NULL) {
 		(*cp->scc_close_fn)(cp);
 	}
-	sys_close(sysctl_conn_fd(cp));
+	fd = sysctl_conn_fd(cp);
+	sys_close(&fd);
 	fd_event_del(cp->scc_event);
 	sys_free(cp);
 }
@@ -940,7 +942,7 @@ sysctl_bind(const struct sockaddr_un *a)
 	}
 	return fd;
 err:
-	sys_close(fd);
+	sys_close(&fd);
 	return rc;
 }
 
@@ -1055,7 +1057,7 @@ sysctl_req_safe(const char *path, char *old, const char *new)
 	if (rc == 0) {
 		rc = sysctl_req(fd, path, old, new);
 	}
-	sys_close(fd);
+	sys_close(&fd);
 	return rc;
 }
 

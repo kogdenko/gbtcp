@@ -3,13 +3,6 @@
 
 #define CURMOD pid
 
-char *
-pid_file_path(char *path, int sid)
-{
-	snprintf(path, PATH_MAX, "%s/%d.pid", PID_PATH, sid);
-	return path;
-}
-
 int
 pid_file_open(const char *path)
 {
@@ -26,11 +19,15 @@ pid_file_open(const char *path)
 }
 
 int
-pid_file_lock(int fd)
+pid_file_lock(int fd, int block)
 {
-	int rc;
+	int rc, op;
 
-	rc = sys_flock(fd, LOCK_EX|LOCK_NB);
+	op = LOCK_EX;
+	if (!block) {
+		op |= LOCK_NB;
+	}
+	rc = sys_flock(fd, op);
 	return rc;
 }
 
@@ -46,12 +43,11 @@ pid_file_read(int fd)
 	}
 	buf[rc] = '\0';
 	rc = sscanf(buf, "%d", &pid);
-	if (rc != 1 || pid <= 0) {
-		//ERR(0, "Invalid pid file format; fd=%d", fd);
+	if (rc != 1) {
+		// TODO: err log
 		return -EINVAL;
-	} else {
-		return pid;
 	}
+	return pid;
 }
 
 int
@@ -67,23 +63,19 @@ pid_file_write(int fd, int pid)
 }
 
 int
-pid_file_acquire(int fd, int pid)
+pid_file_acquire(const char *path, int pid, int block)
 {
-	int rc;
+	int rc, fd;
 
-	rc = pid_file_lock(fd);
-	if (rc == -EWOULDBLOCK) {
-		rc = pid_file_read(fd);
-		if (rc >= 0) {
-			//WARN(0, "Pid file locked; fd=%d, pid=%d", fd, rc);
-		}
-		return rc;
-	} else if (rc < 0) {
+	rc = pid_file_open(path);
+	if (rc < 0) {
 		return rc;
 	}
-	rc = pid_file_write(fd, pid);
+	fd = rc;
+	rc = pid_file_lock(fd, block);
 	if (rc) {
 		return rc;
 	}
-	return pid;
+	rc = pid_file_write(fd, pid);
+	return fd;
 }

@@ -15,10 +15,10 @@ struct shm_hdr {
 
 	uint64_t shm_ns;
 	uint64_t shm_hz;
-	int shm_rss_nq;
 	void *shm_mods[MODS_MAX];
-	struct service shm_services[GT_SERVICES_MAX];
-	int shm_rss_table[GT_RSS_NQ_MAX];
+	struct service shm_cpus[N_CPUS];
+
+	struct dlist shm_proc_head;
 
 };
 

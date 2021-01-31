@@ -15,12 +15,7 @@ timer_ring_init(struct service *s, uint64_t t, int ring_id, uint64_t seg_order)
 	struct timer_ring *ring;
 
 	assert(ring_id < TIMER_N_RINGS);
-	ring = mem_alloc(sizeof(struct timer_ring));
-	if (ring == NULL) {
-		deinit_timers(s);
-		return -ENOMEM;
-	}
-	s->p_timer_rings[ring_id] = ring;
+	ring = s->p_timer_rings + ring_id;
 	ring->tmr_seg_order = seg_order;
 	ring->tmr_cur = t >> ring->tmr_seg_order;
 	for (i = 0; i < TIMER_RING_SIZE; ++i) {
@@ -54,12 +49,6 @@ init_timers(struct service *s)
 void
 deinit_timers(struct service *s)
 {
-	int i;
-
-	for (i = 0; i < TIMER_N_RINGS; ++i) {
-		mem_free(s->p_timer_rings[i]);
-		s->p_timer_rings[i] = NULL;
-	}
 }
 
 static void
@@ -119,13 +108,13 @@ run_timers()
 	t_saved = t;
 	dlist_init(&queue);
 	for (i = 0; i < TIMER_N_RINGS; ++i) {
-		ring = current->p_timer_rings[i];
+		ring = current_cpu->p_timer_rings + i;
 		run_ring_timers(ring, t, &queue);
 	}
 	call_timers(&queue);
 }
 
-static void
+/*static void
 migrate_timers_in_seg(u_char sid, timer_seg_t *dst_seg, timer_seg_t *src_seg)
 {
 	struct timer *timer;
@@ -159,7 +148,7 @@ migrate_timers(struct service *dst, struct service *src)
 			SEG_UNLOCK(src_seg);
 		}
 	}
-}
+}*/
 
 void
 timer_init(struct timer *timer)
@@ -223,14 +212,14 @@ timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 	} else {
 		ring_id = 1;
 	}
-	ring = current->p_timer_rings[ring_id];
+	ring = current_cpu->p_timer_rings + ring_id;
 	dist = expire >> ring->tmr_seg_order;
 	assert(dist < TIMER_RING_SIZE);
 	assert(dist > 1);
 	pos = ring->tmr_cur + dist;
 	seg_id = (pos & TIMER_RING_MASK);
 	seg = ring->tmr_segs + seg_id;
-	timer->tm_sid = current->p_sid;
+	timer->tm_cpu_id = current_cpu_id;
 	timer->tm_ring_id = ring_id;
 	timer->tm_seg_id = seg_id;
 	timer->tm_mod_id = mod_id;
@@ -239,30 +228,22 @@ timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 	DLIST_INSERT_HEAD(&seg->htb_head, timer, tm_list);
 	SEG_UNLOCK(seg);
 	DBG(0, "set timer; t=%p, mod=%d, fn=%d, ring=%d, seg=%hu",
-	    timer, mod_id, fn_id, ring_id, seg_id);
+		timer, mod_id, fn_id, ring_id, seg_id);
 }
 
 void
 timer_del(struct timer *timer)
 {
-	int worker_id;
 	struct service *w;
 	struct timer_ring *ring;
 	timer_seg_t *seg;
 
 	if (timer_is_running(timer)) {
-restart:
-		// timer_del() can be executed while migrate_timers()
-		worker_id = READ_ONCE(timer->tm_sid);
-		w = worker_get(worker_id);
-		ring = w->p_timer_rings[timer->tm_ring_id];
+		w = shared->shm_cpus + timer->tm_cpu_id;
+		ring = w->p_timer_rings + timer->tm_ring_id;
 		assert(ring != NULL);
 		seg = ring->tmr_segs + timer->tm_seg_id;
 		SEG_LOCK(seg);
-		if (worker_id != READ_ONCE(timer->tm_sid)) {
-			SEG_UNLOCK(seg);
-			goto restart;
-		}
 		DLIST_REMOVE(timer, tm_list);
 		SEG_UNLOCK(seg);
 		timer->tm_ring_id = TIMER_RING_POISON;

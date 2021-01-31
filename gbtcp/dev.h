@@ -18,7 +18,6 @@ struct dev {
 	int dev_cur_tx_ring;
 	u_char dev_tx_throttled;
 	u_short dev_tx_without_reclaim;
-	uint64_t dev_cur_tx_ring_epoch;
 	dev_f dev_fn;
 	struct dlist dev_list;
 	struct route_if *dev_ifp;
@@ -26,7 +25,7 @@ struct dev {
 
 struct dev_pkt {
 	u_short pkt_len;
-	u_char pkt_sid;
+	int pkt_pid;
 	struct netmap_ring *pkt_txr;
 	u_char *pkt_data;
 };
@@ -68,7 +67,7 @@ struct dev_pkt {
 
 #define dev_is_inited(dev) ((dev)->dev_fn != NULL)
 
-int dev_init(struct dev *, const char *, dev_f);
+int dev_init(struct dev *, int, const char *, dev_f);
 void dev_deinit(struct dev *);
 void dev_close_fd(struct dev *);
 void dev_rx_on(struct dev *);

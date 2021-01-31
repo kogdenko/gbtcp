@@ -4,7 +4,8 @@
 
 #include "subr.h"
 
-#define CONTROLLER_SID 0
+#define CONTROLLER_CPU_ID (N_CPUS - 1)
+#define N_WORKER_CPUS (N_CPUS - 2)
 
 extern int controller_done;
 
@@ -13,7 +14,7 @@ int transmit_to_host(struct route_if *, void *, int);
 
 void update_rss_table();
 
-int controller_init(int, const char *);
+int controller_init(int, int, const char *);
 void controller_deinit();
 void controller_process();
 

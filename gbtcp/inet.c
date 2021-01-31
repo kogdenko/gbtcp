@@ -39,7 +39,7 @@ static int
 sysctl_inet_stat(struct sysctl_conn *cp, void *udata,
 	const char *new, struct strbuf *old)
 {
-	int zero;
+	int i, zero;
 	uintptr_t off;
 	uint64_t *ptr, accum;
 	struct service *s;
@@ -55,7 +55,8 @@ sysctl_inet_stat(struct sysctl_conn *cp, void *udata,
 		}
 	}
 	accum = 0;
-	SERVICE_FOREACH(s) {
+	for (i = 0; i < N_CPUS; ++i) {
+		s = shared->shm_cpus + i;
 		ptr = (uint64_t *)((u_char *)s + off);
 		accum += *ptr;
 		if (zero) {

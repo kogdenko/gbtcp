@@ -10,7 +10,7 @@ static int quit_no_services = 1;
 
 int controller_done;
 
-static struct service *
+/*static struct service *
 service_get_by_pid(int pid)
 {
 	int i;
@@ -21,7 +21,7 @@ service_get_by_pid(int pid)
 		}
 	}
 	return NULL;
-}
+}*/
 
 static void
 host_rx_one(struct route_if *ifp, void *data, int len)
@@ -74,31 +74,9 @@ transmit_to_host(struct route_if *ifp, void *data, int len)
 }
 
 static int
-controller_clean_kill(int fd)
+controller_clean(int controller_pid)
 {
-	int rc, pid;
-
-	rc = pid_file_acquire(fd, 0);
-	if (rc <= 0) {
-		return rc;
-	}
-	pid = rc;
-	rc = sys_kill(pid, SIGKILL);
-	if (rc == 0) {
-		rc = sys_flock(fd, LOCK_EX);
-		if (rc < 0) {
-			return rc;
-		}
-	} else if (rc == -ESRCH) {
-		rc = 0;
-	}
-	return rc;
-}
-
-static int
-controller_clean()
-{
-	int rc, fd, id;
+	int rc, fd, pid;
 	char path[PATH_MAX];
 	DIR *dir;
 	struct dirent *entry;
@@ -108,21 +86,26 @@ controller_clean()
 		return rc;
 	}
 	while ((entry = readdir(dir)) != NULL) {
-		rc = sscanf(entry->d_name, "%d.pid", &id);
-		if (rc != 1 || id == CONTROLLER_SID) {
+		rc = sscanf(entry->d_name, "%d.pid", &pid);
+		if (rc != 1 || pid == controller_pid) {
 			continue;
 		}
-		snprintf(path, sizeof(path), "%s/%s", PID_PATH, entry->d_name);
+		snprintf(path, sizeof(path), "%s/%d.pid", PID_PATH, pid);
 		rc = pid_file_open(path);
 		if (rc < 0) {
-			sys_closedir(dir);
-			return rc;
+			goto err;
 		}
 		fd = rc;
-		rc = controller_clean_kill(fd);
-		if (rc) {
-			sys_closedir(dir);
-			return rc;
+		rc = pid_file_lock(fd, 0);
+		if (rc == -EWOULDBLOCK) {
+			rc = sys_kill(pid, SIGKILL);
+			if (rc == -ESRCH) {
+				rc = 0;
+			}
+		}
+		sys_close(&fd);
+		if (rc < 0) {
+			goto err;
 		}
 		sys_unlink(path);
 	}
@@ -132,7 +115,7 @@ controller_clean()
 		return rc;
 	}
 	while ((entry = readdir(dir)) != NULL) {
-		rc = sscanf(entry->d_name, "%d.sock", &id);
+		rc = sscanf(entry->d_name, "%d.sock", &pid);
 		if (rc == 1) {
 			snprintf(path, sizeof(path), "%s/%s",
 				SYSCTL_SOCK_PATH, entry->d_name);
@@ -141,9 +124,12 @@ controller_clean()
 	}
 	sys_closedir(dir);
 	return 0;
+err:
+	sys_closedir(dir);
+	return rc;
 }
 
-static void
+/*static void
 controller_lock_service(struct service *s)
 {
 	int rc;
@@ -280,23 +266,22 @@ controller_sched_balance()
 			return;
 		}
 	}
-}
+}*/
 
-static void
+void
 controller_del_service(struct service *s)
 {
-	int i, sid, rss_nq;
+//	int i, sid, rss_nq;
 	struct sockaddr_un a;
-	struct service *new;
+//	struct service *new;
 
-	NOTICE(0, "hit; pid=%d", s->p_pid);
-	sid = s->p_sid;
-	rss_nq = s->p_rss_nq;
-	controller_check_service_deadlock(s);
+	//sid = s->p_sid;
+	//rss_nq = s->p_rss_nq;
+	//controller_check_service_deadlock(s);
 	sysctl_make_sockaddr_un(&a, s->p_pid);
 	sys_unlink(a.sun_path);
-	service_deinit_shared(s, 0);
-	sid_max = 0;
+	//service_deinit_shared(s, 0);
+	/*sid_max = 0;
 	SERVICE_FOREACH(s) {
 		if (s->p_pid) {
 			sid_max = MAX(sid_max, s->p_sid);
@@ -313,14 +298,15 @@ controller_del_service(struct service *s)
 			}
 		}
 		assert(rss_nq == 0);
-		update_rss_bindings(new);
-	}
+		//
+		//update_rss_bindings(new);
+	}*/
 	if (sid_max == 0 && quit_no_services) {
 		controller_done = 1;
 	}
 }
 
-static void
+/*void
 controller_add_service(struct service *s, int pid, struct sysctl_conn *cp)
 {
 	int fd;
@@ -469,22 +455,24 @@ sysctl_controller_service_list(void *udata, const char *ident,
 		strbuf_addf(out, "%d,%d", s->p_pid, s->p_rss_nq);
 		return 0;
 	}
-}
+}*/
 
 static void
 service_conn_close(struct sysctl_conn *cp)
 {
 	int pid;
-	struct service *s;
+	//struct service *s;
 
 	pid = cp->scc_peer_pid;
 	if (pid == 0) {
 		return;
 	}
-	s = service_get_by_pid(pid);
-	if (s != NULL) {
-		controller_del_service(s);
-	}
+	dbg("Process gone; pid=%d", pid);
+//	proc_del(pid);
+	//s = service_get_by_pid(pid);
+	//if (s != NULL) {
+	//	controller_del_service(s);
+	//}
 }
 
 static int
@@ -499,14 +487,14 @@ controller_bind(int pid)
 		return rc;
 	}
 	fd = rc;
-	rc = sys_listen(fd, GT_SERVICES_MAX);
+	rc = sys_listen(fd, 5);
 	if (rc) {
-		sys_close(fd);
+		sys_close(&fd);
 		return rc;
 	}
-	rc = sysctl_conn_open(&controller_conn, fd);
-	if (rc) {
-		sys_close(fd);
+	controller_conn = sysctl_conn_open(fd);
+	if (controller_conn == NULL) {
+		sys_close(&fd);
 		return rc;	
 	}
 	sys_unlink(SYSCTL_CONTROLLER_PATH);
@@ -535,31 +523,54 @@ controller_unbind(int pid)
 	}
 }
 
-int
-controller_init(int daemonize, const char *service_comm)
-{
-	int i, rc, pid;
-	uint64_t hz;
 
-	gt_init("controller", 0);
-	gt_preload_passthru = 1;
-	shared = NULL;
+int
+controller_init(int daemonize, int force, const char *worker_proc_name)
+{
+	int i;
+	int rc, pid, init_pid_fd;
+	uint64_t hz;
+	char path[PATH_MAX];
+
+	init_pid_fd = -1;
 	if (daemonize) {
 		rc = sys_daemon(1, 1);
 		if (rc) {
 			goto err;
 		}
 	}
+	gt_preload_onoff = 0;
+	strzcpy(current_name, "controller", sizeof(current_name));
+	rc = init_proc();
+	if (rc) {
+		goto err;
+	}
+	rc = init_log();
+	if (rc) {
+		goto err;
+	}
 	pid = getpid();
-	rc = service_pid_file_acquire(CONTROLLER_SID, pid);
+	snprintf(path, sizeof(path), "%s/init.lock", GT_PREFIX);
+	rc = pid_file_acquire(path, pid, 1);
+	if (rc < 0) {
+		goto err;
+	}
+	init_pid_fd = rc;
+	dbg("xxx");
+	if (force) {
+		controller_clean(pid);
+	}
+	snprintf(path, sizeof(path), "%s/%d.pid", PID_PATH, pid);
+	rc = pid_file_acquire(path, pid, 0);
 	if (rc < 0) {
 		goto err;
 	}
 	controller_pid_fd = rc;
-	rc = controller_clean();
+	rc = controller_clean(pid);
 	if (rc) {
 		goto err;
 	}
+	dbg("yyyy");
 	rc = sysctl_root_init();
 	if (rc) {
 		goto err;
@@ -568,8 +579,12 @@ controller_init(int daemonize, const char *service_comm)
 	if (rc) {
 		goto err;
 	}
-	current = shared->shm_services + CONTROLLER_SID;
-	init_worker_mem(current);
+	for (i = 0; i < N_CPUS; ++i) {
+		rc = service_init_shared(shared->shm_cpus + i, pid, 0);
+		assert(rc == 0);
+	}
+	set_current_cpu_id(CONTROLLER_CPU_ID);
+	current = proc_add(pid, 0);
 	rc = init_modules();
 	if (rc) {
 		goto err;
@@ -577,20 +592,9 @@ controller_init(int daemonize, const char *service_comm)
 	hz = sleep_compute_hz();
 	set_hz(hz);
 	shared->shm_hz = hz;
-	shared->shm_rss_nq = 0;
-	dbg("read_file %s", service_comm);
-	rc = sysctl_read_file(1, service_comm);
-	if (rc) {
-		goto err;
-	}
-	for (i = 0; i < ARRAY_SIZE(shared->shm_rss_table); ++i) {
-		shared->shm_rss_table[i] = SERVICE_ID_INVALID;
-	}
-	rc = service_init_shared(current, pid, 0);
-	if (rc) {
-		goto err;
-	}
-	rc = service_init_private();
+
+	// Read only loader sysctl variables
+	rc = sysctl_read_file(1, worker_proc_name);
 	if (rc) {
 		goto err;
 	}
@@ -598,19 +602,16 @@ controller_init(int daemonize, const char *service_comm)
 	if (rc) {
 		goto err;
 	}
-	rc = sysctl_read_file(0, service_comm);
+	// Read _not_ loader sysctl variables
+	rc = sysctl_read_file(0, worker_proc_name);
 	if (rc) {
 		goto err;
 	}
-	sysctl_add(SYSCTL_CONTROLLER_ADD, SYSCTL_WR, NULL, NULL,
-	           sysctl_controller_add);
-	sysctl_add_list(GT_SYSCTL_CONTROLLER_SERVICE_LIST, SYSCTL_RD, NULL,
-	                sysctl_controller_service_list_next,
-	                sysctl_controller_service_list);
-	NOTICE(0, "ok;");
+	dbg("ok!!");
+	sys_close(&init_pid_fd);
 	return 0;
 err:
-	ERR(-rc, "failed;");
+	sys_close(&init_pid_fd);
 	controller_deinit();
 	return rc;
 }
@@ -623,13 +624,13 @@ controller_deinit()
 	pid = getpid();
 	controller_unbind(pid);
 	if (current != NULL) {
-		service_deinit_private();
-		service_deinit_shared(current, 1);
+		//service_deinit_private();
+		//service_deinit_shared(current, 1);
 		current = NULL;
 	}
 	shm_deinit();
 	sysctl_root_deinit();
-	sys_close(controller_pid_fd);
+	sys_close(&controller_pid_fd);
 	controller_pid_fd = -1;
 }
 
@@ -638,9 +639,6 @@ controller_process()
 {
 	rd_nanoseconds();
 	WRITE_ONCE(shared->shm_ns, nanoseconds);
-	wait_for_fd_events();
-	if (1) {
-		controller_sched_balance();
-	}
+	fd_thread_wait(current_fd_thread);
 
 }

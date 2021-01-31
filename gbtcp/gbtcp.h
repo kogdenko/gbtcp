@@ -37,6 +37,9 @@ typedef void (*gt_aio_f)(void *, int, short);
 #define GT_SYSCTL_BUFSIZ 4096
 #define GT_RSS_NQ_MAX 32
 #define GT_SERVICES_MAX 128
+
+#define N_CPUS 32
+
 #define GT_FIRST_FD (FD_SETSIZE >> 1)
 #define GT_GROUP_NAME "gbtcp"
 
@@ -172,9 +175,9 @@ typedef void (*gt_aio_f)(void *, int, short);
 	x(badop)
 
 extern __thread int gt_errno;
-extern int gt_preload_passthru;
+extern int gt_preload_onoff;
 
-void gt_init(const char *, int);
+int gt_init();
 pid_t gt_fork();
 int gt_socket(int, int, int);
 int gt_connect(int, const struct sockaddr *, socklen_t);

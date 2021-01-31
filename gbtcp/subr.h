@@ -27,6 +27,7 @@ void gt_qsort_r(void *, size_t, size_t,
 
 #define RSS_KEY_SIZE 40
 
+
 #define NETMAP_PFX "netmap:"
 #define NETMAP_PFX_LEN (sizeof(NETMAP_PFX) - 1)
 #define NM_IFNAMSIZ (IFNAMSIZ + NETMAP_PFX_LEN)
@@ -38,6 +39,17 @@ void gt_qsort_r(void *, size_t, size_t,
 #define NSEC_MINUTE (60 * NSEC_SEC)
 #define NSEC_HOUR (60 * NSEC_MINUTE)
 #define NSEC_INFINITY ((uint64_t)(-1))
+
+#ifdef __linux__
+#define PROC_NAME_MAX 32
+#elif __FreeBSD__
+#define PROC_NAME_MAX COMMLEN
+#else
+#error "unsupported platform"
+#endif
+
+// TODO: refrac
+extern char current_name[PROC_NAME_MAX];
 
 typedef uint16_t be16_t;
 typedef uint32_t be32_t;
@@ -278,7 +290,7 @@ void rwlock_write_unlock(struct rwlock *);
 #define counter64_add(c, v)
 #else // 1
 #define counter64_add(c, v) \
-	((c)->cnt_per_service[current->p_sid].cntps_value += (v))
+	((c)->cnt_per_service[current_cpu_id].cntps_value += (v))
 #endif //1
 
 #define counter64_inc(c) counter64_add(c, 1)
@@ -313,9 +325,10 @@ ssize_t write_record(int, const void *, size_t);
 ssize_t send_record(int, const void *, size_t, int);
 
 int read_rss_key(const char *, u_char *);
+int read_irq_table(const char *, u_char *);
 
 long gettid();
-int read_proc_comm(char *, int);
+int read_proc_name(char *, int);
 
 uint64_t rdtsc();
 

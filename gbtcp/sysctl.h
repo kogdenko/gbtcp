@@ -13,7 +13,7 @@
 #define SYSCTL_CONFIG_PATH GT_PREFIX"/sysctl"
 #define SYSCTL_CONTROLLER_PATH SYSCTL_SOCK_PATH"/controller.sock"
 
-#define SYSCTL_CONTROLLER_ADD "controller.add"
+//#define SYSCTL_CONTROLLER_ADD "controller.add"
 
 struct sysctl_conn {
 	void (*scc_close_fn)(struct sysctl_conn *);
@@ -38,7 +38,7 @@ void sysctl_make_sockaddr_un(struct sockaddr_un *, int);
 int sysctl_read_file(int, const char *);
 
 int sysctl_conn_fd(struct sysctl_conn *);
-int sysctl_conn_open(struct sysctl_conn **, int);
+struct sysctl_conn *sysctl_conn_open(int);
 void sysctl_conn_close(struct sysctl_conn *);
 
 int sysctl_connect(int);

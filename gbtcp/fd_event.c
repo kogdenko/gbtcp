@@ -3,36 +3,21 @@
 
 #define CURMOD fd_event
 
-// We need periodically RX devices to avoid packet loss 
+// We should periodically RX devices to avoid packet loss 
 #define FD_EVENT_TIMEOUT_MIN (20 * NSEC_USEC)
 #define FD_EVENT_TIMEOUT_MAX (60 * NSEC_USEC) 
 
-int fd_poll_epoch;
-
-static uint64_t fd_event_drain_time;
-static uint64_t fd_event_timeout = FD_EVENT_TIMEOUT_MIN;
-static int fd_event_n_used;
-static int fd_poll_is_waiting;
-static struct fd_event *fd_event_used[FD_SETSIZE];
-static struct fd_event fd_event_buf[FD_SETSIZE];
 
 void
-clean_fd_events()
-{
-	fd_event_n_used = 0;
-	memset(fd_event_buf, 0, sizeof(fd_event_buf));
-}
-
-void
-wait_for_fd_events2(int force, uint64_t to)
+fd_thread_wait3(struct fd_thread *t, int force, uint64_t to)
 {
 	int throttled;
 	uint64_t elapsed;
 	struct fd_poll p;
 
 	if (!force) {
-		elapsed = nanoseconds - fd_event_drain_time;
-		if (elapsed < fd_event_timeout) {
+		elapsed = nanoseconds - t->fdt_drain_time;
+		if (elapsed < t->fdt_timeout) {
 			return;
 		}
 	}
@@ -48,27 +33,26 @@ wait_for_fd_events2(int force, uint64_t to)
 		}
 	}
 	if (throttled) {
-		fd_event_timeout >>= 1;
-		if (fd_event_timeout < FD_EVENT_TIMEOUT_MIN) {
-			fd_event_timeout = FD_EVENT_TIMEOUT_MIN;
+		t->fdt_timeout >>= 1;
+		if (t->fdt_timeout < FD_EVENT_TIMEOUT_MIN) {
+			t->fdt_timeout = FD_EVENT_TIMEOUT_MIN;
 		}
-	} else if (fd_event_timeout < FD_EVENT_TIMEOUT_MAX) {
-		fd_event_timeout += NSEC_USEC;
+	} else if (t->fdt_timeout < FD_EVENT_TIMEOUT_MAX) {
+		t->fdt_timeout += NSEC_USEC;
 	}
 }
 
-int
-fd_event_add(struct fd_event **pe, int fd, const char *name,
-	void *udata, fd_event_f fn)
+struct fd_event *
+fd_event_add(struct fd_thread *t, int fd, void *udata, fd_event_f fn)
 {
 	int i, id;
 	struct fd_event *e;
 
 	assert(fn != NULL);
-	assert(fd_event_n_used < ARRAY_SIZE(fd_event_used));
+	assert(t->fdt_n_used < ARRAY_SIZE(t->fdt_used));
 	id = -1;
-	for (i = 0; i < ARRAY_SIZE(fd_event_buf); ++i) {
-		e = fd_event_buf + i;
+	for (i = 0; i < ARRAY_SIZE(t->fdt_buf); ++i) {
+		e = t->fdt_buf + i;
 		if (e->fde_ref_cnt) {
 			if (e->fde_fn != NULL && e->fde_fd == fd) {
 				die(0, "fd event already exists; fd=%d", fd);
@@ -80,39 +64,41 @@ fd_event_add(struct fd_event **pe, int fd, const char *name,
 		}
 	}
 	assert(id != -1);
-	e = fd_event_buf + id;
+	e = t->fdt_buf + id;
 	memset(e, 0, sizeof(*e));
 	e->fde_fd = fd;
 	e->fde_ref_cnt = 1;
 	e->fde_events = 0;
 	e->fde_fn = fn;
 	e->fde_udata = udata;
-	e->fde_id = fd_event_n_used;
-	fd_event_used[e->fde_id] = e;
-	fd_event_n_used++;
-	*pe = e;
-	INFO(0, "Add fd event; fd=%d, event='%s'", e->fde_fd, name);
-	return 0;
+	e->fde_id = t->fdt_n_used;
+	e->fde_thread = t;
+	t->fdt_used[e->fde_id] = e;
+	t->fdt_n_used++;
+	INFO(0, "add fd event; fd=%d, event='%s'", e->fde_fd);
+	return e;
 }
 
 static int
 fd_event_unref(struct fd_event *e)
 {
 	int ref_cnt;
+	struct fd_thread *t;
 	struct fd_event *last;
 
 	assert(e->fde_ref_cnt > 0);
+	t = e->fde_thread;
 	e->fde_ref_cnt--;
 	ref_cnt = e->fde_ref_cnt;
 	if (ref_cnt == 0) {
-		INFO(0, "hit; fd=%d", e->fde_fd);
-		assert(e->fde_id < fd_event_n_used);
-		if (e->fde_id != fd_event_n_used - 1) {
-			last = fd_event_used[fd_event_n_used - 1];
-			fd_event_used[e->fde_id] = last;
-			fd_event_used[e->fde_id]->fde_id = e->fde_id;
+		INFO(0, "free fd event; fd=%d", e->fde_fd);
+		assert(e->fde_id < t->fdt_n_used);
+		if (e->fde_id != t->fdt_n_used - 1) {
+			last = t->fdt_used[t->fdt_n_used - 1];
+			t->fdt_used[e->fde_id] = last;
+			t->fdt_used[e->fde_id]->fde_id = e->fde_id;
 		}
-		fd_event_n_used--;
+		t->fdt_n_used--;
 	}
 	return ref_cnt;
 }
@@ -121,10 +107,8 @@ void
 fd_event_del(struct fd_event *e)
 {
 	if (e != NULL) {
-		INFO(0, "Del fd event; fd=%d", e->fde_fd);
+		INFO(0, "del fd event; fd=%d", e->fde_fd);
 		assert(e->fde_fn != NULL);
-		assert(e->fde_id < fd_event_n_used);
-		assert(e == fd_event_used[e->fde_id]);
 		e->fde_fn = NULL;
 		fd_event_unref(e);
 	}
@@ -137,8 +121,6 @@ fd_event_set(struct fd_event *e, short events)
 	assert((events & ~(POLLIN|POLLOUT)) == 0);
 	assert(e != NULL);
 	assert(e->fde_ref_cnt);
-	assert(e->fde_id < fd_event_n_used);
-	assert(e == fd_event_used[e->fde_id]);
 	e->fde_events |= events;
 }
 
@@ -147,8 +129,6 @@ fd_event_clear(struct fd_event *e, short events)
 {
 	assert(events);
 	assert(e != NULL);
-	assert(e->fde_id < fd_event_n_used);
-	assert(e == fd_event_used[e->fde_id]);
 	assert((events & ~(POLLIN|POLLOUT)) == 0);
 	e->fde_events &= ~events;
 }
@@ -197,23 +177,25 @@ int
 fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 {
 	int i, rc, n_triggered;
-	uint64_t t, elapsed;
+	uint64_t now, elapsed;
 	struct timespec to;
 	const sigset_t *fd_poll_sigmask;
 	struct pollfd *pfd;
+	struct fd_thread *t;
 	struct fd_event *e;
 
-	if (fd_poll_is_waiting) {
+	t = current_fd_thread;
+	if (t->fdt_is_waiting) {
 		return -EAGAIN;
 	}
 	p->fdp_throttled = 0;
 	p->fdp_n_events = 0;
 	sock_tx_flush();
-	for (i = 0; i < fd_event_n_used; ++i) {
+	for (i = 0; i < t->fdt_n_used; ++i) {
 		if (p->fdp_n_added + p->fdp_n_events == FD_SETSIZE) {
 			break;
 		}
-		e = fd_event_used[i];
+		e = t->fdt_used[i];
 		if (e->fde_fn == NULL || e->fde_events == 0) {
 			continue;
 		}
@@ -231,7 +213,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	} else {
 		to.tv_nsec = p->fdp_to;
 	}
-	t = nanoseconds;
+	now = nanoseconds;
 	fd_poll_sigmask = sigmask;
 	if (fd_poll_sigmask == NULL) {
 		fd_poll_sigmask = signal_sigprocmask_get();
@@ -240,8 +222,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	rc = sys_ppoll(p->fdp_pfds, p->fdp_n_added + p->fdp_n_events,
 		&to, fd_poll_sigmask);
 	SERVICE_LOCK;
-	fd_poll_epoch++;
-	elapsed = nanoseconds - t;
+	elapsed = nanoseconds - now;
 	if (elapsed > p->fdp_to) {
 		p->fdp_to = 0;
 	} else {
@@ -252,7 +233,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 		return rc;
 	}
 	n_triggered = rc;
-	fd_poll_is_waiting = 1;
+	t->fdt_is_waiting = 1;
 	for (i = 0; i < p->fdp_n_events; ++i) {
 		e = p->fdp_events[i];
 		pfd = p->fdp_pfds + p->fdp_n_added + i;
@@ -271,9 +252,9 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 		}
 		fd_event_unref(e);
 	}
-	fd_poll_is_waiting = 0;
+	t->fdt_is_waiting = 0;
 	if (p->fdp_throttled == 0) {
-		fd_event_drain_time = nanoseconds;
+		t->fdt_drain_time = nanoseconds;
 	}
 	return n_triggered;
 }

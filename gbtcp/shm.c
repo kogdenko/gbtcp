@@ -54,6 +54,7 @@ shm_init()
 		dlist_init(&shared->msb_buddy_area[i]);
 	}
 	mem_buddy_init();
+	dlist_init(&shared->shm_proc_head);
 	NOTICE(0, "ok; addr=%p", (void *)shared->msb_begin);
 	return 0;
 err:
@@ -67,54 +68,42 @@ shm_attach()
 {
 	int rc;
 	size_t size;
-	void *addr, *tmp;
+	void *addr;
+	struct shm_hdr *tmp;
 
-	NOTICE(0, "hit;");
-	addr = NULL;
 	rc = sys_open(SHM_PATH, O_RDWR, 0666);
 	if (rc < 0) {
-		goto err;
+		return rc;
 	}
 	shm_fd = rc;
-	rc = sys_mmap((void **)&shared, NULL, sizeof(*shared), PROT_READ,
+	rc = sys_mmap((void **)&tmp, NULL, sizeof(*tmp), PROT_READ,
 		MAP_SHARED, shm_fd, 0);
 	if (rc) {
-		goto err;
+		sys_close(&shm_fd);
+		return rc;
 	}
-	size = shared->msb_end - shared->msb_begin;
-	addr = (void *)shared->msb_begin;
-	tmp = shared;
-	shared = NULL;
-	sys_munmap(tmp, sizeof(*shared));
-	NOTICE(0, "hit; addr=%p", addr);
+	size = tmp->msb_end - tmp->msb_begin;
+	addr = (void *)tmp->msb_begin;
+	sys_munmap(tmp, sizeof(*tmp));
 	rc = sys_mmap((void **)&shared, addr, size, PROT_READ|PROT_WRITE,
 		MAP_SHARED|MAP_FIXED, shm_fd, 0);
 	if (rc) {
-err:
-		ERR(-rc, "failed; addr=%p", (void *)addr);
-		shm_detach();
-		return rc;
-	} else {
-		NOTICE(0, "ok; addr=%p", (void *)addr);
-		return 0;
+		sys_close(&shm_fd);
 	}
+	return rc;
 }
 
 void
 shm_detach()
 {
-	void *tmp;
 	size_t size;
 
-	NOTICE(0, "hit;");
 	if (shared != NULL) {
-		tmp = shared;
 		size = shared->msb_end - shared->msb_begin;
+		sys_munmap(shared, size);
 		shared = NULL;
-		sys_munmap(tmp, size);
 	}
-	sys_close(shm_fd);
-	shm_fd = -1;
+	sys_close(&shm_fd);
 }
 
 void

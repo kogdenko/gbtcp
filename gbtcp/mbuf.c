@@ -155,7 +155,7 @@ mem_cache_block_alloc(struct mem_cache *cache)
 		m->mb_magic = MEM_BUF_MAGIC;
 		m->mb_order = cache->mc_order;
 		m->mb_block = b;
-		m->mb_worker_id = cache->mc_worker_id;
+		m->mb_cpu_id = cache->mc_cpu_id;
 		DLIST_INSERT_TAIL(&b->mcb_free_head, m, mb_list);
 	}
 	DLIST_INSERT_HEAD(&cache->mc_block_head, b, mcb_list);
@@ -164,11 +164,11 @@ mem_cache_block_alloc(struct mem_cache *cache)
 }
 
 static void
-mem_cache_init(struct mem_cache *cache, uint8_t worker_id, int order)
+mem_cache_init(struct mem_cache *cache, uint8_t cpu_id, int order)
 {
 	cache->mc_order = order;
 	cache->mc_size = 0;
-	cache->mc_worker_id = worker_id;
+	cache->mc_cpu_id = cpu_id;
 	dlist_init(&cache->mc_block_head);
 }
 
@@ -205,7 +205,7 @@ mem_cache_alloc(struct mem_cache *cache)
 	struct mem_buf *m;
 	struct mem_cache_block *b;
 
-	assert(current->p_sid == cache->mc_worker_id);
+	assert(current_cpu_id == cache->mc_cpu_id);
 	b = mem_cache_get_free_block(cache);
 	if (b == NULL) {
 		return NULL;
@@ -277,7 +277,7 @@ mem_realloc(void *ptr, u_int size)
 		order = SLAB_ORDER_MIN;
 	}
 	if (order < BUDDY_ORDER_MIN) {
-		slab = &current->mw_slab[order - SLAB_ORDER_MIN];
+		slab = &current_cpu->mw_slab[order - SLAB_ORDER_MIN];
 		m = mem_cache_alloc(slab);
 	} else {
 		mem_lock();
@@ -316,15 +316,15 @@ mem_free(void *ptr)
 		mem_lock();
 		mem_buddy_free(m);
 		mem_unlock();
-	} else if (m->mb_worker_id == current->p_sid) {
+	} else if (m->mb_cpu_id == current_cpu_id) {
 		mem_cache_free_reclaim(m);
 	} else {
-		DLIST_INSERT_TAIL(&current->mw_garbage, m, mb_list);
+		DLIST_INSERT_TAIL(&current_cpu->mw_garbage, m, mb_list);
 	}
 }
 
-#define RCU_ACTIVE(w) &((w)->mw_rcu_head[(w)->mw_rcu_active])
-#define RCU_SHADOW(w) &((w)->mw_rcu_head[(1 - (w)->mw_rcu_active)])
+#define RCU_ACTIVE &(current_cpu->mw_rcu_head[current_cpu->mw_rcu_active])
+#define RCU_SHADOW &(current_cpu->mw_rcu_head[1 - current_cpu->mw_rcu_active])
 
 void
 mem_free_rcu(void *ptr)
@@ -332,7 +332,7 @@ mem_free_rcu(void *ptr)
 	struct mem_buf *m;
 
 	m = ((struct mem_buf *)ptr) - 1;
-	DLIST_INSERT_TAIL(RCU_SHADOW(current), m, mb_list);
+	DLIST_INSERT_TAIL(RCU_SHADOW, m, mb_list);
 	rcu_reload();
 }
 
@@ -341,21 +341,15 @@ garbage_collector(struct service *s)
 {
 	struct mem_buf *m;
 	struct dlist *head;
-	struct service *w;
 
-	while (!dlist_is_empty(&current->mw_garbage)) {
-		m = DLIST_FIRST(&current->mw_garbage, struct mem_buf, mb_list);
+	while (!dlist_is_empty(&current_cpu->mw_garbage)) {
+		m = DLIST_FIRST(&current_cpu->mw_garbage,
+			struct mem_buf, mb_list);
 		DLIST_REMOVE(m, mb_list);
-		w = worker_get(m->mb_worker_id);
-		if (w->mw_rcu_epoch == 0) {
-			// Worker is not running can reclaim inplace
-			mem_cache_free_reclaim(m);
-		} else {
-			head = &super->msb_garbage[m->mb_worker_id];
-			DLIST_INSERT_TAIL(head, m, mb_list);
-		}
+		head = &super->msb_garbage[m->mb_cpu_id];
+		DLIST_INSERT_TAIL(head, m, mb_list);
 	}
-	head = &super->msb_garbage[current->p_sid];
+	head = &super->msb_garbage[current_cpu_id];
 	while (!dlist_is_empty(head)) {
 		m = DLIST_FIRST(head, struct mem_buf, mb_list);
 		DLIST_REMOVE(m, mb_list);
@@ -368,11 +362,11 @@ garbage_collector(struct service *s)
 // < - lock (acequire barrier)
 // > - unlock (release barrier)
 // ^ - read barrier
-// e - worker rcu epoch (mw_rcu_epoch)
+// e - cpu rcu epoch (mw_rcu_epoch)
 // 
-// Between @< and @> worker can touch already freed RCU objects.
+// Between lock and unlock cpu can touch already freed RCU objects.
 // The purpose of the updater is realise when we can reclaim freed
-// rcu object (we can reclaim object when nobody has reference to it).
+// rcu objects (we can reclaim objects when nobody has reference to it).
 //
 // e: 0      1          2            3           4  
 // Reader  < e++ >     < e++ >     < e++ >     < e++ >
@@ -385,8 +379,8 @@ rcu_free()
 {
 	struct mem_buf *m;
 
-	while (!dlist_is_empty(RCU_ACTIVE(current))) {
-		m = DLIST_FIRST(RCU_ACTIVE(current), struct mem_buf, mb_list);
+	while (!dlist_is_empty(RCU_ACTIVE)) {
+		m = DLIST_FIRST(RCU_ACTIVE, struct mem_buf, mb_list);
 		DLIST_REMOVE(m, mb_list);
 		mem_free(m + 1);
 	}
@@ -398,86 +392,57 @@ rcu_reload()
 	int i;
 	struct service *w;
 
-	if (current->mw_rcu_max) {
-		return;
-	}
-	assert(dlist_is_empty(RCU_ACTIVE(current)));
-	if (dlist_is_empty(RCU_SHADOW(current))) {
+	if (!dlist_is_empty(RCU_ACTIVE) || dlist_is_empty(RCU_SHADOW)) {
 		return;
 	}
 	// swap shadow/active
-	current->mw_rcu_active = 1 - current->mw_rcu_active;
+	current_cpu->mw_rcu_active = 1 - current_cpu->mw_rcu_active;
 	smp_rmb();
-	for (i = 0; i < GT_SERVICES_MAX; ++i) {
-		w = shared->shm_services + i;
-		if (w != current) {
-			current->mw_rcu[i] = READ_ONCE(w->mw_rcu_epoch);
-			if (current->mw_rcu[i]) {
-				current->mw_rcu_max = i + 1;
-			}
-		}
-	}
-	if (current->mw_rcu_max == 0) {
-		rcu_free();
+	for (i = 0; i < N_CPUS; ++i) {
+		w = shared->shm_cpus + i;
+		current_cpu->mw_rcu[i] = READ_ONCE(w->mw_rcu_epoch);
 	}
 }
 
 void
 rcu_update()
 {
-	u_int i, e, rcu_max;
+	u_int i, e;
 	struct service *w;
 
-	e = current->mw_rcu_epoch + 1;
-	if (e == 0) {
-		e++;
-	}
-	WRITE_ONCE(current->mw_rcu_epoch, e);
-	if (current->mw_rcu_max == 0) {
-		return;
-	}
+	e = current_cpu->mw_rcu_epoch + 1;
+	WRITE_ONCE(current_cpu->mw_rcu_epoch, e);
 	smp_rmb();
-	rcu_max = 0;
-	for (i = 0; i < current->mw_rcu_max; ++i) {
-		w = shared->shm_services + i;
-		if (current->mw_rcu[i]) {
-			e = READ_ONCE(w->mw_rcu_epoch);
-			if (abs(e - current->mw_rcu[i]) > 2) {
-				current->mw_rcu[i] = 0;
-			} else {
-				rcu_max = i + 1;
-			}
+	for (i = 0; i < N_CPUS; ++i) {
+		w = shared->shm_cpus + i;
+		e = READ_ONCE(w->mw_rcu_epoch);
+		if (abs(e - current_cpu->mw_rcu[i]) < 2) {
+			return;
 		}
 	}
-	current->mw_rcu_max = rcu_max;
-	if (current->mw_rcu_max == 0) {
-		rcu_free();
-		rcu_reload();
-	}
+	rcu_free();
+	rcu_reload();
 }
 
 void
-init_worker_mem(struct service *w)
+init_mem(int cpu_id)
 {
 	int i, order;
+	struct service *w;
 	
+	w = shared->shm_cpus + cpu_id;
 	dlist_init(&w->mw_garbage);
 	for (i = 0; i < ARRAY_SIZE(w->mw_slab); ++i) {
 		order = i + SLAB_ORDER_MIN;
-		mem_cache_init(&w->mw_slab[i], w->p_sid, order);
+		mem_cache_init(&w->mw_slab[i], cpu_id, order);
 	}
 	for (i = 0; i < ARRAY_SIZE(w->mw_rcu_head); ++i) {
 		dlist_init(&w->mw_rcu_head[i]);	
 	}
 	w->mw_rcu_active = 0;
-	w->mw_rcu_max = 0;
-	memset(w->mw_rcu, 0, sizeof(w->mw_rcu));
-	mem_lock();
-	WRITE_ONCE(w->mw_rcu_epoch, 1);
-	mem_unlock();
 }
 
-void
+/*void
 deinit_worker_mem(struct service *w)
 {
 	int i;
@@ -490,8 +455,7 @@ deinit_worker_mem(struct service *w)
 		mem_cache_deinit(&w->mw_slab[i]);
 	}
 	for (i = 0; i < ARRAY_SIZE(w->mw_rcu_head); ++i) {
-		dlist_splice_tail_init(RCU_SHADOW(current),
-			&w->mw_rcu_head[i]);
+		dlist_splice_tail_init(RCU_SHADOW, &w->mw_rcu_head[i]);
 	}
 	rcu_reload();
-}
+}*/

@@ -1,6 +1,10 @@
 // TODO:
 // 1) del ack: with a stream of full-sized incoming segments,
 //    ACK responses must be sent for every second segment.
+
+//#undef LOG_LEVEL
+//#define LOG_LEVEL LOG_DEBUG
+
 #include "internals.h"
 
 #define CURMOD tcp
@@ -13,9 +17,9 @@
 	x(TCP_FLAG_ACK, '.') \
 	x(TCP_FLAG_URG, 'U') 
 
-#define tcps current->p_tcps
-#define udps current->p_udps
-#define ips current->p_ips
+#define tcps current_cpu->p_tcps
+#define udps current_cpu->p_udps
+#define ips current_cpu->p_ips
 
 enum {
 	TCP_TIMER_DELACK,
@@ -196,13 +200,9 @@ sysctl_tcp_fin_timeout(const long long *new, long long *old)
 static void
 sysctl_socket(struct sock *so, struct strbuf *out)
 {
-	struct service *s;
-
-	s = worker_get(so->so_sid);
-	assert(s->p_pid);
 	strbuf_addf(out, "%d,%d,%d,%d,%x,%hu,%x,%hu",
 		so->so_fd,
-		s->p_pid,
+		so->so_sid,
 		so->so_ipproto == SO_IPPROTO_TCP ? IPPROTO_TCP : IPPROTO_UDP,
 		so->so_state,
 		ntoh32(so->so_laddr),
@@ -623,7 +623,8 @@ so_close(struct sock *so)
 {
 	so->so_referenced = 0;
 	// so_close can be called from controller
-	so->so_sid = current->p_sid;
+	// FIXME: ??????
+	so->so_sid = current->ps_pid;
 	if (so_in_txq(so)) {
 		so_del_txq(so);
 		tcp_into_sndq(so);
@@ -1302,7 +1303,6 @@ tcp_mod_timer(struct timer *timer, u_char fn_id)
 	}
 }
 
-
 static void
 tcp_rcv_SYN_SENT(struct sock *so, struct in_context *in)
 {
@@ -1324,8 +1324,7 @@ tcp_rcv_SYN_SENT(struct sock *so, struct in_context *in)
 
 static void
 tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
-	be32_t laddr, be32_t faddr,
-	be16_t lport, be16_t fport)
+		be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
 	uint32_t h;
 	struct htable_bucket *b;
@@ -1666,6 +1665,7 @@ tcp_into_sndq(struct sock *so)
 	if (!so_in_txq(so)) {
 		rc = so_route(so, &r);
 		if (rc != 0) {
+			ERR(0, "No route %s", log_add_ip_addr4(so->so_faddr));
 			assert(!"No route; Please fixme"); // TODO: v0.2
 			return;
 		}
@@ -1944,7 +1944,7 @@ sock_tx_flush()
 	struct sock *so;
 	struct dlist *tx_head;
 
-	tx_head = &current->p_tx_head;
+	tx_head = &current_cpu->p_tx_head;
 	while (!dlist_is_empty(tx_head)) {
 		so = DLIST_FIRST(tx_head, struct sock, so_tx_list);
 		rc = so_route(so, &r);
@@ -1953,6 +1953,7 @@ sock_tx_flush()
 			rc = route_not_empty_txr(r.rt_ifp, &pkt,
 				TX_CAN_REDIRECT);
 			if (rc) {
+				dbg("not_empty txr");
 				return;
 			}
 			rc = sock_tx(&r, &pkt, so);
@@ -2259,7 +2260,7 @@ so_find_binded(struct htable_bucket *b, int so_ipproto,
 			if (res == NULL ||
 			    (active && !res_active) ||
 			    (!(!active && res_active) &&
-			     (so->so_sid == current->p_sid))) {
+			     (so->so_sid == current->ps_pid))) {
 				res = so;
 				res_active = active;
 			}
@@ -2337,7 +2338,7 @@ so_in_txq(struct sock *so)
 static void
 so_add_txq(struct route_if *ifp, struct sock *so)
 {
-	DLIST_INSERT_TAIL(&current->p_tx_head, so, so_tx_list);
+	DLIST_INSERT_TAIL(&current_cpu->p_tx_head, so, so_tx_list);
 }
 
 static void
@@ -2370,7 +2371,7 @@ so_new(int fd, int so_ipproto)
 	so = (struct sock *)fp;
 	DBG(0, "hit; fd=%d", so->so_fd);
 	so->so_flags = 0;
-	so->so_sid = current->p_sid;
+	so->so_sid = current->ps_pid;
 	so->so_ipproto = so_ipproto;
 	so->so_laddr = 0;
 	so->so_lport = 0;
@@ -2610,13 +2611,13 @@ so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 	if (so == NULL) {
 		return IN_BYPASS;
 	}
-	if (so->so_sid != current->p_sid) {
+/*	if (so->so_sid != current->p_sid) {
 		if (b != NULL) {
 			HTABLE_BUCKET_UNLOCK(b);
 			b = NULL;
 		}
 		return so->so_sid;
-	}
+	}*/
 	if (so_ipproto == SO_IPPROTO_TCP) {
 		tcps.tcps_rcvtotal++;
 	} else {

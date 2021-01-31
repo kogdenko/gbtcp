@@ -1,4 +1,5 @@
 #!/bin/sh
+# TODO: check N_CPUS < CPU_SETSIZE
 
 CC=${CC:-cc}
 PREFIX="/usr/local"

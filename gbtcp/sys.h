@@ -10,6 +10,14 @@ do { \
 	assert(sys_##x##_fn != NULL); \
 } while (0)
 
+#define SYS_CALL(fn, ...) \
+({ \
+	if (sys_##fn##_fn == NULL) { \
+ 		SYS_DLSYM(fn); \
+	} \
+	(sys_##fn##_fn)(__VA_ARGS__); \
+})
+
 typedef pid_t (*sys_fork_f)();
 typedef int (*sys_open_f)(const char *, int, mode_t);
 //typedef int (*sys_stat_f)(const char *, struct stat *);
@@ -133,6 +141,7 @@ void dlsym_all();
 int sys_fork();
 int sys_open(const char *, int, mode_t);
 int sys_fopen(FILE **, const char *, const char *);
+char *sys_fgets(const char *, char *, int, FILE *);
 int sys_opendir(DIR **, const char *);
 #define sys_closedir closedir
 int sys_fstat(int, struct stat *);
@@ -152,7 +161,7 @@ int sys_bind(int, const struct sockaddr *, socklen_t);
 int sys_listen(int, int);
 int sys_accept4(int, struct sockaddr *, socklen_t *, int);
 int sys_shutdown(int, int);
-int sys_close(int);
+int sys_close(int *);
 ssize_t sys_read(int, void *, size_t);
 ssize_t sys_recv(int, void *, size_t, int);
 ssize_t sys_recvmsg(int, struct msghdr *, int);

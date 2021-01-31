@@ -1,21 +1,29 @@
 // gpl2
 #include <gbtcp/internals.h>
 
+static void
+usage()
+{
+	printf("TODO: usage\n");
+}
+
 int
 main(int argc, char **argv)
 {
 	int rc, opt, daemonize, affinity, persist;
-	const char *proc_comm;
+	const char *proc_name;
 
 	daemonize = 0;
 	affinity = -1;
 	persist = 0;
-	proc_comm = "controller";
-	//log_set_level(LOG_DEBUG);
-	while ((opt = getopt(argc, argv, "n:a:dp")) != -1) {
+	proc_name = "controller";
+	while ((opt = getopt(argc, argv, "hn:a:dp")) != -1) {
 		switch (opt) {
+		case 'h':
+			usage();
+			return 0;
 		case 'n':
-			proc_comm = optarg;
+			proc_name = optarg;
 			break;
 		case 'a':
 			affinity = strtoul(optarg, NULL, 10);
@@ -28,7 +36,7 @@ main(int argc, char **argv)
 			break;
 		}
 	}
-	rc = controller_init(daemonize, proc_comm);
+	rc = controller_init(daemonize, 1, proc_name);
 	if (rc) {
 		return EXIT_FAILURE;
 	}

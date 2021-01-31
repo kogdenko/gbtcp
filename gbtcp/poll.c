@@ -1,9 +1,8 @@
-// gpl2 license
+// GPL v2
 #include "internals.h"
 
 struct poll_entry {
 	struct file_aio pe_aio;
-#define pe_mbuf pe_aio.faio_mbuf
 	int *pe_n_triggered;
 	short pe_filter;
 	short pe_revents;
@@ -12,17 +11,17 @@ struct poll_entry {
 static void
 poll_handler(void *aio_ptr, int fd, short revents)
 {
-	short fr;
+	short filtered;
 	struct poll_entry *e;
 
 	e = container_of(aio_ptr, struct poll_entry, pe_aio);
-	fr = revents & (e->pe_filter|POLLERR|POLLHUP|POLLNVAL);
-	if (fr != 0) {
+	filtered = revents & (e->pe_filter|POLLERR|POLLHUP|POLLNVAL);
+	if (filtered) {
 		if (e->pe_revents == 0) {
 			(*e->pe_n_triggered)++;
 		}
-		e->pe_revents |= fr;
-		if (fr & POLLNVAL) {
+		e->pe_revents |= filtered;
+		if (filtered & POLLNVAL) {
 			file_aio_cancel(&e->pe_aio);
 		}
 	}

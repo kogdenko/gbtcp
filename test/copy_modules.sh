@@ -1,4 +1,5 @@
 #!/bin/sh
+#TODO: getopts -h
 
 BASEDIR=$(dirname "$0")
 NETMAP_PATH=

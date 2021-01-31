@@ -9,7 +9,7 @@
 #define ARP_MIN_RANDOM_FACTOR 0.5
 #define ARP_MAX_RANDOM_FACTOR 1.5
 
-#define arps current->p_arps
+#define arps current_cpu->p_arps
 
 struct arp_mod {
 	struct log_scope log_scope;

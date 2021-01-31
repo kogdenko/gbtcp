@@ -1,4 +1,4 @@
-// gpl2 license
+// GPL v2
 #ifndef GBTCP_FD_EVENT_H
 #define GBTCP_FD_EVENT_H
 
@@ -7,6 +7,8 @@
 
 typedef int (*fd_event_f)(void *, short);
 
+struct fd_thread;
+
 struct fd_event {
 	short fde_fd;
 	short fde_ref_cnt;
@@ -14,7 +16,26 @@ struct fd_event {
 	short fde_id;
 	fd_event_f fde_fn;
 	void *fde_udata;
+	struct fd_thread *fde_thread;
 };
+
+struct fd_thread {
+	uint64_t fdt_drain_time;
+	uint64_t fdt_timeout;
+	int fdt_n_used;
+	int fdt_is_waiting;
+	struct fd_event *fdt_used[FD_SETSIZE];
+	struct fd_event fdt_buf[FD_SETSIZE];
+};
+
+#define FD_EVENT_TIMEOUT_MIN (20 * NSEC_USEC)
+
+
+static inline void
+fd_thread_init(struct fd_thread *t)
+{
+	t->fdt_timeout = FD_EVENT_TIMEOUT_MIN;
+}
 
 struct fd_poll {
 	uint64_t fdp_to;
@@ -25,14 +46,11 @@ struct fd_poll {
 	struct fd_event *fdp_events[FD_SETSIZE];
 };
 
-extern int fd_poll_epoch;
+void fd_thread_wait3(struct fd_thread *, int, uint64_t);
+#define fd_thread_check(t) fd_thread_wait3(t, 0, 0)
+#define fd_thread_wait(t) fd_thread_wait3(t, 1, TIMER_TIMEOUT)
 
-void clean_fd_events();
-void wait_for_fd_events2(int, uint64_t);
-#define check_fd_events() wait_for_fd_events2(0, 0)
-#define wait_for_fd_events() wait_for_fd_events2(1, TIMER_TIMEOUT)
-
-int fd_event_add(struct fd_event **, int, const char *, void *, fd_event_f);
+struct fd_event *fd_event_add(struct fd_thread *, int, void *, fd_event_f);
 void fd_event_del(struct fd_event *);
 void fd_event_set(struct fd_event *, short);
 void fd_event_clear(struct fd_event *, short);

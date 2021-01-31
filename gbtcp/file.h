@@ -20,10 +20,10 @@ struct file {
 	struct file_aio fl_aio;
 	struct dlist fl_aio_head;
 	int fl_fd;
+	int fl_pid;
 	u_char fl_type;
 	u_char fl_referenced;
 	u_char fl_blocked;
-	u_char fl_sid;
 };
 
 extern int file_sizeof;

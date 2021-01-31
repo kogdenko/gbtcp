@@ -43,21 +43,19 @@ route_rtnl_open(unsigned int nl_groups)
 	fd = rc;
 	rc = fcntl_setfl_nonblock2(fd);
 	if (rc) {
-		sys_close(fd);
+		sys_close(&fd);
 		return rc;
 	}
 	opt = 32768;
-	rc = sys_setsockopt(fd, SOL_SOCKET, SO_SNDBUF,
-	                    &opt, sizeof(opt));
+	rc = sys_setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &opt, sizeof(opt));
 	if (rc < 0) {
-		sys_close_fn(fd);
+		sys_close(&fd);
 		return rc;
 	}
 	opt = 1024 * 1024;
-	rc = sys_setsockopt(fd, SOL_SOCKET, SO_RCVBUF,
-	                    &opt, sizeof(opt));
+	rc = sys_setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &opt, sizeof(opt));
 	if (rc < 0) {
-		sys_close(fd);
+		sys_close(&fd);
 		return rc;
 	}
 	memset(&addr, 0, sizeof(addr));
@@ -65,7 +63,7 @@ route_rtnl_open(unsigned int nl_groups)
 	addr.nl_groups = nl_groups;
 	rc = sys_bind(fd, (struct sockaddr *)&addr, sizeof(addr));
 	if (rc) {
-		sys_close(fd);
+		sys_close(&fd);
 		return rc;
 	}
 	return fd;
@@ -404,11 +402,11 @@ route_dump(route_msg_f fn)
 		req.rdmp_ext_filter_mask = RTEXT_FILTER_VF;
 		rc = sys_send(fd, &req, sizeof(req), 0);
 		if (rc < 0) {
-			sys_close(fd);
+			sys_close(&fd);
 			return rc;
 		}
 		route_read_all(fd, fn);
 	}
-	sys_close(fd);
+	sys_close(&fd);
 	return 0;
 }

@@ -8,24 +8,26 @@ static __thread int api_locked;
 __thread int gt_errno;
 
 #define API_LOCK \
-	if (api_lock(__func__)) { \
+	if (api_lock()) { \
 		return -1; \
 	}
 
 #define API_UNLOCK api_unlock()
 
+int init_worker();
+
 static inline int
-api_lock(const char *fn_name)
+api_lock()
 {
 	int rc;
 
-	if (api_locked == 0) {
-		if (current == NULL) {
-			rc = service_attach(fn_name);
-			if (rc) {
-				GT_RETURN(-ECANCELED);
-			}
+	if (current_cpu_id == -1) {
+		rc = init_worker();
+		if (rc) {
+			GT_RETURN(-ECANCELED);
 		}
+	}
+	if (api_locked == 0) {
 		SERVICE_LOCK;
 	}
 	api_locked++;
@@ -38,20 +40,9 @@ api_unlock()
 	assert(api_locked > 0);
 	api_locked--;
 	if (api_locked == 0) {
-		if (current != NULL) {
-			check_fd_events();
-			SERVICE_UNLOCK;
-		}
+		fd_thread_check(current_fd_thread);
+		SERVICE_UNLOCK;
 	}
-}
-
-void
-gt_init(const char *comm, int log_level)
-{
-	dlsym_all();
-	rd_nanoseconds();
-	srand48(nanoseconds ^ getpid());
-	log_init(comm, log_level);
 }
 
 pid_t
@@ -59,13 +50,21 @@ gt_fork()
 {
 	int rc;
 
+	// FIXME: ????
+	if (current_cpu_id == -1) {
+		rc = SYS_CALL(fork);
+		if (rc < 0) {
+			gt_errno = -rc;
+		}
+		return rc;
+	}
 	API_LOCK;
-	INFO(0, "hit;");
+	INFO(0, ">fork();");
 	rc = service_fork();
 	if (rc >= 0) {
 		INFO(0, "fork(); pid=%d", rc);
 	} else {
-		ERR(-rc, "failed;");
+		ERR(-rc, "fork() failed");
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -80,14 +79,14 @@ gt_socket(int domain, int type, int proto)
 	API_LOCK;
 	flags = SOCK_TYPE_FLAGS(type);
 	type_noflags = SOCK_TYPE_NOFLAGS(type);
-	INFO(0, "hit; type=%s, flags=%s",
+	INFO(0, ">socket(); type=%s, flags=%s",
 	     log_add_socket_type(type_noflags),
 	     log_add_socket_flags(flags));
 	rc = so_socket(&so, domain, type_noflags, flags, proto);
 	if (rc < 0) {
-		INFO(-rc, "failed;");
+		INFO(-rc, "connect() failed;");
 	} else {
-		INFO(0, "ok; fd=%d", rc);
+		INFO(0, "connect(); fd=%d", rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -823,7 +822,7 @@ gt_epoll_create1(int flags)
 		fd = rc;
 		rc = u_epoll_create(fd);
 		if (rc < 0) {
-			sys_close(fd);
+			sys_close(&fd);
 		}
 	}
 	if (rc < 0) {

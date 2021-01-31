@@ -15,24 +15,28 @@ static struct strbuf log_sb;
 
 static int log_level = LOG_LEVEL_DEFAULT;
 // syslog() use ident pointer 
-static char ident_buf[GT_COMMLEN + 8];
+static char ident_buf[PROC_NAME_MAX + 8];
 static const char *ident;
 
-void
-log_init(const char *comm, u_int log_level)
+int
+init_log()
 {
-	if (comm == NULL) {
-		ident = NULL;
-	} else {
-		snprintf(ident_buf, sizeof(ident_buf), "gbtcp: %s", comm);
-		ident = ident_buf;
-	}
-	assert(log_level < LOG_DEBUG);
-	if (log_level) {
-		log_set_level(log_level);
-	}
+	snprintf(ident_buf, sizeof(ident_buf), "gbtcp: %s", current_name);
+	ident = ident_buf;
 	openlog(ident, LOG_PID, LOG_DAEMON);
-	syslog(LOG_NOTICE, "Log subsytem initalized");
+	syslog(LOG_NOTICE, "gbtcp log subsytem inited");
+	return 0;
+}
+
+int
+fini_log()
+{
+	if (ident != NULL) {
+		syslog(LOG_NOTICE, "gbtcp log sybsytem finalized");
+		closelog();
+		ident = NULL;
+	}
+	return 0;
 }
 
 int

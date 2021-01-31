@@ -33,7 +33,7 @@ dev_rxtx(void *udata, short revents)
 static void
 dev_nm_close(struct dev *dev)
 {
-	NOTICE(0, "ok; nmd=%p", dev->dev_nmd);
+	NOTICE(0, "close dev; nmd=%p", dev->dev_nmd);
 	nm_close(dev->dev_nmd);
 	dev->dev_nmd = NULL;
 }
@@ -48,7 +48,7 @@ dev_nm_open(struct dev *dev, const char *dev_name)
 	flags = 0;
 	dev->dev_nmd = nm_open(dev_name, &nmr, flags, NULL);
 	if (dev->dev_nmd != NULL) {
-		dbg("opne %s", dev_name);
+		dbg("open %s", dev_name);
 		assert(dev->dev_nmd->nifp != NULL);
 		sys_fcntl(dev->dev_nmd->fd, F_SETFD, FD_CLOEXEC);
 		nmr = dev->dev_nmd->req;
@@ -66,10 +66,11 @@ dev_nm_open(struct dev *dev, const char *dev_name)
 }
 
 int
-dev_init(struct dev *dev, const char *ifname, dev_f dev_fn)
+dev_init(struct dev *dev, int cpu_id, const char *ifname, dev_f dev_fn)
 {
 	int rc;
 	char dev_name[NM_IFNAMSIZ];
+	struct fd_thread *t;
 
 	assert(!dev_is_inited(dev));
 	memset(dev, 0, sizeof(*dev));
@@ -79,9 +80,9 @@ dev_init(struct dev *dev, const char *ifname, dev_f dev_fn)
 		return rc;
 	}
 	dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
-	rc = fd_event_add(&dev->dev_event, dev->dev_nmd->fd,
-	                  dev_name + NETMAP_PFX_LEN, dev, dev_rxtx);
-	if (rc) {
+	t = &current->ps_percpu[cpu_id].ps_fd_thread;
+	dev->dev_event = fd_event_add(t, dev->dev_nmd->fd, dev, dev_rxtx);
+	if (dev->dev_event == NULL) {
 		dev_nm_close(dev);
 		return rc;
 	}
@@ -105,7 +106,7 @@ void
 dev_close_fd(struct dev *dev)
 {
 	if (dev->dev_nmd != NULL) {
-		sys_close(dev->dev_nmd->fd);
+		sys_close(&dev->dev_nmd->fd);
 	}
 }
 
@@ -128,26 +129,25 @@ dev_rx_off(struct dev *dev)
 int
 dev_not_empty_txr(struct dev *dev, struct dev_pkt *pkt, int flags)
 {
+	int tries;
 	void *buf;
 	struct netmap_ring *txr;
 	struct netmap_slot *slot;
 
+	tries = 0;
 	if (dev->dev_nmd == NULL) {
 		return -ENODEV;
 	}
 	if (dev->dev_tx_throttled) {
 		return -ENOBUFS;
 	}
-	if (dev->dev_cur_tx_ring_epoch != fd_poll_epoch) {
-		dev->dev_cur_tx_ring_epoch = fd_poll_epoch;
-		dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
-	}
 restart:
+	tries++;
 	DEV_FOREACH_TXRING_CONTINUE(dev->dev_cur_tx_ring, txr, dev) {
 		if (!nm_ring_empty(txr)) {
 			assert(txr != NULL);
 			pkt->pkt_len = 0;
-			pkt->pkt_sid = current->p_sid;
+			pkt->pkt_pid = current->ps_pid;
 			pkt->pkt_txr = txr;
 			slot = txr->slot + txr->cur;
 			buf = NETMAP_BUF(txr, slot->buf_idx);
@@ -157,6 +157,10 @@ restart:
 			}
 			return 0;
 		}
+	}
+	if (tries == 1) {
+		dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
+		goto restart;
 	}
 	if (dev->dev_tx_without_reclaim == DEV_TX_BURST_SIZE &&
 	    (flags & TX_CAN_RECLAIM)) {

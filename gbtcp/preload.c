@@ -1,21 +1,13 @@
 // GPL v2
 #include "internals.h"
 
-int gt_preload_passthru = 0;
-
-#define SYS_CALL(fn, ...) \
-({ \
-	if (sys_##fn##_fn == NULL) { \
- 		SYS_DLSYM(fn); \
-	} \
-	(sys_##fn##_fn)(__VA_ARGS__); \
-})
+int gt_preload_onoff = 1;
 
 #define PRELOAD_CALL_FD(fd, fn, ...) \
 ({ \
 	ssize_t rc; \
  \
-	if (gt_preload_passthru || (fd) < GT_FIRST_FD) { \
+	if (!gt_preload_onoff || (fd) < GT_FIRST_FD) { \
 		rc = SYS_CALL(fn, ##__VA_ARGS__); \
 	} else { \
 		rc = gt_##fn(__VA_ARGS__); \

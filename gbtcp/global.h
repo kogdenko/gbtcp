@@ -77,6 +77,7 @@
 
 struct strbuf;
 struct arp_hdr;
+struct process;
 struct service;
 struct dev;
 struct dev_pkt;
@@ -125,8 +126,13 @@ enum {
 
 #define MOD_FIRST 1
 
-extern struct service *current;
+extern struct process *current;
+extern __thread struct service *current_cpu;// FIXME
+extern __thread int current_cpu_id;
 extern struct shm_hdr *shared;
 extern uint64_t nanoseconds;
+
+void set_current_cpu_id(int);
+
 
 #endif // GBTCP_GLOBAL_H

@@ -15,7 +15,7 @@ file_init(struct file *fp, int fd, int type)
 	fp->fl_type = type;
 	fp->fl_referenced = 0;
 	fp->fl_blocked = 1;
-	fp->fl_sid = current->p_sid;
+	fp->fl_pid = current->ps_pid;
 	file_aio_init(&fp->fl_aio);
 	dlist_init(&fp->fl_aio_head);
 }
@@ -85,7 +85,7 @@ file_alloc3(int fd, int type, int size)
 //		rc = mbuf_alloc3(p, id, (struct mbuf **)fpp);
 	}
 	if (fp != NULL) {
-		rc = itable_alloc(&current->p_file_fd_table, &fp);
+		rc = itable_alloc(&current_cpu->p_file_fd_table, &fp);
 		if (rc < 0) {
 			mem_free(fp);
 		} else {
@@ -111,7 +111,7 @@ file_get(int fd, struct file **fpp)
 	if (fd < GT_FIRST_FD) {
 		return -EBADF;
 	}
-	ptr = itable_get(&current->p_file_fd_table, fd - GT_FIRST_FD);
+	ptr = itable_get(&current_cpu->p_file_fd_table, fd - GT_FIRST_FD);
 	if (ptr == NULL) {
 		return -EBADF;
 	}
@@ -127,7 +127,7 @@ void
 file_free(struct file *fp)
 {
 	DBG(0, "file free; fp=%p, fd=%d", fp, fp->fl_fd);
-	itable_free(&current->p_file_fd_table, fp->fl_fd - GT_FIRST_FD);
+	itable_free(&current_cpu->p_file_fd_table, fp->fl_fd - GT_FIRST_FD);
 	mem_free(fp);
 }
 
@@ -256,7 +256,7 @@ file_wait(struct file *fp, short events)
 	file_aio_init(&aio);
 	file_aio_add(fp, &aio, file_wait_handler);
 	do {
-		wait_for_fd_events();
+		fd_thread_wait(current_fd_thread);
 	} while (aio.faio_fn != 0);
 }
 

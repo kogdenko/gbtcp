@@ -18,18 +18,18 @@ struct mem_buf {
 	uint32_t mb_size;
 	uint16_t mb_magic;
 	int8_t mb_order;
-	uint8_t mb_worker_id;
+	uint8_t mb_cpu_id;
 };
 
 struct mem_cache {
 	struct dlist mc_block_head;
 	u_short mc_size;
 	int8_t mc_order;
-	uint8_t mc_worker_id;
+	uint8_t mc_cpu_id;
 };
 
-void init_worker_mem();
-void deinit_worker_mem();
+void init_mem(int);
+void fini_mem();
 
 void *mem_alloc(u_int);
 void *mem_realloc(void *, u_int);

@@ -188,6 +188,18 @@ sys_fopen(FILE **file, const char *path, const char *mode)
 	return rc;
 }
 
+char *
+sys_fgets(const char *path, char *s, int size, FILE *file)
+{
+	char *r;
+
+	r = fgets(s, size, file);
+	if (r == NULL && errno) {
+		ERR(errno, "fgets() failed; path='%s'", path);
+	}
+	return r;
+}
+
 int
 sys_opendir(DIR **pdir, const char *name)
 {
@@ -532,21 +544,22 @@ sys_shutdown(int fd, int how)
 }
 
 int
-sys_close(int fd)
+sys_close(int *pfd)
 {
 	int rc;
 
-	if (fd < 0) {
+	if (*pfd < 0) {
 		return 0;
 	}
-	rc = (*sys_close_fn)(fd);
+	rc = (*sys_close_fn)(*pfd);
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc < 0);
-		ERR(-rc, "close() failed; fd=%d", fd);
+		ERR(-rc, "close() failed; fd=%d", *pfd);
 	} else {
-		INFO(0, "close(); fd=%d", fd);
+		INFO(0, "close(); fd=%d", *pfd);
 	}
+	*pfd = -1;
 	return rc;
 }
 

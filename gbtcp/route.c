@@ -33,15 +33,15 @@ route_foreach_set_srcs(struct route_if *ifp)
 {
 	struct route_entry_long *route;
 
-	DLIST_FOREACH(route, &ifp->rif_routes, rtl_list) {
+	DLIST_FOREACH(route, &ifp->rif_route_head, rtl_list) {
 		route_set_srcs(route);
 	}
 }
 
-struct dlist *
-route_if_head()
+struct route_if *
+route_if_get(int i)
 {
-	return &curmod->route_if_head;
+	return READ_ONCE(curmod->route_ifs[i]);
 }
 
 struct route_if *
@@ -58,13 +58,12 @@ route_if_get_by_index(int ifindex)
 }
 
 struct route_if *
-route_if_get(const char *ifname, int ifname_len, int ifname_type)
+route_if_get_by_name(const char *ifname)
 {
 	struct route_if *ifp;
 
 	ROUTE_IF_FOREACH(ifp) {
-		if (ifp->rif_name_len[ifname_type] == ifname_len &&
-		    !memcmp(ifp->rif_name, ifname, ifname_len)) {
+		if (!strcpy(ifp->rif_name, ifname)) {
 			return ifp;
 		}
 	}
@@ -72,80 +71,85 @@ route_if_get(const char *ifname, int ifname_len, int ifname_type)
 }
 
 static int
-route_if_add(const char *ifname_nm, struct route_if **ifpp)
+route_if_add(const char *ifname)
 {
-	int i, rc, is_pipe, nr_rx_rings, nr_tx_rings, rss_nq;
-	int ifname_nm_len, ifname_os_len;
-	char ifname_os[IFNAMSIZ];
+	int i, rc, slot;
 	char host[IFNAMSIZ + 2];
 	struct route_if *ifp;
 	struct nmreq *req;
 
-	dbg("ifadd");
-	if (ifpp != NULL) {
-		*ifpp = NULL;
-	}
-	ifname_nm_len = strlen(ifname_nm);
-	assert(ifname_nm_len < IFNAMSIZ);
-	ifp = route_if_get(ifname_nm, ifname_nm_len, ROUTE_IFNAME_NM);
+	ifp = route_if_get_by_name(ifname);
 	if (ifp != NULL) {
-		*ifpp = ifp;
 		return -EEXIST;
+	}
+	slot = -1;
+	for (i = 0; i < ARRAY_SIZE(curmod->route_ifs); ++i) {
+		if (curmod->route_ifs[i] == NULL) {
+			slot = i;
+			break;
+		}
+	}
+	if (slot == -1) {
+		return -ENFILE;
 	}
 	ifp = mem_alloc(sizeof(*ifp));
 	if (ifp == NULL) {
 		return -ENOMEM;
 	}
 	memset(ifp, 0, sizeof(*ifp));
-	dlist_init(&ifp->rif_routes);
-	ifp->rif_name_len[ROUTE_IFNAME_NM] = ifname_nm_len;
-	ifname_os_len = ifname_nm_len;
-	is_pipe = 0;
-	for (i = 0; i < ifname_nm_len; ++i) {
-		if (strchr("{}", ifname_nm[i]) != NULL) {
-			ifname_os_len = i;
-			is_pipe = 1;
-			break;
-		}
-	}
-	ifp->rif_name_len[ROUTE_IFNAME_OS] = ifname_os_len;
+	ifp->rif_id = slot;
+	dlist_init(&ifp->rif_route_head);
 	ifp->rif_mtu = 1500;
-	memcpy(ifp->rif_name, ifname_nm, ifname_nm_len);
-	ifp->rif_name[ifname_nm_len] = '\0';
-	memcpy(ifname_os, ifname_nm, ifname_os_len);
-	ifname_os[ifname_os_len] = '\0';
-	rc = sys_if_nametoindex(ifname_os);
+	strzcpy(ifp->rif_name, ifname, IFNAMSIZ);
+	rc = sys_if_nametoindex(ifname);
 	ifp->rif_index = rc;
-	DLIST_INSERT_HEAD(&curmod->route_if_head, ifp, rif_list);
-	nr_rx_rings = nr_tx_rings = 1;
-	if (is_pipe == 0) {
-		snprintf(host, sizeof(host), "%s^", ifp->rif_name);
-		rc = dev_init(&ifp->rif_host_dev, host, host_rxtx);
-		if (rc) {
-			mem_free(ifp);
-			return rc;
-		}
-		req = &ifp->rif_host_dev.dev_nmd->req;
-		nr_rx_rings = req->nr_rx_rings; 
-		nr_tx_rings = req->nr_tx_rings;
-		assert(nr_rx_rings > 0);
-		assert(nr_tx_rings <= nr_rx_rings);
+	rc = read_irq_table(ifp->rif_name, ifp->if_queue_cpu);
+	if (rc < 0) {
+		goto err_free;
 	}
-	rss_nq = MIN(nr_rx_rings, nr_tx_rings);
-	ifp->rif_rss_nq = rss_nq;
-	if (rss_nq > 1) {
-		read_rss_key(ifp->rif_name, ifp->rif_rss_key);
+	ifp->rif_n_queues = rc;
+//	memset(ifp->if_cpu_queue, -1, sizeof(ifp->if_cpu_queue));
+///	for (i = 0; i < ifp->rif_n_queues; ++i) {
+//		dbg("%d->%d", i, ifp->rif_q2cpu[i]);
+//		ifp->rif_cpu2q[ifp->rif_q2cpu[i]] = i;
+//	}
+	if (ifp->rif_n_queues > 1) {
+		rc = read_rss_key(ifp->rif_name, ifp->rif_rss_key);
+		if (rc) {
+			ERR(0, "Cannot read RSS key; ifname=%s", ifname);
+			goto err_free;
+		}
+	}
+	snprintf(host, sizeof(host), "%s^", ifp->rif_name);
+	rc = dev_init(&ifp->rif_host_dev, current_cpu_id, host, host_rxtx);
+	if (rc) {
+		goto err_free;
+	}
+	req = &ifp->rif_host_dev.dev_nmd->req;
+	if (req->nr_rx_rings != req->nr_tx_rings ||
+	    req->nr_rx_rings != ifp->rif_n_queues) {
+		ERR(0, "Unsupported interface config; ifname=%s, nrxq=%d, ntxq=%d, nirq=%d",
+			ifname, req->nr_rx_rings, req->nr_tx_rings,
+			ifp->rif_n_queues);
+		rc = -ENOTSUP;
+		goto err;
 	}
 	// FIXME: 
+	proc_add_interface(current, ifp);
 	ifp->rif_flags |= IFF_UP;
-	update_rss_table();
+	WRITE_ONCE(curmod->route_ifs[slot], ifp);
+
 	if (route_monitor_fd != -1) {
 		// TODO: DELETE OLD ROUTES...
+		dbg("monitor!");
 		route_dump(route_on_msg);
 	}
-	*ifpp = ifp;
-	INFO(0, "ok; if='%s'", ifname_nm);
 	return 0;
+err:
+	dev_deinit(&ifp->rif_host_dev);
+err_free:
+	mem_free(ifp);
+	return rc;
 }
 
 static void
@@ -153,18 +157,25 @@ route_if_del(struct route_if *ifp)
 {
 	struct route_entry_long *route;
 
-	DLIST_REMOVE(ifp, rif_list);
-	INFO(0, "ok; ifname='%s'", ifp->rif_name);
-	ifp->rif_list.dls_next = NULL;
-	while (!dlist_is_empty(&ifp->rif_routes)) {
-		route = DLIST_FIRST(&ifp->rif_routes,
-		                     struct route_entry_long,
-		                     rtl_list);
+	while (!dlist_is_empty(&ifp->rif_route_head)) {
+		route = DLIST_FIRST(&ifp->rif_route_head,
+			struct route_entry_long, rtl_list);
 		route_del(route);
 	}
 	while (ifp->rif_n_addrs) {
 		route_ifaddr_del(ifp, &(ifp->rif_addrs[0]->ria_addr));
 	}
+
+	WRITE_ONCE(curmod->route_ifs[ifp->rif_id], NULL);
+
+	mem_free(ifp);
+
+	//ROUTE_LOCK();
+	//ifp->rif_slot
+
+	//ROUTE_UNLOCK();
+
+
 }
 
 static int
@@ -335,16 +346,14 @@ route_add(struct route_entry *a)
 	route->rtl_via = a->rt_via;
 	route->rtl_nsrcs = 0;
 	route->rtl_srcs = NULL;
-	DLIST_INSERT_HEAD(&route->rtl_ifp->rif_routes, route, rtl_list);
+	DLIST_INSERT_HEAD(&route->rtl_ifp->rif_route_head, route, rtl_list);
 	route_set_srcs(route);
 out:
-	LOGF(rc ? LOG_ERR : LOG_INFO, -rc,
-	     "%s; dst=%s/%u, dev='%s', via=%s",
-	     rc  ? "failed" : "ok",
-	     log_add_ipaddr(AF_INET, &a->rt_dst.ipa_4),
-	     a->rt_pfx,
-	     a->rt_ifp->rif_name,
-	     log_add_ipaddr(AF_INET, &a->rt_via.ipa_4));
+	NOTICE(-rc, "add route%s; dst=%s/%u, dev='%s', via=%s",
+		rc  ? " failed" : "",
+		log_add_ipaddr(AF_INET, &a->rt_dst.ipa_4),
+		a->rt_pfx, a->rt_ifp->rif_name,
+		log_add_ipaddr(AF_INET, &a->rt_via.ipa_4));
 	return rc;
 }
 
@@ -448,8 +457,7 @@ static void
 route_monitor_stop()
 {
 	if (route_monitor_fd != -1) {
-		sys_close(route_monitor_fd);
-		route_monitor_fd = -1;
+		sys_close(&route_monitor_fd);
 	}
 	if (route_monitor_event != NULL) {
 		fd_event_del(route_monitor_event);
@@ -474,8 +482,9 @@ route_monitor_start()
 	if (rc < 0) {
 		goto err;
 	}
-	rc = fd_event_add(&route_monitor_event, route_monitor_fd,
-	                  "route_monitor", NULL, route_monitor_handler);
+	route_monitor_event = fd_event_add(current_fd_thread,
+		route_monitor_fd,
+		NULL, route_monitor_handler);
 	if (rc) {
 		goto err;
 	}
@@ -497,7 +506,7 @@ sysctl_route_if_del(struct sysctl_conn *cp, void *udata,
 	if (new == NULL) {
 		return 0;
 	}
-	ifp = route_if_get(new, strlen(new), ROUTE_IFNAME_OS);
+	ifp = route_if_get_by_name(new);
 	if (ifp == NULL) {
 		return -ENXIO;
 	}
@@ -554,26 +563,25 @@ sysctl_route_if_list(void *udata, const char *ident, const char *new,
 	tx_drop = counter64_get(&ifp->rif_tx_drop);
 	tx_bytes = counter64_get(&ifp->rif_tx_bytes);
 	strbuf_addf(out, "%s,%d,%x,",
-	            ifp->rif_name, ifp->rif_index, ifp->rif_flags);
+		ifp->rif_name, ifp->rif_index, ifp->rif_flags);
 	strbuf_add_eth_addr(out, &ifp->rif_hwaddr);
 	strbuf_addf(out, ",%"PRIu64",%"PRIu64",%"PRIu64,
-	            rx_pkts, rx_drop, rx_bytes);
+		rx_pkts, rx_drop, rx_bytes);
 	strbuf_addf(out, ",%"PRIu64",%"PRIu64",%"PRIu64,
-                    tx_pkts, tx_drop, tx_bytes);
+		tx_pkts, tx_drop, tx_bytes);
 	return 0;
 }
 
 static int
 sysctl_route_if_add(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *out)
+		const char *new, struct strbuf *out)
 {
 	int rc;
-	struct route_if *ifp;
 
 	if (new == NULL) {
 		return 0;
 	}
-	rc = route_if_add(new, &ifp);
+	rc = route_if_add(new);
 	if (rc && rc != -EEXIST) {
 		return rc;
 	}
@@ -680,7 +688,6 @@ route_mod_init()
 		return rc;
 	}
 	curmod->route_default = NULL;
-	dlist_init(&curmod->route_if_head);
 	dlist_init(&curmod->route_addr_head);
 	rc = lptree_init(&curmod->route_lptree);
 	if (rc) {
@@ -691,15 +698,13 @@ route_mod_init()
 		goto err;
 	}
 	sysctl_add_list(GT_SYSCTL_ROUTE_IF_LIST, SYSCTL_WR, NULL,
-	                sysctl_route_if_list_next,
-	                sysctl_route_if_list);
+		sysctl_route_if_list_next, sysctl_route_if_list);
 	sysctl_add(GT_SYSCTL_ROUTE_IF_ADD, SYSCTL_WR,
-	           NULL, NULL, sysctl_route_if_add);
+		NULL, NULL, sysctl_route_if_add);
 	sysctl_add(GT_SYSCTL_ROUTE_IF_DEL, SYSCTL_WR,
-	           NULL, NULL, sysctl_route_if_del);
+		NULL, NULL, sysctl_route_if_del);
 	sysctl_add_list(GT_SYSCTL_ROUTE_ADDR_LIST, SYSCTL_RD, NULL,
-	                sysctl_route_addr_list_next,
-	                sysctl_route_addr_list);
+		sysctl_route_addr_list_next, sysctl_route_addr_list);
 //	sysctl_add_list(GT_SYSCTL_ROUTE_ROUTE_LIST, SYSCTL_RD, NULL,
 //		sysctl_route_list_next, sysctl_route_list);
 	return 0;
@@ -800,8 +805,29 @@ route_get4(be32_t pref_src_ip4, struct route_entry *route)
 int
 route_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 {
-	int i, rc;
+	int rc;
+	struct process_percpu *pc;
 	struct dev *dev;
+
+	pc =  current->ps_percpu + current_cpu_id;
+	dev = pc->ps_interface_dev + ifp->rif_id;
+	if (dev_is_inited(dev)) {
+		rc = dev_not_empty_txr(dev, pkt, flags);
+	} else {
+		rc = -ENODEV;
+	}
+	return rc;
+#if 0
+	int i, rc, queue_id;
+	struct dev *dev;
+
+	queue_id = ifp->rif_queue_table[current_cpu_id];
+	if (queue_id > 0) {
+		dev = &(current_proc->ps_tds[current_cpu_id].td_devs[ifp->rif_slot]);
+		rc = 
+	} else {
+
+	}
 
 	rc = -ENODEV;
 	for (i = 0; i < ifp->rif_rss_nq; ++i) {
@@ -817,12 +843,18 @@ route_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 		rc = vale_not_empty_txr(ifp, pkt, flags);
 	}
 	return rc;
+#endif
+	assert(0);
+	return -EINVAL;
 }
+
+//REDIR_TX
+//REDIR_RX
 
 void
 route_transmit(struct route_if *ifp, struct dev_pkt *pkt)
 {
-	if (pkt->pkt_sid == current->p_sid) {
+	if (pkt->pkt_pid == current->ps_pid) {
 		counter64_inc(&ifp->rif_tx_pkts);
 		counter64_add(&ifp->rif_tx_bytes, pkt->pkt_len);
 		dev_transmit(pkt);

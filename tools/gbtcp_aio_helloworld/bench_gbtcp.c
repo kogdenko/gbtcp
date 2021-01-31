@@ -197,7 +197,7 @@ main(int argc, char **argv)
 	if (n_workers < 1) {
 		n_workers = 1;
 	}
-	gt_preload_passthru = 1;
+	gt_preload_onoff = 0;
 	rc = gt_socket(AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0);
 	if (rc < 0) {
 		return 1;

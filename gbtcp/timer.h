@@ -20,7 +20,7 @@
 
 struct timer {
 	struct dlist tm_list;
-	u_char tm_sid;
+	u_char tm_cpu_id;
 	u_char tm_ring_id;
 	u_short tm_seg_id;
 	u_char tm_mod_id;
@@ -38,7 +38,7 @@ struct timer_ring {
 int init_timers(struct service *);
 void deinit_timers(struct service *);
 void run_timers();
-void migrate_timers(struct service *, struct service *);
+//void migrate_timers(struct service *, struct service *);
 
 void timer_init(struct timer *);
 int timer_is_running(struct timer *);

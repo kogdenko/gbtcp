@@ -10,12 +10,15 @@ struct service_msg {
 	struct eth_addr msg_orig_daddr;
 };
 
-static int service_sysctl_fd = -1;
-static int service_pid_fd = -1;
-static struct dev service_vale;
+static int worker_sysctl_fd = -1;
+ int worker_pid_fd = -1;
+//static struct dev service_vale;
 
 struct shm_hdr *shared;
-struct service *current;
+struct process *current;
+__thread struct service *current_cpu;
+char current_name[PROC_NAME_MAX];
+__thread int current_cpu_id = -1;
 
 static int
 service_pipe(int fd[2])
@@ -58,7 +61,6 @@ service_pipe_recv(int fd)
 			return rc;
 		}
 	} else if (rc > 0) {
-		ERR(0, "truncated reply; len=%d", rc);
 		return -EINVAL;
 	} else {
 		return rc;
@@ -66,7 +68,7 @@ service_pipe_recv(int fd)
 }
 
 static int
-service_start_controller(const char *p_comm)
+service_start_controller()
 {
 	int rc, pipe_fd[2];
 
@@ -76,11 +78,11 @@ service_start_controller(const char *p_comm)
 	}
 	rc = sys_fork();
 	if (rc == 0) {
-		sys_close(pipe_fd[0]);
-		sys_close(service_sysctl_fd);
-		rc = controller_init(1, p_comm);
+		sys_close(&pipe_fd[0]);
+		sys_close(&worker_sysctl_fd);
+		rc = controller_init(1, 0, current_name);
 		service_pipe_send(pipe_fd[1], rc);
-		sys_close(pipe_fd[1]);
+		sys_close(&pipe_fd[1]);
 		if (rc == 0) {
 			while (!controller_done) {
 				controller_process();
@@ -90,9 +92,9 @@ service_start_controller(const char *p_comm)
 	} else if (rc > 0) {
 		// child created by fork become zombie after daemon()
 		sys_waitpid(-1, NULL, 0);
-		sys_close(pipe_fd[1]);
+		sys_close(&pipe_fd[1]);
 		rc = service_pipe_recv(pipe_fd[0]);
-		sys_close(pipe_fd[0]);
+		sys_close(&pipe_fd[0]);
 	}
 	return rc;
 }
@@ -128,6 +130,8 @@ static int
 vale_transmit5(struct route_if *ifp, int msg_type, u_char sid,
 	void *data, int len)
 {
+	assert(0);
+#if 0
 	int rc;
 	struct dev_pkt pkt;
 
@@ -139,6 +143,9 @@ vale_transmit5(struct route_if *ifp, int msg_type, u_char sid,
 		vale_transmit(ifp, msg_type, &pkt);
 	}
 	return rc;
+#else
+	return 0;
+#endif
 }
 
 static void
@@ -150,21 +157,21 @@ service_rssq_rx_one(struct route_if *ifp, void *data, int len)
 
 	in_context_init(&p, data, len);
 	p.in_ifp = ifp;
-	p.in_tcps = &current->p_tcps;
-	p.in_udps = &current->p_udps;
-	p.in_ips = &current->p_ips;
-	p.in_icmps = &current->p_icmps;
-	p.in_arps = &current->p_arps;
+	p.in_tcps = &current_cpu->p_tcps;
+	p.in_udps = &current_cpu->p_udps;
+	p.in_ips = &current_cpu->p_ips;
+	p.in_icmps = &current_cpu->p_icmps;
+	p.in_arps = &current_cpu->p_arps;
 	rc = service_rx(&p);
 	if (rc == IN_BYPASS) {
-		if (current->p_sid == CONTROLLER_SID) {
+		/*if (current_cpu_id == DAEMON_CPU_ID) {
 			transmit_to_host(ifp, data, len);
 		} else {
 			vale_transmit5(ifp, SERVICE_MSG_BYPASS,
-			               CONTROLLER_SID, data, len);
-		}
+				DAEMON_CPU_ID, data, len);
+		}*/
 	} else if (rc >= 0) {
-		current->p_ips.ips_delivered++;
+		current_cpu->p_ips.ips_delivered++;
 		sid = rc;
 		rc = vale_transmit5(ifp, SERVICE_MSG_RX, sid, data, len);
 		if (rc) {
@@ -172,7 +179,7 @@ service_rssq_rx_one(struct route_if *ifp, void *data, int len)
 			return;
 		}
 	} else if (rc == IN_OK) {
-		current->p_ips.ips_delivered++;
+		current_cpu->p_ips.ips_delivered++;
 	}
 	counter64_inc(&ifp->rif_rx_pkts);
 	counter64_add(&ifp->rif_rx_bytes, len);
@@ -199,7 +206,7 @@ service_vale_rx_one(void *data, int len)
 	}
 	eh = data;
 	memset(&a, 0, sizeof(a));
-	a.ea_bytes[5] = current->p_sid;
+	a.ea_bytes[5] = current->ps_pid;
 	if (memcmp(a.ea_bytes, eh->eh_daddr.ea_bytes, sizeof(a))) {
 		return;
 	}
@@ -232,12 +239,17 @@ service_vale_rx_one(void *data, int len)
 		}
 		break;
 	case SERVICE_MSG_BYPASS:
-		if (current->p_sid == CONTROLLER_SID) {
+		if (current_cpu_id == CONTROLLER_CPU_ID) {
 			transmit_to_host(ifp, data, len);
 		}
 		break;
 	}
 }
+
+// UNBOUND_CPU_ID
+// FAKE2_CPU_ID
+// -- real ------>|         |         |
+// 0 1 2 3 4 5 6 7|    8    |    9    |
 
 void
 service_rssq_rxtx(struct dev *dev, short revents)
@@ -262,7 +274,7 @@ service_rssq_rxtx(struct dev *dev, short revents)
 	}
 }
 
-static void
+void
 service_vale_rxtx(struct dev *dev, short revents)
 {
 	int i, n, len;
@@ -284,53 +296,17 @@ service_vale_rxtx(struct dev *dev, short revents)
 }
 
 int
-service_pid_file_acquire(int sid, int pid)
-{
-	int rc, fd;
-	char path[PATH_MAX];
-
-	pid_file_path(path, sid);
-	rc = pid_file_open(path);
-	if (rc < 0) {
-		return rc;
-	}
-	fd = rc;
-	rc = pid_file_acquire(fd, pid);
-	if (rc >= 0 && rc != pid) {
-		rc = -EBUSY;
-	}
-	if (rc < 0) {
-		sys_close(fd);
-		return rc;
-	} else {
-		return fd;
-	}
-}
-
-struct service *
-worker_get(u_int sid)
-{
-	assert(sid < ARRAY_SIZE(shared->shm_services));
-	return shared->shm_services + sid;
-}
-
-int
 service_init_shared(struct service *s, int pid, int fd)
 {
-	int rc;
+	int rc, cpu_id;
 
-	NOTICE(0, "hit; pid=%d", pid);
-	assert(current->p_sid == CONTROLLER_SID);
+	cpu_id = s - shared->shm_cpus;
 	smp_wmb();
 	s->p_pid = pid;
 	dlist_init(&s->p_tx_head);
-	s->p_sid = s - shared->shm_services;
-	s->p_need_update_rss_bindings = 0;
-	s->p_rss_nq = 0;
-	s->p_rr_redir = 0;
 	s->p_fd = fd;
 	s->p_start_time = shared_ns();
-	init_worker_mem(s);
+	init_mem(cpu_id);
 	rc = init_timers(s);
 	if (rc) {
 		return rc;
@@ -342,21 +318,22 @@ service_init_shared(struct service *s, int pid, int fd)
 	return 0;
 }
 
+#if 0
 void
 service_deinit_shared(struct service *s, int full)
 {
-	int i;
-	struct dev *dev;
-	struct route_if *ifp;
+//	int i;
+//	struct dev *dev;
+//	struct route_if *ifp;
 
-	NOTICE(0, "hit; pid=%d", s->p_pid);
 	assert(current->p_sid == CONTROLLER_SID);
-	ROUTE_IF_FOREACH(ifp) {
+	/*ROUTE_IF_FOREACH(ifp) {
 		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
 			dev = &(ifp->rif_dev[s->p_sid][i]);
 			memset(dev, 0, sizeof(*dev));
 		}
-	}
+	}*/
+
 	deinit_files(s);
 	if (current != s) {
 		dlist_splice_tail_init(&current->p_tx_head, &s->p_tx_head);
@@ -371,13 +348,14 @@ service_deinit_shared(struct service *s, int full)
 	s->p_pid = 0;
 }
 
+
 int
 service_init_private()
 {
 	int rc;
 	char buf[NM_IFNAMSIZ];
 
-	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_pid);
+	snprintf(buf, sizeof(buf), "vale_gt:%d", current->ps_pid);
 	rc = dev_init(&service_vale, buf, service_vale_rxtx);
 	return rc;
 }
@@ -387,116 +365,105 @@ service_deinit_private()
 {
 	dev_deinit(&service_vale);
 }
+#endif
 
 int
-service_attach(const char *fn_name)
+attach_worker()
 {
 	int rc, pid;
 	struct sockaddr_un a;
-	char p_comm[GT_COMMLEN + 1];
-	char buf[GT_SYSCTL_BUFSIZ];
-	struct service *s;
+	char path[PATH_MAX];
+//	char buf[GT_SYSCTL_BUFSIZ];
+//	struct service *s;
 
-	ERR(0, "hit; from=%s", fn_name);
+	dbg("a");
 	pid = getpid();
-	rc = read_proc_comm(p_comm, pid);
+	rc = read_proc_name(current_name, pid);
 	if (rc) {
 		goto err;
 	}
-	gt_init(p_comm, 0);
-	NOTICE(0, "hit2; from=%s", fn_name);
+	rc = init_log();
+	if (rc) {
+		goto err;
+	}
+	dbg("a500");
+
 	sysctl_make_sockaddr_un(&a, pid);
 	rc = sysctl_bind(&a);
+	dbg("a1000");
 	if (rc < 0) {
 		goto err;
 	}
-	service_sysctl_fd = rc;
-	rc = sysctl_connect(service_sysctl_fd);
+	worker_sysctl_fd = rc;
+	rc = sysctl_connect(worker_sysctl_fd);
 	if (rc) {
-		WARN(0, "Starting controller daemon");
-		rc = service_start_controller(p_comm);
+		dbg("!!!");
+		WARN(0, "starting controller");
+		rc = service_start_controller();
 		if (rc) {
 			goto err;
 		}
-		rc = sysctl_connect(service_sysctl_fd);
+		rc = sysctl_connect(worker_sysctl_fd);
 		if (rc) {
 			goto err;
 		}
 	}
-	rc = sysctl_req(service_sysctl_fd, SYSCTL_CONTROLLER_ADD, buf, "~");
-	if (rc) {
-		if (rc > 0) {
-			rc = -rc;
-		}
+
+	snprintf(path, sizeof(path), "%s/%d.pid", PID_PATH, pid);
+	rc = pid_file_acquire(path, pid, 0);
+	if (rc < 0) {
 		goto err;
-	}
+	} 
+	worker_pid_fd = rc;
+
+
 	rc = shm_attach();
 	if (rc) {
 		goto err;
 	}
 	set_hz(shared->shm_hz);
-	SERVICE_FOREACH(s) {
-		if (s->p_pid == pid) {
-			current = s;
-			break;
-		}
-	}
-	if (current == NULL) {
-		rc = -ENOENT;
-		goto err;
-	}
-	init_worker_mem(current);
-	rc = service_pid_file_acquire(current->p_sid, pid);
-	if (rc < 0) {
-		goto err;
-	}
-	service_pid_fd = rc;
-	rc = service_init_private();
-	if (rc) {
-		goto err;
-	}
-	ERR(0, "ok; current=%p", current);
+	dbg("Ready!!!!");
 	return 0;
 err:
-	service_detach();
-	ERR(-rc, "failed;");
 	return rc;
 }
 
+#if 0
 void
 service_detach()
 {
-	int i;
-	struct dev *dev;
-	struct route_if *ifp;
+//	int i;
+//	struct dev *dev;
+//	struct route_if *ifp;
 
-	NOTICE(0, "hit;");
-	service_deinit_private();
+	///service_deinit_private();
 	sys_close(service_sysctl_fd);
 	service_sysctl_fd = -1;
 	sys_close(service_pid_fd);
 	service_pid_fd = -1;
 	if (current != NULL) {
-		ROUTE_IF_FOREACH(ifp) {
+/*		ROUTE_IF_FOREACH(ifp) {
 			for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
 				dev = &(ifp->rif_dev[current->p_sid][i]);
 				dev_close_fd(dev);
 			}
 		}
-		current = NULL;
+		current = NULL;*/
 	}
 	shm_detach();
 	clean_fd_events();
 	// TODO: deinit_signals() if no worker in process
 }
+#endif
 
 void
 service_unlock()
 {
 	rcu_update();
-	spinlock_unlock(&current->p_lock);
+	spinlock_unlock(&current_cpu->p_lock);
 }
 
+/*
 static void
 service_update_rss_binding(struct route_if *ifp, int rss_qid)
 {
@@ -531,12 +498,13 @@ service_update_rss_bindings()
 		}
 	}
 	current->p_need_update_rss_bindings = 0;
-}
+}*/
 
 int
 service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
 	be16_t lport, be16_t fport)
 {
+#if 0
 	int i, sid, rss_qid;
 	uint32_t h;
 
@@ -558,11 +526,15 @@ service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
 		}
 	}
 	return 0;
+#endif
+	assert(0);
+	return -EINVAL;
 }
 
 int
 vale_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 {
+#if 0
 	int i, n, rc;
 	u_char s[GT_RSS_NQ_MAX];
 
@@ -586,11 +558,16 @@ vale_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 	pkt->pkt_sid = s[current->p_rr_redir];
 	current->p_rr_redir++;
 	return 0;
+#endif
+	assert(0);
+	return -EINVAL;
 }
 
 void
 vale_transmit(struct route_if *ifp, int msg_type, struct dev_pkt *pkt)
 {
+	assert(0);
+#if 0
 	struct eth_hdr *eh;
 	struct service_msg *msg;
 
@@ -600,24 +577,26 @@ vale_transmit(struct route_if *ifp, int msg_type, struct dev_pkt *pkt)
 	msg->msg_orig_daddr = eh->eh_daddr;
 	memset(eh->eh_saddr.ea_bytes, 0, sizeof(eh->eh_saddr));
 	memset(eh->eh_daddr.ea_bytes, 0, sizeof(eh->eh_daddr));
-	eh->eh_saddr.ea_bytes[5] = current->p_sid;
+	eh->eh_saddr.ea_bytes[5] = current->ps_pid;
 	eh->eh_daddr.ea_bytes[5] = pkt->pkt_sid;
 	msg->msg_type = msg_type;
 	msg->msg_ifindex = ifp->rif_index;
 	pkt->pkt_len += sizeof(*msg);
 	//dbg_rl(1, "redir");
 	dev_transmit(pkt);
+#endif
 }
 
 static void
 service_in_parent(int pipe_fd[2])
 {
-	sys_close(pipe_fd[1]);
+	sys_close(&pipe_fd[1]);
 	// wait service_in_child done
 	service_pipe_recv(pipe_fd[0]);
-	sys_close(pipe_fd[0]);
+	sys_close(&pipe_fd[0]);
 }
 
+#if 0
 static int
 service_dup_so(struct sock *oldso)
 {
@@ -650,10 +629,13 @@ err:
 	so_close(newso);
 	return rc;
 }
+#endif
 
 static void
 service_in_child0()
 {
+	assert(0);
+#if 0
 	int rc, parent_sid, flag;
 	struct sock *so;
 
@@ -689,16 +671,16 @@ service_in_child0()
 	if (!flag) {
 		service_detach();
 	}
+#endif
 }
 
 static void
 service_in_child(int pipe_fd[2])
 {
-	NOTICE(0, "hit;");
-	sys_close(pipe_fd[0]);
+	sys_close(&pipe_fd[0]);
 	service_in_child0();
 	service_pipe_send(pipe_fd[1], 0);
-	sys_close(pipe_fd[1]);
+	sys_close(&pipe_fd[1]);
 }
 
 int
@@ -717,8 +699,8 @@ service_fork()
 	} else if (rc > 0) {
 		service_in_parent(pipe_fd);
 	} else {
-		sys_close(pipe_fd[0]);
-		sys_close(pipe_fd[1]);
+		sys_close(&pipe_fd[0]);
+		sys_close(&pipe_fd[1]);
 	}
 	return rc;
 }
@@ -766,8 +748,8 @@ service_clone(int (*fn)(void *), void *child_stack,
 			ptid, tls, ctid);
 		if (rc == -1) {
 			rc = -errno;
-			sys_close(service_clone_pipe_fd[0]);
-			sys_close(service_clone_pipe_fd[1]);
+			sys_close(&service_clone_pipe_fd[0]);
+			sys_close(&service_clone_pipe_fd[1]);
 		} else {
 			service_in_parent(service_clone_pipe_fd);
 		}
@@ -775,3 +757,68 @@ service_clone(int (*fn)(void *), void *child_stack,
 	return rc;
 }
 #endif // __linux__
+
+
+
+//========================================
+struct process *
+proc_add(int pid, int flag)
+{
+	int i;
+	struct route_if *ifp;
+	struct process *p;
+
+	DLIST_FOREACH(p, &shared->shm_proc_head, ps_list) {
+		if (p->ps_pid == pid) {
+			current = p;
+			return p;
+		}
+	}
+	p = mem_alloc(sizeof(*p));
+	memset(p->ps_percpu, 0, sizeof(p->ps_percpu));
+	for (i = 0; i < N_CPUS; ++i)
+		fd_thread_init(&p->ps_percpu[i].ps_fd_thread);
+	p->ps_pid = pid;
+	DLIST_INSERT_TAIL(&shared->shm_proc_head, p, ps_list);
+	
+	current = p;
+
+	if (flag) {
+		for (i = 0; i < N_INTERFACES_MAX; ++i) {
+			ifp = route_if_get(i);
+			if (ifp != NULL) {
+				proc_add_interface(p, ifp);
+			}
+		}
+	}
+
+	return p;
+}
+
+int
+proc_add_interface(struct process *p, struct route_if *ifp)
+{
+	int rc, if_id, cpu_id, queue_id, n_queues;
+	struct dev *dev;
+	struct process_percpu *ppc;
+	char dev_name[256];
+
+	dbg("current_cpu_id=%d", current_cpu_id);
+
+	if_id = ifp->rif_id;
+	n_queues = ifp->rif_n_queues;
+	for (queue_id = 0; queue_id < n_queues; ++queue_id) {
+		cpu_id = ifp->if_queue_cpu[queue_id];
+		ppc = p->ps_percpu + cpu_id;
+		dev = &ppc->ps_interface_dev[if_id];
+
+		dbg("cpu_id %d - %d", cpu_id, queue_id);
+
+		sprintf(dev_name, "%s-%d", ifp->rif_name, queue_id);
+		rc = dev_init(dev, cpu_id, dev_name, service_rssq_rxtx);
+		UNUSED(rc);
+		assert(rc == 0);
+		dev->dev_ifp = ifp;
+	}
+	return 0;
+}
