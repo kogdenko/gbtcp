@@ -40,7 +40,7 @@ api_unlock()
 	assert(api_locked > 0);
 	api_locked--;
 	if (api_locked == 0) {
-		fd_thread_check(current_fd_thread);
+//		fd_thread_check(current_fd_thread);
 		SERVICE_UNLOCK;
 	}
 }

@@ -246,11 +246,6 @@ service_vale_rx_one(void *data, int len)
 	}
 }
 
-// UNBOUND_CPU_ID
-// FAKE2_CPU_ID
-// -- real ------>|         |         |
-// 0 1 2 3 4 5 6 7|    8    |    9    |
-
 void
 service_rssq_rxtx(struct dev *dev, short revents)
 {

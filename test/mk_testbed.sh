@@ -53,3 +53,7 @@ for x in /sys/devices/system/cpu/cpu* ; do
 		echo performance > $scaling_governor
 	fi
 done
+
+ifconfig eth2 1.1.255.1/16 up
+ethtool -L eth2 combined 1
+ethtool -G eth2 rx 2048 tx 2048
