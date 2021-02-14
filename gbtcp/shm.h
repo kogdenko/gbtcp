@@ -5,22 +5,44 @@
 #include "service.h"
 #include "mbuf.h"
 
+
+
 struct shm_hdr {
 
-	struct spinlock msb_lock;
-	uintptr_t msb_begin;
-	uintptr_t msb_end;
-	struct dlist msb_buddy_area[BUDDY_ORDER_MAX - BUDDY_ORDER_MIN + 1];
+	struct spinlock msb_global_lock;
+
+	struct mem_buddy msb_global_buddy;
+
+
+	struct spinlock msb_percpu_lock;
+
+	struct mem_buddy msb_percpu_buddy[PERCPU_BUF_NUM];
+
+
 	struct dlist msb_garbage[GT_SERVICES_MAX];
+
+	uintptr_t msb_addr;
+	size_t msb_size;
 
 	uint64_t shm_ns;
 	uint64_t shm_hz;
 	void *shm_mods[MODS_MAX];
-	struct service shm_cpus[N_CPUS];
+	struct cpu msb_cpus[N_CPUS];
 
 	struct dlist shm_proc_head;
 
 };
+
+static inline struct cpu *
+cpu_get(int i)
+{
+	assert(i < N_CPUS);
+	return shared->msb_cpus + i;
+}
+
+#define CPU_FOREACH(cpu) \
+	for (cpu = shared->msb_cpus; cpu < shared->msb_cpus + N_CPUS; ++cpu)
+
 
 int shm_mod_init();
 

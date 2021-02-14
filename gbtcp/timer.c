@@ -9,13 +9,13 @@
 #define SEG_UNLOCK(seg) spinlock_unlock(&seg->htb_lock)
 
 static int
-timer_ring_init(struct service *s, uint64_t t, int ring_id, uint64_t seg_order)
+timer_ring_init(struct cpu *cpu, uint64_t t, int ring_id, uint64_t seg_order)
 {
 	int i;
 	struct timer_ring *ring;
 
 	assert(ring_id < TIMER_N_RINGS);
-	ring = s->p_timer_rings + ring_id;
+	ring = cpu->p_timer_rings + ring_id;
 	ring->tmr_seg_order = seg_order;
 	ring->tmr_cur = t >> ring->tmr_seg_order;
 	for (i = 0; i < TIMER_RING_SIZE; ++i) {
@@ -27,7 +27,7 @@ timer_ring_init(struct service *s, uint64_t t, int ring_id, uint64_t seg_order)
 }
 
 int
-init_timers(struct service *s)
+init_timers(struct cpu *cpu)
 {
 	int i, rc;
 	uint64_t t;
@@ -38,7 +38,7 @@ init_timers(struct service *s)
 
 	t = shared_ns();
 	for (i = 0; i < ARRAY_SIZE(seg_shift); ++i) {
-		rc = timer_ring_init(s, t, i, seg_shift[i]);
+		rc = timer_ring_init(cpu, t, i, seg_shift[i]);
 		if (rc) {
 			return rc;
 		}
@@ -47,7 +47,7 @@ init_timers(struct service *s)
 }
 
 void
-deinit_timers(struct service *s)
+deinit_timers(struct cpu *cpu)
 {
 }
 
@@ -234,13 +234,13 @@ timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 void
 timer_del(struct timer *timer)
 {
-	struct service *w;
+	struct cpu *cpu;
 	struct timer_ring *ring;
 	timer_seg_t *seg;
 
 	if (timer_is_running(timer)) {
-		w = shared->shm_cpus + timer->tm_cpu_id;
-		ring = w->p_timer_rings + timer->tm_ring_id;
+		cpu = cpu_get(timer->tm_cpu_id);
+		ring = cpu->p_timer_rings + timer->tm_ring_id;
 		assert(ring != NULL);
 		seg = ring->tmr_segs + timer->tm_seg_id;
 		SEG_LOCK(seg);

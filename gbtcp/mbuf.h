@@ -4,9 +4,22 @@
 
 #include "list.h"
 
+#define MEM_BUF_ORDER 5 // 32 b
+
 #define SLAB_ORDER_MIN 6 // 64b
-#define BUDDY_ORDER_MIN 21 // ~2Mb
-#define BUDDY_ORDER_MAX 27 // ~134Mb
+#define GLOBAL_BUDDY_ORDER_MIN 21 // ~2Mb
+#define GLOBAL_BUDDY_ORDER_MAX 27 // ~134Mb
+#define GLOBAL_BUDDY_ORDER_NUM \
+	(GLOBAL_BUDDY_ORDER_MAX - GLOBAL_BUDDY_ORDER_MIN + 1)
+
+// Can allocate ~4Mb per cpu
+#define PERCPU_BUF_ORDER_MIN 14
+#define PERCPU_BUF_ORDER_MAX 21
+#define PERCPU_BUDDY_ORDER_MIN MEM_BUF_ORDER
+#define PERCPU_BUDDY_ORDER_MAX PERCPU_BUF_ORDER_MAX
+#define PERCPU_BUDDY_ORDER_NUM \
+	(PERCPU_BUDDY_ORDER_MAX - PERCPU_BUDDY_ORDER_MIN + 1)
+#define PERCPU_BUF_NUM (PERCPU_BUF_ORDER_MAX - PERCPU_BUF_ORDER_MIN + 1)
 
 #define MEM_HDRSZ sizeof(struct mem_buf)
 
@@ -28,6 +41,17 @@ struct mem_cache {
 	uint8_t mc_cpu_id;
 };
 
+#define MEM_BUDDY_HEAD_NUM MAX(GLOBAL_BUDDY_ORDER_NUM, PERCPU_BUDDY_ORDER_NUM)
+
+struct mem_buddy {
+	u_char *mbd_buf;
+	int mbd_order_min;
+	int mbd_order_max;
+	uintptr_t mbd_beg;
+	uintptr_t mbd_end;
+	struct dlist mbd_head[MEM_BUDDY_HEAD_NUM];
+};
+
 void init_mem(int);
 void fini_mem();
 
@@ -35,6 +59,29 @@ void *mem_alloc(u_int);
 void *mem_realloc(void *, u_int);
 void mem_free(void *);
 void mem_free_rcu(void *);
+
+struct percpu {
+	uint8_t perc_buf_id;
+	u_int perc_offset;
+};
+
+#define PERCPU_FOREACH(var, percpu) \
+	for (int UNIQV(i) = 0; \
+	     UNIQV(i) < N_CPUS && (var = percpu_get(UNIQV(i), percpu)); \
+	     ++UNIQV(i))
+
+int percpu_alloc(struct percpu *, int);
+void percpu_free(struct percpu *);
+void *percpu_get(int, struct percpu *);
+
+typedef struct percpu counter64_t;
+
+int counter64_init(counter64_t *);
+void counter64_fini(counter64_t *);
+void counter64_add(counter64_t *, uint64_t);
+#define counter64_inc(c) counter64_add(c, 1)
+uint64_t counter64_get(counter64_t *);
+
 
 void rcu_update();
 

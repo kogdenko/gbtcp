@@ -159,19 +159,6 @@ spinlock_unlock(struct spinlock *sl)
 }
 #endif // debug
 
-uint64_t
-counter64_get(struct counter64 *c)
-{
-	int i;
-	uint64_t accum;
-
-	accum = 0;
-	for (i = 0; i < ARRAY_SIZE(c->cnt_per_service); ++i) {
-		accum += c->cnt_per_service[i].cntps_value;
-	}
-	return accum;
-}
-
 void
 profiler_enter(struct profiler *p)
 {

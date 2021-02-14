@@ -5,23 +5,10 @@
 
 static struct sysctl_conn *controller_conn;
 static int controller_pid_fd = -1;
-static int sid_max = 0;
-static int quit_no_services = 1;
+//static int sid_max = 0;
+//static int quit_no_services = 1;
 
 int controller_done;
-
-/*static struct service *
-service_get_by_pid(int pid)
-{
-	int i;
-
-	for (i = 0; i <= sid_max; ++i) {
-		if (shared->shm_services[i].p_pid == pid) {
-			return shared->shm_services + i;
-		}
-	}
-	return NULL;
-}*/
 
 static void
 host_rx_one(struct route_if *ifp, void *data, int len)
@@ -268,6 +255,7 @@ controller_sched_balance()
 	}
 }*/
 
+#if 0
 void
 controller_del_service(struct service *s)
 {
@@ -278,7 +266,7 @@ controller_del_service(struct service *s)
 	//sid = s->p_sid;
 	//rss_nq = s->p_rss_nq;
 	//controller_check_service_deadlock(s);
-	sysctl_make_sockaddr_un(&a, s->p_pid);
+	sysctl_make_sockaddr_un(&a, cpu->p_pid);
 	sys_unlink(a.sun_path);
 	//service_deinit_shared(s, 0);
 	/*sid_max = 0;
@@ -305,6 +293,7 @@ controller_del_service(struct service *s)
 		controller_done = 1;
 	}
 }
+#endif
 
 /*void
 controller_add_service(struct service *s, int pid, struct sysctl_conn *cp)
@@ -580,10 +569,10 @@ controller_init(int daemonize, int force, const char *worker_proc_name)
 		goto err;
 	}
 	for (i = 0; i < N_CPUS; ++i) {
-		rc = service_init_shared(shared->shm_cpus + i, pid, 0);
+		rc = service_init_shared(shared->msb_cpus + i, pid, 0);
 		assert(rc == 0);
 	}
-	set_current_cpu_id(CONTROLLER_CPU_ID);
+	set_current_cpu_id(AUX_CPU_ID);
 	current = proc_add(pid, 0);
 	rc = init_modules();
 	if (rc) {

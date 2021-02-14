@@ -72,15 +72,6 @@ struct rwlock {
 	volatile int rwl_cnt;
 };
 
-struct counter64_per_service {
-	uint64_t cntps_value;
-	u_char cntps_pad[CACHE_LINE_SIZE - sizeof(uint64_t)];
-};
-
-typedef struct counter64 {
-	struct counter64_per_service cnt_per_service[GT_SERVICES_MAX];
-} counter64_t;
-
 struct profiler {
 	const char *prf_name;
 	uint64_t prf_hits;
@@ -121,6 +112,9 @@ struct profiler {
 #ifndef BUG
 #define BUG(msg) assert(!msg)
 #endif
+
+// TODO:
+//#define COMPILE_ASSERT(expr)
 
 #define STRSZ(s) (s), (sizeof(s) - 1)
 
@@ -285,16 +279,6 @@ void rwlock_read_unlock(struct rwlock *);
 void rwlock_write_lock(struct rwlock *);
 void rwlock_write_unlock(struct rwlock *);
 
-// TODO:
-#if 0
-#define counter64_add(c, v)
-#else // 1
-#define counter64_add(c, v) \
-	((c)->cnt_per_service[current_cpu_id].cntps_value += (v))
-#endif //1
-
-#define counter64_inc(c) counter64_add(c, 1)
-uint64_t counter64_get(struct counter64 *);
 
 void profiler_enter(struct profiler *);
 void profiler_leave(struct profiler *);

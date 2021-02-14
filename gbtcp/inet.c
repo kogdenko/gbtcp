@@ -42,7 +42,7 @@ sysctl_inet_stat(struct sysctl_conn *cp, void *udata,
 	int i, zero;
 	uintptr_t off;
 	uint64_t *ptr, accum;
-	struct service *s;
+	struct cpu *cpu;
 
 	off = (uintptr_t)udata;
 	if (new == NULL) {
@@ -56,8 +56,8 @@ sysctl_inet_stat(struct sysctl_conn *cp, void *udata,
 	}
 	accum = 0;
 	for (i = 0; i < N_CPUS; ++i) {
-		s = shared->shm_cpus + i;
-		ptr = (uint64_t *)((u_char *)s + off);
+		cpu = cpu_get(i);
+		ptr = (uint64_t *)((u_char *)cpu + off);
 		accum += *ptr;
 		if (zero) {
 			*ptr = 0;
@@ -84,13 +84,13 @@ sysctl_add_inet_stat_tcp()
 
 #define SYSCTL_ADD_TCP_STAT(x) \
 	sysctl_add_inet_stat("tcp", #x, \
-		field_off(struct service, p_tcps.tcps_##x));
+		field_off(struct cpu, p_tcps.tcps_##x));
 	GT_X_TCP_STAT(SYSCTL_ADD_TCP_STAT)
 #undef SYSCTL_ADD_TCP_STAT
 
 	for (i = 0; i < GT_TCP_NSTATES; ++i) {
 		snprintf(name, sizeof(name), "states.%d", i);
-		off = field_off(struct service, p_tcps.tcps_states[i]);
+		off = field_off(struct cpu, p_tcps.tcps_states[i]);
 		sysctl_add_inet_stat("tcp", name, off);
 	}
 }
@@ -100,7 +100,7 @@ sysctl_add_inet_stat_udp()
 {
 #define SYSCTL_ADD_UDP_STAT(x) \
 	sysctl_add_inet_stat("udp", #x, \
-		field_off(struct service, p_udps.udps_##x));
+		field_off(struct cpu, p_udps.udps_##x));
 	GT_X_UDP_STAT(SYSCTL_ADD_UDP_STAT)
 #undef SYSCTL_ADD_UDP_STAT
 }
@@ -110,7 +110,7 @@ sysctl_add_inet_stat_ip()
 {
 #define SYSCTL_ADD_IP_STAT(x) \
 	sysctl_add_inet_stat("ip", #x, \
-		field_off(struct service, p_ips.ips_##x));
+		field_off(struct cpu, p_ips.ips_##x));
 	GT_X_IP_STAT(SYSCTL_ADD_IP_STAT)
 #undef SYSCTL_ADD_IP_STAT
 }
@@ -120,7 +120,7 @@ sysctl_add_inet_stat_arp()
 {
 #define SYSCTL_ADD_ARP_STAT(x) \
 	sysctl_add_inet_stat("arp", #x, \
-	                     field_off(struct service, p_arps.arps_##x));
+		field_off(struct cpu, p_arps.arps_##x));
 	GT_X_ARP_STAT(SYSCTL_ADD_ARP_STAT)
 #undef SYSCTL_ADD_ARP_STAT
 }

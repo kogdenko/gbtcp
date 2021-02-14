@@ -1953,7 +1953,6 @@ sock_tx_flush()
 			rc = route_not_empty_txr(r.rt_ifp, &pkt,
 				TX_CAN_REDIRECT);
 			if (rc) {
-				dbg("not_empty txr");
 				return;
 			}
 			rc = sock_tx(&r, &pkt, so);

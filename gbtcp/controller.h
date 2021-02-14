@@ -4,8 +4,8 @@
 
 #include "subr.h"
 
-#define CONTROLLER_CPU_ID (N_CPUS - 1)
-#define N_WORKER_CPUS (N_CPUS - 2)
+#define AUX_CPU_ID (N_CPUS - 1)
+#define N_WORKER_CPUS (N_CPUS - 1)
 
 extern int controller_done;
 

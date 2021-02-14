@@ -15,6 +15,7 @@ struct shm_mod {
 static int shm_fd = -1;
 
 struct shm_hdr *shared;
+#define super shared
 
 void mem_buddy_init();
 
@@ -44,18 +45,17 @@ shm_init()
 	}
 	memset(shared, 0, sizeof(*shared));
 	shared->shm_ns = nanoseconds;
-	shared->msb_begin = (uintptr_t)shared;
-	spinlock_init(&shared->msb_lock);
-	shared->msb_end = shared->msb_begin + size;
+	shared->msb_addr = (uintptr_t)shared;
+	shared->msb_size = size;
+	spinlock_init(&shared->msb_global_lock);
 	for (i = 0; i < ARRAY_SIZE(shared->msb_garbage); ++i) {
 		dlist_init(shared->msb_garbage + i);
 	}
-	for (i = 0; i < ARRAY_SIZE(shared->msb_buddy_area); ++i) {
-		dlist_init(&shared->msb_buddy_area[i]);
-	}
-	mem_buddy_init();
+	mem_buddy_init(&super->msb_global_buddy,
+		GLOBAL_BUDDY_ORDER_MIN, GLOBAL_BUDDY_ORDER_MAX,
+		super->msb_addr, sizeof(*super), super->msb_size);
 	dlist_init(&shared->shm_proc_head);
-	NOTICE(0, "ok; addr=%p", (void *)shared->msb_begin);
+	NOTICE(0, "ok; addr=%p", (void *)shared->msb_addr);
 	return 0;
 err:
 	ERR(-rc, "failed;");
@@ -82,8 +82,8 @@ shm_attach()
 		sys_close(&shm_fd);
 		return rc;
 	}
-	size = tmp->msb_end - tmp->msb_begin;
-	addr = (void *)tmp->msb_begin;
+	size = tmp->msb_size;
+	addr = (void *)tmp->msb_addr;
 	sys_munmap(tmp, sizeof(*tmp));
 	rc = sys_mmap((void **)&shared, addr, size, PROT_READ|PROT_WRITE,
 		MAP_SHARED|MAP_FIXED, shm_fd, 0);
@@ -99,7 +99,7 @@ shm_detach()
 	size_t size;
 
 	if (shared != NULL) {
-		size = shared->msb_end - shared->msb_begin;
+		size = shared->msb_size;
 		sys_munmap(shared, size);
 		shared = NULL;
 	}

@@ -3,9 +3,12 @@
 
 #define CURMOD mm
 
-#define MEM_BUF_MAGIC 0xcafe
+#define MEM_BUF_MAGIC 0xfeca
 
 #define super shared
+
+#define RCU_ACTIVE &(current_cpu->mw_rcu_head[current_cpu->mw_rcu_active])
+#define RCU_SHADOW &(current_cpu->mw_rcu_head[1 - current_cpu->mw_rcu_active])
 
 struct mem_cache_block {
 	struct dlist mcb_list;
@@ -18,10 +21,25 @@ struct mem_cache_block {
 static void rcu_reload();
 void garbage_collector();
 
+static int
+size_to_order(int size)
+{
+	int order;
+
+	order = ffs(upper_pow2_32(size)) - 1;
+	return order;
+}
+
+static int
+order_to_size(int order)
+{
+	return 1 << order;
+}
+
 static void
 mem_lock()
 {
-	spinlock_lock(&super->msb_lock);
+	spinlock_lock(&super->msb_global_lock);
 }
 
 static void
@@ -30,33 +48,49 @@ mem_unlock()
 	if (current != NULL) {
 		garbage_collector();
 	}
-	spinlock_unlock(&super->msb_lock);
+	spinlock_unlock(&super->msb_global_lock);
 }
 
 static int
-mem_is_buddy(uintptr_t ptr, size_t size)
+mem_buddy_is_buddy(struct mem_buddy *b, uintptr_t beg, size_t size)
 {
-	return ptr > super->msb_begin + sizeof(*super) &&
-		ptr + size <= super->msb_end;
+	uintptr_t end;
+
+	end = beg + size - 1;
+	return beg >= b->mbd_beg && end <= b->mbd_end;
+}
+
+static int
+mem_buddy_is_inited(struct mem_buddy *b)
+{
+	return b->mbd_buf != NULL;
 }
 
 void
-mem_buddy_init()
+mem_buddy_init(struct mem_buddy *b, int order_min, int order_max,
+		void *buf, int hdr_size, int size)
 {
-	int order, algn_order, size_order;
-	uintptr_t addr, begin, size;
-	struct dlist *area;
+	int i, order, algn_order, rem_order;
+	uintptr_t addr, rem;
 	struct mem_buf *m;
 
-	begin = super->msb_begin + sizeof(*super);
-	addr = ROUND_UP(begin, 1 << BUDDY_ORDER_MIN);
+	assert(order_max - order_min + 1 <= ARRAY_SIZE(b->mbd_head));
+	b->mbd_order_min = order_min;
+	b->mbd_order_max = order_max;
+	b->mbd_buf = buf;
+	b->mbd_beg = (uintptr_t)buf + hdr_size;
+	b->mbd_end = b->mbd_beg + size - hdr_size - 1;
+	for (i = 0; i < ARRAY_SIZE(b->mbd_head); ++i) {
+		dlist_init(&b->mbd_head[i]);
+	}
+	addr = ROUND_UP(b->mbd_beg, 1 << order_min);
 	while (1) {
 		algn_order = ffsll(addr) - 1;
-		assert(algn_order >= BUDDY_ORDER_MIN);
-		size = lower_pow2_64(super->msb_end - addr);
-		size_order = ffsll(size) - 1;
-		order = MIN3(algn_order, size_order, BUDDY_ORDER_MAX);
-		if (order < BUDDY_ORDER_MIN) {
+		assert(algn_order >= b->mbd_order_min);
+		rem = lower_pow2_64(b->mbd_end - addr);
+		rem_order = ffsll(rem) - 1;
+		order = MIN3(algn_order, rem_order, order_max);
+		if (order < order_min) {
 			break;
 		}
 		m = (struct mem_buf *)addr;
@@ -64,59 +98,62 @@ mem_buddy_init()
 		m->mb_magic = MEM_BUF_MAGIC;
 		m->mb_block = NULL;
 		m->mb_order = -1;
-		area = &super->msb_buddy_area[order - BUDDY_ORDER_MIN];
-		DLIST_INSERT_HEAD(area, m, mb_list);
+		DLIST_INSERT_HEAD(&b->mbd_head[order - order_min], m, mb_list);
 	}
 }
 
 static struct mem_buf *
-mem_buddy_alloc(int order)
+mem_buddy_alloc(struct mem_buddy *b, u_int order)
 {
 	int i;
-	struct dlist *area;
+	struct dlist *head;
 	struct mem_buf *m, *buddy;
 
-	area = &super->msb_buddy_area[order - BUDDY_ORDER_MIN];
-	for (i = order; i <= BUDDY_ORDER_MAX; ++i, ++area) {
-		if (!dlist_is_empty(area)) {
-			m = DLIST_FIRST(area, struct mem_buf, mb_list);
+	if (order < b->mbd_order_min) {
+		order = b->mbd_order_min;
+	}
+	assert(order <= b->mbd_order_max);
+	head = &b->mbd_head[order - b->mbd_order_min];
+	for (i = order; i <= b->mbd_order_max; ++i, ++head) {
+		if (!dlist_is_empty(head)) {
+			m = DLIST_FIRST(head, struct mem_buf, mb_list);
 			break;
 		}
 	}
-	if (i > BUDDY_ORDER_MAX) {
+	if (i > b->mbd_order_max) {
 		return NULL;
 	}
 	DLIST_REMOVE(m, mb_list);
 	m->mb_order = order;
 	while (i > order) {
 		i--;
-		area--;
+		head--;
 		buddy = (struct mem_buf *)(((uintptr_t)m) + (1 << i));
 		buddy->mb_magic = MEM_BUF_MAGIC;
 		buddy->mb_block = NULL;
 		buddy->mb_order = -1;
-		DLIST_INSERT_HEAD(area, buddy, mb_list);
+		DLIST_INSERT_HEAD(head, buddy, mb_list);
 	}
 	return m;
 }
 
 static void
-mem_buddy_free(struct mem_buf *m)
+mem_buddy_free(struct mem_buddy *b, struct mem_buf *m)
 {
-	int order, size;
-	uintptr_t addr, buddy_addr;
-	struct dlist *area;
+	int order;
+	uintptr_t size, addr, buddy_addr;
+	struct dlist *head;
 	struct mem_buf *buddy, *coalesced;
 
 	order = m->mb_order;
 	addr = (uintptr_t)m;
-	assert(order >= BUDDY_ORDER_MIN);
-	assert(order <= BUDDY_ORDER_MAX);
-	area = &super->msb_buddy_area[order - BUDDY_ORDER_MIN];
-	for (; order < BUDDY_ORDER_MAX; ++order, ++area) {
+	assert(order >= b->mbd_order_min);
+	assert(order <= b->mbd_order_max);
+	head = &b->mbd_head[order - b->mbd_order_min];
+	for (; order < b->mbd_order_max; ++order, ++head) {
 		size = 1 << order;
 		buddy_addr = addr ^ size;
-		if (mem_is_buddy(buddy_addr, size))  {
+		if (mem_buddy_is_buddy(b, buddy_addr, size))  {
 			break;
 		}
 		buddy = (struct mem_buf *)buddy_addr;
@@ -128,7 +165,7 @@ mem_buddy_free(struct mem_buf *m)
 	}
 	coalesced = (struct mem_buf *)addr;
 	coalesced->mb_order = -1;
-	DLIST_INSERT_HEAD(area, coalesced, mb_list);
+	DLIST_INSERT_HEAD(head, coalesced, mb_list);
 }
 
 static struct mem_cache_block *
@@ -140,7 +177,7 @@ mem_cache_block_alloc(struct mem_cache *cache)
 	struct mem_buf *m;
 
 	// TODO: choose data size
-	data_size = (1 << BUDDY_ORDER_MIN) - sizeof(struct mem_buf);
+	data_size = (1 << GLOBAL_BUDDY_ORDER_MIN) - sizeof(struct mem_buf);
 	b = mem_alloc(data_size);
 	if (b == NULL) {
 		return NULL;
@@ -205,7 +242,6 @@ mem_cache_alloc(struct mem_cache *cache)
 	struct mem_buf *m;
 	struct mem_cache_block *b;
 
-	assert(current_cpu_id == cache->mc_cpu_id);
 	b = mem_cache_get_free_block(cache);
 	if (b == NULL) {
 		return NULL;
@@ -251,48 +287,88 @@ mem_cache_free_reclaim(struct mem_buf *m)
 }
 
 void *
+mem_buf_alloc(int cpu_id, u_int order)
+{
+	struct mem_buf *m;
+	struct mem_cache *slab;
+	struct cpu *cpu;
+
+	assert(order <= GLOBAL_BUDDY_ORDER_MAX);
+	if (order < SLAB_ORDER_MIN) {
+		order = SLAB_ORDER_MIN;
+	}
+	if (order < GLOBAL_BUDDY_ORDER_MIN) {
+		cpu = cpu_get(cpu_id);
+	
+		slab = &cpu->cpu_mem_cache[order - SLAB_ORDER_MIN];
+
+		spinlock_lock(&cpu->cpu_mem_cache_lock);
+		m = mem_cache_alloc(slab);
+		spinlock_unlock(&cpu->cpu_mem_cache_lock);
+
+	} else {
+		mem_lock();
+		m = mem_buddy_alloc(&super->msb_global_buddy, order);
+		mem_unlock();
+	}
+	return m;
+}
+
+void
+mem_buf_free(struct mem_buf *m)
+{
+	assert(m->mb_magic == MEM_BUF_MAGIC);
+	if (m->mb_block == NULL) {
+		mem_lock();
+		mem_buddy_free(&super->msb_global_buddy, m);
+		mem_unlock();
+	} else if (m->mb_cpu_id == current_cpu_id) {
+		spinlock_lock(&current_cpu->cpu_mem_cache_lock);
+		mem_cache_free_reclaim(m);
+		spinlock_unlock(&current_cpu->cpu_mem_cache_lock);
+	} else {
+		DLIST_INSERT_TAIL(&current_cpu->mw_garbage, m, mb_list);
+	}
+}
+
+void
+mem_buf_free_rcu(struct mem_buf *m)
+{
+	DLIST_INSERT_TAIL(RCU_SHADOW, m, mb_list);
+	rcu_reload();
+}
+
+void *
 mem_realloc(void *ptr, u_int size)
 {
-	int order, order0;
-	struct mem_buf *m, *m0;
-	struct mem_cache *slab;
+	u_int order, order0;
+	struct mem_buf *m0, *m;
 
-	assert(size <= (1 << BUDDY_ORDER_MAX) - sizeof(*m));
-	order = ffs(upper_pow2_32(size + (sizeof(*m)))) - 1;
+	order = size_to_order(size + sizeof(*m));
 	if (ptr == NULL) {
 		m0 = NULL;
 	} else {
-		m0 = ((struct mem_buf *)ptr) - 1;
+		m0 = (struct mem_buf *)ptr - 1;
 		assert(m0->mb_magic == MEM_BUF_MAGIC);
 		order0 = m0->mb_order;
 		assert(order0 >= SLAB_ORDER_MIN);
-		assert(order0 <= BUDDY_ORDER_MAX);
-		assert(m0->mb_size <= (1 << order0) + sizeof(*m0));
+		assert(order0 <= GLOBAL_BUDDY_ORDER_MAX);
+		assert(m0->mb_size + sizeof(*m0) <= (1 << order0));
 		if (order0 == order) {
 			m0->mb_size = size;
 			return ptr; 
 		}
 	}
-	if (order < SLAB_ORDER_MIN) {
-		order = SLAB_ORDER_MIN;
-	}
-	if (order < BUDDY_ORDER_MIN) {
-		slab = &current_cpu->mw_slab[order - SLAB_ORDER_MIN];
-		m = mem_cache_alloc(slab);
+	m = mem_buf_alloc(current_cpu_id, order);
+	if (m == NULL) {
+		return NULL;
 	} else {
-		mem_lock();
-		m = mem_buddy_alloc(order);
-		mem_unlock();
-	}
-	if (m != NULL) {
 		if (m0 != NULL) {
 			memcpy(m + 1, m0 + 1, MIN(size, m0->mb_size));
-			mem_free(m0 + 1);
+			mem_buf_free(m0);
 		}
 		m->mb_size = size;
 		return m + 1;
-	} else {
-		return NULL;
 	}
 }
 
@@ -305,39 +381,144 @@ mem_alloc(u_int size)
 void
 mem_free(void *ptr)
 {
-	struct mem_buf *m;
-
-	if (ptr == NULL) {
-		return;
-	}
-	m = ((struct mem_buf *)ptr) - 1;
-	assert(m->mb_magic == MEM_BUF_MAGIC);
-	if (m->mb_block == NULL) {
-		mem_lock();
-		mem_buddy_free(m);
-		mem_unlock();
-	} else if (m->mb_cpu_id == current_cpu_id) {
-		mem_cache_free_reclaim(m);
-	} else {
-		DLIST_INSERT_TAIL(&current_cpu->mw_garbage, m, mb_list);
+	if (ptr != NULL) {
+		mem_buf_free(((struct mem_buf *)ptr) - 1);
 	}
 }
-
-#define RCU_ACTIVE &(current_cpu->mw_rcu_head[current_cpu->mw_rcu_active])
-#define RCU_SHADOW &(current_cpu->mw_rcu_head[1 - current_cpu->mw_rcu_active])
 
 void
 mem_free_rcu(void *ptr)
 {
+	if (ptr != NULL) {
+		mem_buf_free_rcu(((struct mem_buf *)ptr) - 1);
+	}
+}
+
+#define PERCPU_LOCK spinlock_lock(&super->msb_percpu_lock)
+#define PERCPU_UNLOCK spinlock_unlock(&super->msb_percpu_lock)
+
+static int
+percpu_buf_init(int buf_id)
+{
+	int i, j;
+	u_int buf_order, buf_size;
+	struct mem_buddy *b;
+	struct mem_buf *m, *m2;
+	struct cpu *cpu;
+
+	b = &super->msb_percpu_buddy[buf_id];
+	buf_order = PERCPU_BUF_ORDER_MIN + buf_id;
+	buf_size = order_to_size(buf_order);
+	m2 = mem_buf_alloc(AUX_CPU_ID, buf_order);
+	if (m2 == NULL) {
+		return -ENOMEM;
+	}
+	for (i = 0; i < N_CPUS; ++i) {
+		cpu = cpu_get(i);
+		m = mem_buf_alloc(i, buf_order);
+		cpu->cpu_percpu_buf[buf_id] = m;
+		if (m == NULL) {
+			mem_buf_free(m2);
+			for (j = 0; j < i; ++j) {
+				cpu = cpu_get(j);
+				m = cpu->cpu_percpu_buf[buf_id];
+				cpu->cpu_percpu_buf[buf_id] = NULL;
+				mem_buf_free(m);
+			}
+			return -ENOMEM;
+		}
+	}
+	mem_buddy_init(b, PERCPU_BUDDY_ORDER_MIN, PERCPU_BUDDY_ORDER_MAX,
+		m, sizeof(m), buf_size);
+	return 0;
+}
+
+static int
+percpu_alloc_locked(struct percpu *pc, int size)
+{
+	int i, rc, order;
+	struct mem_buddy *b;
 	struct mem_buf *m;
 
-	m = ((struct mem_buf *)ptr) - 1;
-	DLIST_INSERT_TAIL(RCU_SHADOW, m, mb_list);
-	rcu_reload();
+	order = size_to_order(size);
+	for (i = 0; i < PERCPU_BUF_NUM; ++i) {
+		b = &super->msb_percpu_buddy[i];
+		if (!mem_buddy_is_inited(b)) {
+			rc = percpu_buf_init(i);
+			if (rc) {
+				return rc;
+			}
+		}
+		m = mem_buddy_alloc(b, order);
+		if (m != NULL) {
+			pc->perc_buf_id = i;
+			pc->perc_offset = (u_char *)m - b->mbd_buf;
+			return 0;
+		}
+	}
+	return -ENOMEM;
+}
+
+int
+percpu_alloc(struct percpu *pc, int size)
+{
+	int rc;
+
+	PERCPU_LOCK;
+	rc = percpu_alloc_locked(pc, size);
+	PERCPU_UNLOCK;
+	return rc;
 }
 
 void
-garbage_collector(struct service *s)
+percpu_free(struct percpu *pc)
+{
+	assert(0);
+}
+
+void *
+percpu_get(int cpu_id, struct percpu *pc)
+{
+	struct cpu *cpu;
+
+	cpu = cpu_get(cpu_id);
+	assert(pc->perc_buf_id < PERCPU_BUF_NUM);
+	// TODO: checks
+	return cpu->cpu_percpu_buf[pc->perc_buf_id] + pc->perc_offset;
+}
+
+int
+counter64_init(counter64_t *c)
+{
+	return percpu_alloc(c, sizeof(uint64_t));
+}
+
+void
+counter64_fini(counter64_t *c)
+{
+	percpu_free(c);
+}
+
+void
+counter64_add(counter64_t *c, uint64_t a)
+{
+	*((uint64_t *)percpu_get(current_cpu_id, c)) += a;
+}
+
+uint64_t
+counter64_get(counter64_t *c)
+{
+	uint64_t accum, *it;
+
+	accum = 0;
+	PERCPU_FOREACH(it, c) {
+		accum += *it;
+	}
+	return accum;
+}
+
+void
+garbage_collector()
 {
 	struct mem_buf *m;
 	struct dlist *head;
@@ -357,23 +538,6 @@ garbage_collector(struct service *s)
 	}
 }
 
-// RCU (Read Copy Update)
-//
-// < - lock (acequire barrier)
-// > - unlock (release barrier)
-// ^ - read barrier
-// e - cpu rcu epoch (mw_rcu_epoch)
-// 
-// Between lock and unlock cpu can touch already freed RCU objects.
-// The purpose of the updater is realise when we can reclaim freed
-// rcu objects (we can reclaim objects when nobody has reference to it).
-//
-// e: 0      1          2            3           4  
-// Reader  < e++ >     < e++ >     < e++ >     < e++ >
-// Memory-------------------------------------------
-// Updater   ^      ^    ^      ^    ^
-// e:        0/1    1    1/2    2    2/3
-
 static void
 rcu_free()
 {
@@ -390,7 +554,7 @@ static void
 rcu_reload()
 {
 	int i;
-	struct service *w;
+	struct cpu *cpu;
 
 	if (!dlist_is_empty(RCU_ACTIVE) || dlist_is_empty(RCU_SHADOW)) {
 		return;
@@ -399,8 +563,8 @@ rcu_reload()
 	current_cpu->mw_rcu_active = 1 - current_cpu->mw_rcu_active;
 	smp_rmb();
 	for (i = 0; i < N_CPUS; ++i) {
-		w = shared->shm_cpus + i;
-		current_cpu->mw_rcu[i] = READ_ONCE(w->mw_rcu_epoch);
+		cpu = shared->msb_cpus + i;
+		current_cpu->mw_rcu[i] = READ_ONCE(cpu->mw_rcu_epoch);
 	}
 }
 
@@ -408,14 +572,14 @@ void
 rcu_update()
 {
 	u_int i, e;
-	struct service *w;
+	struct cpu *cpu;
 
 	e = current_cpu->mw_rcu_epoch + 1;
 	WRITE_ONCE(current_cpu->mw_rcu_epoch, e);
 	smp_rmb();
 	for (i = 0; i < N_CPUS; ++i) {
-		w = shared->shm_cpus + i;
-		e = READ_ONCE(w->mw_rcu_epoch);
+		cpu = cpu_get(i);
+		e = READ_ONCE(cpu->mw_rcu_epoch);
 		if (abs(e - current_cpu->mw_rcu[i]) < 2) {
 			return;
 		}
@@ -428,22 +592,22 @@ void
 init_mem(int cpu_id)
 {
 	int i, order;
-	struct service *w;
+	struct cpu *cpu;
 	
-	w = shared->shm_cpus + cpu_id;
-	dlist_init(&w->mw_garbage);
-	for (i = 0; i < ARRAY_SIZE(w->mw_slab); ++i) {
+	cpu = cpu_get(cpu_id);
+	dlist_init(&cpu->mw_garbage);
+	for (i = 0; i < ARRAY_SIZE(cpu->cpu_mem_cache); ++i) {
 		order = i + SLAB_ORDER_MIN;
-		mem_cache_init(&w->mw_slab[i], cpu_id, order);
+		mem_cache_init(&cpu->cpu_mem_cache[i], cpu_id, order);
 	}
-	for (i = 0; i < ARRAY_SIZE(w->mw_rcu_head); ++i) {
-		dlist_init(&w->mw_rcu_head[i]);	
+	for (i = 0; i < ARRAY_SIZE(cpu->mw_rcu_head); ++i) {
+		dlist_init(&cpu->mw_rcu_head[i]);	
 	}
-	w->mw_rcu_active = 0;
+	cpu->mw_rcu_active = 0;
 }
 
 /*void
-deinit_worker_mem(struct service *w)
+deinit_worker_mem()
 {
 	int i;
 

@@ -97,6 +97,16 @@ route_if_add(const char *ifname)
 		return -ENOMEM;
 	}
 	memset(ifp, 0, sizeof(*ifp));
+
+	// TODO: checks
+	counter64_init(&ifp->rif_rx_pkts);
+	counter64_init(&ifp->rif_rx_bytes);
+	counter64_init(&ifp->rif_rx_drop);
+	counter64_init(&ifp->rif_tx_pkts);
+	counter64_init(&ifp->rif_tx_bytes);
+	counter64_init(&ifp->rif_tx_drop);
+
+
 	ifp->rif_id = slot;
 	dlist_init(&ifp->rif_route_head);
 	ifp->rif_mtu = 1500;
@@ -167,6 +177,14 @@ route_if_del(struct route_if *ifp)
 	}
 
 	WRITE_ONCE(curmod->route_ifs[ifp->rif_id], NULL);
+
+	counter64_fini(&ifp->rif_rx_pkts);
+	counter64_fini(&ifp->rif_rx_bytes);
+	counter64_fini(&ifp->rif_rx_drop);
+	counter64_fini(&ifp->rif_tx_pkts);
+	counter64_fini(&ifp->rif_tx_bytes);
+	counter64_fini(&ifp->rif_tx_drop);
+
 
 	mem_free(ifp);
 
@@ -687,6 +705,7 @@ route_mod_init()
 	if (rc) {
 		return rc;
 	}
+	
 	curmod->route_default = NULL;
 	dlist_init(&curmod->route_addr_head);
 	rc = lptree_init(&curmod->route_lptree);

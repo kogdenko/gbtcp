@@ -50,19 +50,19 @@ file_mod_deinit()
 }
 
 int
-init_files(struct service *s)
+init_files(struct cpu *cpu)
 {
-	itable_init(&s->p_file_fd_table, sizeof(struct file *));
+	itable_init(&cpu->p_file_fd_table, sizeof(struct file *));
 	return 0;
 }
 
 void
-deinit_files(struct service *s)
+deinit_files(struct cpu *cpu)
 {
 //	int tmp_fd;
 //	struct file *fp;
 
-	itable_deinit(&s->p_file_fd_table);
+	itable_deinit(&cpu->p_file_fd_table);
 		// TODO:
 		//FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
 		//	file_clean(fp);

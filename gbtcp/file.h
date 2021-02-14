@@ -30,10 +30,9 @@ extern int file_sizeof;
 
 int file_mod_init();
 
-int init_files(struct service *);
-void deinit_files(struct service *);
+int init_files(struct cpu *);
+void deinit_files(struct cpu *);
 
-//struct file *file_next(struct service *, int);
 struct file *file_alloc3(int, int, int);
 #define file_alloc(type, size) file_alloc3(0, type, size)
 void file_free(struct file *);

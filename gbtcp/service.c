@@ -16,7 +16,7 @@ static int worker_sysctl_fd = -1;
 
 struct shm_hdr *shared;
 struct process *current;
-__thread struct service *current_cpu;
+__thread struct cpu *current_cpu;
 char current_name[PROC_NAME_MAX];
 __thread int current_cpu_id = -1;
 
@@ -239,7 +239,7 @@ service_vale_rx_one(void *data, int len)
 		}
 		break;
 	case SERVICE_MSG_BYPASS:
-		if (current_cpu_id == CONTROLLER_CPU_ID) {
+		if (current_cpu_id == AUX_CPU_ID) {
 			transmit_to_host(ifp, data, len);
 		}
 		break;
@@ -291,22 +291,22 @@ service_vale_rxtx(struct dev *dev, short revents)
 }
 
 int
-service_init_shared(struct service *s, int pid, int fd)
+service_init_shared(struct cpu *cpu, int pid, int fd)
 {
 	int rc, cpu_id;
 
-	cpu_id = s - shared->shm_cpus;
+	cpu_id = cpu - shared->msb_cpus;
 	smp_wmb();
-	s->p_pid = pid;
-	dlist_init(&s->p_tx_head);
-	s->p_fd = fd;
-	s->p_start_time = shared_ns();
+	cpu->p_pid = pid;
+	dlist_init(&cpu->p_tx_head);
+	cpu->p_fd = fd;
+	cpu->p_start_time = shared_ns();
 	init_mem(cpu_id);
-	rc = init_timers(s);
+	rc = init_timers(cpu);
 	if (rc) {
 		return rc;
 	}
-	rc = init_files(s);
+	rc = init_files(cpu);
 	if (rc) {
 		return rc;
 	}

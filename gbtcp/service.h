@@ -2,6 +2,8 @@
 #ifndef GBTCP_SERVICE_H
 #define GBTCP_SERVICE_H
 
+// 457    3201
+
 #include "subr.h"
 #include "mod.h"
 #include "mbuf.h"
@@ -25,28 +27,40 @@
 #define SERVICE_UNLOCK \
 	service_unlock()
 
-#if 0
-#define SERVICE_FOREACH(s) \
-	for ((s) = shared->shm_services; \
-	     (s) != shared->shm_services + ARRAY_SIZE(shared->shm_services); \
-	     (s)++)
-#endif
 
-struct service {
+
+#define CPU_LOCK(cpu) \
+	if (cpu != current_cpu) \
+		spinlock_lock(&cpu->p_lock);
+
+#define CPU_UNLOCK(cpu) \
+	if (cpu != current_cpu) \
+		spinlock_unlock(&cpu->p_lock);
+
+
+struct cpu {
 	struct spinlock p_lock;
 	struct dlist p_tx_head;	
+
+	void *cpu_mem;
+
 	u_char p_inited;
 //	u_char p_sid;
 	u_char p_need_update_rss_bindings;
 	u_char p_rss_nq;
 	u_char p_rr_redir;
 
-	struct mem_cache mw_slab[BUDDY_ORDER_MIN - SLAB_ORDER_MIN];
+	struct spinlock cpu_mem_cache_lock;
+	struct mem_cache cpu_mem_cache[GLOBAL_BUDDY_ORDER_MIN - SLAB_ORDER_MIN];
+
 	u_int mw_rcu_epoch;
 	short mw_rcu_active;
 	struct dlist mw_rcu_head[2];
-	u_int mw_rcu[GT_SERVICES_MAX];
+	u_int mw_rcu[N_CPUS];
 	struct dlist mw_garbage;
+
+	struct mem_buf *cpu_percpu_buf[PERCPU_BUF_NUM];
+	
 
 	struct timer_ring p_timer_rings[TIMER_N_RINGS];
 	struct itable p_file_fd_table;
@@ -80,8 +94,7 @@ int proc_add_interface(struct process *, struct route_if *);
 
 int service_pid_file_acquire(int, int);
 
-int service_init_shared(struct service *, int, int);
-//void service_deinit_shared(struct service *, int);
+int service_init_shared(struct cpu *, int, int);
 
 int service_init_private();
 //void service_deinit_private();
