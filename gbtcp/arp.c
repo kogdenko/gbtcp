@@ -3,8 +3,8 @@
 
 #define CURMOD arp
 
-#define ARP_REACHABLE_TIME (30 * NSEC_SEC)
-#define ARP_RETRANS_TIMER NSEC_SEC
+#define ARP_REACHABLE_TIME (30 * NSEC_PER_SEC)
+#define ARP_RETRANS_TIMER NSEC_PER_SEC
 #define ARP_MAX_UNICAST_SOLICIT 3
 #define ARP_MIN_RANDOM_FACTOR 0.5
 #define ARP_MAX_RANDOM_FACTOR 1.5
@@ -316,7 +316,7 @@ arp_set_state(struct arp_entry *e, int state)
 	WRITE_ONCE(e->ae_state, state);
 	if (state == ARP_REACHABLE) {
 		timer_del(&e->ae_timer);
-		e->ae_confirmed = shared_ns();
+		e->ae_confirmed = nanosecond;
 		e->ae_n_probes = 0;
 	}
 }
@@ -397,7 +397,7 @@ arp_is_reachable_timeouted(struct arp_entry *e)
 	if (READ_ONCE(e->ae_admin)) {
 		return 0;
 	}
-	t = shared_ns();
+	t = nanosecond;
 	return t - e->ae_confirmed > curmod->arp_reachable_time;
 }
 

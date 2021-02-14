@@ -55,7 +55,7 @@ sysctl_inet_stat(struct sysctl_conn *cp, void *udata,
 		}
 	}
 	accum = 0;
-	for (i = 0; i < N_CPUS; ++i) {
+	for (i = 0; i < CPU_NUM; ++i) {
 		cpu = cpu_get(i);
 		ptr = (uint64_t *)((u_char *)cpu + off);
 		accum += *ptr;

@@ -15,7 +15,6 @@ struct shm_mod {
 static int shm_fd = -1;
 
 struct shm_hdr *shared;
-#define super shared
 
 void mem_buddy_init();
 
@@ -44,7 +43,6 @@ shm_init()
 		goto err;
 	}
 	memset(shared, 0, sizeof(*shared));
-	shared->shm_ns = nanoseconds;
 	shared->msb_addr = (uintptr_t)shared;
 	shared->msb_size = size;
 	spinlock_init(&shared->msb_global_lock);

@@ -10,6 +10,48 @@ static int controller_pid_fd = -1;
 
 int controller_done;
 
+uint64_t nanoseconds;
+u64 ticks, mhz;
+
+void
+rd_nanoseconds()
+{
+	uint64_t ticks2, dt;
+
+	ticks2 = rdtsc();
+	if (ticks2 > ticks) {
+		// tsc can fall after suspend
+		dt = ticks2 - ticks;
+		super->msb_nanosecond += 1000 * dt / mhz; 
+	}
+	ticks = ticks2;
+}
+
+uint64_t
+sleep_compute_hz()
+{
+	int rc;
+	u64 t0, t1, hz;
+	struct timespec ts, rem;
+
+	ts.tv_sec = 0;
+	ts.tv_nsec = 10 * 1000 * 1000;
+	t0 = rdtsc();
+restart:
+	rc = nanosleep(&ts, &rem);
+	if (rc == -1) {
+		if (errno == EINTR) {
+			memcpy(&ts, &rem, sizeof(ts));
+			goto restart;
+		} else {
+			return -errno;
+		}
+	}
+	t1 = rdtsc();
+	hz = (t1 - t0) * 100;
+	return hz;
+}
+
 static void
 host_rx_one(struct route_if *ifp, void *data, int len)
 {
@@ -568,7 +610,7 @@ controller_init(int daemonize, int force, const char *worker_proc_name)
 	if (rc) {
 		goto err;
 	}
-	for (i = 0; i < N_CPUS; ++i) {
+	for (i = 0; i < CPU_NUM; ++i) {
 		rc = service_init_shared(shared->msb_cpus + i, pid, 0);
 		assert(rc == 0);
 	}
@@ -578,9 +620,10 @@ controller_init(int daemonize, int force, const char *worker_proc_name)
 	if (rc) {
 		goto err;
 	}
+
 	hz = sleep_compute_hz();
-	set_hz(hz);
-	shared->shm_hz = hz;
+	mhz = hz / 1000000;
+	rd_nanoseconds();
 
 	// Read only loader sysctl variables
 	rc = sysctl_read_file(1, worker_proc_name);
@@ -627,7 +670,5 @@ void
 controller_process()
 {
 	rd_nanoseconds();
-	WRITE_ONCE(shared->shm_ns, nanoseconds);
 	fd_thread_wait(current_fd_thread);
-
 }

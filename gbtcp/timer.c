@@ -36,7 +36,7 @@ init_timers(struct cpu *cpu)
 		TIMER_RING1_SEG_SHIFT
 	};
 
-	t = shared_ns();
+	t = nanosecond;
 	for (i = 0; i < ARRAY_SIZE(seg_shift); ++i) {
 		rc = timer_ring_init(cpu, t, i, seg_shift[i]);
 		if (rc) {
@@ -101,7 +101,7 @@ run_timers()
 	struct dlist queue;
 	struct timer_ring *ring;
 
-	t = shared_ns();
+	t = nanosecond;
 	if (t - t_saved < TIMER_TIMEOUT) {
 		return;
 	}

@@ -16,7 +16,7 @@ fd_thread_wait3(struct fd_thread *t, int force, uint64_t to)
 	struct fd_poll p;
 
 	if (!force) {
-		elapsed = nanoseconds - t->fdt_drain_time;
+		elapsed = nanosecond - t->fdt_drain_time;
 		if (elapsed < t->fdt_timeout) {
 			return;
 		}
@@ -213,7 +213,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	} else {
 		to.tv_nsec = p->fdp_to;
 	}
-	now = nanoseconds;
+	now = nanosecond;
 	fd_poll_sigmask = sigmask;
 	if (fd_poll_sigmask == NULL) {
 		fd_poll_sigmask = signal_sigprocmask_get();
@@ -222,7 +222,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	rc = sys_ppoll(p->fdp_pfds, p->fdp_n_added + p->fdp_n_events,
 		&to, fd_poll_sigmask);
 	SERVICE_LOCK;
-	elapsed = nanoseconds - now;
+	elapsed = nanosecond - now;
 	if (elapsed > p->fdp_to) {
 		p->fdp_to = 0;
 	} else {
@@ -254,7 +254,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	}
 	t->fdt_is_waiting = 0;
 	if (p->fdp_throttled == 0) {
-		t->fdt_drain_time = nanoseconds;
+		t->fdt_drain_time = nanosecond;
 	}
 	return n_triggered;
 }

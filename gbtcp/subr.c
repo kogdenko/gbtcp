@@ -11,9 +11,6 @@ union tsc {
 	};
 };
 
-uint64_t nanoseconds;
-uint64_t ticks;
-uint64_t mHZ = 3000; // default cpu 3 ghz
 
 int
 eth_addr_aton(struct eth_addr *a, const char *s)
@@ -169,7 +166,7 @@ profiler_enter(struct profiler *p)
 void
 profiler_leave(struct profiler *p)
 {
-	uint64_t t, dt, elapsed;
+	u64 t, dt, elapsed;
 	double avg;
 
 	assert(p->prf_tsc != 0);
@@ -401,6 +398,31 @@ lower_pow2_64(uint64_t x)
 	return x - (x >> 1);
 }
 
+static void
+set_normalized_timespec(struct timespec *ts, s64 sec, s64 nsec)
+{
+	while (nsec >= NSEC_PER_SEC) {
+		nsec -= NSEC_PER_SEC;
+		sec++;
+	}
+	while (nsec < 0) {
+		nsec += NSEC_PER_SEC;
+		sec--;
+	}
+	ts->tv_sec = sec;
+	ts->tv_nsec = nsec;
+}
+
+struct timespec
+timespec_sub(struct timespec *lhs, struct timespec *rhs)
+{
+	struct timespec res;
+
+	set_normalized_timespec(&res, lhs->tv_sec - rhs->tv_sec,
+		lhs->tv_nsec - rhs->tv_nsec);
+	return res;
+}
+
 int
 fchgrp(int fd, struct stat *buf, const char *group_name)
 {
@@ -450,27 +472,13 @@ fcntl_setfl_nonblock_rollback(int fd, int old_flags)
 	return rc;
 }
 
-static struct timespec *
-nanoseconds_to_timespec(struct timespec *ts, uint64_t t)
-{
-	if (t < NSEC_SEC) {
-		ts->tv_sec = 0;
-		ts->tv_nsec = t;
-	} else {
-		ts->tv_sec = t / NSEC_SEC;
-		ts->tv_nsec = t % NSEC_SEC;
-	}
-	return ts;
-}
-
 int
 connect_timed(int fd, const struct sockaddr *addr,
-	socklen_t addrlen, uint64_t *to)
+		socklen_t addrlen, struct timespec *to)
 {
 	int rc, errnum, flags;
-	uint64_t t, elapsed;
 	socklen_t opt_len;
-	struct timespec ts;
+	struct timespec ts, ts2, elapsed;
 	struct pollfd pfd;
 
 	if (to == NULL) {
@@ -490,34 +498,36 @@ connect_timed(int fd, const struct sockaddr *addr,
 		return 0;
 	} else if (errnum != EINPROGRESS) {
 		return -errnum;
-	} else if (*to == 0) {
+	} else if (to->tv_sec == 0 && to->tv_nsec == 0) {
 		errnum = ETIMEDOUT;
 		goto out;
 	}
 	pfd.events = POLLOUT;
 	pfd.fd = fd;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
 restart:
-	t = nanoseconds;
-	nanoseconds_to_timespec(&ts, *to);
-	rc = sys_ppoll(&pfd, 1, &ts, NULL);
-	rd_nanoseconds();
-	elapsed = MIN(*to, nanoseconds - t);
-	*to -= elapsed;
+	rc = sys_ppoll(&pfd, 1, to, NULL);
+	clock_gettime(CLOCK_MONOTONIC, &ts2);
+	elapsed = timespec_sub(&ts2, &ts);
+	*to = timespec_sub(to, &elapsed);
+	if (to->tv_sec < 0) {
+		to->tv_sec = to->tv_nsec = 0;
+	}
+	ts = ts2;
 	switch (rc) {
 	case 0:
-		*to = 0;
 		errnum = ETIMEDOUT;
 		break;
 	case 1:
 		opt_len = sizeof(errnum);
 		rc = sys_getsockopt(fd, SOL_SOCKET, SO_ERROR,
-		                    &errnum, &opt_len);
+			&errnum, &opt_len);
 		if (rc) {
 			return rc;
 		}
 		break;
 	case -EINTR:
-		if (*to) {
+		if (to->tv_sec || to->tv_nsec) {
 			goto restart;
 		} else {
 			errnum = ETIMEDOUT;
@@ -529,19 +539,22 @@ restart:
 	}
 out:
 	if (errnum) {
-		ERR(errnum, "failed; fd=%d, addr=%s",
-		    fd, log_add_sockaddr(addr, addrlen));
+		if (errnum == ETIMEDOUT) {
+			to->tv_sec = to->tv_nsec = 0;
+			sys_shutdown(fd, SHUT_RDWR);
+		}
+		ERR(errnum, "connect_timed() failed; fd=%d, addr=%s",
+			fd, log_add_sockaddr(addr, addrlen));
 	}
 	return -errnum;
 }
 
 ssize_t
-read_timed(int fd, void *buf, size_t count, uint64_t *to)
+read_timed(int fd, void *buf, size_t count, struct timespec *to)
 {
 	int flags;
 	ssize_t rc;
-	uint64_t t, elapsed;
-	struct timespec ts;
+	struct timespec ts, ts2, elapsed;
 	struct pollfd pfd;
 
 	if (to == NULL) {
@@ -554,22 +567,29 @@ read_timed(int fd, void *buf, size_t count, uint64_t *to)
 	}
 	pfd.events = POLLIN;
 	pfd.fd = fd;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
 restart:
-	t = nanoseconds;
-	nanoseconds_to_timespec(&ts, *to);
-	rc = sys_ppoll(&pfd, 1, &ts, NULL);
-	rd_nanoseconds();
-	elapsed = MIN(*to, nanoseconds - t);
-	*to -= elapsed;
+	rc = sys_ppoll(&pfd, 1, to, NULL);
+	clock_gettime(CLOCK_MONOTONIC, &ts2);
+	elapsed = timespec_sub(&ts2, &ts);
+	*to = timespec_sub(to, &elapsed);
+	if (to->tv_sec < 0) {
+		to->tv_sec = to->tv_nsec = 0;
+	}
+	ts = ts2;
 	switch (rc) {
 	case 0:
-		*to = 0;
 		rc = -ETIMEDOUT;
 		break;
 	case 1:
 		rc = sys_read(fd, buf, count);
 		if (rc == -EAGAIN) {
-			goto restart;
+			if (to->tv_sec || to->tv_nsec) {
+				goto restart;
+			} else {
+				rc = -ETIMEDOUT;
+				break;
+			}
 		}
 		break;
 	case -EINTR:
@@ -579,7 +599,10 @@ restart:
 	}
 	fcntl_setfl_nonblock_rollback(fd, flags);
 	if (rc < 0) {
-		ERR(-rc, "failed; fd=%d", fd);
+		if (rc == -ETIMEDOUT) {
+			to->tv_sec = to->tv_nsec = 0;
+		}
+		ERR(-rc, "read_timed() failed; fd=%d", fd);
 	}
 	return rc;
 }
@@ -694,9 +717,9 @@ read_irq_table(const char *ifname, u_char *q2cpu)
 		if (rc != 1) {
 			continue;
 		}
-		if (queue_id >= N_WORKER_CPUS) {
+		if (queue_id >= WORKER_CPU_NUM) {
 			ERR(0, "%s: Too many RSS queues (>%d)",
-				ifname, N_WORKER_CPUS);
+				ifname, WORKER_CPU_NUM);
 			rc = -EINVAL;
 			goto err;
 		}
@@ -719,9 +742,9 @@ read_irq_table(const char *ifname, u_char *q2cpu)
 			goto err_bad_format;
 		}
 		cpu_id = ffsl(cpu_mask) - 1;
-		if (cpu_id >= N_CPUS) {
+		if (cpu_id >= CPU_NUM) {
 			ERR(0, "%s: cpu %d exceeds maximum support size %d",
-				path, cpu_id, N_CPUS);
+				path, cpu_id, CPU_NUM);
 			goto err_bad_format;
 		}
 		if (cpu_mask != (1llu << cpu_id)) {
@@ -866,31 +889,6 @@ rdtsc()
 		"=a" (tsc.lo_32),
 		"=d" (tsc.hi_32));
 	return tsc.tsc_64;;
-}
-
-uint64_t
-sleep_compute_hz()
-{
-	int rc;
-	uint64_t t0, t1, hz;
-	struct timespec ts, rem;
-
-	ts.tv_sec = 0;
-	ts.tv_nsec = 10 * 1000 * 1000;
-	t0 = rdtsc();
-restart:
-	rc = nanosleep(&ts, &rem);
-	if (rc == -1) {
-		if (errno == EINTR) {
-			memcpy(&ts, &rem, sizeof(ts));
-			goto restart;
-		} else {
-			return -errno;
-		}
-	}
-	t1 = rdtsc();
-	hz = (t1 - t0) * 100;
-	return hz;
 }
 
 int
@@ -1114,22 +1112,4 @@ print_backtrace(int depth_off)
 	printf("%s", s);
 }
 
-void
-set_hz(uint64_t hz)
-{
-	mHZ = hz / 1000000ull;
-}
 
-void
-rd_nanoseconds()
-{
-	uint64_t ticks2, dt;
-
-	ticks2 = rdtsc();
-	if (ticks2 > ticks) {
-		// tsc can fall after suspend
-		dt = ticks2 - ticks;
-		nanoseconds += 1000 * dt / mHZ; 
-	}
-	ticks = ticks2;
-}

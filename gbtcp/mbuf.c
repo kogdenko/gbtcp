@@ -5,7 +5,6 @@
 
 #define MEM_BUF_MAGIC 0xfeca
 
-#define super shared
 
 #define RCU_ACTIVE &(current_cpu->mw_rcu_head[current_cpu->mw_rcu_active])
 #define RCU_SHADOW &(current_cpu->mw_rcu_head[1 - current_cpu->mw_rcu_active])
@@ -413,7 +412,7 @@ percpu_buf_init(int buf_id)
 	if (m2 == NULL) {
 		return -ENOMEM;
 	}
-	for (i = 0; i < N_CPUS; ++i) {
+	for (i = 0; i < CPU_NUM; ++i) {
 		cpu = cpu_get(i);
 		m = mem_buf_alloc(i, buf_order);
 		cpu->cpu_percpu_buf[buf_id] = m;
@@ -562,7 +561,7 @@ rcu_reload()
 	// swap shadow/active
 	current_cpu->mw_rcu_active = 1 - current_cpu->mw_rcu_active;
 	smp_rmb();
-	for (i = 0; i < N_CPUS; ++i) {
+	for (i = 0; i < CPU_NUM; ++i) {
 		cpu = shared->msb_cpus + i;
 		current_cpu->mw_rcu[i] = READ_ONCE(cpu->mw_rcu_epoch);
 	}
@@ -577,7 +576,7 @@ rcu_update()
 	e = current_cpu->mw_rcu_epoch + 1;
 	WRITE_ONCE(current_cpu->mw_rcu_epoch, e);
 	smp_rmb();
-	for (i = 0; i < N_CPUS; ++i) {
+	for (i = 0; i < CPU_NUM; ++i) {
 		cpu = cpu_get(i);
 		e = READ_ONCE(cpu->mw_rcu_epoch);
 		if (abs(e - current_cpu->mw_rcu[i]) < 2) {

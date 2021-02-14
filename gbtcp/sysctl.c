@@ -906,12 +906,13 @@ int
 sysctl_connect(int fd)
 {
 	int rc;
-	uint64_t to;
+	struct timespec to;
 	struct sockaddr_un a;
 
 	a.sun_family = AF_UNIX;
 	strzcpy(a.sun_path, SYSCTL_CONTROLLER_PATH, sizeof(a.sun_path));
-	to = 2 * NSEC_SEC;
+	to.tv_sec = 2;
+	to.tv_nsec = 0;
 	rc = connect_timed(fd, (struct sockaddr *)&a, sizeof(a), &to);
 	return rc;
 }
@@ -965,10 +966,11 @@ sysctl_recv_rpl(int fd, char *old)
 {
 	int rc, len, errnum;
 	char *ptr;
-	uint64_t to;
+	struct timespec to;
 	struct iovec t[SYSCTL_NTOKENS_MAX];
 
-	to = 5 * NSEC_SEC;
+	to.tv_sec = 5;
+	to.tv_nsec = 0;
 	len = 0;
 	while (1) {
 		rc = read_timed(fd, old + len, GT_SYSCTL_BUFSIZ - len, &to);

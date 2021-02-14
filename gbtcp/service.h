@@ -21,7 +21,6 @@
 
 #define SERVICE_LOCK do { \
 	spinlock_lock(&current_cpu->p_lock); \
-	rd_nanoseconds(); \
 } while (0)
 
 #define SERVICE_UNLOCK \
@@ -56,7 +55,7 @@ struct cpu {
 	u_int mw_rcu_epoch;
 	short mw_rcu_active;
 	struct dlist mw_rcu_head[2];
-	u_int mw_rcu[N_CPUS];
+	u_int mw_rcu[CPU_NUM];
 	struct dlist mw_garbage;
 
 	struct mem_buf *cpu_percpu_buf[PERCPU_BUF_NUM];
@@ -84,7 +83,7 @@ struct process_percpu {
 struct process {
 	int ps_pid;
 	struct dlist ps_list;
-	struct process_percpu ps_percpu[N_CPUS];
+	struct process_percpu ps_percpu[CPU_NUM];
 };
 
 #define current_fd_thread &(current->ps_percpu[current_cpu_id].ps_fd_thread)

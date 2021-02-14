@@ -19,15 +19,18 @@ struct shm_hdr {
 	struct mem_buddy msb_percpu_buddy[PERCPU_BUF_NUM];
 
 
-	struct dlist msb_garbage[GT_SERVICES_MAX];
+	struct dlist msb_garbage[CPU_NUM];
 
 	uintptr_t msb_addr;
 	size_t msb_size;
 
-	uint64_t shm_ns;
-	uint64_t shm_hz;
+
+	u64 msb_nanosecond;
+	u64 msb_mhz;
+
+
 	void *shm_mods[MODS_MAX];
-	struct cpu msb_cpus[N_CPUS];
+	struct cpu msb_cpus[CPU_NUM];
 
 	struct dlist shm_proc_head;
 
@@ -36,7 +39,7 @@ struct shm_hdr {
 static inline struct cpu *
 cpu_get(int i)
 {
-	assert(i < N_CPUS);
+	assert(i < CPU_NUM);
 	return shared->msb_cpus + i;
 }
 
@@ -51,6 +54,6 @@ int shm_attach();
 void shm_deinit();
 void shm_detach();
 
-#define shared_ns() READ_ONCE(shared->shm_ns)
+#define nanosecond READ_ONCE(shared->msb_nanosecond)
 
 #endif // GBTCP_SHM_H

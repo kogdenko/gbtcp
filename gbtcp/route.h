@@ -40,7 +40,7 @@ struct route_if {
 	u_char rif_rss_key[RSS_KEY_SIZE];
 
 //	u_char if_cpu_queue[N_CPUS];
-	u_char if_queue_cpu[N_CPUS];
+	u_char if_queue_cpu[CPU_NUM];
 
 	struct dlist rif_route_head;
 	struct dev rif_host_dev;

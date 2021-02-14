@@ -40,9 +40,10 @@ static int
 service_pipe_recv(int fd)
 {
 	int rc, msg;
-	uint64_t to;
+	struct timespec to;
 
-	to = 4 * NSEC_SEC;
+	to.tv_sec = 4;
+	to.tv_nsec = 0;
 	rc = read_timed(fd, &msg, sizeof(msg), &to);
 	if (rc == 0) {
 		ERR(0, "peer closed;");
@@ -300,7 +301,7 @@ service_init_shared(struct cpu *cpu, int pid, int fd)
 	cpu->p_pid = pid;
 	dlist_init(&cpu->p_tx_head);
 	cpu->p_fd = fd;
-	cpu->p_start_time = shared_ns();
+	cpu->p_start_time = nanosecond;
 	init_mem(cpu_id);
 	rc = init_timers(cpu);
 	if (rc) {
@@ -416,7 +417,6 @@ attach_worker()
 	if (rc) {
 		goto err;
 	}
-	set_hz(shared->shm_hz);
 	dbg("Ready!!!!");
 	return 0;
 err:
@@ -771,8 +771,9 @@ proc_add(int pid, int flag)
 	}
 	p = mem_alloc(sizeof(*p));
 	memset(p->ps_percpu, 0, sizeof(p->ps_percpu));
-	for (i = 0; i < N_CPUS; ++i)
+	for (i = 0; i < CPU_NUM; ++i) {
 		fd_thread_init(&p->ps_percpu[i].ps_fd_thread);
+	}
 	p->ps_pid = pid;
 	DLIST_INSERT_TAIL(&shared->shm_proc_head, p, ps_list);
 	

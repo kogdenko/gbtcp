@@ -38,7 +38,7 @@ typedef void (*gt_aio_f)(void *, int, short);
 #define GT_RSS_NQ_MAX 32
 #define GT_SERVICES_MAX 128
 
-#define N_CPUS 32
+#define CPU_NUM 32
 
 #define GT_FIRST_FD (FD_SETSIZE >> 1)
 #define GT_GROUP_NAME "gbtcp"

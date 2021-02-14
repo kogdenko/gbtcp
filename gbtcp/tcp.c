@@ -190,9 +190,9 @@ so_hash(void *e)
 static int
 sysctl_tcp_fin_timeout(const long long *new, long long *old)
 {
-	*old = curmod->tcp_fin_timeout / NSEC_SEC;
+	*old = curmod->tcp_fin_timeout / NSEC_PER_SEC;
 	if (new != NULL) {
-		curmod->tcp_fin_timeout = (*new) * NSEC_SEC;
+		curmod->tcp_fin_timeout = (*new) * NSEC_PER_SEC;
 	}
 	return 0;
 }
@@ -255,7 +255,7 @@ tcp_mod_init()
 		&curmod->tbl_connected);
 	sysctl_add_htable_list(GT_SYSCTL_SOCKET_BINDED_LIST, SYSCTL_RD,
 		&curmod->tbl_binded, sysctl_socket_binded);
-	curmod->tcp_fin_timeout = NSEC_MINUTE;
+	curmod->tcp_fin_timeout = NSEC_PER_SEC * SECS_PER_MIN;
 	sysctl_add_intfn(GT_SYSCTL_TCP_FIN_TIMEOUT, SYSCTL_WR,
 		&sysctl_tcp_fin_timeout, 1, 24 * 60 * 60);
 	return 0;
@@ -1114,7 +1114,7 @@ gt_tcp_open(struct sock *so)
 	so->so_nagle_acked = 1;
 	// Must not overlap in 2 minutes (MSL)
 	// Increment 1 seq at 16 ns (like in Linux)
-	so->so_sack = nanoseconds >> 6;
+	so->so_sack = nanosecond >> 6;
 	so->so_ssnt = 0;
 	so->so_swnd = 0;
 	so->so_rwnd = 0;
@@ -1190,8 +1190,8 @@ tcp_delack(struct sock *so)
 		timer_del(&so->so_timer_delack);
 		tcp_into_ackq(so);
 	}
-	timer_set(&so->so_timer_delack, 200 * NSEC_MSEC,
-	          TCP_TIMER_DELACK);
+	timer_set(&so->so_timer_delack, 200 * NSEC_PER_MSEC,
+		TCP_TIMER_DELACK);
 }
 
 #if 0
@@ -1217,9 +1217,9 @@ tcp_tx_timer_set(struct sock *so)
 		so->so_ntries = 0;
 	}
 	if (so->so_state < GT_TCPS_ESTABLISHED) {
-		expires = NSEC_SEC;
+		expires = NSEC_PER_SEC;
 	} else {
-		expires = 500 * NSEC_MSEC;
+		expires = 500 * NSEC_PER_MSEC;
 	}
 	expires <<= so->so_ntries;
 	timer_set(&so->so_timer, expires, TCP_TIMER_REXMIT);
@@ -1236,7 +1236,7 @@ tcp_wprobe_timer_set(struct sock *so)
 	if (timer_is_running(&so->so_timer)) {
 		return 0;
 	}
-	expires = 10 * NSEC_SEC;
+	expires = 10 * NSEC_PER_SEC;
 	timer_set(&so->so_timer, expires, TCP_TIMER_PERSIST);
 	return 1;
 }

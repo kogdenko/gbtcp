@@ -33,10 +33,13 @@ void gt_qsort_r(void *, size_t, size_t,
 #define NM_IFNAMSIZ (IFNAMSIZ + NETMAP_PFX_LEN)
 #define GT_PREFIX "/usr/local/gbtcp"
 
-#define NSEC_SEC 1000000000ull
-#define NSEC_MSEC 1000000ull
+#define NSEC_PER_SEC 1000000000ull
+#define NSEC_PER_MSEC 1000000ull
+
+
+#define SECS_PER_MIN 60
+
 #define NSEC_USEC 1000ull
-#define NSEC_MINUTE (60 * NSEC_SEC)
 #define NSEC_HOUR (60 * NSEC_MINUTE)
 #define NSEC_INFINITY ((uint64_t)(-1))
 
@@ -54,6 +57,11 @@ extern char current_name[PROC_NAME_MAX];
 typedef uint16_t be16_t;
 typedef uint32_t be32_t;
 typedef uint64_t be64_t;
+
+typedef int32_t s32;
+typedef uint32_t u32;
+typedef int64_t s64;
+typedef uint64_t u64;
 
 typedef uint32_t bitset_word_t;
 
@@ -167,7 +175,7 @@ do { \
 	static uint64_t UNIQV(now); \
 	static int UNIQV(cnt); \
  \
-	UNIQV(now) = nanoseconds; \
+	UNIQV(now) = nanosecond; \
 	if (UNIQV(now) - UNIQV(last) >= period) { \
 		UNIQV(last) = UNIQV(now); \
 		if (UNIQV(cnt)) { \
@@ -186,8 +194,8 @@ do { \
 	static uint64_t UNIQV(now); \
 	static int UNIQV(cnt); \
  \
-	UNIQV(now) = nanoseconds; \
-	if (UNIQV(now) - UNIQV(last) >= (period) * NSEC_SEC) { \
+	UNIQV(now) = nanosecond; \
+	if (UNIQV(now) - UNIQV(last) >= (period) * NSEC_PER_SEC) { \
 		UNIQV(last) = UNIQV(now); \
 		gt_dbg5(__FILE__, __LINE__, __func__, UNIQV(cnt), \
 		        fmt, ##__VA_ARGS__); \
@@ -255,10 +263,6 @@ do { \
 	WRITE_ONCE(p, v); \
 })
 
-extern uint64_t nanoseconds;
-extern uint64_t HZ;
-extern uint64_t mHZ;
-
 int eth_addr_aton(struct eth_addr *, const char *);
 int eth_addr_is_mcast(const u_char *);
 int eth_addr_is_ucast(const u_char *);
@@ -298,13 +302,15 @@ uint64_t upper_pow2_64(uint64_t x);
 uint32_t lower_pow2_32(uint32_t x);
 uint64_t lower_pow2_64(uint64_t x);
 
+struct timespec timespec_sub(struct timespec *, struct timespec *);
+
 int fchgrp(int, struct stat *, const char *);
 int fcntl_setfl_nonblock(int, int *);
 #define fcntl_setfl_nonblock2(fd) \
 	fcntl_setfl_nonblock(fd, NULL)
 
-int connect_timed(int, const struct sockaddr *, socklen_t, uint64_t *);
-ssize_t read_timed(int, void *, size_t, uint64_t *);
+int connect_timed(int, const struct sockaddr *, socklen_t, struct timespec *);
+ssize_t read_timed(int, void *, size_t, struct timespec *);
 ssize_t write_record(int, const void *, size_t);
 ssize_t send_record(int, const void *, size_t, int);
 

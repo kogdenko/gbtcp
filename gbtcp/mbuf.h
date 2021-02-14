@@ -67,7 +67,7 @@ struct percpu {
 
 #define PERCPU_FOREACH(var, percpu) \
 	for (int UNIQV(i) = 0; \
-	     UNIQV(i) < N_CPUS && (var = percpu_get(UNIQV(i), percpu)); \
+	     UNIQV(i) < CPU_NUM && (var = percpu_get(UNIQV(i), percpu)); \
 	     ++UNIQV(i))
 
 int percpu_alloc(struct percpu *, int);

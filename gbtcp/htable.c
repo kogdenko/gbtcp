@@ -84,7 +84,7 @@ htable_bucket_get(struct htable *t, uint32_t h)
 
 static int
 sysctl_htable_size(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *out)
+		const char *new, struct strbuf *out)
 {
 	int rc, new_size;
 	char *endptr;
@@ -144,7 +144,7 @@ sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 
 static int
 sysctl_htable_list(void *udata, const char *ident,
-	const char *new, struct strbuf *out)
+		const char *new, struct strbuf *out)
 {
 	int rc, lo;
 	struct dlist *e;
@@ -184,12 +184,11 @@ sysctl_add_htable_size(const char *path, struct htable *t)
 
 void
 sysctl_add_htable_list(const char *path, int mode, struct htable *t,
-	htable_sysctl_f fn)
+		htable_sysctl_f fn)
 {
 	assert(t->ht_sysctl_fn == NULL);
 	assert(fn != NULL);
 	t->ht_sysctl_fn = fn;
-	sysctl_add_list(path, mode, t,
-	                sysctl_htable_list_next,
-	                sysctl_htable_list);
+	sysctl_add_list(path, mode, t, sysctl_htable_list_next,
+		sysctl_htable_list);
 }

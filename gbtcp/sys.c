@@ -463,7 +463,10 @@ sys_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 		rc = -errno;
 		assert(rc < 0);
 	}
-	if (rc < 0 && rc != -EINPROGRESS) {
+	if (rc == -EINPROGRESS) {
+		INFO(0, "connect() inprogress; fd=%d, addr=%s",
+			fd, log_add_sockaddr(addr, addrlen));
+	} else if (rc < 0) {
 		ERR(-rc, "connect() failed; fd=%d, addr=%s",
 			fd, log_add_sockaddr(addr, addrlen));
 	} else {

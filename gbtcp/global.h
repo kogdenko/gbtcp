@@ -130,7 +130,7 @@ extern struct process *current;
 extern __thread struct cpu *current_cpu;// FIXME
 extern __thread int current_cpu_id;
 extern struct shm_hdr *shared;
-extern uint64_t nanoseconds;
+#define super shared
 
 void set_current_cpu_id(int);
 
