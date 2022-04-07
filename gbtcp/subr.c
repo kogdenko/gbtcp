@@ -650,10 +650,10 @@ out:
 	return rc;
 }
 
-long
-gettid()
+pid_t
+gtl_gettid()
 {
-	long tid;
+	pid_t tid;
 
 	tid = syscall(SYS_gettid);
 	return tid;

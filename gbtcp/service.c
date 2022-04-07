@@ -21,7 +21,7 @@ static struct dlist service_rcu_active_head;
 static struct dlist service_rcu_shadow_head;
 static u_int service_rcu[GT_SERVICES_MAX];
 
-struct shm_hdr *shared;
+extern struct shm_hdr *shared;
 struct service *current;
 sigset_t current_sigprocmask;
 int current_sigprocmask_set;

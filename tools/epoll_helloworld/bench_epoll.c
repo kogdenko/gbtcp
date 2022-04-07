@@ -56,7 +56,7 @@ static int Cflag;
 	printf("\n"); \
 } while (0)
 
-static void on_event(int eq_fd, union my_data *data, short revents);
+static void on_event(int eq_fd, const union my_data *data, short revents);
 
 static void
 log_errf(int e, const char *format, ...)
@@ -196,7 +196,7 @@ event_queue_create()
 }
 
 static void
-event_queue_ctl(int eq_fd, int is_new, union my_data *data, int write)
+event_queue_ctl(int eq_fd, int is_new, const union my_data *data, int write)
 {
 	int rc;
 	struct epoll_event event;
@@ -224,6 +224,7 @@ event_queue_wait(int eq_fd, int to_ms)
 	int i, n;
 	short revents;
 	struct epoll_event *e, events[128];
+	union my_data data;
 
 	n = epoll_wait(eq_fd, events, ARRAY_SIZE(events), to_ms);
 	for (i = 0; i < n; ++i) {
@@ -240,7 +241,8 @@ event_queue_wait(int eq_fd, int to_ms)
 			revents |= POLLERR;	
 		}
 		assert(revents);
-		on_event(eq_fd, (union my_data *)&e->data, revents);
+		data.u64 = e->data.u64;
+		on_event(eq_fd, &data, revents);
 	}
 }
 #else // __linux__
@@ -259,7 +261,7 @@ event_queue_create()
 }
 
 static void
-event_queue_ctl(int eq_fd, int is_new, union my_data *data, int write)
+event_queue_ctl(int eq_fd, int is_new, const union my_data *data, int write)
 {
 	int rc;
 	struct kevent e;
@@ -456,7 +458,7 @@ clientn(int eq_fd)
 }
 
 static void
-on_event(int eq_fd, union my_data *data, short revents)
+on_event(int eq_fd, const union my_data *data, short revents)
 {
 	int rc, fin, len, listen_fd, closed;
 	union my_data new_data;
@@ -512,8 +514,9 @@ on_event(int eq_fd, union my_data *data, short revents)
 			conns--;
 			clientn(eq_fd);
 		} else {
-			data->state = STATE_CLIENT;
-			event_queue_ctl(eq_fd, 0, data, 0);
+			new_data = *data;
+			new_data.state = STATE_CLIENT;
+			event_queue_ctl(eq_fd, 0, &new_data, 0);
 		}
 		break;
 	case STATE_CLIENT:

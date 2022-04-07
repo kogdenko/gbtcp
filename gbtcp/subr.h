@@ -308,7 +308,7 @@ ssize_t send_record(int, const void *, size_t, int);
 
 int read_rss_key(const char *, u_char *);
 
-long gettid();
+pid_t gtl_gettid();
 int read_proc_comm(char *, int);
 
 uint64_t rdtsc();
