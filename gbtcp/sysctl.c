@@ -245,7 +245,7 @@ sysctl_read_file(int loader, const char *comm)
 	char buf[2000];
 	FILE *file;
 
-	path = getenv("GBTCP_CTL");
+	path = getenv("GBTCP_CONF");
 	if (path != NULL) { 
 		rc = sys_realpath(path, path_buf);
 		if (rc) {

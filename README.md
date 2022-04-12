@@ -50,6 +50,9 @@ LD_PRELOAD=./bin/libgbtcp.so nginx -c /etc/nginx.conf
 ```
 
 ## Notes
+
+* I persanally use --no-ext-drivers flag wnen compiling netmap
+
 * LD_PRELOAD cannot be used with setuid
 
 * Run tcpdump. tcpdump must be started after netmap application
