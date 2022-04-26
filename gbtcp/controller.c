@@ -635,8 +635,8 @@ controller_process()
 	rd_nanoseconds();
 	WRITE_ONCE(shared->shm_ns, nanoseconds);
 	wait_for_fd_events();
+	// FIXME: Deadlock when service want to call 'add' and controller what to lock service
 	if (1) {
 		controller_sched_balance();
 	}
-
 }

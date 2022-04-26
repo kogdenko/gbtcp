@@ -807,8 +807,12 @@ static void
 service_in_parent(int pipe_fd[2])
 {
 	sys_close(pipe_fd[1]);
-	// wait service_in_child done
+	// Wait to service_in_child() done
+	// NOTE: Unlock to not catch deadlock with controller.
+	// See controller_process() scheduler part.
+	SERVICE_UNLOCK;
 	service_pipe_recv(pipe_fd[0]);
+	SERVICE_LOCK;
 	sys_close(pipe_fd[0]);
 }
 

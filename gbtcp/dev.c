@@ -32,7 +32,7 @@ dev_rxtx(void *udata, short revents)
 static void
 dev_nm_close(struct dev *dev)
 {
-	NOTICE(0, "ok; nmd=%p", dev->dev_nmd);
+	NOTICE(0, "ok; dev=%s", dev->dev_name);
 	nm_close(dev->dev_nmd);
 	dev->dev_nmd = NULL;
 }
@@ -46,14 +46,15 @@ dev_nm_open(struct dev *dev, const char *dev_name)
 	memset(&nmr, 0, sizeof(nmr));
 	flags = 0;
 	dev->dev_nmd = nm_open(dev_name, &nmr, flags, NULL);
+	snprintf(dev->dev_name, sizeof(dev->dev_name), dev_name);
 	if (dev->dev_nmd != NULL) {
 		assert(dev->dev_nmd->nifp != NULL);
 		sys_fcntl(dev->dev_nmd->fd, F_SETFD, FD_CLOEXEC);
 		nmr = dev->dev_nmd->req;
-		NOTICE(0, "ok; dev='%s', nmd=%p, rx=%u/%u, tx=%u/%u",
-		       dev_name, dev->dev_nmd,
-	               nmr.nr_rx_rings, nmr.nr_rx_slots,
-		       nmr.nr_tx_rings, nmr.nr_tx_slots);
+		NOTICE(0, "ok; dev='%s', rx=%u/%u, tx=%u/%u",
+			dev_name,
+			nmr.nr_rx_rings, nmr.nr_rx_slots,
+			nmr.nr_tx_rings, nmr.nr_tx_slots);
 		return 0;
 	} else {
 		rc = -errno;

@@ -1028,10 +1028,15 @@ rd_nanoseconds()
 	uint64_t ticks2, dt;
 
 	ticks2 = rdtsc();
-	if (ticks2 > ticks) {
-		// tsc can fall after suspend
-		dt = ticks2 - ticks;
-		nanoseconds += 1000 * dt / mHZ; 
+	if (ticks == 0) {
+		ticks = ticks2;
 	}
+
+	// After suspend tsc can become less the before suspend
+	if (ticks2 > ticks) {
+		dt = ticks2 - ticks;
+		nanoseconds = nanoseconds + 1000 * dt / mHZ;
+	}
+
 	ticks = ticks2;
 }

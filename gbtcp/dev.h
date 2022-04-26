@@ -22,6 +22,7 @@ struct dev {
 	dev_f dev_fn;
 	struct dlist dev_list;
 	struct route_if *dev_ifp;
+	char dev_name[256]; // TODO: Right size
 };
 
 struct dev_pkt {
