@@ -95,7 +95,7 @@ def start_process(cmd, env=None, shell=False):
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return proc
 
-def start_nginx(concurrency, cpu_list, preload):
+def start_nginx(concurrency, cpu_list, native):
     worker_cpu_affinity = ""
 
     n = len(cpu_list)
@@ -161,7 +161,7 @@ def start_nginx(concurrency, cpu_list, preload):
     f.close()
 
     env = os.environ.copy()
-    if preload:
+    if not native:
         env["LD_PRELOAD"] = libgbtcp_path
         env["GBTCP_CONF"] = gbtcp_conf_path
 
@@ -519,8 +519,8 @@ def cool_down_cpu():
         t = int(math.ceil((g_cooling_time * 1000 - ms) / 1000))
         time.sleep(t)
 
-def test_nginx(app, test_id, concurrency, cpus, preload):
-    nginx = start_nginx(concurrency, cpus, preload)
+def test_nginx(app, test_id, concurrency, cpus, native):
+    nginx = start_nginx(concurrency, cpus, native)
     # Wait to netmap interface goes up
     time.sleep(2)
     cool_down_cpu()
@@ -548,7 +548,7 @@ def test_nginx(app, test_id, concurrency, cpus, preload):
         die("Invalid generator output. Please, check tester")
 
     print("nginx%s: test_id=%d, sample_id=%d, c=%d, %sCPU usage"
-        % ("" if preload else "(native)", test_id, sample.id, concurrency,
+        % ("(native)" if native else "", test_id, sample.id, concurrency,
         "low " if low else ""),
         cpu_usage)
 
@@ -609,6 +609,7 @@ g_stop_at_milliseconds = milliseconds() - 10000
 
 app_id = app.app_get_id("nginx", g_nginx_ver)
 
+use_native = False
 for i in range (g_cpu_count_min, len(g_runner_cpus) + 1):
     cpus = g_runner_cpus[:i]
     if cpus != last_used_cpus:
@@ -616,11 +617,11 @@ for i in range (g_cpu_count_min, len(g_runner_cpus) + 1):
         time.sleep(2)
         set_txrx_queue_count(g_runner_interface, cpus)
     for concurrency in g_concurrency:
-        test_id, sample_count = app.add_test("native", app_id, concurrency,
+        test_id, sample_count = app.add_test("native" if use_native else None, app_id, concurrency,
             len(cpus), g_report_count)
         if sample_count >= g_sample_count:
             continue
         sample_count = g_sample_count - sample_count
         for j in range (0, sample_count):
-            test_nginx(app, test_id, concurrency, cpus, False)
+            test_nginx(app, test_id, concurrency, cpus, use_native)
             last_used_cpus = cpus

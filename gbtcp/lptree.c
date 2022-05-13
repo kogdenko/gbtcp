@@ -31,6 +31,7 @@ lptree_node_alloc(struct lptree *tree, struct lptree_node *parent,
 	if (!rc) {
 		lptree_node_init(*pnode, parent);
 	}
+	//printf("alloc node=%p\n", *pnode);
 	return rc;
 }
 
@@ -131,6 +132,7 @@ lptree_node_set(struct lptree *tree, struct lptree_node *parent, int id,
 		(*pnode)->lpn_hidden = rule;
 	}
 	parent->lpn_children[id] = (struct mbuf *)(*pnode);
+	//printf("set parent=%p, node=%p, id=%d\n", parent, *pnode, id);
 	return 0;
 }
 
@@ -150,6 +152,7 @@ lptree_node_unset(struct lptree_node *node)
 				m = NULL;
 			}
 			parent->lpn_children[i] = m;
+			//printf("unset parent=%p, index=%d, m=%p\n", parent, i, m);
 			break;
 		}
 	}
@@ -246,6 +249,7 @@ lptree_traverse(struct lptree *tree, struct lptree_rule **prule,
 {
 	int i, d, rc;
 	uint32_t k, m;
+	struct mbuf *children;
 	struct lptree_node *node, *parent;
 	struct lptree_rule *rule, *after;
 
@@ -258,6 +262,7 @@ lptree_traverse(struct lptree *tree, struct lptree_rule **prule,
 		}
 	}
 	parent = tree->lpt_root;
+	//printf("traverse root=%p\n", parent);
 	for (i = 0; i < 4; ++i) {
 		k = (key >> ((3 - i) << 3)) & 0x000000FF;
 		d = depth - (i << 3);
@@ -265,9 +270,15 @@ lptree_traverse(struct lptree *tree, struct lptree_rule **prule,
 		assert(k < UINT8_MAX);
 		if (d > 8) {
 			if (*prule == NULL) {
-				node = parent->lpn_children[k];
-				if (node == NULL) {
+				children = parent->lpn_children[k];
+				if (children == NULL) {
 					return -ESRCH;
+				} else if (IS_LPTREE_NODE(tree, children)) {
+					node = (struct lptree_node *)children;	
+				} else {
+					rule = (struct lptree_rule *)children;
+					*prule = rule;
+					return -EEXIST;
 				}
 			} else {
 				rc = lptree_node_set(tree, parent, k, &node);

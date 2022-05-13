@@ -189,6 +189,7 @@ mbuf_alloc(struct mbuf_pool *p, struct mbuf **mp)
 	m = DLIST_FIRST(&chunk->mbc_mbuf_head, struct mbuf, mb_list);
 	mbuf_alloc2(m, chunk);
 	*mp = m;
+	//printf("alloc mbuf=%p\n", m);
 	return 0;
 }
 

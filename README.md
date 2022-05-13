@@ -60,6 +60,11 @@ LD_PRELOAD=./bin/libgbtcp.so nginx -c /etc/nginx.conf
 LD_PRELOAD=libpcap.so.1.6.0-PRE-GIT tcpdump -Snni 'netmap:eth2^/rt'
 ```
 
+* Run gdb with LD_PRELOAD
+```bash
+gdb --args env LD_PRELOAD=./bin/libgbtcp.so nginx -c /etc/nginx.conf
+```
+
 * For maximal performance set scaling_governor
 ```bash
 echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
