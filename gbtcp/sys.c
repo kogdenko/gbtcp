@@ -143,9 +143,9 @@ sys_fork()
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		ERR(-rc, "failed;");
+		ERR(-rc, "fork() failed");
 	} else {
-		NOTICE(0, "ok; pid=%d", rc);
+		NOTICE(0, "fork(), pid=%d", rc);
 	}
 	return rc;
 }
@@ -163,10 +163,10 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
-			ERR(-rc, "failed; path='%s'", path);
+			ERR(-rc, "open('%s') failed", path);
 		}
 	} else {
-		INFO(0, "ok; path='%s'", path);
+		INFO(0, "open('%s') ok", path);
 	}
 	return rc;
 }
@@ -180,10 +180,10 @@ sys_fopen(FILE **file, const char *path, const char *mode)
 	if (*file == NULL) {
 		rc = -errno;
 		assert(rc);
-		ERR(-rc, "failed; path='%s', mode=%s", path, mode);
+		ERR(-rc, "fopen('%s', %s) failed", path, mode);
 	} else {
 		rc = 0;
-		INFO(0, "ok; path='%s', mode=%s", path, mode);
+		INFO(0, "fopen(%s', %s) ok", path, mode);
 	}
 	return rc;
 }
@@ -1176,9 +1176,9 @@ sys_clone(int (*fn)(void *), void *child_stack,
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		ERR(-rc, "failed; flags=%s", log_add_clone_flags(flags));
+		ERR(-rc, "clone(%s) failed", log_add_clone_flags(flags));
 	} else {
-		INFO(0, "ok; flags=%s", log_add_clone_flags(flags));
+		INFO(0, "clone(%s)", log_add_clone_flags(flags));
 	}
 	return rc;
 }
@@ -1192,9 +1192,9 @@ sys_kqueue()
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		ERR(-rc, "failed;");
+		ERR(-rc, "kqueue() failed");
 	} else {
-		INFO(0, "ok; kq_fd=%d", rc);
+		INFO(0, "kqueue(), kq_fd=%d", rc);
 	}
 	return rc;
 }
@@ -1211,9 +1211,9 @@ sys_kevent(int kq, const struct kevent *changelist, int nchanges,
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		DBG(-rc, "failed; kq_fd=%d", kq);
+		DBG(-rc, "kevent() failed, kq_fd=%d", kq);
 	} else {
-		DBG(0, "ok; kq_fd=%d", kq);
+		DBG(0, "kevent(), kq_fd=%d ", kq);
 	}
 	return rc;
 }

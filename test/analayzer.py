@@ -18,6 +18,15 @@ g_clean_test = False
 
 def usage():
     print("analayzer.py [options]")
+    print("\thelp: Print this help")
+    print("\tverbose: Be verbose")
+    print("\ttest-id {id,id..}: Specify test id")
+    print("\tsample-id {id,id...}: Specify sample id")
+    print("\tskip-reports {num}: Skip first num reports")
+    print("\tshow {git-commit}: Print all tests regarding to specified commit")
+    print("\tshow {native}: Print all native tests")
+    print("\tshow-plot: Show plot spicified by test-id or sample-id")
+    print("\tsave-plot: Save plot spicified by test-id or sample-id")
     sys.exit(0)
 
 try:

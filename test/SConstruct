@@ -1,0 +1,17 @@
+import os
+
+cflags = [
+    '-g',
+    ' -Wall',
+    '-Werror',
+    '-O0'
+]
+
+env=Environment(CC = 'gcc',
+    CCFLAGS = ' '.join(cflags)
+) 
+
+for f in Glob('*.c'):
+    if f.name != 'subr.c':
+        test = env.Program("../bin/" + f.name[0:-2],
+            [f.name, 'subr.c']) 

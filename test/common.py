@@ -22,6 +22,7 @@ g_verbose = 0
 
 def die(s):
     print(s)
+    time.sleep(1000)
     sys.exit(1)
 
 def upper_pow2_32(x):
@@ -270,8 +271,11 @@ class App:
         return test_id, sample_count
 
     def add_sample(self, sample):
-        samples = self.get_samples(sample.test_id)
         sample.id = None
+        if sample.test_id < 0:
+            # dry-run
+            return -1
+        samples = self.get_samples(sample.test_id)
         while len(samples) > SAMPLE_COUNT_MAX:
             found = sample
             for i in range(len(samples)):

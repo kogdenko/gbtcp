@@ -120,6 +120,7 @@ print_sysctl(const char *path, char *old)
 		outf("%s\n", old);
 		return;
 	}
+	// Human readable
 	s = old;
 	while (*s != '\0') {
 		ull = strtoull(s, &endptr, 10);
@@ -172,7 +173,7 @@ sysctl_list_r(char *path, int path_len, char *buf)
 			return -EPROTO;
 		}
 		len = snprintf(path + path_len, PATH_MAX - path_len,
-		               ".%s", buf + 1);
+			".%s", buf + 1);
 		len += path_len;
 		if (len + 1 >= PATH_MAX) {
 			path[PATH_MAX - 1] = '\0';
@@ -228,7 +229,7 @@ sysctl_raw(char *arg, int line_num)
 	char path[PATH_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
 
-	// Separate variable name and value
+	// Extract variable name, value (name=value)
 	d = strchr(arg, '=');
 	if (d == NULL) {
 		buf[0] = '\0';
@@ -290,11 +291,11 @@ usage()
 	outf(
 	"Usage: sysctl [options] [variable[=name] ...]\n"
 	"\n"
-	"\t-h             Print this help\n"
-	"\t-f path        Apply file\n"
-	"\t-a             Display all variables\n"
-	"\t-i             Ignore unknown variables\n"
-	"\t-Q             Be quiet\n");
+	"\t-h       Print this help\n"
+	"\t-f path  Apply file\n"
+	"\t-a       Display all variables\n"
+	"\t-i       Ignore unknown variables\n"
+	"\t-Q       Be quiet\n");
 }
 
 int

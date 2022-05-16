@@ -49,7 +49,6 @@ void
 gt_init(const char *comm, int log_level)
 {
 	dlsym_all();
-//	umask(066
 	rd_nanoseconds();
 	srand48(nanoseconds ^ getpid());
 	log_init_early(comm, log_level);
@@ -799,12 +798,12 @@ gt_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
 	int rc;
 
 	API_LOCK;
-	INFO(0, "hit; flags=%s", log_add_clone_flags(flags));
+	INFO(0, "API: clone('%s')", log_add_clone_flags(flags));
 	rc = service_clone(fn, child_stack, flags, arg, ptid, tls, ctid);
 	if (rc < 0) {
-		INFO(-rc, "failed;");
+		INFO(-rc, "API: clone() failed;");
 	} else {
-		INFO(0, "ok; pid=%d", rc);
+		INFO(0, "API: clone(), pid=%d", rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);

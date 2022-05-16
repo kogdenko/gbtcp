@@ -562,7 +562,7 @@ restart:
 	}
 	fcntl_setfl_nonblock_rollback(fd, flags);
 	if (rc < 0) {
-		ERR(-rc, "failed; fd=%d", fd);
+		ERR(-rc, "read_timed() failed, fd=%d", fd);
 	}
 	return rc;
 }

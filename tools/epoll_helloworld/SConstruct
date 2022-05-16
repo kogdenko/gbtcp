@@ -1,0 +1,12 @@
+cflags = [
+    '-Wall',
+    '-g',
+    '-O2',
+    '-pthread',
+]  
+
+env=Environment(CC = 'gcc',
+    CCFLAGS = ' '.join(cflags)
+) 
+
+env.Program('../../bin/bench_epoll', 'bench_epoll.c')

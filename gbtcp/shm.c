@@ -189,7 +189,6 @@ shm_init()
 	size_t size;
 	struct stat buf;
 
-	NOTICE(0, "hit;");
 	assert(shm_early);
 	size = ROUND_UP(SHM_SIZE, PAGE_SIZE);
 	n_pages = size >> PAGE_SHIFT;
@@ -240,10 +239,11 @@ shm_init()
 	shm_early = 0;
 	curmod->shm_n_allocated_pages += shm_early_n_allocated_pages;
 	shm_early_n_allocated_pages = 0;
-	NOTICE(0, "ok; addr=%p", (void *)shared->shm_base_addr);
+	NOTICE(0, "Shared memory initialized at address %p",
+		(void *)shared->shm_base_addr);
 	return 0;
 err:
-	ERR(-rc, "failed;");
+	ERR(-rc, "Failed to initialize shared memory");
 	shm_deinit();
 	return rc;
 }
@@ -255,7 +255,6 @@ shm_attach()
 	size_t size;
 	void *addr, *tmp;
 
-	NOTICE(0, "hit;");
 	rc = sys_open(SHM_PATH, O_RDWR, 0666);
 	if (rc < 0) {
 		goto err;
@@ -271,21 +270,16 @@ shm_attach()
 	tmp = shared;
 	shared = NULL;
 	sys_munmap(tmp, sizeof(*shared));
-	NOTICE(0, "hit; addr=%p", addr);
-	//dbg("2 %p %p", (void *)addr, tmp);
-	//fgetc(stdin);
-	//dbg("n");
 	rc = sys_mmap((void **)&shared, addr, size, PROT_READ|PROT_WRITE,
 		MAP_SHARED|MAP_FIXED, shm_fd, 0);
 	if (rc) {
 		goto err;
 	}
-	//dbg("3 addr=%p", (void *)shared->shm_base_addr);
 	shm_early = 0;
-	NOTICE(0, "ok; addr=%p", (void *)shared->shm_base_addr);
+	NOTICE(0, "Shared memory attached at %p", (void *)shared->shm_base_addr);
 	return 0;
 err:
-	ERR(-rc, "failed;");
+	ERR(-rc, "Failed to attach shared memory");
 	shm_detach();
 	return rc;
 }
@@ -296,7 +290,6 @@ shm_detach()
 	void *tmp;
 	size_t size;
 
-	NOTICE(0, "hit;");
 	if (shared != NULL) {
 		tmp = shared;
 		size = shared->shm_size;
@@ -306,6 +299,7 @@ shm_detach()
 	sys_close(shm_fd);
 	shm_fd = -1;
 	shm_early = 1;
+	NOTICE(0, "Shared memory detached");
 }
 
 void
@@ -313,7 +307,6 @@ shm_deinit()
 {
 	int i;
 
-	NOTICE(0, "hit;");
 	if (shared != NULL) {
 		for (i = MODS_MAX - 1; i >= MOD_FIRST; --i) {
 			if (shared->shm_mods[i] != NULL) {
@@ -355,9 +348,13 @@ shm_alloc_pages_locked(void **pp, size_t alignment, size_t size)
 				shm_page_alloc(page + i);
 			}
 			*pp = (void *)shm_page_to_virt(page);
+			INFO(0, "Allocated %d pages (%zu bytes) in shared memory at %p",
+				size_n, size, *pp);
 			return 0;
 		}
 	}
+	WARN(ENOMEM, "Failed to allocate %d pages (%zu bytes) in shared memory",
+		size_n, size);
 	return -ENOMEM;
 }
 
@@ -370,11 +367,12 @@ shm_free_pages_locked(uintptr_t addr, size_t size)
 	page = shm_virt_to_page(addr);
 	for (i = 0; i < size_n; ++i) {
 		if (!shm_page_is_allocated(page + i)) {
-			die(0, "double free; addr=%p",
+			die(0, "Double free page at %p",
 			    (void *)shm_page_to_virt(page + i));
 		}
 		shm_page_free(page + i);
 	}
+	INFO(0, "Free %d pages (%zu bytes) in shared memory", size_n, size);
 }
 
 #define IS_ADJACENT(l, r) \
@@ -476,9 +474,11 @@ shm_malloc(size_t size)
 	shm_lock();
 	new_ptr = shm_malloc_locked(size);
 	if (new_ptr != NULL) {
-		INFO(0, "ok; size=%zu, new_ptr=%p", size, new_ptr);
+		INFO(0, "Allocated %zu bytes of shared memory at %p",
+			size, new_ptr);
 	} else {
-		WARN(ENOMEM, "failed; size=%zu", size);
+		WARN(ENOMEM, "Failed to allocate %zu bytes in shared memory",
+			size);
 	}
 	shm_unlock_and_free_garbage();
 	return new_ptr;
@@ -510,7 +510,8 @@ shm_free(void *ptr)
 {
 	shm_lock();
 	shm_free_locked(ptr);
-	INFO(0, "ok; addr=%p", ptr);
+	// TODO: ??? change to real number of bytes
+	INFO(0, "Free ??? bytes shared memory at %p", ptr);
 	shm_unlock_and_free_garbage();
 }
 
@@ -527,11 +528,6 @@ shm_alloc_pages(void **pp, size_t alignment, size_t size)
 	}
 	shm_lock();
 	rc = shm_alloc_pages_locked(pp, alignment, size);
-	if (rc == 0) {
-		INFO(0, "ok; size=%zu, addr=%p", size, *pp);
-	} else {
-		WARN(-rc, "failed; size=%zu", size);
-	}
 	shm_unlock_and_free_garbage();
 	return rc;
 }
@@ -546,6 +542,5 @@ shm_free_pages(void *ptr, size_t size)
 	assert((size & PAGE_MASK) == 0);
 	shm_lock();
 	shm_free_pages_locked(addr, size);
-	INFO(0, "ok; size=%zu, addr=%p", size, ptr);
 	shm_unlock_and_free_garbage();
 }

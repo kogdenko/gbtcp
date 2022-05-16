@@ -37,13 +37,13 @@ service_pipe(int fd[2])
 }
 
 static void
-service_pipe_send(int fd, int msg)
+service_peer_send(int fd, int msg)
 {
 	send_record(fd, &msg, sizeof(msg), MSG_NOSIGNAL);
 }
 
 static int
-service_pipe_recv(int fd)
+service_peer_recv(int fd)
 {
 	int rc, msg;
 	uint64_t to;
@@ -51,23 +51,21 @@ service_pipe_recv(int fd)
 	to = 4 * NSEC_SEC;
 	rc = read_timed(fd, &msg, sizeof(msg), &to);
 	if (rc == 0) {
-		ERR(0, "peer closed;");
+		ERR(0, "Service peer closed");
 		return -EPIPE;
 	} else if (rc == sizeof(msg)) {
 		if (msg >= 0) {
 			if (msg > 0) {
-				ERR(msg, "error;");
-			} else {
-				NOTICE(0, "ok;");
+				ERR(msg, "Service peer error");
 			}
 			return msg;
 		} else {
 			rc = msg;
-			ERR(-rc, "failed;");
+			ERR(-rc, "Service peer failed");
 			return rc;
 		}
 	} else if (rc > 0) {
-		ERR(0, "truncated reply; len=%d", rc);
+		ERR(0, "Service peer truncated (%d) reply ", rc);
 		return -EINVAL;
 	} else {
 		return rc;
@@ -88,7 +86,7 @@ service_start_controller_nolog(const char *p_comm)
 		sys_close(pipe_fd[0]);
 		sys_close(service_sysctl_fd);
 		rc = controller_init(1, p_comm);
-		service_pipe_send(pipe_fd[1], rc);
+		service_peer_send(pipe_fd[1], rc);
 		sys_close(pipe_fd[1]);
 		if (rc == 0) {
 			while (!controller_done) {
@@ -97,10 +95,10 @@ service_start_controller_nolog(const char *p_comm)
 		}
 		exit(EXIT_SUCCESS);
 	} else if (rc > 0) {
-		// child created by fork become zombie after daemon()
+		// Child process created by fork() become zombie after daemon()
 		sys_waitpid(-1, NULL, 0);
 		sys_close(pipe_fd[1]);
-		rc = service_pipe_recv(pipe_fd[0]);
+		rc = service_peer_recv(pipe_fd[0]);
 		sys_close(pipe_fd[0]);
 	}
 	return rc;
@@ -111,14 +109,14 @@ service_start_controller(const char *p_comm)
 {
 	int rc;
 
-	NOTICE(0, "hit;");
+	NOTICE(0, "Starting controller");
 	rc = service_start_controller_nolog(p_comm);
 	if (rc < 0) {
-		ERR(-rc, "failed;");
+		ERR(-rc, "Failed to start controller");
 	} else if (rc > 0) {
-		WARN(rc, "error;");
+		WARN(rc, "Unable to start controller due to initialization error");
 	} else {
-		NOTICE(0, "ok;");
+		NOTICE(0, "Controller started");
 	}
 	return rc;
 }
@@ -136,14 +134,14 @@ service_rx(struct in_context *p)
 	ipproto = p->in_ipproto;
 	if (ipproto == IPPROTO_UDP || ipproto == IPPROTO_TCP) {
 		rc = so_input(ipproto, p,
-		              p->in_ih->ih_daddr, p->in_ih->ih_saddr,
-		              p->in_uh->uh_dport, p->in_uh->uh_sport);
+			p->in_ih->ih_daddr, p->in_ih->ih_saddr,
+			p->in_uh->uh_dport, p->in_uh->uh_sport);
 	} else if (ipproto == IPPROTO_ICMP && p->in_errnum &&
 	           (p->in_emb_ipproto == IPPROTO_UDP ||
 	            p->in_emb_ipproto == IPPROTO_TCP)) {
 		rc = so_input_err(p->in_emb_ipproto, p,
-		                  p->in_ih->ih_daddr, p->in_ih->ih_saddr,
-		                  p->in_uh->uh_dport, p->in_uh->uh_sport);
+			p->in_ih->ih_daddr, p->in_ih->ih_saddr,
+			p->in_uh->uh_dport, p->in_uh->uh_sport);
 	} else {
 		rc = IN_DROP;
 	}
@@ -345,7 +343,6 @@ service_init_shared(struct service *s, int pid, int fd)
 {
 	int i, rc;
 
-	NOTICE(0, "hit; pid=%d", pid);
 	assert(current->p_sid == CONTROLLER_SID);
 	s->p_pid = pid;
 	dlist_init(&s->p_tx_head);
@@ -390,7 +387,6 @@ service_deinit_shared(struct service *s, int full)
 	struct dev *dev;
 	struct route_if *ifp;
 
-	NOTICE(0, "hit; pid=%d", s->p_pid);
 	assert(current->p_sid == CONTROLLER_SID);
 	ROUTE_IF_FOREACH(ifp) {
 		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
@@ -444,7 +440,7 @@ service_deinit_private()
 }
 
 int
-service_attach(const char *fn_name)
+service_attach()
 {
 	int rc, pid;
 	struct sockaddr_un a;
@@ -454,19 +450,17 @@ service_attach(const char *fn_name)
 	struct service *s;
 
 	spinlock_lock(&service_attach_lock);
-	// check again under the lock
+	// Check (current != NULL) again under the lock
 	if (current != NULL) {
 		spinlock_unlock(&service_attach_lock);
 		return 0;
 	}
-	ERR(0, "hit; from=%s", fn_name);
 	pid = getpid();
 	rc = read_proc_comm(p_comm, pid);
 	if (rc) {
 		goto err;
 	}
 	gt_init(p_comm, 0);
-	NOTICE(0, "hit2; from=%s", fn_name);
 	sysctl_make_sockaddr_un(&a, pid);
 	rc = sysctl_bind(&a);
 	if (rc < 0) {
@@ -475,10 +469,10 @@ service_attach(const char *fn_name)
 	service_sysctl_fd = rc;
 	rc = sysctl_connect(service_sysctl_fd);
 	if (rc) {
+		WARN(0, "Can't connect to controller");
 		if (!service_autostart_controller) {
 			goto err;
 		}
-		WARN(0, "Can't connect to controller. Try to start one");
 		rc = service_start_controller(p_comm);
 		if (rc) {
 			goto err;
@@ -491,7 +485,7 @@ service_attach(const char *fn_name)
 	if (service_signal_guard) {
 		sigfillset(&sigprocmask_block);
 		rc = sys_sigprocmask(SIG_BLOCK, &sigprocmask_block,
-	        	             &current_sigprocmask);
+			&current_sigprocmask);
 		if (rc) {
 			goto err;
 		}
@@ -528,12 +522,12 @@ service_attach(const char *fn_name)
 	if (rc) {
 		goto err;
 	}
-	ERR(0, "ok; current=%p", current);
+	ERR(0, "Service attached");
 	spinlock_unlock(&service_attach_lock);
 	return 0;
 err:
 	service_detach();
-	ERR(-rc, "failed;");
+	ERR(-rc, "Can't attach service");
 	spinlock_unlock(&service_attach_lock);
 	return rc;
 }
@@ -545,7 +539,6 @@ service_detach()
 	struct dev *dev;
 	struct route_if *ifp;
 
-	NOTICE(0, "hit;");
 	service_deinit_private();
 	sys_close(service_sysctl_fd);
 	service_sysctl_fd = -1;
@@ -566,6 +559,7 @@ service_detach()
 		current_sigprocmask_set = 0;
 		sys_sigprocmask(SIG_SETMASK, &current_sigprocmask, NULL);
 	}
+	NOTICE(0, "Service detached");
 }
 
 static void
@@ -811,7 +805,7 @@ service_in_parent(int pipe_fd[2])
 	// NOTE: Unlock to not catch deadlock with controller.
 	// See controller_process() scheduler part.
 	SERVICE_UNLOCK;
-	service_pipe_recv(pipe_fd[0]);
+	service_peer_recv(pipe_fd[0]);
 	SERVICE_LOCK;
 	sys_close(pipe_fd[0]);
 }
@@ -842,10 +836,10 @@ service_dup_so(struct sock *oldso)
 		goto err;
 	}
 	newso->so_blocked = oldso->so_blocked;
-	INFO(0, "ok; fd=%d", fd);
+	INFO(0, "service: Duplicate socket, fd=%d", fd);
 	return 0;
 err:
-	WARN(-rc, "failed; fd=%d", fd);
+	WARN(-rc, "service: Failed to duplicate socket, fd=%d", fd);
 	so_close(newso);
 	return rc;
 }
@@ -870,7 +864,7 @@ service_in_child0()
 	if (!flag) {
 		return;
 	}
-	rc = service_attach("in_child");
+	rc = service_attach();
 	if (rc) {
 		return;
 	}
@@ -893,10 +887,10 @@ service_in_child0()
 static void
 service_in_child(int pipe_fd[2])
 {
-	NOTICE(0, "hit;");
+	NOTICE(0, "This is service child process");
 	sys_close(pipe_fd[0]);
 	service_in_child0();
-	service_pipe_send(pipe_fd[1], 0);
+	service_peer_send(pipe_fd[1], 0);
 	sys_close(pipe_fd[1]);
 }
 
@@ -905,7 +899,7 @@ service_fork()
 {
 	int rc, pipe_fd[2];
 
-	NOTICE(0, "hit;");
+	NOTICE(0, "service: fork()");
 	rc = service_pipe(pipe_fd);
 	if (rc) {
 		return rc;
@@ -942,7 +936,7 @@ service_clone(int (*fn)(void *), void *child_stack,
 	clone_vm = flags & CLONE_VM;
 	clone_files = flags & CLONE_FILES;
 	clone_thread = flags & CLONE_THREAD;
-	NOTICE(0, "hit; flags=%s", log_add_clone_flags(flags));
+	NOTICE(0, "service: clone('%s')", log_add_clone_flags(flags));
 	if (clone_vm) {
 		if (clone_files == 0 || clone_thread == 0) {
 			return -EINVAL;
@@ -962,7 +956,7 @@ service_clone(int (*fn)(void *), void *child_stack,
 			return rc;
 		}
 		rc = sys_clone(service_clone_in_child, child_stack, flags, arg,
-		               ptid, tls, ctid);
+			ptid, tls, ctid);
 		if (rc == -1) {
 			rc = -errno;
 			sys_close(service_clone_pipe_fd[0]);

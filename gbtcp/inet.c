@@ -270,6 +270,7 @@ static uint16_t
 cksum_reduce(uint64_t sum)
 {
 	uint64_t mask;
+	uint16_t reduced;
 
 	mask = 0xffffffff00000000lu;
 	while (sum & mask) {
@@ -279,7 +280,11 @@ cksum_reduce(uint64_t sum)
 	while (sum & mask) {
 		sum = cksum_add(sum & ~mask, (sum >> 16) & ~mask);
 	}
-	return ~((uint16_t)sum);
+	reduced = ~((uint16_t)sum);
+	if (reduced == 0) {
+		reduced = 0xffff;
+	}
+	return reduced;
 }
 
 static uint64_t

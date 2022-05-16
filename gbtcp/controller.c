@@ -135,7 +135,7 @@ controller_clean()
 		rc = sscanf(entry->d_name, "%d.sock", &id);
 		if (rc == 1) {
 			snprintf(path, sizeof(path), "%s/%s",
-			         SYSCTL_SOCK_PATH, entry->d_name);
+				SYSCTL_SOCK_PATH, entry->d_name);
 			sys_unlink(path);
 		}
 	}
@@ -150,7 +150,7 @@ controller_lock_service(struct service *s)
 
 	rc = spinlock_trylock(&s->p_lock);
 	if (rc == 0) {
-		ERR(0, "deadlocked; pid=%d", s->p_pid);
+		ERR(0, "Sevice DEADLOCK, pid=%d", s->p_pid);
 		exit(69);
 	}
 }
@@ -245,15 +245,21 @@ controller_sched_alg(struct service **ppick, struct service **pkick)
 static void
 set_rss_binding(u_int rss_qid, int sid)
 {
+	int old_sid;
+
 	assert(rss_qid < GT_RSS_NQ_MAX);
 	assert(sid == SERVICE_ID_INVALID || sid < GT_SERVICES_MAX);
-	if (shared->shm_rss_table[rss_qid] != sid) {
-		if (sid == SERVICE_ID_INVALID) {
-			NOTICE(0, "clear; rss_qid=%d", rss_qid);
-		} else {
-			NOTICE(0, "hit; rss_qid=%d, pid=%d",
-			       rss_qid, shared->shm_services[sid].p_pid);
-		}
+	old_sid = shared->shm_rss_table[rss_qid];
+	if (old_sid == sid) {
+		return;
+	}
+	if (old_sid != SERVICE_ID_INVALID) {
+		NOTICE(0, "Unbind tx/rx queue (%d) from service (pid=%d)",
+			rss_qid, shared->shm_services[old_sid].p_pid);
+	}
+	if (sid != SERVICE_ID_INVALID) {
+		NOTICE(0, "Bind tx/rx queue (%d) to service (pid=%d)",
+			rss_qid, shared->shm_services[sid].p_pid);
 	}
 	WRITE_ONCE(shared->shm_rss_table[rss_qid], sid);
 }
@@ -285,23 +291,14 @@ controller_sched_balance()
 static void
 controller_del_service(struct service *s)
 {
-	int i, sid, rss_nq;
+	int i, sid, rss_nq, service_num;
 	struct sockaddr_un a;
 	struct service *new;
 
-	NOTICE(0, "hit; pid=%d", s->p_pid);
+	NOTICE(0, "Delete service, pid=%d", s->p_pid);
 	sid = s->p_sid;
 	rss_nq = s->p_rss_nq;
 	controller_check_service_deadlock(s);
-	sysctl_make_sockaddr_un(&a, s->p_pid);
-	sys_unlink(a.sun_path);
-	service_deinit_shared(s, 0);
-	sid_max = 0;
-	SERVICE_FOREACH(s) {
-		if (s->p_pid) {
-			sid_max = MAX(sid_max, s->p_sid);
-		}
-	}
 	if (rss_nq) {
 		controller_sched_alg(&new, NULL);
 		for (i = 0; i < shared->shm_rss_nq; ++i) {
@@ -315,7 +312,16 @@ controller_del_service(struct service *s)
 		assert(rss_nq == 0);
 		update_rss_bindings(new);
 	}
-	if (sid_max == 0 && quit_no_services) {
+	sysctl_make_sockaddr_un(&a, s->p_pid);
+	sys_unlink(a.sun_path);
+	service_deinit_shared(s, 0);
+	service_num = 0;
+	SERVICE_FOREACH(s) {
+		if (s->p_pid != 0 && s->p_pid != current->p_pid) {
+			service_num++;	
+		}
+	}
+	if (service_num == 0 && quit_no_services) {
 		controller_done = 1;
 	}
 }
@@ -327,7 +333,7 @@ controller_add_service(struct service *s, int pid, struct sysctl_conn *cp)
 
 	assert(s != current);
 	fd = sysctl_conn_fd(cp);
-	NOTICE(0, "hit; pid=%d, fd=%d", pid, fd);
+	NOTICE(0, "Add service, pid=%d, fd=%d", pid, fd);
 	service_init_shared(s, pid, fd);
 	sid_max = MAX(sid_max, s->p_sid);
 }
@@ -599,14 +605,14 @@ controller_init(int daemonize, const char *service_comm)
 		goto err;
 	}
 	sysctl_add(SYSCTL_CONTROLLER_ADD, SYSCTL_WR, NULL, NULL,
-	           sysctl_controller_add);
+		sysctl_controller_add);
 	sysctl_add_list(GT_SYSCTL_CONTROLLER_SERVICE_LIST, SYSCTL_RD, NULL,
-	                sysctl_controller_service_list_next,
-	                sysctl_controller_service_list);
-	NOTICE(0, "ok;");
+		sysctl_controller_service_list_next,
+		sysctl_controller_service_list);
+	NOTICE(0, "Controller initialized");
 	return 0;
 err:
-	ERR(-rc, "failed;");
+	ERR(-rc, "Controller initialization failed");
 	controller_deinit();
 	return rc;
 }
@@ -627,6 +633,7 @@ controller_deinit()
 	sysctl_root_deinit();
 	sys_close(controller_pid_fd);
 	controller_pid_fd = -1;
+	NOTICE(0, "Controller shutdown");
 }
 
 void
@@ -635,8 +642,5 @@ controller_process()
 	rd_nanoseconds();
 	WRITE_ONCE(shared->shm_ns, nanoseconds);
 	wait_for_fd_events();
-	// FIXME: Deadlock when service want to call 'add' and controller what to lock service
-	if (1) {
-		controller_sched_balance();
-	}
+	controller_sched_balance();
 }

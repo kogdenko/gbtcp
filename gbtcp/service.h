@@ -83,7 +83,7 @@ void service_deinit_shared(struct service *, int);
 int service_init_private();
 void service_deinit_private();
 
-int service_attach(const char *);
+int service_attach();
 void service_detach();
 void service_unlock();
 

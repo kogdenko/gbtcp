@@ -73,6 +73,9 @@
 #define NETMAP_WITH_LIBS
 #include <net/netmap_user.h>
 
+//#define FUSE_USE_VERSION 31
+//#include <fuse3/fuse.h>
+
 #include "gbtcp.h"
 
 struct strbuf;

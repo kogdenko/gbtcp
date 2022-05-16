@@ -46,6 +46,7 @@ g_cpu_count_min = 1
 reload_modules = False
 g_test_path = None
 g_stop_at_milliseconds = None
+g_dry_run = False
 
 def usage():
     print("Usage: runner [options] {[--netmap-dir|-N] path}")
@@ -203,7 +204,7 @@ def run_gen(args):
     
     device_ip = get_device_ip(subnet)
     cmd = "con-gen "
-    cmd += "--toy "
+#    cmd += "--toy "
     cmd += "--print-banner 0 --print-statistics 0 --report-bytes 1 "
     cmd += ("-S %s -D %s --reports %d -N -p 80 -d %s" %
         (tester_mac, device_mac, reports, device_ip))
@@ -222,7 +223,7 @@ def run_gen(args):
 
     return (start_process(cmd), reports)
 
-def start_gen(concurrency):
+def start_generator(concurrency):
     assert(device_mac != None)
     args = ("-D %s --subnet %s --reports %d --concurrency=%d" %
         (device_mac, subnet, g_report_count, concurrency))
@@ -236,7 +237,7 @@ def start_gen(concurrency):
         gen.send((args + "\n").encode('utf-8'))
     return gen
 
-def wait_con_gen_socket(s):
+def wait_generator_socket(s):
     data = bytearray()
     while True:
         buf = s.recv(1024)
@@ -245,23 +246,36 @@ def wait_con_gen_socket(s):
             return data
         data += bytearray(buf)
 
-def wait_con_gen_proc(con_gen, reports):
+def print_proc_output(proc):
+    for pipe in [proc.stdout, proc.stderr]:
+        while True:
+            line = pipe.readline()
+            if not line:
+                break
+            print(line)
+
+def proc_wait(proc, proc_name):
+    proc.wait()
+    if proc.returncode != 0:
+        print_proc_output(proc)
+        die("%s: Failed, returncode %d" % (proc_name, proc.returncode))
+
+def wait_generator_proc(con_gen, reports):
     # FIXME: Wait APR negotiaition
     time.sleep(2)
     cpu_usage = measure_cpu_usage(reports - 2, g_tester_cpus)
 
-    con_gen.wait();
+    proc_wait(con_gen, "generator")
 
-    if con_gen.returncode != 0:
-        die("generator: Failed, returncode %d" % con_gen.returncode)
-
-    if get_verbose() > 0:
-        print("generator: Done, CPU usage", cpu_usage)
-
+    high = False 
     for i in cpu_usage:
         if i > 97:
-            print("generator: Too high CPU usage", cpu_usage, ", Please, consider to add more CPUs")
+            high = True
             break;
+    if high:
+        print("generator: Too high CPU usage", cpu_usage, ", Please, consider to add more CPUs")
+    elif get_verbose() > 0:
+        print("generator: Done, CPU usage", cpu_usage)
 
     data = bytearray()
     while True:
@@ -269,14 +283,13 @@ def wait_con_gen_proc(con_gen, reports):
         if not line:
             break
         data += bytearray(line)
-
     return data
 
-def wait_con_gen(con_gen):
+def wait_generator(con_gen):
     if connect != None:
-        return wait_con_gen_socket(con_gen)
+        return wait_generator_socket(con_gen)
     else:
-        return wait_con_gen_proc(con_gen, g_report_count)
+        return wait_generator_proc(con_gen, g_report_count)
 
 def tester_loop():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -297,7 +310,7 @@ def tester_loop():
                         done = True
                         break
             con_gen, reports = run_gen(data.strip())
-            data = wait_con_gen_proc(con_gen, reports)
+            data = wait_generator_proc(con_gen, reports)
             conn.send(data)
             conn.close()
         except socket.error as exc:
@@ -309,6 +322,7 @@ try:
     opts, args = getopt.getopt(sys.argv[1:], "hvN:L:C:i:t:", [
         "help",
         "verbose",
+        "dry-run",
         "netmap=",
         "listen=",
         "connect=",
@@ -331,6 +345,8 @@ for o, a in opts:
         sys.exit()
     elif o in ("-v", "--verbose"):
         set_verbose(get_verbose() + 1)
+    elif o in ("--dry-run"):
+        g_dry_run = True
     elif o in ("-i"):
         interface = a
     elif o in ("--cpu-list"):
@@ -478,16 +494,22 @@ if listen != None:
     tester_loop()
     sys.exit(0)
 
-def process_gen_output(data, reports, test_id, bad):
+def parse_sample(data, reports, test_id, bad):
     s = data.decode('utf-8').strip()
     rows = s.split('\n')
     if len(rows) != reports:
+        print(("Invalid number of reports (%d) in output, should be %d"
+            % (len(rows), reports)))
+        print("Output:")
+        print(s)
         return None
     sample = Sample()
     sample.records = [[] for i in range(6)]
     for row in rows:
         cols = row.split()
         if len(cols) != 9:
+            print("Invalid number of columns (%d) in report, should be 9" % len(cols))
+            print("Report: '%s'" % row)
             return None
         sample.records[CPS].append(int(cols[0]))
         sample.records[IPPS].append(int(cols[1]))
@@ -521,21 +543,16 @@ def cool_down_cpu():
 
 def test_nginx(app, test_id, concurrency, cpus, native):
     nginx = start_nginx(concurrency, cpus, native)
-    # Wait to netmap interface goes up
+    # Wait netmap interface goes up
     time.sleep(2)
     cool_down_cpu()
-    con_gen = start_gen(concurrency)
+    con_gen = start_generator(concurrency)
 
     # FIXME: Wait ARP negotiaition
     time.sleep(g_skip_reports)
     cpu_usage = measure_cpu_usage(g_report_count - 2, cpus)
 
-    data = wait_con_gen(con_gen)
-
-    stop_nginx();
-    nginx.wait()
-
-    set_stop_time()
+    data = wait_generator(con_gen)
 
     low = False
     for j in cpu_usage:
@@ -543,9 +560,15 @@ def test_nginx(app, test_id, concurrency, cpus, native):
             low = True
             break
 
-    sample = process_gen_output(data, g_report_count, test_id, low)
+    sample = parse_sample(data, g_report_count, test_id, low)
     if sample == None:
         die("Invalid generator output. Please, check tester")
+
+    if nginx.poll() != None:
+        print("NGINX already done !!!"  % nginx.returncode)
+    stop_nginx()
+    proc_wait(nginx, "nginx")
+    set_stop_time()
 
     print("nginx%s: test_id=%d, sample_id=%d, c=%d, %sCPU usage"
         % ("(native)" if native else "", test_id, sample.id, concurrency,
@@ -617,8 +640,13 @@ for i in range (g_cpu_count_min, len(g_runner_cpus) + 1):
         time.sleep(2)
         set_txrx_queue_count(g_runner_interface, cpus)
     for concurrency in g_concurrency:
-        test_id, sample_count = app.add_test("native" if use_native else None, app_id, concurrency,
-            len(cpus), g_report_count)
+        if g_dry_run:
+            test_id = -1
+            sample_count = 0
+        else:
+            desc = "native" if use_native else None
+            test_id, sample_count = app.add_test(desc, app_id, concurrency,
+                len(cpus), g_report_count)
         if sample_count >= g_sample_count:
             continue
         sample_count = g_sample_count - sample_count

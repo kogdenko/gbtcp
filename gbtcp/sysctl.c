@@ -143,7 +143,7 @@ sysctl_make_sockaddr_un(struct sockaddr_un *a, int pid)
 {
 	a->sun_family = AF_UNIX;
 	snprintf(a->sun_path, sizeof(a->sun_path), "%s/%d.sock",
-	         SYSCTL_SOCK_PATH, pid);
+		SYSCTL_SOCK_PATH, pid);
 }
 
 static void
@@ -533,8 +533,8 @@ sysctl_handler(struct sysctl_conn *cp, struct sysctl_node *node,
 	off = out->sb_len;
 	rc = (*node->scn_fn)(cp, node->scn_udata, new, out);
 	if (rc < 0) {
-		ERR(-rc, "failed; path='%s', new='%s'",
-		    log_add_sysctl_node(node), new);
+		ERR(-rc, "sysctl '%s' handler failed",
+			log_add_sysctl_node(node));
 		return rc;
 	}
 	if (off < out->sb_cap) {
@@ -571,7 +571,7 @@ sysctl_node_in_int(struct sysctl_conn *cp, void *udata,
 			old = *data->i_ptr_int64;
 			break;
 		default:
-			assert(!"bad int sizeof");
+			assert(!"Bad int size");
 		}
 	} else {
 		x = strtoll(new, &endptr, 10);
@@ -594,7 +594,7 @@ sysctl_node_in_int(struct sysctl_conn *cp, void *udata,
 			*data->i_ptr_int64 = x;
 			break;
 		default:
-			assert(!"bad int sizeof");
+			assert(!"Bad int size");
 		}
 	}
 	strbuf_addf(out, "%lld", old);
@@ -1012,17 +1012,9 @@ sysctl_req(int fd, const char *path, char *old, const char *new)
 {
 	int rc;
 
-	INFO(0, "hit; path='%s'", path);
 	rc = sysctl_send_req(fd, path, new);
 	if (rc == 0) {
 		rc = sysctl_recv_rpl(fd, old);
-	}
-	if (rc < 0) {
-		ERR(-rc, "failed; path='%s'", path);
-	} else if (rc > 0) {
-		WARN(rc, "error; path='%s'", path);
-	} else {
-		INFO(0, "ok;");
 	}
 	return rc;
 }
@@ -1067,16 +1059,11 @@ gt_sysctl(const char *path, char *old, const char *new)
 {
 	int rc;
 
-	INFO(0, "hit; path='%s'", path);
 	rc = sysctl_req_safe(path, old, new);
 	if (rc < 0) {
-		if (new == NULL) {
-			INFO(-rc, "failed; path='%s'", path);
-		} else {
-			INFO(-rc, "failed; path='%s', new='%s'", path, new);
-		}
+		INFO(-rc, "sysctl('%s') failed", path);
 	} else {
-		INFO(0, "ok");
+		INFO(0, "stsctl('%s') ok", path);
 	}
 	GT_RETURN(rc);
 }
