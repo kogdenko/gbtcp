@@ -1,4 +1,10 @@
+// GPL v2 license
 #include "internals.h"
+//#include "list.h"
+//#include "route.h"
+//#include "shm.h"
+//#include "service.h"
+//#include "controller.h"
 
 #define CURMOD route
 
@@ -304,8 +310,7 @@ route_add(struct route_entry *a)
 	if (a->rt_pfx == 0) {
 		route = curmod->route_default;
 	} else {
-		rule = lptree_get(&curmod->route_lptree, key, a->rt_pfx);
-		route = (struct route_entry_long *)rule;
+		route = NULL;
 	}
 	if (route != NULL) {
 		rc = -EEXIST;
@@ -321,7 +326,9 @@ route_add(struct route_entry *a)
 		rule->lpr_depth = a->rt_pfx;
 		curmod->route_default = route;
 	} else {
-		lptree_set(&curmod->route_lptree, rule, key, a->rt_pfx);
+		//dbg("add begin");
+		lptree_add(&curmod->route_lptree, rule, key, a->rt_pfx);
+		//dbg("add end");
 		if (rc) {
 			mbuf_free((struct mbuf *)rule);
 			goto out;
@@ -336,12 +343,11 @@ route_add(struct route_entry *a)
 	route_set_srcs(route);
 out:
 	LOGF(rc ? LOG_ERR : LOG_INFO, -rc,
-	     "%s; dst=%s/%u, dev='%s', via=%s",
-	     rc  ? "failed" : "ok",
-	     log_add_ipaddr(AF_INET, &a->rt_dst.ipa_4),
-	     a->rt_pfx,
-	     a->rt_ifp->rif_name,
-	     log_add_ipaddr(AF_INET, &a->rt_via.ipa_4));
+		"Add route to dst=%s/%u, dev='%s', via=%s",
+		log_add_ipaddr(AF_INET, &a->rt_dst.ipa_4),
+		a->rt_pfx,
+		a->rt_ifp->rif_name,
+		log_add_ipaddr(AF_INET, &a->rt_via.ipa_4));
 	return rc;
 }
 
@@ -764,7 +770,10 @@ route_get(int af, struct ipaddr *src, struct route_entry *g)
 		return -ENETUNREACH;
 	}
 	key = ntoh32(g->rt_dst.ipa_4);
+	//dbg("search begin");
 	rule = lptree_search(&curmod->route_lptree, key);
+	//dbg("search end %p", rule);
+	assert(rule != NULL);
 	route = (struct route_entry_long *)rule;
 	if (route == NULL) {
 		route = curmod->route_default;

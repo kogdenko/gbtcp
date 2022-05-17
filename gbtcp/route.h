@@ -1,8 +1,9 @@
-// GPL2 license
+// GPL v2 license
 #ifndef GBTCP_ROUTE_H
 #define GBTCP_ROUTE_H
 
 #include "subr.h"
+#include "ip_addr.h"
 #include "arp.h"
 #include "dev.h"
 #include "lptree.h"

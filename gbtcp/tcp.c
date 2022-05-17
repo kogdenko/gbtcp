@@ -1697,7 +1697,7 @@ tcp_into_sndq(struct sock *so)
 	if (!so_in_txq(so)) {
 		rc = so_route(so, &r);
 		if (rc != 0) {
-			assert(0); // TODO: v0.2
+			assert(0); // TODO: v 0.x.2
 			return;
 		}
 		so_add_txq(r.rt_ifp, so);

@@ -21,6 +21,9 @@ ldflags = [
     '-L.'
 ]
 
+AddOption('--debug-build', action = 'store_true',
+    help = 'Debug build', default = False)
+
 SConscript([
     'test/SConstruct',
     'tools/epoll_helloworld/SConstruct',
@@ -46,9 +49,6 @@ else:
 
 cflags.append('-Wno-format-truncation')
 
-AddOption('--debug-build', action = 'store_true',
-    help = 'Debug build', default = False)
-
 if GetOption('debug_build'):
     cflags.append('-O0')
     suffix = "-d"
@@ -62,32 +62,33 @@ env = Environment(CC = 'gcc',
     LINKFLAGS = ' '.join(ldflags),
 )
 
-
 if platform.architecture()[0] == "64bit":
     lib_path = '/usr/lib64'
 else:
     lib_path = '/usr/lib'
 
-libgbtcp = env.SharedLibrary('bin/libgbtcp.so', srcs)
+libgbtcp = env.SharedLibrary('bin/libgbtcp%s.so' % suffix, srcs)
 env.Install(lib_path, libgbtcp)
 env.Alias('install', lib_path)
 
 
 ldflags.append('-Lbin')
-ldflags.append('-lgbtcp')
+ldflags.append('-lgbtcp%s' % suffix)
 
 env = Environment(CC = 'gcc',
     CCFLAGS = ' '.join(cflags),
     LINKFLAGS = ' '.join(ldflags),
 )
 
-sysctl = env.Program('bin/gbtcp-sysctl', 'sysctl/sysctl.c')
+sysctl = env.Program('bin/gbtcp-sysctl%s' % suffix, 'sysctl/sysctl.c')
 env.Install('/usr/bin', sysctl)
 env.Alias('install', '/usr/bin')
 
-netstat = env.Program('bin/gbtcp-netstat', 'netstat/netstat.c')
+netstat = env.Program('bin/gbtcp-netstat%s' % suffix, 'netstat/netstat.c')
 env.Install('/usr/bin/', netstat)
 env.Alias('install', '/usr/bin')
 
-aio_helloworld = env.Program('bin/gbtcp-aio-helloworld',
+controller = env.Program('bin/gbtcp-controller%s' % suffix, 'controller/controller.c')
+
+aio_helloworld = env.Program('bin/gbtcp-aio-helloworld%s' % suffix,
     'tools/gbtcp_aio_helloworld/bench_gbtcp.c')

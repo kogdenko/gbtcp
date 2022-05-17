@@ -1,4 +1,4 @@
-// gpl2 license
+// GPL v2 license
 #ifndef GBTCP_IPADDR_H
 #define GBTCP_IPADDR_H
 

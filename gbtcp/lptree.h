@@ -33,6 +33,6 @@ void lptree_deinit(struct lptree *);
 struct lptree_rule *lptree_search(struct lptree *, uint32_t);
 void lptree_del(struct lptree *, struct lptree_rule *);
 struct lptree_rule *lptree_get(struct lptree *, uint32_t, int);
-int lptree_set(struct lptree *, struct lptree_rule *, uint32_t, int);
+int lptree_add(struct lptree *, struct lptree_rule *, uint32_t, int);
 
 #endif // GBTCP_LPTREE_H

@@ -933,12 +933,12 @@ gt_dbg5(const char *file, u_int line, const char *func, int suppressed,
 
 	strbuf_init(&sb, buf, sizeof(buf));
 	strbuf_addf(&sb, "%-6d: %-20s: %-4d: %-20s: ",
-	            getpid(), file, line, func);
+		getpid(), file, line, func);
 	va_start(ap, fmt);
 	strbuf_vaddf(&sb, fmt, ap);
 	va_end(ap);
 	if (suppressed) {
 		strbuf_addf(&sb, " (suppressed %d)", suppressed);	
 	}
-	fprintf(stderr, "%s\n", strbuf_cstr(&sb));
+	printf("%s\n", strbuf_cstr(&sb));
 }
