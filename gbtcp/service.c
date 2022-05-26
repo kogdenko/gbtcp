@@ -155,6 +155,7 @@ vale_transmit5(struct route_if *ifp, int msg_type, u_char sid,
 	int rc;
 	struct dev_pkt pkt;
 
+	dbg("transmit to vale");
 	rc = dev_not_empty_txr(&service_vale, &pkt, TX_CAN_RECLAIM);
 	if (rc == 0) {
 		DEV_PKT_COPY(pkt.pkt_data, data, len);
@@ -184,8 +185,7 @@ service_rssq_rx_one(struct route_if *ifp, void *data, int len)
 		if (current->p_sid == CONTROLLER_SID) {
 			transmit_to_host(ifp, data, len);
 		} else {
-			vale_transmit5(ifp, SERVICE_MSG_BYPASS,
-			               CONTROLLER_SID, data, len);
+			vale_transmit5(ifp, SERVICE_MSG_BYPASS, CONTROLLER_SID, data, len);
 		}
 	} else if (rc >= 0) {
 		current->p_ips.ips_delivered++;

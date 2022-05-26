@@ -5,6 +5,22 @@
 
 #define CURMOD tcp
 
+#if 0
+#define TCP_DBG(fmt, ...) \
+	do { \
+		log_buf_init(); \
+		dbg(fmt, ##__VA_ARGS__); \
+	} while (0)
+#endif
+
+#if 0
+#define TCP_DBG(fmt, ...) LOGF(LOG_NOTICE, 0, fmt, ##__VA_ARGS__)
+#endif
+
+#ifndef TCP_DBG
+#define TCP_DBG(fmt, ...)
+#endif
+
 #define TCP_FLAG_FOREACH(x) \
 	x(TCP_FLAG_FIN, 'F') \
 	x(TCP_FLAG_SYN, 'S') \
@@ -384,7 +400,7 @@ so_set_err(struct sock *so, struct in_context *in, int errnum)
 {
 	int rc;
 
-	DBG(0, "hit; fd=%d, err=%d", so_get_fd(so), errnum);
+	TCP_DBG("Set error %d on socket; fd=%d", errnum, so_get_fd(so));
 	so->so_err = so_err_pack(errnum);
 	rc = tcp_set_state(so, in, GT_TCPS_CLOSED);
 	if (rc == 0) {
@@ -541,11 +557,11 @@ so_connect(struct sock *so, const struct sockaddr_in *faddr_in,
 	if (rc < 0) {
 		return rc;
 	}
-	DBG(0, "ok; tuple=%s:%hu>%s:%hu, fd=%d",
-	    log_add_ipaddr(AF_INET, &so->so_laddr),
-	    ntoh16(so->so_lport),
-	    log_add_ipaddr(AF_INET, &so->so_faddr),
-	    ntoh16(so->so_fport), so_get_fd(so));
+	TCP_DBG("Socket connect, %s:%hu>%s:%hu, fd=%d",
+		log_add_ipaddr(AF_INET, &so->so_laddr),
+		ntoh16(so->so_lport),
+		log_add_ipaddr(AF_INET, &so->so_faddr),
+		ntoh16(so->so_fport), so_get_fd(so));
 	laddr_in->sin_family = AF_INET;
 	laddr_in->sin_addr.s_addr = so->so_laddr;
 	laddr_in->sin_port = so->so_lport;
@@ -1082,8 +1098,8 @@ tcp_set_state(struct sock *so, struct in_context *in, int state)
 	assert(GT_SOCK_ALIVE(so));
 	assert(state < GT_TCP_NSTATES);
 	assert(state != so->so_state);	
-	DBG(0, "hit; state %s->%s, fd=%d",
-	    tcp_state_str(so->so_state), tcp_state_str(state), so_get_fd(so));
+	TCP_DBG("Socket state transition %s->%s, fd=%d",
+		tcp_state_str(so->so_state), tcp_state_str(state), so_get_fd(so));
 	if (state != GT_TCPS_CLOSED) {
 		assert(state > so->so_state);
 		tcps.tcps_states[state]++;
@@ -1115,8 +1131,8 @@ tcp_rcvbuf_recv(struct sock *so, const struct iovec *iov, int iovcnt, int peek)
 		return -EAGAIN;
 	}
 	rc = sockbuf_readv4(&so->so_rcvbuf, iov, iovcnt, peek);
-	DBG(0, "hit; fd=%d, peek=%d, cnt=%d, buflen=%d",
-	    so_get_fd(so), peek, rc, so->so_rcvbuf.sob_len);
+	TCP_DBG("Receive from socket, fd=%d, peek=%d, cnt=%d, buflen=%d",
+		so_get_fd(so), peek, rc, so->so_rcvbuf.sob_len);
 	if (buflen != so->so_rcvbuf.sob_len) {
 		if (tcp_set_swnd(so)) {
 			tcp_into_ackq(so);
@@ -1218,7 +1234,7 @@ tcp_delack(struct sock *so)
 		tcp_into_ackq(so);
 	}
 	timer_set(&so->so_timer_delack, 200 * NSEC_MSEC,
-	          TCP_TIMER_DELACK);
+		TCP_TIMER_DELACK);
 }
 
 #if 0
@@ -1295,7 +1311,7 @@ tcp_mod_timer(struct timer *timer, u_char fn_id)
 		so->so_ssnt = 0;
 		so->so_sfin_sent = 0;
 		tcps.tcps_rexmttimeo++;
-		DBG(0, "hit; fd=%d, state=%s",
+		TCP_DBG("Retransmit timeout, fd=%d, state=%s",
 		    so_get_fd(so), tcp_state_str(so->so_state));
 		if (so->so_ntries++ > 6) {
 			tcps.tcps_timeoutdrop++;
@@ -1377,22 +1393,29 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 	so->so_fport = fport;
 	gt_tcp_open(so);
 	if (in->in_tcp_flags != TCP_FLAG_SYN) {
-		DBG(0, "not a SYN; tuple=%s:%hu>%s:%hu, lfd=%d, fd=%d",
-		    log_add_ipaddr(AF_INET, &so->so_laddr),
-		    ntoh16(so->so_lport),
-	            log_add_ipaddr(AF_INET, &so->so_faddr),
-		    ntoh16(so->so_fport),
-		    so_get_fd(lso), so_get_fd(so));
+		TCP_DBG("First connection packet not a SYN [%s]; %s:%hu>%s:%hu, seq=%u, lfd=%d, fd=%d",
+			log_add_tcp_flags(so->so_ipproto, in->in_tcp_flags),
+			log_add_ipaddr(AF_INET, &so->so_laddr),
+			ntoh16(so->so_lport),
+			log_add_ipaddr(AF_INET, &so->so_faddr),
+			ntoh16(so->so_fport),
+			in->in_tcp_seq,
+			so_get_fd(lso), so_get_fd(so));
+		dbg("theend [%s] fport=%u, seq=%u, ack=%u, tos=%u",
+			log_add_tcp_flags(so->so_ipproto, in->in_tcp_flags),
+			ntoh16(so->so_fport), in->in_tcp_seq, in->in_tcp_ack,
+			in->in_ih->ih_tos);
+		abort();
 		tcps.tcps_badsyn++;
 		tcp_reset(so, in);
 		return;
 	} else {
-		DBG(0, "ok; tuple=%s:%hu>%s:%hu, lfd=%d, fd=%d",
-		    log_add_ipaddr(AF_INET, &so->so_laddr),
-		    ntoh16(so->so_lport),
-	            log_add_ipaddr(AF_INET, &so->so_faddr),
-		    ntoh16(so->so_fport),
-		    so_get_fd(lso), so_get_fd(so));
+		TCP_DBG("New incoming connection %s:%hu>%s:%hu, lfd=%d, fd=%d",
+			log_add_ipaddr(AF_INET, &so->so_laddr),
+			ntoh16(so->so_lport),
+			log_add_ipaddr(AF_INET, &so->so_faddr),
+			ntoh16(so->so_fport),
+			so_get_fd(lso), so_get_fd(so));
 	}
 	DLIST_INSERT_HEAD(&lso->so_incompleteq, so, so_accept_list);
 	lso->so_acceptq_len++;
@@ -1554,9 +1577,9 @@ tcp_is_in_order(struct sock *so, struct in_context *in)
 	}
 	off = tcp_diff_seq(in->in_tcp_seq, so->so_rseq);
 	if (off > len) {
-		DBG(0, "out of order; flags=%s, seq=%u, len=%u, %s",
-		    log_add_tcp_flags(so->so_ipproto, in->in_tcp_flags),
-		    in->in_tcp_seq, len, gt_log_add_sock(so));
+		TCP_DBG("Receive out of order packet [%s], seq=%u, len=%u, %s",
+			log_add_tcp_flags(so->so_ipproto, in->in_tcp_flags),
+			in->in_tcp_seq, len, gt_log_add_sock(so));
 		tcps.tcps_rcvoopack++;
 		tcps.tcps_rcvoobyte += in->in_len;
 		return 0;
@@ -1604,7 +1627,7 @@ tcp_rcv_TIME_WAIT(struct sock *so)
 static int
 tcp_process_ack(struct sock *so, struct in_context *in)
 {
-	int rc;
+	int rc, sfin_acked;
 	uint32_t acked;
 
 	acked = tcp_diff_seq(so->so_sack, in->in_tcp_ack);
@@ -1614,15 +1637,17 @@ tcp_process_ack(struct sock *so, struct in_context *in)
 	if (so->so_ssyn && so->so_ssyn_acked == 0) {
 		acked--;
 	}
+	sfin_acked = 0;
 	if (acked > so->so_ssnt) {
 		if (so->so_sfin) {
+			sfin_acked = 1;
 			acked--;
 		}
 		if (acked > so->so_ssnt) {
-			DBG(0, "bad ACK; flags=%s, ack=%u, %s",
-		            log_add_tcp_flags(so->so_ipproto,
-			                      in->in_tcp_flags),
-			    in->in_tcp_ack, gt_log_add_sock(so));
+			TCP_DBG("Received bad ACK packet [%s], ack=%u, %s",
+				log_add_tcp_flags(so->so_ipproto,
+					in->in_tcp_flags),
+				in->in_tcp_ack, gt_log_add_sock(so));
 			rc = gt_tcp_process_badack(so, acked);
 			return rc;
 		}
@@ -1641,7 +1666,7 @@ tcp_process_ack(struct sock *so, struct in_context *in)
 		tcps.tcps_rcvackpack++;
 		tcps.tcps_rcvackbyte += acked;
 	}
-	if (so->so_ssnt == 0) {
+	if (so->so_ssnt == 0 && (so->so_sfin == 0 || sfin_acked)) {
 		rc = tcp_process_ack_complete(so, in);
 		if (rc) {
 			return rc;
@@ -1662,8 +1687,8 @@ tcp_process_ack_complete(struct sock *so, struct in_context *in)
 	so->so_ntries = 0;
 	timer_del(&so->so_timer);
 	so->so_nagle_acked = 1;
-	if (so->so_sfin && so->so_sfin_acked == 0 &&
-	    so->so_sndbuf.sob_len == 0) {
+	if (so->so_sfin && so->so_sfin_acked == 0) {
+		assert(so->so_sndbuf.sob_len == 0);
 		so->so_sfin_acked = 1;
 		switch (so->so_state) {
 		case GT_TCPS_FIN_WAIT_1:
@@ -1929,7 +1954,7 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcp_fill_info *tcb,
 	th_len = sizeof(*th) + tcp_opts_len;
 	total_len = sizeof(*ih) + th_len + tcb->tcb_len;
 	ih->ih_ver_ihl = IP4_VER_IHL;
-	ih->ih_type_of_svc = 0;
+	ih->ih_tos = 0;
 	ih->ih_total_len = hton16(total_len);
 	ih->ih_id = hton16(so->so_ip_id);
 	ih->ih_frag_off = 0;
@@ -2013,9 +2038,9 @@ gt_udp_rcvbuf_recv(struct sock *so, const struct iovec *iov, int iovcnt,
 	assert(so->so_rcvbuf.sob_len >= msg.sobm_len);
 	gt_set_sockaddr(addr, addrlen, msg.sobm_faddr, msg.sobm_fport);
 	cnt = sockbuf_readv(&so->so_rcvbuf, iov, iovcnt,
-	                     msg.sobm_len, peek);
-	DBG(0, "hit; peek=%d, cnt=%d, buflen=%d, fd=%d",
-	    peek, rc, so->so_rcvbuf.sob_len, so_get_fd(so));
+		msg.sobm_len, peek);
+	TCP_DBG("Receive from UDP socket, peek=%d, cnt=%d, buflen=%d, fd=%d",
+		peek, rc, so->so_rcvbuf.sob_len, so_get_fd(so));
 	if (peek == 0) {
 		if (msg.sobm_len > cnt) {
 			msg.sobm_len -= cnt;
@@ -2400,7 +2425,7 @@ so_new(int fd, int so_ipproto)
 		return NULL;
 	}
 	so = (struct sock *)fp;
-	DBG(0, "hit; fd=%d", so_get_fd(so));
+	TCP_DBG("New socket, fd=%d", so_get_fd(so));
 	so->so_flags = 0;
 	so->so_sid = current->p_sid;
 	so->so_ipproto = so_ipproto;
@@ -2468,7 +2493,7 @@ so_unref(struct sock *so, struct in_context *in)
 	if (so_in_txq(so)) {
 		return 0;
 	}
-	DBG(0, "hit; fd=%d", so_get_fd(so));
+	TCP_DBG("Close socket, fd=%d", so_get_fd(so));
 	if (so->so_ipproto == SO_IPPROTO_TCP) {
 		tcps.tcps_closed++;
 	}
@@ -2484,8 +2509,6 @@ so_rcvbuf_add(struct sock *so, const void *src, int cnt)
 
 	len = so->so_rcvbuf.sob_len;
 	rc = so->so_rcvbuf.sob_len - len;
-	DBG(0, "hit; fd=%d, cnt=%d, buflen=%d",
-	    so_get_fd(so), rc, so->so_rcvbuf.sob_len);
 	return rc;
 }
 */
@@ -2582,9 +2605,10 @@ tcp_tx_data(struct route_entry *r, struct dev_pkt *pkt,
 			tcps.tcps_sndwinup++;
 		}
 	}
-	DBG(0, "hit; if='%s', flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
-	    r->rt_ifp->rif_name, log_add_tcp_flags(so->so_ipproto, tcb.tcb_flags),
-	    tcb.tcb_len, tcb.tcb_seq, tcb.tcb_ack, so_get_fd(so));
+	TCP_DBG("Transmit packet [%s] via %s, len=%d, seq=%u, ack=%u, fd=%d",
+		log_add_tcp_flags(so->so_ipproto, tcb.tcb_flags),
+		r->rt_ifp->rif_name,
+		tcb.tcb_len, tcb.tcb_seq, tcb.tcb_ack, so_get_fd(so));
 	service_account_opkt();
 	arp_resolve(r, pkt);
 }
@@ -2596,8 +2620,8 @@ sock_sndbuf_add(struct sock *so, const void *src, int cnt)
 
 	rc = sockbuf_add(current->p_sockbuf_pool,
 	                 &so->so_sndbuf, src, cnt);
-	DBG(0, "hit; cnt=%d, buflen=%d, fd=%d",
-	    cnt, so->so_sndbuf.sob_len, so_get_fd(so));
+	TCP_DBG("Add %d bytes to send-buffer, buflen=%d, fd=%d",
+		cnt, so->so_sndbuf.sob_len, so_get_fd(so));
 	return rc;
 }
 
@@ -2605,8 +2629,8 @@ static void
 sock_sndbuf_drain(struct sock *so, int cnt)
 {
 	sockbuf_drain(&so->so_sndbuf, cnt);
-	DBG(0, "hit; cnt=%d, buflen=%d, fd=%d",
-	    cnt, so->so_sndbuf.sob_len, so_get_fd(so));
+	TCP_DBG("Remove %d bytes from send-buffer, buflen=%d, fd=%d",
+		cnt, so->so_sndbuf.sob_len, so_get_fd(so));
 }
 
 int
@@ -2657,9 +2681,9 @@ so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 	} else {
 		udps.udps_ipackets++;
 	}
-	DBG(0, "hit; flags=%s, len=%d, seq=%u, ack=%u, fd=%d",
-	    log_add_tcp_flags(so->so_ipproto, in->in_tcp_flags),
-	    in->in_len, in->in_tcp_seq, in->in_tcp_ack, so_get_fd(so));
+	TCP_DBG("Receive packet [%s], len=%d, seq=%u, ack=%u, fd=%d",
+		log_add_tcp_flags(so->so_ipproto, in->in_tcp_flags),
+		in->in_len, in->in_tcp_seq, in->in_tcp_ack, so_get_fd(so));
 	so->so_processing = 1;
 	in->in_events = 0;
 	if (in->in_len) {

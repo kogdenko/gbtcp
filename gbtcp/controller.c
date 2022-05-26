@@ -642,5 +642,6 @@ controller_process()
 	rd_nanoseconds();
 	WRITE_ONCE(shared->shm_ns, nanoseconds);
 	wait_for_fd_events();
-	controller_sched_balance();
+	if (0)
+		controller_sched_balance();
 }

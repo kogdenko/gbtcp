@@ -31,7 +31,7 @@ do { \
 #define log_trace0() log_trace(NULL)
 
 #ifdef NDEBUG
-#define DBG(...)
+#define DBG(err, ...)
 #define INFO(...)
 #else /*NDEBUG */
 #define DBG(err, ...) LOGF(LOG_DEBUG, err, __VA_ARGS__)

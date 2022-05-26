@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# /test/runner.py -v  -N ../../open_source/netmap/ -i eth2
+# test/runner.py -v  -N ../../open_source/netmap/ -i eth2
 
 import os
 import sys
@@ -25,8 +25,7 @@ subnet = "10.20"
 listen = None
 connect = None
 connect_sock = None
-interface = None
-interface_module = None
+g_interface = None
 g_tester_interface = None
 g_runner_interface = None
 g_concurrency = []
@@ -36,10 +35,9 @@ g_runner_cpus = None
 tester_mac = None
 device_mac = None
 device_ip = None
-scaling_governor = dict()
 clean_on_exit = False
 g_report_count = 10
-g_skip_reports = 1
+g_skip_reports = 2
 g_sample_count = 5
 g_cooling_time = 2
 g_cpu_count_min = 1
@@ -57,8 +55,6 @@ def usage():
     print("\t-i {interface}: For performance testing")
     print("\t--cpu-list {a-b,c,d}: Bind applications on this cpus")
 #    print("\t--clean-on-exit: Restore environment after runner finish w")
-
-
 
 def get_interface_mac(interface):
     f = open("/sys/class/net/%s/address" % interface)
@@ -78,7 +74,6 @@ def insmod(module_name):
     path = netmap_dir + "/" + module_dir + "/" + module_name + ".ko"
 
     system("insmod %s" % path)
-
 
 def measure_cpu_usage(reports, cpus):
     # Skip first and last seconds
@@ -109,6 +104,10 @@ def start_nginx(concurrency, cpu_list, native):
         templ[g_cpu_count - 1 - i] = '1'
         worker_cpu_affinity += " " + "".join(templ)
         templ[g_cpu_count - 1 - i] = '0'
+
+    worker_connections = upper_pow2_32(concurrency/n)
+    if worker_connections < 1024:
+        worker_connections = 1024
 
     nginx_conf = (
         "user root;\n"
@@ -142,7 +141,7 @@ def start_nginx(concurrency, cpu_list, native):
         "    }\n"
         "}\n"
         %
-        (n, worker_cpu_affinity, upper_pow2_32(concurrency/n), device_ip))
+        (n, worker_cpu_affinity, worker_connections, device_ip))
 
     gbtcp_conf = ("route.if.add=%s" % g_runner_interface)
 
@@ -171,8 +170,7 @@ def start_nginx(concurrency, cpu_list, native):
 def stop_nginx():
     system("nginx -s quit", True)
 
-
-def run_gen(args):
+def run_generator(args):
     subnet = None
     reports = None
     device_mac = None
@@ -228,7 +226,7 @@ def start_generator(concurrency):
     args = ("-D %s --subnet %s --reports %d --concurrency=%d" %
         (device_mac, subnet, g_report_count, concurrency))
     if connect == None:
-        gen, _ = run_gen(args)
+        gen, _ = run_generator(args)
     else:
         try:
             gen = socket.create_connection((connect, 9999))
@@ -280,6 +278,7 @@ def wait_generator_proc(con_gen, reports):
     data = bytearray()
     while True:
         line = con_gen.stdout.readline()
+        print("line=", line)
         if not line:
             break
         data += bytearray(line)
@@ -309,102 +308,12 @@ def tester_loop():
                     if i == '\n':
                         done = True
                         break
-            con_gen, reports = run_gen(data.strip())
+            con_gen, reports = run_generator(data.strip())
             data = wait_generator_proc(con_gen, reports)
             conn.send(data)
             conn.close()
         except socket.error as exc:
             print("Connection failed: %s" % exc)
-
-app = App()
-
-try:
-    opts, args = getopt.getopt(sys.argv[1:], "hvN:L:C:i:t:", [
-        "help",
-        "verbose",
-        "dry-run",
-        "netmap=",
-        "listen=",
-        "connect=",
-        "cpu-list=",
-        "cpu-count-min=",
-        "concurrency=",
-        "reports=",
-        "skip-reports=",
-        "samples=",
-        "cooling-time=",
-        "reload-modules",
-        ])
-except getopt.GetoptError as err:
-    print(err)
-    usage()
-    sys.exit(1)
-for o, a in opts:
-    if o in ("-h", "--help"):
-        usage()
-        sys.exit()
-    elif o in ("-v", "--verbose"):
-        set_verbose(get_verbose() + 1)
-    elif o in ("--dry-run"):
-        g_dry_run = True
-    elif o in ("-i"):
-        interface = a
-    elif o in ("--cpu-list"):
-        g_cpu_list = str_to_int_list(a)
-        if g_cpu_list == None:
-            print("--cpu-list: Invalid argument: '%s'" % a)
-            sys.exit(3)
-    elif o in ("-N", "--netmap"):
-        netmap_dir = os.path.abspath(a)
-    elif o in ("-L", "--listen"):
-        listen = a
-    elif o in ("-C", "--connect"):
-        connect = a
-    elif o in ("--reload-modules"):
-        reload_modules = True
-    elif o in ("--reports"):
-        g_report_count = int(a)
-    elif o in ("--skip-reports"):
-        g_skip_reports = int(a)
-    elif o in ("--samples"):
-        g_sample_count = int(a)
-    elif o in ("--cooling-time"):
-        g_cooling_time = int(a)
-    elif o in ("--cpu-count-min"):
-        g_cpu_count_min = int(a)
-    elif o in ("--concurrency"):
-        g_concurrency = str_to_int_list(a)
-
-if len(g_concurrency) == 0:
-    g_concurrency.append(1000)
-
-g_test_path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
-
-g_cpu_count = multiprocessing.cpu_count()
-if g_cpu_list == None:
-    g_cpu_list = list()
-    for i in range(0, g_cpu_count):
-        g_cpu_list.append(i)
-else:
-    for i in g_cpu_list:
-        if i >= g_cpu_count:
-            print("--cpu-list: CPU %d exceeds number of CPUs %d" % (i, g_cpu_count))
-            sys.exit(3)
-
-for i in g_cpu_list:
-    path = "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_governor" % i
-    f = open(path, 'r')
-    scaling_governor[i] = f.read()
-    f.close()
-    f = open(path, 'w')
-    f.write("performance")
-    f.close()
-
-if netmap_dir == None:
-    usage()
-    sys.exit(1)
-
-stop_nginx()
 
 def get_nginx_ver(app):
     s = system("nginx -v")[2]
@@ -442,6 +351,9 @@ def bind_interrupts(interface, cpus):
     return 0
 
 def set_txrx_queue_count(interface, cpus):
+    if g_interface == None:
+        # Use veth interfaces
+        return
     system("ethtool -L %s combined %d" % (interface, len(cpus)))
     err = bind_interrupts(interface, cpus)
     if err != 0:
@@ -451,51 +363,11 @@ def reload_netmap():
     system("rmmod veth", True)
     system("rmmod netmap", True)
     insmod("netmap")
+    insmod("veth")
 
-if interface == None:
-    if reload_modules:
-        reload_netmap()
-else:
-    try:
-        path = "/sys/class/net/%s/device/driver" % interface
-        path = os.readlink(path)
-    except FileNotFoundError:
-        print("Interface '%s' not found" % interface)
-        sys.exit(4)
-    except:
-        print("readlink('%s') failed: %s" % (path, sys.exc_info()[0]))
-        sys.exit(4)
-    interface_module = os.path.basename(path)
-    if reload_modules:
-        system("rmmod %s" % interface_module, True)
-        reload_netmap()
-        insmod(interface_module)
-        # Wait interfaces after inserting module
-        time.sleep(1)
-    system("ethtool -K %s rx off tx off" % interface)
-    system("ethtool -K %s gso off" % interface)
-    system("ethtool -K %s ntuple on" % interface)
-    system("ethtool --show-ntuple %s rx-flow-hash tcp4" % interface)
-    system("ethtool -N %s rx-flow-hash tcp4 sdfn" % interface)
-    system("ethtool -N %s rx-flow-hash udp4 sdfn" % interface)
-    system("ethtool -G %s rx 2048 tx 2048" % interface)
-    system("ip l s dev %s up" % interface)
-
-if listen != None:
-    if connect != None:
-        die("--connect: Can't be specified with --listen option")
-    if interface == None:
-        die("-i: Should be specified with --listen option")
-
-    g_tester_interface = interface
-    tester_mac = get_interface_mac(g_tester_interface)
-    g_tester_cpus = g_cpu_list
-    set_txrx_queue_count(interface, g_tester_cpus)
-    tester_loop()
-    sys.exit(0)
-
-def parse_sample(data, reports, test_id, bad):
+def parse_sample(data, reports, test_id):
     s = data.decode('utf-8').strip()
+
     rows = s.split('\n')
     if len(rows) != reports:
         print(("Invalid number of reports (%d) in output, should be %d"
@@ -518,16 +390,13 @@ def parse_sample(data, reports, test_id, bad):
         sample.records[OBPS].append(int(cols[4]))
         sample.records[CONCURRENCY].append(int(cols[8]))
     sample.test_id = test_id
-    if bad:
-        sample.status = 0
-    else:
-        sample.status = 1
-        for i in range(len(sample.records)):
-            record = sample.records[i][g_skip_reports:]
-            sample.outliers = find_outliers(record, None)
-            if sample.outliers != None:
-                sample.status = 0
-                break
+    sample.status = 1
+    for i in range(len(sample.records)):
+        record = sample.records[i][g_skip_reports:]
+        sample.outliers = find_outliers(record, None)
+        if sample.outliers != None:
+            sample.status = 0
+            break
     sample.id = app.add_sample(sample)
     return sample
 
@@ -560,12 +429,13 @@ def test_nginx(app, test_id, concurrency, cpus, native):
             low = True
             break
 
-    sample = parse_sample(data, g_report_count, test_id, low)
+    sample = parse_sample(data, g_report_count, test_id)
     if sample == None:
         die("Invalid generator output. Please, check tester")
 
-    if nginx.poll() != None:
-        print("NGINX already done !!!"  % nginx.returncode)
+    if low:
+        sample.status = 0
+
     stop_nginx()
     proc_wait(nginx, "nginx")
     set_stop_time()
@@ -573,26 +443,150 @@ def test_nginx(app, test_id, concurrency, cpus, native):
     print("nginx%s: test_id=%d, sample_id=%d, c=%d, %sCPU usage"
         % ("(native)" if native else "", test_id, sample.id, concurrency,
         "low " if low else ""),
-        cpu_usage)
+        cpu_usage, "outliers=", sample.outliers)
 
     return 0
 
-if interface == None:
-    if len(cpu_list) < 2:
-        print("--cpu-list: Specify more then 1 cpu for testing on veth")
-        sys.exit(1)
+################ MAIN ####################
+app = App()
+
+try:
+    opts, args = getopt.getopt(sys.argv[1:], "hvN:L:C:i:t:", [
+        "help",
+        "verbose",
+        "dry-run",
+        "netmap=",
+        "listen=",
+        "connect=",
+        "cpu-list=",
+        "cpu-count-min=",
+        "concurrency=",
+        "reports=",
+        "skip-reports=",
+        "samples=",
+        "cooling-time=",
+        "reload-modules",
+        ])
+except getopt.GetoptError as err:
+    print(err)
+    usage()
+    sys.exit(1)
+for o, a in opts:
+    if o in ("-h", "--help"):
+        usage()
+        sys.exit()
+    elif o in ("-v", "--verbose"):
+        set_verbose(get_verbose() + 1)
+    elif o in ("--dry-run"):
+        g_dry_run = True
+    elif o in ("-i"):
+        g_interface = a
+    elif o in ("--cpu-list"):
+        g_cpu_list = str_to_int_list(a)
+        if g_cpu_list == None:
+            die("--cpu-list: Invalid argument: '%s'" % a)
+    elif o in ("-N", "--netmap"):
+        netmap_dir = os.path.abspath(a)
+    elif o in ("-L", "--listen"):
+        listen = a
+    elif o in ("-C", "--connect"):
+        connect = a
+    elif o in ("--reload-modules"):
+        reload_modules = True
+    elif o in ("--reports"):
+        g_report_count = int(a)
+    elif o in ("--skip-reports"):
+        g_skip_reports = int(a)
+    elif o in ("--samples"):
+        g_sample_count = int(a)
+    elif o in ("--cooling-time"):
+        g_cooling_time = int(a)
+    elif o in ("--cpu-count-min"):
+        g_cpu_count_min = int(a)
+    elif o in ("--concurrency"):
+        g_concurrency = str_to_int_list(a)
+
+if len(g_concurrency) == 0:
+    g_concurrency.append(1000)
+
+g_test_path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
+
+g_cpu_count = multiprocessing.cpu_count()
+if g_cpu_list == None:
+    g_cpu_list = list()
+    for i in range(0, g_cpu_count):
+        g_cpu_list.append(i)
+else:
+    for i in g_cpu_list:
+        if i >= g_cpu_count:
+            die("--cpu-list: CPU %d exceeds number of CPUs %d" % (i, g_cpu_count))
+
+for i in g_cpu_list:
+    path = "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_governor" % i
+    f = open(path, 'w')
+    f.write("performance")
+    f.close()
+
+if netmap_dir == None:
+    usage()
+    sys.exit(1)
+
+stop_nginx()
+
+if g_interface == None:
+    if reload_modules:
+        reload_netmap()
+else:
+    try:
+        path = "/sys/class/net/%s/device/driver" % g_interface
+        path = os.readlink(path)
+    except FileNotFoundError:
+        die("Interface '%s' not found" % g_interface)
+    except:
+        die("readlink('%s') failed: %s" % (path, sys.exc_info()[0]))
+    interface_module = os.path.basename(path)
+    if reload_modules:
+        system("rmmod %s" % interface_module, True)
+        reload_netmap()
+        insmod(interface_module)
+        # Wait interfaces after inserting module
+        time.sleep(1)
+    system("ethtool -K %s rx off tx off" % g_interface)
+    system("ethtool -K %s gso off" % g_interface)
+    system("ethtool -K %s ntuple on" % g_interface)
+    system("ethtool --show-ntuple %s rx-flow-hash tcp4" % g_interface)
+    system("ethtool -N %s rx-flow-hash tcp4 sdfn" % g_interface)
+    system("ethtool -N %s rx-flow-hash udp4 sdfn" % g_interface)
+    system("ethtool -G %s rx 2048 tx 2048" % g_interface)
+    system("ip l s dev %s up" % g_interface)
+
+if listen != None:
+    if connect != None:
+        die("--connect: Can't be specified with --listen option")
+    if g_interface == None:
+        die("-i: Should be specified with --listen option")
+
+    g_tester_interface = g_interface
+    tester_mac = get_interface_mac(g_tester_interface)
+    g_tester_cpus = g_cpu_list
+    set_txrx_queue_count(g_interface, g_tester_cpus)
+    tester_loop()
+    sys.exit(0)
+
+if g_interface == None:
+    if len(g_cpu_list) < 2:
+        die("--cpu-list: Specify more then 1 cpu for testing on veth")
 
     vethc = "gt_veth_c"
     veths = "gt_veth_s"
     cmac = "72:9c:29:36:5e:02"
     smac = "72:9c:29:36:5e:01"
 
-    insmod("veth")
     system("ip l a dev %s type veth peer name %s" % (veths, vethc))
     system("ethtool -K %s rx off tx off" % veths)
     system("ethtool -K %s rx off tx off" % vethc)
-    system("ip l s dev %s address %s" % (veths, smac))
-    system("ip l s dev %s address %s" % (vethc, cmac))
+    system("ip l s dev %s address %s up" % (veths, smac))
+    system("ip l s dev %s address %s up" % (vethc, cmac))
 
     g_tester_cpus = g_cpu_list[1:2]
     g_runner_cpus = g_cpu_list[0:1]
@@ -605,21 +599,18 @@ else:
     if connect == None:
         die("--connect|-C: Not specified")
     g_runner_cpus = g_cpu_list
-    g_runner_interface = interface
+    g_runner_interface = g_interface
     device_mac = get_interface_mac(g_runner_interface) 
 
 device_ip = get_device_ip(subnet) 
 system("ip a flush dev %s" % g_runner_interface)
+system("ip a d %s/32" % device_ip, True)
 system("ip a a dev %s %s/32" % (g_runner_interface, device_ip))
 system("ip r flush dev %s" % g_runner_interface)
-if True:
-    system("ip r a dev %s %s.1.1/32 initcwnd 1" % (g_runner_interface, subnet))
-    system("ip r a dev %s %s.0.0/15 via %s.1.1 initcwnd 1"
-        % (g_runner_interface, subnet, subnet))
-else:
-    system("ip r a dev %s %s.0.0/16 initcwnd 1"
-        % (g_runner_interface, subnet))
-
+system("ip r d %s.1.1/32" % subnet, True)
+system("ip r a dev %s %s.1.1/32 initcwnd 1" % (g_runner_interface, subnet))
+system("ip r d %s.0.0/15" % subnet, True)
+system("ip r a dev %s %s.0.0/15 via %s.1.1 initcwnd 1" % (g_runner_interface, subnet, subnet))
 
 # TODO:
 # echo 0 > /proc/sys/net/ipv4/tcp_syncookies
@@ -635,10 +626,6 @@ app_id = app.app_get_id("nginx", g_nginx_ver)
 use_native = False
 for i in range (g_cpu_count_min, len(g_runner_cpus) + 1):
     cpus = g_runner_cpus[:i]
-    if cpus != last_used_cpus:
-        # Wait interface become available
-        time.sleep(2)
-        set_txrx_queue_count(g_runner_interface, cpus)
     for concurrency in g_concurrency:
         if g_dry_run:
             test_id = -1
@@ -647,9 +634,14 @@ for i in range (g_cpu_count_min, len(g_runner_cpus) + 1):
             desc = "native" if use_native else None
             test_id, sample_count = app.add_test(desc, app_id, concurrency,
                 len(cpus), g_report_count)
+
         if sample_count >= g_sample_count:
             continue
         sample_count = g_sample_count - sample_count
         for j in range (0, sample_count):
+            if cpus != last_used_cpus:
+                # Wait interface become available
+                time.sleep(2)
+                set_txrx_queue_count(g_runner_interface, cpus)
             test_nginx(app, test_id, concurrency, cpus, use_native)
             last_used_cpus = cpus

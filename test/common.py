@@ -264,6 +264,7 @@ class App:
 
         sample_count = 0
         samples = self.get_samples(test_id)
+
         for sample in samples:
             if sample.status > 0 and len(sample.records[CPS]) >= report_count:
                 sample_count += 1

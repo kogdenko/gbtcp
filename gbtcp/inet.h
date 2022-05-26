@@ -58,7 +58,7 @@ struct eth_hdr {
 
 struct ip4_hdr {
 	uint8_t ih_ver_ihl;
-	uint8_t ih_type_of_svc;
+	uint8_t ih_tos;
 	be16_t ih_total_len;
 	be16_t ih_id;
 	be16_t ih_frag_off;

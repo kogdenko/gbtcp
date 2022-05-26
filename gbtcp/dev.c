@@ -157,8 +157,7 @@ restart:
 			return 0;
 		}
 	}
-	if (dev->dev_tx_without_reclaim == DEV_TX_BURST_SIZE &&
-	    (flags & TX_CAN_RECLAIM)) {
+	if (dev->dev_tx_without_reclaim == DEV_TX_BURST_SIZE && (flags & TX_CAN_RECLAIM)) {
 		dev->dev_tx_without_reclaim = 0;
 		dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
 		sys_ioctl(dev->dev_nmd->fd, NIOCTXSYNC, 0);

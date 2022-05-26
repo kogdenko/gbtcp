@@ -60,12 +60,12 @@ gt_fork()
 	int rc;
 
 	API_LOCK;
-	INFO(0, "hit;");
+	INFO(0, "API: fork()");
 	rc = service_fork();
 	if (rc >= 0) {
-		INFO(0, "ok; pid=%d", rc);
+		INFO(0, "API: fork() ok, pid=%d", rc);
 	} else {
-		ERR(-rc, "failed;");
+		ERR(-rc, "API: fork() failed");
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -80,7 +80,7 @@ gt_socket(int domain, int type, int proto)
 	API_LOCK;
 	flags = SOCK_TYPE_FLAGS(type);
 	type_noflags = SOCK_TYPE_NOFLAGS(type);
-	INFO(0, "hit; type=%s, flags=%s",
+	INFO(0, "API: socket(%s, %s)",
 		log_add_socket_type(type_noflags),
 		log_add_socket_flags(flags));
 	rc = so_socket(&so, domain, type_noflags, flags, proto);
@@ -910,13 +910,13 @@ gt_kevent(int kq, const struct kevent *changelist, int nchanges,
 	int rc;
 
 	API_LOCK;
-	DBG(0, "hit; kq=%d, nchanges=%d, nevents=%d",
+	DBG(0, "kevent(kq=%d, %d, %d)",
 	    kq, nchanges, nevents);
 	rc = u_kevent(kq, changelist, nchanges, eventlist, nevents, timeout);
 	if (rc < 0) {
-		DBG(-rc, "failed; kq=%d", kq);
+		DBG(-rc, "kevent(kq=%d) failed", kq);
 	} else {
-		DBG(0, "ok; kq=%d, rc=%d", kq, rc);
+		DBG(0, "kevent(kq=%d), %d", kq, rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);

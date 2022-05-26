@@ -18,6 +18,8 @@ static int log_early_level = LOG_LEVEL_DEFAULT;
 static char ident_buf[SERVICE_COMM_MAX + 7];
 static const char *ident;
 
+static int log_fd;
+
 void
 log_init_early(const char *comm, u_int log_level)
 {
@@ -32,6 +34,12 @@ log_init_early(const char *comm, u_int log_level)
 		log_set_level(log_level);
 	}
 	openlog(ident, LOG_PID, LOG_DAEMON);
+	char path[45];
+	snprintf(path, 45, "/tmp/%d.log", getpid());
+
+
+	log_fd = sys_open(path, O_CREAT|O_RDWR, 0777);
+	assert(log_fd >= 0);
 }
 
 int
@@ -123,6 +131,9 @@ log_vprintf(int level, const char *func, int errnum,
 		log_fill_errnum(&sb, errnum);
 	}
 	syslog(level, "%s", strbuf_cstr(&sb));
+
+	strbuf_add_ch(&sb, '\n');
+	sys_write(log_fd, sb.sb_buf, sb.sb_len);
 }
 
 void
