@@ -21,38 +21,21 @@ service_get_by_pid(int pid)
 	return NULL;
 }
 
-static void
-host_rx_one(struct route_if *ifp, void *data, int len)
+void
+interface_dev_host_rx(struct dev *dev, void *data, int len)
 {
 	int rc;
+	struct route_if *ifp;
 	struct dev_pkt pkt;
 
-	rc = route_not_empty_txr(ifp, &pkt, TX_CAN_RECLAIM|TX_CAN_REDIRECT);
+	ifp = container_of(dev, struct route_if, rif_host_dev);
+	rc = route_not_empty_txr(ifp, &pkt, TX_CAN_REDIRECT);
 	if (rc == 0) {
 		DEV_PKT_COPY(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
 		route_transmit(ifp, &pkt);
-	}
-}
-
-void
-host_rxtx(struct dev *dev, short revents)
-{
-	int i, n;
-	void *data;
-	struct netmap_ring *rxr;
-	struct netmap_slot *slot;
-	struct route_if *ifp;
-
-	ifp = container_of(dev, struct route_if, rif_host_dev);
-	DEV_FOREACH_RXRING(rxr, dev) {
-		n = dev_rxr_space(dev, rxr);
-		for (i = 0; i < n; ++i) {
-			slot = rxr->slot + rxr->cur;
-			data = NETMAP_BUF(rxr, slot->buf_idx);
-			host_rx_one(ifp, data, slot->len);
-			DEV_RXR_NEXT(rxr);
-		}
+	} else {
+		// TODO: increment counter
 	}
 }
 
@@ -273,7 +256,7 @@ controller_sched_balance()
 	    kick->p_rss_nq == 0) {
 		return;
 	}
-	for (i = 0; i < shared->shm_rss_nq; ++i) {
+	for (i = 0; i < shared->shm_rss_table_size; ++i) {
 		if (shared->shm_rss_table[i] == kick->p_sid) {
 			set_rss_binding(i, pick->p_sid);
 			kick->p_rss_nq--;
@@ -298,7 +281,7 @@ controller_del_service(struct service *s)
 	controller_check_service_deadlock(s);
 	if (rss_nq) {
 		controller_sched_alg(&new, NULL);
-		for (i = 0; i < shared->shm_rss_nq; ++i) {
+		for (i = 0; i < shared->shm_rss_table_size; ++i) {
 			if (shared->shm_rss_table[i] == sid) {
 				set_rss_binding(i, new->p_sid);
 				assert(rss_nq > 0);
@@ -336,15 +319,15 @@ controller_add_service(struct service *s, int pid, struct sysctl_conn *cp)
 }
 
 static void
-rss_table_reduce(int rss_nq)
+rss_table_reduce(int rss_table_size)
 {
 	int i, n;
 	u_char id;
 	struct service *s;
 
-	n = shared->shm_rss_nq;
-	WRITE_ONCE(shared->shm_rss_nq, rss_nq);
-	for (i = rss_nq; i < n; ++i) {
+	n = shared->shm_rss_table_size;
+	WRITE_ONCE(shared->shm_rss_table_size, rss_table_size);
+	for (i = rss_table_size; i < n; ++i) {
 		id = shared->shm_rss_table[i];
 		set_rss_binding(i, SERVICE_ID_INVALID);
 		assert(id < GT_SERVICES_MAX);
@@ -358,38 +341,38 @@ rss_table_reduce(int rss_nq)
 }
 
 static void
-rss_table_expand(int rss_nq)
+rss_table_expand(int rss_table_size)
 {
 	int i; 
 	struct service *s;
 
 	controller_sched_alg(&s, NULL);
-	for (i = shared->shm_rss_nq; i < rss_nq; ++i) {
+	for (i = shared->shm_rss_table_size; i < rss_table_size; ++i) {
 		set_rss_binding(i, s->p_sid);
 		s->p_rss_nq++;
 	}
-	WRITE_ONCE(shared->shm_rss_nq, rss_nq);
+	WRITE_ONCE(shared->shm_rss_table_size, rss_table_size);
 }
 
 void
 update_rss_table()
 {
-	int i, rss_nq;
+	int i, rss_table_size;
 	struct route_if *ifp;
 	struct service *s;
 
-	rss_nq = 0;
+	rss_table_size = 0;
 	ROUTE_IF_FOREACH(ifp) {
 		if (ifp->rif_flags & IFF_UP) {
-			if (rss_nq < ifp->rif_rss_nq) {
-				rss_nq = ifp->rif_rss_nq;
+			if (rss_table_size < ifp->rif_rss_queue_num) {
+				rss_table_size = ifp->rif_rss_queue_num;
 			}
 		}
 	}
-	if (shared->shm_rss_nq > rss_nq) {
-		rss_table_reduce(rss_nq);
-	} else if (shared->shm_rss_nq < rss_nq)  {
-		rss_table_expand(rss_nq);
+	if (shared->shm_rss_table_size > rss_table_size) {
+		rss_table_reduce(rss_table_size);
+	} else if (shared->shm_rss_table_size < rss_table_size)  {
+		rss_table_expand(rss_table_size);
 	}
 	if (current->p_rss_nq) {
 		update_rss_bindings(current);
@@ -576,7 +559,7 @@ controller_init(int daemonize, const char *service_comm)
 	hz = sleep_compute_hz();
 	set_hz(hz);
 	shared->shm_hz = hz;
-	shared->shm_rss_nq = 0;
+	shared->shm_rss_table_size = 0;
 	rc = sysctl_read_file(1, service_comm);
 	if (rc) {
 		goto err;

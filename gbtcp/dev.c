@@ -1,32 +1,67 @@
 #include "internals.h"
 
+#define NETMAP_WITH_LIBS
+#include <net/netmap_user.h>
+
 #define CURMOD dev
 
 #define DEV_RX_BURST_SIZE 256
 #define DEV_TX_BURST_SIZE 64
+#define NETMAP_PFX "netmap:"
+#define NETMAP_PFX_LEN (sizeof(NETMAP_PFX) - 1)
+
+#define DEV_FOREACH_TXRING(txr, dev) \
+	for (int UNIQV(i) = (dev)->dev_nmd->first_tx_ring; \
+	     UNIQV(i) <= (dev)->dev_nmd->last_tx_ring && \
+	     ((txr = NETMAP_TXRING((dev)->dev_nmd->nifp, UNIQV(i))), 1); \
+	     ++UNIQV(i))
+
+#define DEV_FOREACH_TXRING_CONTINUE(i, txr, dev) \
+	for (; i <= (dev)->dev_nmd->last_tx_ring && \
+	     ((txr = NETMAP_TXRING((dev)->dev_nmd->nifp, i)), 1); \
+	     ++i)
+
+#define DEV_FOREACH_RXRING(rxr, dev) \
+	for (int UNIQV(i) = (dev)->dev_nmd->first_rx_ring; \
+	     UNIQV(i) <= (dev)->dev_nmd->last_rx_ring && \
+	     ((rxr = NETMAP_RXRING((dev)->dev_nmd->nifp, UNIQV(i))), 1); \
+	     ++UNIQV(i))
+
+
+#define DEV_RXR_NEXT(rxr) \
+	(rxr)->head = (rxr)->cur = nm_ring_next(rxr, (rxr)->cur)
 
 static int
 dev_rxtx(void *udata, short revents)
 {
-	int n;
+	int i, n, rc, cur;
 	struct dev *dev;
-	struct netmap_ring *r;
+	struct netmap_ring *rxr;
+	struct netmap_slot *slot;
 
 	dev = udata;
+	rc = 0;
 	if (revents & POLLOUT) {
 		dev->dev_tx_throttled = 0;
 		fd_event_clear(dev->dev_event, POLLOUT);
 	}
-	(*dev->dev_fn)(dev, revents);
 	if (revents & POLLIN) {
-		DEV_FOREACH_RXRING(r, dev) {
-			n = nm_ring_space(r);
-			if (n) {
-				return -EAGAIN;
+		DEV_FOREACH_RXRING(rxr, dev) {
+			n = nm_ring_space(rxr);
+			if (n > DEV_RX_BURST_SIZE) {
+				n = DEV_RX_BURST_SIZE;
+				rc = -EAGAIN;
+			}
+			cur = nm_ring_next(rxr, rxr->cur);
+			MEM_PREFETCH(NETMAP_BUF(rxr, (rxr->slot + cur)->buf_idx));
+			for (i = 0; i < n; ++i) {
+				slot = rxr->slot + rxr->cur;
+				(*dev->dev_fn)(dev, NETMAP_BUF(rxr, slot->buf_idx), slot->len);
+				DEV_RXR_NEXT(rxr);
 			}
 		}
 	}
-	return 0;
+	return rc;
 }
 
 static void
@@ -67,7 +102,7 @@ int
 dev_init(struct dev *dev, const char *ifname, dev_f dev_fn)
 {
 	int rc;
-	char dev_name[NM_IFNAMSIZ];
+	char dev_name[IFNAMSIZ + 32];
 
 	assert(!dev_is_inited(dev));
 	memset(dev, 0, sizeof(*dev));
@@ -78,7 +113,7 @@ dev_init(struct dev *dev, const char *ifname, dev_f dev_fn)
 	}
 	dev->dev_cur_tx_ring = dev->dev_nmd->first_tx_ring;
 	rc = fd_event_add(&dev->dev_event, dev->dev_nmd->fd,
-	                  dev_name + NETMAP_PFX_LEN, dev, dev_rxtx);
+		dev_name + NETMAP_PFX_LEN, dev, dev_rxtx);
 	if (rc) {
 		dev_nm_close(dev);
 		return rc;
@@ -166,18 +201,6 @@ restart:
 	dev->dev_tx_throttled = 1;
 	fd_event_set(dev->dev_event, POLLOUT);
 	return -ENOBUFS;
-}
-
-int
-dev_rxr_space(struct dev *dev, struct netmap_ring *rxr)
-{
-	int n;
-
-	n = nm_ring_space(rxr);
-	if (n > DEV_RX_BURST_SIZE) {
-		n = DEV_RX_BURST_SIZE;
-	}
-	return n;
 }
 
 void

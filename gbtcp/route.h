@@ -12,10 +12,6 @@
 #define EPHEMERAL_PORT_MAX 65535
 #define NEPHEMERAL_PORTS (EPHEMERAL_PORT_MAX - EPHEMERAL_PORT_MIN + 1)
 
-#define ROUTE_IFNAME_NM 0 // pipe1{0
-#define ROUTE_IFNAME_OS 1 // pipe1
-
-
 struct route_mod {
 	struct log_scope log_scope;
 	struct lptree route_lptree;
@@ -39,9 +35,8 @@ struct route_if {
 	int rif_index;
 	int rif_flags;
 	int rif_mtu;
-	u_char rif_rss_nq;
+	u_char rif_rss_queue_num;
 	int rif_n_addrs;
-	int rif_name_len[2];
 	struct route_if_addr **rif_addrs;
 	struct eth_addr rif_hwaddr;
 	u_char rif_rss_key[RSS_KEY_SIZE];
@@ -54,7 +49,7 @@ struct route_if {
 	counter64_t rif_tx_pkts;
 	counter64_t rif_tx_bytes;
 	counter64_t rif_tx_drop;
-	char rif_name[NM_IFNAMSIZ];
+	char rif_name[IFNAMSIZ];
 };
 
 enum route_msg_type {

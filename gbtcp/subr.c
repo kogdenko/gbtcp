@@ -650,6 +650,34 @@ out:
 	return rc;
 }
 
+int
+read_rss_queue_num(const char *ifname)
+{
+	int rc, fd;
+	struct ifreq req;
+	struct ethtool_channels cmd;
+
+	fd = -1;
+	rc = sys_socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+	if (rc < 0) {
+		goto err;
+	}
+	fd = rc;
+	strzcpy(req.ifr_name, ifname, sizeof(req.ifr_name));
+	req.ifr_data = (void *)&cmd;
+	cmd.cmd = ETHTOOL_GCHANNELS;
+	rc = sys_ioctl(fd, SIOCETHTOOL, (uintptr_t)(&req));
+	if (rc < 0) {
+		goto err;
+	}
+	sys_close(fd);
+	return cmd.combined_count + cmd.rx_count;
+err:
+	ERR(-rc, "Failed to get interface (%s) rss queue number", ifname);
+	sys_close(fd);
+	return rc;
+}
+
 pid_t
 gtl_gettid()
 {

@@ -21,6 +21,8 @@ struct route_entry_long {
 static struct fd_event *route_monitor_event;
 static int route_monitor_fd = -1;
 
+static void route_if_del(struct route_if *);
+
 static int route_ifaddr_del(struct route_if *, const struct ipaddr *);
 
 static int route_src_compar(const void *a, const void *b, void *);
@@ -64,13 +66,12 @@ route_if_get_by_index(int ifindex)
 }
 
 struct route_if *
-route_if_get(const char *ifname, int ifname_len, int ifname_type)
+route_if_get(const char *ifname)
 {
 	struct route_if *ifp;
 
 	ROUTE_IF_FOREACH(ifp) {
-		if (ifp->rif_name_len[ifname_type] == ifname_len &&
-		    !memcmp(ifp->rif_name, ifname, ifname_len)) {
+		if (!strcmp(ifp->rif_name, ifname)) {
 			return ifp;
 		}
 	}
@@ -78,69 +79,47 @@ route_if_get(const char *ifname, int ifname_len, int ifname_type)
 }
 
 static int
-route_if_add(const char *ifname_nm, struct route_if **ifpp)
+route_if_add(const char *ifname, struct route_if **ifpp)
 {
-	int i, rc, is_pipe, nr_rx_rings, nr_tx_rings, rss_nq;
-	int ifname_nm_len, ifname_os_len;
-	char ifname_os[IFNAMSIZ];
+	int rc;
 	char host[IFNAMSIZ + 2];
 	struct route_if *ifp;
-	struct nmreq *req;
 
 	if (ifpp != NULL) {
 		*ifpp = NULL;
 	}
-	ifname_nm_len = strlen(ifname_nm);
-	assert(ifname_nm_len < IFNAMSIZ);
-	ifp = route_if_get(ifname_nm, ifname_nm_len, ROUTE_IFNAME_NM);
+	ifp = route_if_get(ifname);
 	if (ifp != NULL) {
 		*ifpp = ifp;
-		rc = -EEXIST;
-		goto err;
+		return -EEXIST;
 	}
 	ifp = shm_malloc(sizeof(*ifp));
 	if (ifp == NULL) {
-		return -ENOMEM;
+		rc = -ENOMEM;
+		goto err;
 	}
 	memset(ifp, 0, sizeof(*ifp));
 	dlist_init(&ifp->rif_routes);
-	ifp->rif_name_len[ROUTE_IFNAME_NM] = ifname_nm_len;
-	ifname_os_len = ifname_nm_len;
-	is_pipe = 0;
-	for (i = 0; i < ifname_nm_len; ++i) {
-		if (strchr("{}", ifname_nm[i]) != NULL) {
-			ifname_os_len = i;
-			is_pipe = 1;
-			break;
-		}
-	}
-	ifp->rif_name_len[ROUTE_IFNAME_OS] = ifname_os_len;
 	ifp->rif_mtu = 1500;
-	memcpy(ifp->rif_name, ifname_nm, ifname_nm_len);
-	ifp->rif_name[ifname_nm_len] = '\0';
-	memcpy(ifname_os, ifname_nm, ifname_os_len);
-	ifname_os[ifname_os_len] = '\0';
-	rc = sys_if_nametoindex(ifname_os);
+	strzcpy(ifp->rif_name, ifname, sizeof(ifp->rif_name));
+	rc = sys_if_nametoindex(ifname);
 	ifp->rif_index = rc;
 	DLIST_INSERT_HEAD(&curmod->route_if_head, ifp, rif_list);
-	nr_rx_rings = nr_tx_rings = 1;
-	if (is_pipe == 0) {
-		snprintf(host, sizeof(host), "%s^", ifp->rif_name);
-		rc = dev_init(&ifp->rif_host_dev, host, host_rxtx);
-		if (rc) {
-			shm_free(ifp);
+	snprintf(host, sizeof(host), "%s^", ifp->rif_name);
+	rc = dev_init(&ifp->rif_host_dev, host, interface_dev_host_rx);
+	if (rc < 0 && rc != -ENOTSUP) {
+		goto err;
+	}
+	rc = read_rss_queue_num(ifname);
+	if (rc < 0) {
+		goto err;
+	}
+	ifp->rif_rss_queue_num = rc;
+	if (ifp->rif_rss_queue_num > 1) {
+		rc = read_rss_key(ifp->rif_name, ifp->rif_rss_key);
+		if (rc < 0) {
 			goto err;
 		}
-		req = &ifp->rif_host_dev.dev_nmd->req;
-		nr_rx_rings = req->nr_rx_rings; 
-		nr_tx_rings = req->nr_tx_rings;
-		assert(nr_rx_rings > 0);
-		assert(nr_tx_rings <= nr_rx_rings);
-	}
-	rss_nq = MIN(nr_rx_rings, nr_tx_rings);
-	ifp->rif_rss_nq = rss_nq;
-	if (rss_nq > 1) {
-		read_rss_key(ifp->rif_name, ifp->rif_rss_key);
 	}
 	// FIXME: Handle interface up/down
 	ifp->rif_flags |= IFF_UP;
@@ -150,10 +129,11 @@ route_if_add(const char *ifname_nm, struct route_if **ifpp)
 		route_dump(route_on_msg);
 	}
 	*ifpp = ifp;
-	NOTICE(0, "Interface '%s' added", ifname_nm);
+	NOTICE(0, "Interface '%s' added", ifname);
 	return 0;
 err:
-	ERR(-rc, "Failed to add interface '%s'", ifname_nm);
+	ERR(-rc, "Failed to add interface '%s'", ifname);
+	route_if_del(ifp);
 	return rc;
 }
 
@@ -162,6 +142,9 @@ route_if_del(struct route_if *ifp)
 {
 	struct route_entry_long *route;
 
+	if (ifp == NULL) {
+		return;
+	}
 	DLIST_REMOVE(ifp, rif_list);
 	NOTICE(0, "Delete interface '%s'", ifp->rif_name);
 	ifp->rif_list.dls_next = NULL;
@@ -172,6 +155,7 @@ route_if_del(struct route_if *ifp)
 	while (ifp->rif_n_addrs) {
 		route_ifaddr_del(ifp, &(ifp->rif_addrs[0]->ria_addr));
 	}
+	shm_free(ifp);
 }
 
 static int
@@ -505,7 +489,7 @@ sysctl_route_if_del(struct sysctl_conn *cp, void *udata,
 	if (new == NULL) {
 		return 0;
 	}
-	ifp = route_if_get(new, strlen(new), ROUTE_IFNAME_OS);
+	ifp = route_if_get(new);
 	if (ifp == NULL) {
 		return -ENXIO;
 	}
@@ -568,8 +552,7 @@ sysctl_route_if_list(void *udata, const char *ident, const char *new,
 }
 
 static int
-sysctl_route_if_add(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *out)
+sysctl_route_if_add(struct sysctl_conn *cp, void *udata, const char *new, struct strbuf *out)
 {
 	int rc;
 	struct route_if *ifp;
@@ -811,7 +794,7 @@ route_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 	struct dev *dev;
 
 	rc = -ENODEV;
-	for (i = 0; i < ifp->rif_rss_nq; ++i) {
+	for (i = 0; i < ifp->rif_rss_queue_num; ++i) {
 		dev = &(ifp->rif_dev[current->p_sid][i]);
 		if (dev_is_inited(dev)) {
 			rc = dev_not_empty_txr(dev, pkt, flags);

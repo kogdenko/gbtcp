@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2 License
 #include "internals.h"
 
 #define CURMOD service
@@ -147,7 +147,7 @@ service_rx(struct in_context *p)
 }
 
 static int
-redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, void *data, int len)
+redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, const void *data, int len)
 {
 	int rc;
 	struct dev_pkt pkt;
@@ -163,12 +163,14 @@ redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, void *dat
 }
 
 static void
-service_rssq_rx_one(struct route_if *ifp, void *data, int len)
+service_rssq_rx(struct dev *dev, void *data, int len)
 {
 	int rc;
 	u_char sid;
 	struct in_context p;
+	struct route_if *ifp;
 
+	ifp = dev->dev_ifp;
 	in_context_init(&p, data, len);
 	p.in_ifp = ifp;
 	p.in_tcps = &current->p_tcps;
@@ -199,7 +201,7 @@ service_rssq_rx_one(struct route_if *ifp, void *data, int len)
 }
 
 static void
-service_redirect_dev_rx_one(void *data, int len)
+service_redirect_dev_rx(struct dev *dev, void *data, int len)
 {
 	int rc;
 	struct tcp_stat tcps;
@@ -259,50 +261,6 @@ service_redirect_dev_rx_one(void *data, int len)
 	}
 }
 
-void
-service_rssq_rxtx(struct dev *dev, short revents)
-{
-	int i, n, len;
-	void *data;
-	struct netmap_ring *rxr;
-	struct netmap_slot *slot;
-	struct route_if *ifp;
-
-	ifp = dev->dev_ifp;
-	DEV_FOREACH_RXRING(rxr, dev) {
-		n = dev_rxr_space(dev, rxr);
-		for (i = 0; i < n; ++i) {
-			dev_prefetch(rxr);
-			slot = rxr->slot + rxr->cur;
-			data = NETMAP_BUF(rxr, slot->buf_idx);
-			len = slot->len;
-			service_rssq_rx_one(ifp, data, len);
-			DEV_RXR_NEXT(rxr);
-		}
-	}
-}
-
-static void
-service_redirect_dev_rxtx(struct dev *dev, short revents)
-{
-	int i, n, len;
-	void *data;
-	struct netmap_ring *rxr;
-	struct netmap_slot *slot;
-
-	DEV_FOREACH_RXRING(rxr, dev) {
-		n = dev_rxr_space(dev, rxr);
-		for (i = 0; i < n; ++i) {
-			dev_prefetch(rxr);
-			slot = rxr->slot + rxr->cur;
-			data = NETMAP_BUF(rxr, slot->buf_idx);
-			len = slot->len;
-			service_redirect_dev_rx_one(data, len);
-			DEV_RXR_NEXT(rxr);
-		}
-	}
-}
-
 int
 service_pid_file_acquire(int sid, int pid)
 {
@@ -353,10 +311,10 @@ service_init_private_redirect_dev_name(struct service *s, char *ifnambuf)
 }
 #else // HAVE_VALE
 static void
-service_peer_rx_one(u_char src_sid, void *data, int len)
+service_peer_rx(struct dev *dev, void *data, int len)
 {
 	int rc;
-	u_char dst_sid;
+	u_char dst_sid, src_sid;
 	struct eth_hdr *eh;
 	struct dev_pkt pkt;
 	struct service *s;
@@ -364,13 +322,15 @@ service_peer_rx_one(u_char src_sid, void *data, int len)
 	if (len < sizeof(struct service_msg) + sizeof(*eh)) {
 		return;
 	}
+	s = container_of(dev, struct service, p_veth_peer);
+	src_sid = s->p_sid;
 	eh = data;
 	dst_sid = eh->eh_daddr.ea_bytes[5];
 	if (dst_sid == src_sid) {
 		return;
 	}
 	if (dst_sid == current->p_sid) {
-		service_redirect_dev_rx_one(data, len);
+		service_redirect_dev_rx(NULL, data, len);
 		return;
 	}
 	s = shared->shm_services + dst_sid;
@@ -382,28 +342,6 @@ service_peer_rx_one(u_char src_sid, void *data, int len)
 		DEV_PKT_COPY(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
 		dev_transmit(&pkt);
-	}
-}
-
-static void
-service_peer_rxtx(struct dev *dev, short revents)
-{
-	int i, n, len;
-	void *data;
-	struct netmap_ring *rxr;
-	struct netmap_slot *slot;
-	struct service *s;
-
-	s = container_of(dev, struct service, p_veth_peer);
-	DEV_FOREACH_RXRING(rxr, dev) {
-		n = dev_rxr_space(dev, rxr);
-		for (i = 0; i < n; ++i) {
-			slot = rxr->slot + rxr->cur;
-			data = NETMAP_BUF(rxr, slot->buf_idx);
-			len = slot->len;
-			service_peer_rx_one(s->p_sid, data, len);
-			DEV_RXR_NEXT(rxr);
-		}
 	}
 }
 
@@ -420,7 +358,7 @@ service_init_shared_redirect_dev(struct service *s)
 	snprintf(peer, sizeof(peer), SERVICE_VETHF, 'c', s->p_pid);
 	rc = netlink_veth_add(veth, peer);
 	if (rc == 0) {
-		dev_init(&s->p_veth_peer, peer, service_peer_rxtx);
+		dev_init(&s->p_veth_peer, peer, service_peer_rx);
 	}
 	return rc;
 }
@@ -534,7 +472,7 @@ int
 service_init_private()
 {
 	int rc;
-	char buf[NM_IFNAMSIZ];
+	char buf[IFNAMSIZ];
 
 	dlist_init(&service_rcu_active_head);
 	dlist_init(&service_rcu_shadow_head);
@@ -542,7 +480,7 @@ service_init_private()
 	memset(service_rcu, 0, sizeof(service_rcu));
 
 	service_init_private_redirect_dev_name(current, buf);
-	rc = dev_init(&service_redirect_dev, buf, service_redirect_dev_rxtx);
+	rc = dev_init(&service_redirect_dev, buf, service_redirect_dev_rx);
 	return rc;
 }
 
@@ -785,7 +723,7 @@ static void
 service_update_rss_binding(struct route_if *ifp, int rss_qid)
 {
 	int id, ifflags;
-	char dev_name[NM_IFNAMSIZ];
+	char dev_name[IFNAMSIZ]; // FIXME: ?? dev_init
 	struct dev *dev;
 
 	ifflags = READ_ONCE(ifp->rif_flags);
@@ -793,9 +731,8 @@ service_update_rss_binding(struct route_if *ifp, int rss_qid)
 	dev = &(ifp->rif_dev[current->p_sid][rss_qid]);
 	if ((ifflags & IFF_UP) && id == current->p_sid) {
 		if (!dev_is_inited(dev)) {
-			snprintf(dev_name, sizeof(dev_name), "%s-%d",
-			         ifp->rif_name, rss_qid);
-			dev_init(dev, dev_name, service_rssq_rxtx);
+			snprintf(dev_name, sizeof(dev_name), "%s-%d", ifp->rif_name, rss_qid);
+			dev_init(dev, dev_name, service_rssq_rx);
 			dev->dev_ifp = ifp;
 		}
 	} else {
@@ -810,7 +747,7 @@ service_update_rss_bindings()
 	struct route_if *ifp;
 
 	ROUTE_IF_FOREACH(ifp) {
-		for (i = 0; i < ifp->rif_rss_nq; ++i) {
+		for (i = 0; i < ifp->rif_rss_queue_num; ++i) {
 			service_update_rss_binding(ifp, i);
 		}
 	}
@@ -824,17 +761,17 @@ service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
 	int i, sid, rss_qid;
 	uint32_t h;
 
-	if (ifp->rif_rss_nq == 1) {
+	if (ifp->rif_rss_queue_num == 1) {
 		return 1;
 	}
 	rss_qid = -1;
-	for (i = 0; i < ifp->rif_rss_nq; ++i) {
+	for (i = 0; i < ifp->rif_rss_queue_num; ++i) {
 		sid = READ_ONCE(shared->shm_rss_table[i]);
 		if (sid == current->p_sid) {
 			if (rss_qid == -1) {
 				h = rss_hash4(laddr, faddr, lport, fport,
 				              ifp->rif_rss_key);
-				rss_qid = h % ifp->rif_rss_nq;
+				rss_qid = h % ifp->rif_rss_queue_num;
 			}
 			if (i == rss_qid) {
 				return 1;
@@ -851,7 +788,7 @@ redirect_dev_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 	u_char s[GT_RSS_NQ_MAX];
 
 	n = 0;
-	for (i = 0; i < ifp->rif_rss_nq; ++i) {
+	for (i = 0; i < ifp->rif_rss_queue_num; ++i) {
 		s[n] = READ_ONCE(shared->shm_rss_table[i]);
 		if (s[n] != SERVICE_ID_INVALID) {
 			n++;

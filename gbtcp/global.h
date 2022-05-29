@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <strings.h>
 #include <inttypes.h>
+#include <errno.h>
 #include <ifaddrs.h>
 #include <poll.h>
 #include <dlfcn.h>
@@ -28,6 +29,9 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/mman.h>
+#include <sys/file.h>
+#include <sys/ioctl.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -40,6 +44,7 @@
 #include <netinet/ip_icmp.h>
 #include <syslog.h>
 #include <pthread.h>
+#include <net/if.h>
 
 #ifdef __linux__
 #include <sched.h>
@@ -69,12 +74,6 @@
 #include <netinet/in_pcb.h>
 #include <netinet/tcp_var.h>
 #endif // __linux__
-
-#define NETMAP_WITH_LIBS
-#include <net/netmap_user.h>
-
-//#define FUSE_USE_VERSION 31
-//#include <fuse3/fuse.h>
 
 #include "gbtcp.h"
 

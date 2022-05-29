@@ -13,7 +13,7 @@ struct shm_hdr {
 	int shm_n_pages;
 	uint64_t shm_ns;
 	uint64_t shm_hz;
-	int shm_rss_nq;
+	int shm_rss_table_size;
 	void *shm_mods[MODS_MAX];
 	struct service shm_services[GT_SERVICES_MAX];
 	int shm_rss_table[GT_RSS_NQ_MAX];

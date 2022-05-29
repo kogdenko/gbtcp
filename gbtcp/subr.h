@@ -38,9 +38,6 @@ void gt_qsort_r(void *, size_t, size_t, int (*compar)(const void *, const void *
 
 #define RSS_KEY_SIZE 40
 
-#define NETMAP_PFX "netmap:"
-#define NETMAP_PFX_LEN (sizeof(NETMAP_PFX) - 1)
-#define NM_IFNAMSIZ (IFNAMSIZ + NETMAP_PFX_LEN)
 #define GT_PREFIX "/usr/local/gbtcp"
 
 #define NSEC_SEC 1000000000ull
@@ -307,6 +304,7 @@ ssize_t write_record(int, const void *, size_t);
 ssize_t send_record(int, const void *, size_t, int);
 
 int read_rss_key(const char *, u_char *);
+int read_rss_queue_num(const char *);
 
 pid_t gtl_gettid();
 int read_proc_comm(char *, int);

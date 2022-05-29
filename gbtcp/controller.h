@@ -6,7 +6,7 @@
 
 #define CONTROLLER_SID 0
 
-void host_rxtx(struct dev *, short);
+void interface_dev_host_rx(struct dev *, void *, int);
 int transmit_to_host(struct route_if *, void *, int);
 
 void update_rss_table();
