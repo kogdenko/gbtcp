@@ -13,7 +13,7 @@ struct service_msg {
 static struct spinlock service_attach_lock;
 static int service_sysctl_fd = -1;
 static int service_pid_fd = -1;
-static struct dev service_vale;
+static struct dev service_redirect_dev;
 static int service_rcu_max;
 static int service_signal_guard = 1;
 static int service_autostart_controller = 1;
@@ -89,9 +89,7 @@ service_start_controller_nolog(const char *p_comm)
 		service_peer_send(pipe_fd[1], rc);
 		sys_close(pipe_fd[1]);
 		if (rc == 0) {
-			while (!controller_done) {
-				controller_process();
-			}
+			controller_start(0);
 		}
 		exit(EXIT_SUCCESS);
 	} else if (rc > 0) {
@@ -149,19 +147,17 @@ service_rx(struct in_context *p)
 }
 
 static int
-vale_transmit5(struct route_if *ifp, int msg_type, u_char sid,
-	void *data, int len)
+redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, void *data, int len)
 {
 	int rc;
 	struct dev_pkt pkt;
 
-	dbg("transmit to vale");
-	rc = dev_not_empty_txr(&service_vale, &pkt, TX_CAN_RECLAIM);
+	rc = dev_not_empty_txr(&service_redirect_dev, &pkt, TX_CAN_RECLAIM);
 	if (rc == 0) {
 		DEV_PKT_COPY(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
 		pkt.pkt_sid = sid;
-		vale_transmit(ifp, msg_type, &pkt);
+		redirect_dev_transmit(ifp, msg_type, &pkt);
 	}
 	return rc;
 }
@@ -185,12 +181,12 @@ service_rssq_rx_one(struct route_if *ifp, void *data, int len)
 		if (current->p_sid == CONTROLLER_SID) {
 			transmit_to_host(ifp, data, len);
 		} else {
-			vale_transmit5(ifp, SERVICE_MSG_BYPASS, CONTROLLER_SID, data, len);
+			redirect_dev_transmit5(ifp, SERVICE_MSG_BYPASS, CONTROLLER_SID, data, len);
 		}
 	} else if (rc >= 0) {
 		current->p_ips.ips_delivered++;
 		sid = rc;
-		rc = vale_transmit5(ifp, SERVICE_MSG_RX, sid, data, len);
+		rc = redirect_dev_transmit5(ifp, SERVICE_MSG_RX, sid, data, len);
 		if (rc) {
 			counter64_inc(&ifp->rif_rx_drop);
 			return;
@@ -203,7 +199,7 @@ service_rssq_rx_one(struct route_if *ifp, void *data, int len)
 }
 
 static void
-service_vale_rx_one(void *data, int len)
+service_redirect_dev_rx_one(void *data, int len)
 {
 	int rc;
 	struct tcp_stat tcps;
@@ -287,7 +283,7 @@ service_rssq_rxtx(struct dev *dev, short revents)
 }
 
 static void
-service_vale_rxtx(struct dev *dev, short revents)
+service_redirect_dev_rxtx(struct dev *dev, short revents)
 {
 	int i, n, len;
 	void *data;
@@ -301,7 +297,7 @@ service_vale_rxtx(struct dev *dev, short revents)
 			slot = rxr->slot + rxr->cur;
 			data = NETMAP_BUF(rxr, slot->buf_idx);
 			len = slot->len;
-			service_vale_rx_one(data, len);
+			service_redirect_dev_rx_one(data, len);
 			DEV_RXR_NEXT(rxr);
 		}
 	}
@@ -338,12 +334,120 @@ service_get_by_sid(u_int sid)
 	return shared->shm_services + sid;
 }
 
+#ifdef HAVE_VALE
+static int
+service_init_shared_redirect_dev(struct service *s)
+{
+	return 0;
+}
+
+static void
+service_deinit_shared_redirect_dev(struct service *s)
+{
+}
+
+static void
+service_init_private_redirect_dev_name(struct service *s, char *ifnambuf)
+{
+	snprintf(ifnambuf, IFNAMSIZ, "vale_gt:%d", s->p_pid);
+}
+#else // HAVE_VALE
+static void
+service_peer_rx_one(u_char src_sid, void *data, int len)
+{
+	int rc;
+	u_char dst_sid;
+	struct eth_hdr *eh;
+	struct dev_pkt pkt;
+	struct service *s;
+
+	if (len < sizeof(struct service_msg) + sizeof(*eh)) {
+		return;
+	}
+	eh = data;
+	dst_sid = eh->eh_daddr.ea_bytes[5];
+	if (dst_sid == src_sid) {
+		return;
+	}
+	if (dst_sid == current->p_sid) {
+		service_redirect_dev_rx_one(data, len);
+		return;
+	}
+	s = shared->shm_services + dst_sid;
+	if (s->p_pid == 0) {
+		return;
+	}
+	rc = dev_not_empty_txr(&s->p_veth_peer, &pkt, TX_CAN_RECLAIM);
+	if (rc == 0) {
+		DEV_PKT_COPY(pkt.pkt_data, data, len);
+		pkt.pkt_len = len;
+		dev_transmit(&pkt);
+	}
+}
+
+static void
+service_peer_rxtx(struct dev *dev, short revents)
+{
+	int i, n, len;
+	void *data;
+	struct netmap_ring *rxr;
+	struct netmap_slot *slot;
+	struct service *s;
+
+	s = container_of(dev, struct service, p_veth_peer);
+	DEV_FOREACH_RXRING(rxr, dev) {
+		n = dev_rxr_space(dev, rxr);
+		for (i = 0; i < n; ++i) {
+			slot = rxr->slot + rxr->cur;
+			data = NETMAP_BUF(rxr, slot->buf_idx);
+			len = slot->len;
+			service_peer_rx_one(s->p_sid, data, len);
+			DEV_RXR_NEXT(rxr);
+		}
+	}
+}
+
+#define SERVICE_VETHF "gtv%c%d"
+
+static int
+service_init_shared_redirect_dev(struct service *s)
+{
+	int  rc;
+	char veth[IFNAMSIZ];
+	char peer[IFNAMSIZ];
+
+	snprintf(veth, sizeof(veth), SERVICE_VETHF, 's', s->p_pid);
+	snprintf(peer, sizeof(peer), SERVICE_VETHF, 'c', s->p_pid);
+	rc = netlink_veth_add(veth, peer);
+	if (rc == 0) {
+		dev_init(&s->p_veth_peer, peer, service_peer_rxtx);
+	}
+	return rc;
+}
+
+static void
+service_deinit_shared_redirect_dev(struct service *s)
+{
+	char peer[IFNAMSIZ];
+
+	dev_deinit(&s->p_veth_peer);
+	snprintf(peer, sizeof(peer), SERVICE_VETHF, 'c', s->p_pid);
+	netlink_link_del(peer);
+}
+
+static void
+service_init_private_redirect_dev_name(struct service *s, char *ifnambuf)
+{
+	snprintf(ifnambuf, IFNAMSIZ, SERVICE_VETHF, 's', s->p_pid);
+}
+#endif // HAVE_VALE
+
 int
 service_init_shared(struct service *s, int pid, int fd)
 {
 	int i, rc;
 
-	assert(current->p_sid == CONTROLLER_SID);
+	assert(current->p_sid == CONTROLLER_SID && "Controller should call this function");
 	s->p_pid = pid;
 	dlist_init(&s->p_tx_head);
 	s->p_sid = s - shared->shm_services;
@@ -362,21 +466,28 @@ service_init_shared(struct service *s, int pid, int fd)
 	}
 	rc = init_timers(s);
 	if (rc) {
-		return rc;
+		goto err;
 	}
 	rc = service_init_arp(s);
 	if (rc) {
-		return rc;
+		goto err;
 	}
 	rc = init_files(s);
 	if (rc) {
-		return rc;
+		goto err;
 	}
 	rc = service_init_tcp(s);
 	if (rc) {
-		return rc;
+		goto err;
+	}
+	rc = service_init_shared_redirect_dev(s);
+	if (rc) {
+		goto err;
 	}
 	return 0;
+err:
+	service_deinit_shared(s, 0);
+	return rc;
 }
 
 void
@@ -388,6 +499,7 @@ service_deinit_shared(struct service *s, int full)
 	struct route_if *ifp;
 
 	assert(current->p_sid == CONTROLLER_SID);
+	service_deinit_shared_redirect_dev(s);
 	ROUTE_IF_FOREACH(ifp) {
 		for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
 			dev = &(ifp->rif_dev[s->p_sid][i]);
@@ -428,15 +540,16 @@ service_init_private()
 	dlist_init(&service_rcu_shadow_head);
 	service_rcu_max = 0;
 	memset(service_rcu, 0, sizeof(service_rcu));
-	snprintf(buf, sizeof(buf), "vale_gt:%d", current->p_pid);
-	rc = dev_init(&service_vale, buf, service_vale_rxtx);
+
+	service_init_private_redirect_dev_name(current, buf);
+	rc = dev_init(&service_redirect_dev, buf, service_redirect_dev_rxtx);
 	return rc;
 }
 
 void
 service_deinit_private()
 {
-	dev_deinit(&service_vale);
+	dev_deinit(&service_redirect_dev);
 }
 
 int
@@ -732,7 +845,7 @@ service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
 }
 
 int
-vale_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
+redirect_dev_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 {
 	int i, n, rc;
 	u_char s[GT_RSS_NQ_MAX];
@@ -747,7 +860,7 @@ vale_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 	if (n == 0) {
 		return -ENODEV;
 	}
-	rc = dev_not_empty_txr(&service_vale, pkt, flags);
+	rc = dev_not_empty_txr(&service_redirect_dev, pkt, flags);
 	if (rc) {
 		return rc;
 	}
@@ -760,7 +873,7 @@ vale_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 }
 
 void
-vale_transmit(struct route_if *ifp, int msg_type, struct dev_pkt *pkt)
+redirect_dev_transmit(struct route_if *ifp, int msg_type, struct dev_pkt *pkt)
 {
 	struct eth_hdr *eh;
 	struct service_msg *msg;

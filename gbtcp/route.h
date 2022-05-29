@@ -135,6 +135,11 @@ int route_open();
 int route_read(int, route_msg_f);
 int route_dump(route_msg_f);
 
+#ifdef __linux__
+int netlink_veth_add(const char *, const char *);
+int netlink_link_del(const char *);
+#endif
+
 static inline struct ipaddr *
 route_get_next_hop(struct route_entry *r)
 {

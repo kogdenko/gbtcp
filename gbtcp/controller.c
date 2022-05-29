@@ -6,9 +6,7 @@
 static struct sysctl_conn *controller_conn;
 static int controller_pid_fd = -1;
 static int sid_max = 0;
-static int quit_no_services = 1;
-
-int controller_done;
+static int controller_done;
 
 static struct service *
 service_get_by_pid(int pid)
@@ -134,8 +132,7 @@ controller_clean()
 	while ((entry = readdir(dir)) != NULL) {
 		rc = sscanf(entry->d_name, "%d.sock", &id);
 		if (rc == 1) {
-			snprintf(path, sizeof(path), "%s/%s",
-				SYSCTL_SOCK_PATH, entry->d_name);
+			snprintf(path, sizeof(path), "%s/%s", SYSCTL_SOCK_PATH, entry->d_name);
 			sys_unlink(path);
 		}
 	}
@@ -295,7 +292,7 @@ controller_del_service(struct service *s)
 	struct sockaddr_un a;
 	struct service *new;
 
-	NOTICE(0, "Delete service, pid=%d", s->p_pid);
+	NOTICE(0, "Delete service process (pid=%d)", s->p_pid);
 	sid = s->p_sid;
 	rss_nq = s->p_rss_nq;
 	controller_check_service_deadlock(s);
@@ -321,7 +318,7 @@ controller_del_service(struct service *s)
 			service_num++;	
 		}
 	}
-	if (service_num == 0 && quit_no_services) {
+	if (service_num == 0) {
 		controller_done = 1;
 	}
 }
@@ -333,7 +330,7 @@ controller_add_service(struct service *s, int pid, struct sysctl_conn *cp)
 
 	assert(s != current);
 	fd = sysctl_conn_fd(cp);
-	NOTICE(0, "Add service, pid=%d, fd=%d", pid, fd);
+	NOTICE(0, "Add service process (pid=%d), fd=%d", pid, fd);
 	service_init_shared(s, pid, fd);
 	sid_max = MAX(sid_max, s->p_sid);
 }
@@ -604,11 +601,9 @@ controller_init(int daemonize, const char *service_comm)
 	if (rc) {
 		goto err;
 	}
-	sysctl_add(SYSCTL_CONTROLLER_ADD, SYSCTL_WR, NULL, NULL,
-		sysctl_controller_add);
+	sysctl_add(SYSCTL_CONTROLLER_ADD, SYSCTL_WR, NULL, NULL, sysctl_controller_add);
 	sysctl_add_list(GT_SYSCTL_CONTROLLER_SERVICE_LIST, SYSCTL_RD, NULL,
-		sysctl_controller_service_list_next,
-		sysctl_controller_service_list);
+		sysctl_controller_service_list_next, sysctl_controller_service_list);
 	NOTICE(0, "Controller initialized");
 	return 0;
 err:
@@ -622,6 +617,7 @@ controller_deinit()
 {
 	int pid;
 
+	NOTICE(0, "Controller shutdown");
 	pid = getpid();
 	controller_unbind(pid);
 	if (current != NULL) {
@@ -633,7 +629,6 @@ controller_deinit()
 	sysctl_root_deinit();
 	sys_close(controller_pid_fd);
 	controller_pid_fd = -1;
-	NOTICE(0, "Controller shutdown");
 }
 
 void
@@ -644,4 +639,13 @@ controller_process()
 	wait_for_fd_events();
 	if (0)
 		controller_sched_balance();
+}
+
+void
+controller_start(int persist)
+{
+	while (!controller_done || persist) {
+		controller_process();
+	}
+	controller_deinit();
 }

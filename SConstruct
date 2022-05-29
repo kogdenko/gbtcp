@@ -24,6 +24,9 @@ ldflags = [
 AddOption('--debug-build', action = 'store_true',
     help = 'Debug build', default = False)
 
+AddOption('--without-vale', action = 'store_true',
+    help = "Don't use netmap vale switch", default = False)
+
 SConscript([
     'test/SConstruct',
     'tools/epoll_helloworld/SConstruct',
@@ -57,21 +60,28 @@ else:
     cflags.append('-DNDEBUG')
     suffix=""
 
-env = Environment(CC = 'gcc',
-    CCFLAGS = ' '.join(cflags),
-    LINKFLAGS = ' '.join(ldflags),
-)
+env = Environment(CC = 'gcc')
+
+conf = Configure(env)
+
+if conf.CheckHeader('net/netmap_user.h'):
+    cflags.append('-DHAVE_NETMAP')
+    if not GetOption('without_vale'):
+        cflags.append('-DHAVE_VALE')
 
 if platform.architecture()[0] == "64bit":
     lib_path = '/usr/lib64'
 else:
     lib_path = '/usr/lib'
 
+env.Append(CFLAGS = ' '.join(cflags))
+env.Append(LINKFLAGS = ' '.join(ldflags))
+
 libgbtcp = env.SharedLibrary('bin/libgbtcp%s.so' % suffix, srcs)
 env.Install(lib_path, libgbtcp)
 env.Alias('install', lib_path)
 
-
+# Programs
 ldflags.append('-Lbin')
 ldflags.append('-lgbtcp%s' % suffix)
 
@@ -81,14 +91,18 @@ env = Environment(CC = 'gcc',
 )
 
 sysctl = env.Program('bin/gbtcp-sysctl%s' % suffix, 'sysctl/sysctl.c')
+Requires(sysctl, libgbtcp)
 env.Install('/usr/bin', sysctl)
 env.Alias('install', '/usr/bin')
 
 netstat = env.Program('bin/gbtcp-netstat%s' % suffix, 'netstat/netstat.c')
+Requires(netstat, libgbtcp)
 env.Install('/usr/bin/', netstat)
 env.Alias('install', '/usr/bin')
 
 controller = env.Program('bin/gbtcp-controller%s' % suffix, 'controller/controller.c')
+Requires(controller, libgbtcp)
 
 aio_helloworld = env.Program('bin/gbtcp-aio-helloworld%s' % suffix,
     'tools/gbtcp_aio_helloworld/bench_gbtcp.c')
+Requires(aio_helloworld, libgbtcp)

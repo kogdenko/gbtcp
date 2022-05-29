@@ -35,9 +35,6 @@ main(int argc, char **argv)
 	if (affinity != -1) {
 		set_affinity(affinity);
 	}
-	while (!controller_done || persist) {
-		controller_process();
-	}
-	controller_deinit();
+	controller_start(persist);
 	return 0;
 }

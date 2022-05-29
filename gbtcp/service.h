@@ -57,6 +57,9 @@ struct service {
 	int p_fd;
 	uint64_t p_start_time;
 	int p_mbuf_garbage_max;
+#ifndef HABE_VALE
+	struct dev p_veth_peer;
+#endif
 	struct dlist p_mbuf_garbage_head[GT_SERVICES_MAX];
 };
 
@@ -93,16 +96,15 @@ void service_update_rss_bindings();
 
 int service_can_connect(struct route_if *, be32_t, be32_t, be16_t, be16_t);
 
-int vale_not_empty_txr(struct route_if *, struct dev_pkt *, int);
-void vale_transmit(struct route_if *, int, struct dev_pkt *);
+int redirect_dev_not_empty_txr(struct route_if *, struct dev_pkt *, int);
+void redirect_dev_transmit(struct route_if *, int, struct dev_pkt *);
 
 int service_sigprocmask(int, const sigset_t *, sigset_t *);
 
 int service_fork();
 
 #ifdef __linux__
-int service_clone(int (*)(void *), void *, int, void *,
-	void *, void *, void *);
+int service_clone(int (*)(void *), void *, int, void *,	void *, void *, void *);
 #endif // __linux__
 
 #endif // GBTCP_SERVICE_H

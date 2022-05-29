@@ -1,4 +1,4 @@
-// gpl2 license
+// GPL v2 license
 #ifndef GBTCP_FD_EVENT_H
 #define GBTCP_FD_EVENT_H
 
@@ -20,7 +20,7 @@ struct fd_poll {
 	uint64_t fdp_to;
 	int fdp_n_events;
 	int fdp_n_added;
-	int fdp_throttled; // for repeted `rxtx` call
+	int fdp_throttled; // For repeted `rxtx` call
 	struct pollfd fdp_pfds[FD_SETSIZE];
 	struct fd_event *fdp_events[FD_SETSIZE];
 };
