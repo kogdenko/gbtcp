@@ -5,10 +5,11 @@
 #include "timer.h"
 #include "mbuf.h"
 
-#define TX_CAN_RECLAIM (1 << 0)
-#define TX_CAN_REDIRECT (1 << 1)
+#define TX_CAN_REDIRECT (1 << 0)
 
 #define DEV_PKT_SIZE_MAX 2048
+#define DEV_QUEUE_HOST (-1)
+#define DEV_QUEUE_NONE (-2)
 
 #define DEV_PKT_COPY(d, s, len) memcpy(d, s, len)
 
@@ -19,14 +20,13 @@ typedef void (*dev_f)(struct dev *, void *, int);
 struct dev {
 	struct nm_desc *dev_nmd;
 	struct fd_event *dev_event;
-	int dev_cur_tx_ring;
 	u_char dev_tx_throttled;
-	u_short dev_tx_without_reclaim;
-	uint64_t dev_cur_tx_ring_epoch;
 	dev_f dev_fn;
 	struct dlist dev_list;
 	struct route_if *dev_ifp;
-	char dev_name[256]; // TODO: Right size
+	int dev_fd;
+	int dev_queue_id;
+	char dev_ifname[IFNAMSIZ];
 };
 
 struct dev_pkt {
@@ -37,12 +37,12 @@ struct dev_pkt {
 	struct netmap_ring *pkt_txr;
 };
 
-int dev_init(struct dev *, const char *, dev_f);
+int dev_init(struct dev *, const char *, int, dev_f);
 void dev_deinit(struct dev *);
 void dev_close_fd(struct dev *);
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);
-int dev_not_empty_txr(struct dev *, struct dev_pkt *, int);
+int dev_not_empty_txr(struct dev *, struct dev_pkt *);
 void dev_transmit(struct dev_pkt *);
 
 #endif // GBTCP_DEV_H

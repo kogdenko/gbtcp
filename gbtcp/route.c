@@ -82,7 +82,6 @@ static int
 route_if_add(const char *ifname, struct route_if **ifpp)
 {
 	int rc;
-	char host[IFNAMSIZ + 2];
 	struct route_if *ifp;
 
 	if (ifpp != NULL) {
@@ -105,8 +104,7 @@ route_if_add(const char *ifname, struct route_if **ifpp)
 	rc = sys_if_nametoindex(ifname);
 	ifp->rif_index = rc;
 	DLIST_INSERT_HEAD(&curmod->route_if_head, ifp, rif_list);
-	snprintf(host, sizeof(host), "%s^", ifp->rif_name);
-	rc = dev_init(&ifp->rif_host_dev, host, interface_dev_host_rx);
+	rc = dev_init(&ifp->rif_host_dev, ifp->rif_name, DEV_QUEUE_HOST, interface_dev_host_rx);
 	if (rc < 0 && rc != -ENOTSUP) {
 		goto err;
 	}
@@ -467,8 +465,7 @@ route_monitor_start()
 	if (rc < 0) {
 		goto err;
 	}
-	rc = fd_event_add(&route_monitor_event, route_monitor_fd,
-		"route_monitor", NULL, route_monitor_handler);
+	rc = fd_event_add(&route_monitor_event, route_monitor_fd, NULL, route_monitor_handler);
 	if (rc) {
 		goto err;
 	}
@@ -797,14 +794,14 @@ route_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 	for (i = 0; i < ifp->rif_rss_queue_num; ++i) {
 		dev = &(ifp->rif_dev[current->p_sid][i]);
 		if (dev_is_inited(dev)) {
-			rc = dev_not_empty_txr(dev, pkt, flags);
+			rc = dev_not_empty_txr(dev, pkt);
 			if (rc == 0) {
 				break;
 			}	
 		}
 	}
 	if (rc == -ENODEV && (flags & TX_CAN_REDIRECT)) {
-		rc = redirect_dev_not_empty_txr(ifp, pkt, flags);
+		rc = redirect_dev_not_empty_txr(ifp, pkt);
 	}
 	return rc;
 }

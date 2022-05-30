@@ -96,7 +96,7 @@ void service_update_rss_bindings();
 
 int service_can_connect(struct route_if *, be32_t, be32_t, be16_t, be16_t);
 
-int redirect_dev_not_empty_txr(struct route_if *, struct dev_pkt *, int);
+int redirect_dev_not_empty_txr(struct route_if *, struct dev_pkt *);
 void redirect_dev_transmit(struct route_if *, int, struct dev_pkt *);
 
 int service_sigprocmask(int, const sigset_t *, sigset_t *);

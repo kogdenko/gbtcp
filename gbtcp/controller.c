@@ -31,7 +31,7 @@ interface_dev_host_rx(struct dev *dev, void *data, int len)
 	ifp = container_of(dev, struct route_if, rif_host_dev);
 	rc = route_not_empty_txr(ifp, &pkt, TX_CAN_REDIRECT);
 	if (rc == 0) {
-		DEV_PKT_COPY(pkt.pkt_data, data, len);
+		memcpy(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
 		route_transmit(ifp, &pkt);
 	} else {
@@ -45,11 +45,13 @@ transmit_to_host(struct route_if *ifp, void *data, int len)
 	int rc;
 	struct dev_pkt pkt;
 
-	rc = dev_not_empty_txr(&ifp->rif_host_dev, &pkt, TX_CAN_RECLAIM);
+	rc = dev_not_empty_txr(&ifp->rif_host_dev, &pkt);
 	if (rc == 0) {
-		DEV_PKT_COPY(pkt.pkt_data, data, len);
+		memcpy(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
 		dev_transmit(&pkt);
+	} else {
+		// TODO: increment counter
 	}
 	return rc;
 }

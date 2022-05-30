@@ -618,8 +618,7 @@ sysctl_conn_open(struct sysctl_conn **cpp, int fd)
 		return -ENOMEM;
 	}
 	memset(cp, 0, sizeof(*cp));
-	rc = fd_event_add(&cp->scc_event, fd, "sysctl",
-	                  cp, sysctl_process_events);
+	rc = fd_event_add(&cp->scc_event, fd, cp, sysctl_process_events);
 	if (rc < 0) {
 		sys_free(cp);
 	} else {

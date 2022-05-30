@@ -58,8 +58,7 @@ wait_for_fd_events2(int force, uint64_t to)
 }
 
 int
-fd_event_add(struct fd_event **pe, int fd, const char *name,
-	void *udata, fd_event_f fn)
+fd_event_add(struct fd_event **pe, int fd, void *udata, fd_event_f fn)
 {
 	int i, id;
 	struct fd_event *e;
@@ -91,7 +90,6 @@ fd_event_add(struct fd_event **pe, int fd, const char *name,
 	fd_event_used[e->fde_id] = e;
 	fd_event_n_used++;
 	*pe = e;
-	INFO(0, "ok; fd=%d, event='%s'", e->fde_fd, name);
 	return 0;
 }
 

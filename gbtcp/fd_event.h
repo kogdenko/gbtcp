@@ -32,7 +32,7 @@ void wait_for_fd_events2(int, uint64_t);
 #define check_fd_events() wait_for_fd_events2(0, 0)
 #define wait_for_fd_events() wait_for_fd_events2(1, TIMER_TIMEOUT)
 
-int fd_event_add(struct fd_event **, int, const char *, void *, fd_event_f);
+int fd_event_add(struct fd_event **, int, void *, fd_event_f);
 void fd_event_del(struct fd_event *);
 void fd_event_set(struct fd_event *, short);
 void fd_event_clear(struct fd_event *, short);

@@ -110,8 +110,7 @@ arp_tx_incomplete_q(struct arp_entry *e)
 	if (e->ae_next_hop != next_hop) {
 		goto err;
 	}
-	rc = route_not_empty_txr(route.rt_ifp, &pkt,
-	                         TX_CAN_RECLAIM|TX_CAN_REDIRECT);
+	rc = route_not_empty_txr(route.rt_ifp, &pkt, TX_CAN_REDIRECT);
 	if (rc) {
 		counter64_inc(&route.rt_ifp->rif_tx_drop);
 		goto err;
@@ -166,8 +165,7 @@ arp_probe(struct arp_entry *e)
 	if (rc) {
 		return;
 	}
-	rc = route_not_empty_txr(route.rt_ifp, &pkt,
-	                         TX_CAN_RECLAIM|TX_CAN_REDIRECT);
+	rc = route_not_empty_txr(route.rt_ifp, &pkt, TX_CAN_REDIRECT);
 	if (rc) {
 		counter64_inc(&route.rt_ifp->rif_tx_drop);
 		return;
@@ -657,7 +655,7 @@ arp_reply(struct route_if *ifp, struct arp_hdr *ah)
 	struct arp_hdr *ah_rpl;
 	struct dev_pkt pkt;
 
-	rc = route_not_empty_txr(ifp, &pkt, TX_CAN_RECLAIM|TX_CAN_REDIRECT);
+	rc = route_not_empty_txr(ifp, &pkt, TX_CAN_REDIRECT);
 	if (rc) {
 		counter64_inc(&ifp->rif_tx_drop);
 		arps.arps_txrepliesdropped++;

@@ -152,9 +152,9 @@ redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, const voi
 	int rc;
 	struct dev_pkt pkt;
 
-	rc = dev_not_empty_txr(&service_redirect_dev, &pkt, TX_CAN_RECLAIM);
+	rc = dev_not_empty_txr(&service_redirect_dev, &pkt);
 	if (rc == 0) {
-		DEV_PKT_COPY(pkt.pkt_data, data, len);
+		memcpy(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
 		pkt.pkt_sid = sid;
 		redirect_dev_transmit(ifp, msg_type, &pkt);
@@ -165,7 +165,7 @@ redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, const voi
 static void
 service_rssq_rx(struct dev *dev, void *data, int len)
 {
-	int rc;
+	int in, rc;
 	u_char sid;
 	struct in_context p;
 	struct route_if *ifp;
@@ -178,22 +178,26 @@ service_rssq_rx(struct dev *dev, void *data, int len)
 	p.in_ips = &current->p_ips;
 	p.in_icmps = &current->p_icmps;
 	p.in_arps = &current->p_arps;
-	rc = service_rx(&p);
-	if (rc == IN_BYPASS) {
+	in = service_rx(&p);
+	if (in == IN_BYPASS) {
 		if (current->p_sid == CONTROLLER_SID) {
 			transmit_to_host(ifp, data, len);
 		} else {
-			redirect_dev_transmit5(ifp, SERVICE_MSG_BYPASS, CONTROLLER_SID, data, len);
+			rc = redirect_dev_transmit5(ifp, SERVICE_MSG_BYPASS,
+				CONTROLLER_SID, data, len);
+			if (rc) {
+				// TODO: increment counter
+			}
 		}
-	} else if (rc >= 0) {
+	} else if (in >= 0) {
 		current->p_ips.ips_delivered++;
-		sid = rc;
+		sid = in;
 		rc = redirect_dev_transmit5(ifp, SERVICE_MSG_RX, sid, data, len);
 		if (rc) {
 			counter64_inc(&ifp->rif_rx_drop);
 			return;
 		}
-	} else if (rc == IN_OK) {
+	} else if (in == IN_OK) {
 		current->p_ips.ips_delivered++;
 	}
 	counter64_inc(&ifp->rif_rx_pkts);
@@ -244,9 +248,9 @@ service_redirect_dev_rx(struct dev *dev, void *data, int len)
 		service_rx(&p);
 		break;
 	case SERVICE_MSG_TX:
-		rc = route_not_empty_txr(ifp, &pkt, TX_CAN_RECLAIM);
+		rc = route_not_empty_txr(ifp, &pkt, 0);
 		if (rc == 0) {
-			DEV_PKT_COPY(pkt.pkt_data, data, len);
+			memcpy(pkt.pkt_data, data, len);
 			pkt.pkt_len = len;
 			route_transmit(ifp, &pkt);
 		} else {
@@ -305,9 +309,14 @@ service_deinit_shared_redirect_dev(struct service *s)
 }
 
 static void
-service_init_private_redirect_dev_name(struct service *s, char *ifnambuf)
+service_redirect_dev_init(struct service *s)
 {
-	snprintf(ifnambuf, IFNAMSIZ, "vale_gt:%d", s->p_pid);
+	int rc;
+	char buf[IFNAMSIZ];
+
+	snprintf(buf, sizeof(buf), "vale_gt:%d", s->p_pid);
+	rc = dev_init(&service_redirect_dev, buf, DEV_QUEUE_NONE, service_redirect_dev_rx);
+	return rc;
 }
 #else // HAVE_VALE
 static void
@@ -337,7 +346,7 @@ service_peer_rx(struct dev *dev, void *data, int len)
 	if (s->p_pid == 0) {
 		return;
 	}
-	rc = dev_not_empty_txr(&s->p_veth_peer, &pkt, TX_CAN_RECLAIM);
+	rc = dev_not_empty_txr(&s->p_veth_peer, &pkt);
 	if (rc == 0) {
 		DEV_PKT_COPY(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
@@ -358,7 +367,7 @@ service_init_shared_redirect_dev(struct service *s)
 	snprintf(peer, sizeof(peer), SERVICE_VETHF, 'c', s->p_pid);
 	rc = netlink_veth_add(veth, peer);
 	if (rc == 0) {
-		dev_init(&s->p_veth_peer, peer, service_peer_rx);
+		dev_init(&s->p_veth_peer, peer, 0, service_peer_rx);
 	}
 	return rc;
 }
@@ -373,10 +382,15 @@ service_deinit_shared_redirect_dev(struct service *s)
 	netlink_link_del(peer);
 }
 
-static void
-service_init_private_redirect_dev_name(struct service *s, char *ifnambuf)
+static int
+service_redirect_dev_init(struct service *s)
 {
-	snprintf(ifnambuf, IFNAMSIZ, SERVICE_VETHF, 's', s->p_pid);
+	int rc;
+	char buf[IFNAMSIZ];
+
+	snprintf(buf, sizeof(buf), SERVICE_VETHF, 's', s->p_pid);
+	rc = dev_init(&service_redirect_dev, buf, 0, service_redirect_dev_rx);
+	return rc;
 }
 #endif // HAVE_VALE
 
@@ -472,15 +486,12 @@ int
 service_init_private()
 {
 	int rc;
-	char buf[IFNAMSIZ];
 
 	dlist_init(&service_rcu_active_head);
 	dlist_init(&service_rcu_shadow_head);
 	service_rcu_max = 0;
 	memset(service_rcu, 0, sizeof(service_rcu));
-
-	service_init_private_redirect_dev_name(current, buf);
-	rc = dev_init(&service_redirect_dev, buf, service_redirect_dev_rx);
+	rc = service_redirect_dev_init(current);
 	return rc;
 }
 
@@ -720,19 +731,17 @@ service_account_opkt()
 }
 
 static void
-service_update_rss_binding(struct route_if *ifp, int rss_qid)
+service_update_rss_binding(struct route_if *ifp, int queue_id)
 {
 	int id, ifflags;
-	char dev_name[IFNAMSIZ]; // FIXME: ?? dev_init
 	struct dev *dev;
 
 	ifflags = READ_ONCE(ifp->rif_flags);
-	id = READ_ONCE(shared->shm_rss_table[rss_qid]);
-	dev = &(ifp->rif_dev[current->p_sid][rss_qid]);
+	id = READ_ONCE(shared->shm_rss_table[queue_id]);
+	dev = &(ifp->rif_dev[current->p_sid][queue_id]);
 	if ((ifflags & IFF_UP) && id == current->p_sid) {
 		if (!dev_is_inited(dev)) {
-			snprintf(dev_name, sizeof(dev_name), "%s-%d", ifp->rif_name, rss_qid);
-			dev_init(dev, dev_name, service_rssq_rx);
+			dev_init(dev, ifp->rif_name, queue_id, service_rssq_rx);
 			dev->dev_ifp = ifp;
 		}
 	} else {
@@ -755,8 +764,7 @@ service_update_rss_bindings()
 }
 
 int
-service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
-	be16_t lport, be16_t fport)
+service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
 	int i, sid, rss_qid;
 	uint32_t h;
@@ -782,7 +790,7 @@ service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr,
 }
 
 int
-redirect_dev_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
+redirect_dev_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt)
 {
 	int i, n, rc;
 	u_char s[GT_RSS_NQ_MAX];
@@ -797,7 +805,7 @@ redirect_dev_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 	if (n == 0) {
 		return -ENODEV;
 	}
-	rc = dev_not_empty_txr(&service_redirect_dev, pkt, flags);
+	rc = dev_not_empty_txr(&service_redirect_dev, pkt);
 	if (rc) {
 		return rc;
 	}
