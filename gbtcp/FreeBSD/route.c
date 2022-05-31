@@ -67,7 +67,7 @@ handle_link(struct route_msg *msg, int ifindex)
 	struct ifaddrs *ifap, *ifa;
 
 	msg->rtm_type = ROUTE_MSG_LINK;
-	msg->rtm_if_idx = ifindex;
+	msg->rtm_ifindex = ifindex;
 	rc = sys_if_indextoname(ifindex, if_name);
 	if (rc) {
 		return rc;
@@ -113,7 +113,7 @@ handle_addr(struct route_msg *msg, struct ifa_msghdr *ifam)
 		return -EPROTO;
 	}
 	ifp_dl = (struct sockaddr_dl *)ifp;
-	msg->rtm_if_idx = ifp_dl->sdl_index;
+	msg->rtm_ifindex = ifp_dl->sdl_index;
 	if (ifa->sa_family != AF_INET &&
 	    ifa->sa_family != AF_INET6) {
 		return -EPROTO;
@@ -151,7 +151,7 @@ handle_route(struct route_msg *msg, struct rt_msghdr *rtm)
 		return -EPROTO;
 	}
 	msg->rtm_af = dst->sa_family;
-	msg->rtm_if_idx = rtm->rtm_index;
+	msg->rtm_ifindex = rtm->rtm_index;
 	msg->rtm_route.rtmr_via = ipaddr_zero;
 	rc = ipaddr_from_sockaddr(&msg->rtm_route.rtmr_dst, dst);
 	if (rc) {
@@ -159,7 +159,7 @@ handle_route(struct route_msg *msg, struct rt_msghdr *rtm)
 	}
 	if (gateway->sa_family == AF_LINK) {
 		gateway_dl = (struct sockaddr_dl *)gateway;
-		if (msg->rtm_if_idx != gateway_dl->sdl_index) {
+		if (msg->rtm_ifindex != gateway_dl->sdl_index) {
 			return -EPROTO;
 		}
 	} else if (gateway->sa_family == msg->rtm_af) {
@@ -253,7 +253,7 @@ route_dump_ifaddrs(route_msg_f fn)
 		switch (ifa->ifa_addr->sa_family) {
 		case AF_LINK:
 			msg.rtm_type = ROUTE_MSG_LINK;
-			msg.rtm_if_idx = ifindex;
+			msg.rtm_ifindex = ifindex;
 			ifa_dl(&msg.rtm_link, ifa);			
 			(*fn)(&msg);
 			break;
@@ -261,7 +261,7 @@ route_dump_ifaddrs(route_msg_f fn)
 		case AF_INET6:
 			msg.rtm_type = ROUTE_MSG_ADDR;
 			msg.rtm_af = ifa->ifa_addr->sa_family;
-			msg.rtm_if_idx = ifindex;
+			msg.rtm_ifindex = ifindex;
 			rc = ipaddr_from_sockaddr(&msg.rtm_addr, ifa->ifa_addr);
 			if (rc) {
 				return rc;

@@ -27,14 +27,14 @@ static int route_ifaddr_del(struct route_if *, const struct ipaddr *);
 
 static int route_src_compar(const void *a, const void *b, void *);
 
-static int route_set_srcs(struct route_entry_long *route);
+static int route_set_srcs(struct route_entry_long *);
 
 static void route_del(struct route_entry_long *);
 static int route_del2(be32_t, int);
 
-static void route_on_msg(struct route_msg *msg);
+static void route_on_msg(struct route_msg *, void *);
 
-static int route_monitor_handler(void *udata, short revent);
+static int route_monitor_handler(void *, short);
 
 static void
 route_foreach_set_srcs(struct route_if *ifp)
@@ -124,7 +124,7 @@ route_if_add(const char *ifname, struct route_if **ifpp)
 	update_rss_table();
 	if (route_monitor_fd != -1) {
 		// TODO: Delete old routes
-		route_dump(route_on_msg);
+		route_dump(route_on_msg, NULL);
 	}
 	*ifpp = ifp;
 	NOTICE(0, "Interface '%s' added", ifname);
@@ -382,7 +382,7 @@ err:
 }
 
 static void
-route_on_msg(struct route_msg *msg)
+route_on_msg(struct route_msg *msg, void *udata)
 {
 	struct route_entry route;
 	struct route_if *ifp;
@@ -392,7 +392,7 @@ route_on_msg(struct route_msg *msg)
 			return;
 		}
 	}
-	ifp = route_if_get_by_index(msg->rtm_if_idx);
+	ifp = route_if_get_by_index(msg->rtm_ifindex);
 	if (ifp == NULL) {
 		return;
 	}
@@ -431,7 +431,7 @@ route_on_msg(struct route_msg *msg)
 static int
 route_monitor_handler(void *udata, short revent)
 {
-	route_read(route_monitor_fd, route_on_msg);
+	route_read(route_monitor_fd, route_on_msg, NULL);
 	return 0;
 }
 
@@ -470,7 +470,7 @@ route_monitor_start()
 		goto err;
 	}
 	fd_event_set(route_monitor_event, POLLIN);
-	route_dump(route_on_msg);
+	route_dump(route_on_msg, NULL);
 	return 0;
 err:
 	route_monitor_stop();
@@ -785,7 +785,7 @@ route_get4(be32_t pref_src_ip4, struct route_entry *route)
 }
 
 int
-route_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
+route_get_tx_packet(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 {
 	int i, rc;
 	struct dev *dev;
@@ -794,14 +794,14 @@ route_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt, int flags)
 	for (i = 0; i < ifp->rif_rss_queue_num; ++i) {
 		dev = &(ifp->rif_dev[current->p_sid][i]);
 		if (dev_is_inited(dev)) {
-			rc = dev_not_empty_txr(dev, pkt);
+			rc = dev_get_tx_packet(dev, pkt);
 			if (rc == 0) {
 				break;
 			}	
 		}
 	}
 	if (rc == -ENODEV && (flags & TX_CAN_REDIRECT)) {
-		rc = redirect_dev_not_empty_txr(ifp, pkt);
+		rc = redirect_dev_get_tx_packet(ifp, pkt);
 	}
 	return rc;
 }

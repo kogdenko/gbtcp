@@ -29,7 +29,7 @@ interface_dev_host_rx(struct dev *dev, void *data, int len)
 	struct dev_pkt pkt;
 
 	ifp = container_of(dev, struct route_if, rif_host_dev);
-	rc = route_not_empty_txr(ifp, &pkt, TX_CAN_REDIRECT);
+	rc = route_get_tx_packet(ifp, &pkt, TX_CAN_REDIRECT);
 	if (rc == 0) {
 		memcpy(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
@@ -45,7 +45,7 @@ transmit_to_host(struct route_if *ifp, void *data, int len)
 	int rc;
 	struct dev_pkt pkt;
 
-	rc = dev_not_empty_txr(&ifp->rif_host_dev, &pkt);
+	rc = dev_get_tx_packet(&ifp->rif_host_dev, &pkt);
 	if (rc == 0) {
 		memcpy(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;

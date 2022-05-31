@@ -239,8 +239,7 @@ shm_init()
 	shm_early = 0;
 	curmod->shm_n_allocated_pages += shm_early_n_allocated_pages;
 	shm_early_n_allocated_pages = 0;
-	NOTICE(0, "Shared memory initialized at address %p",
-		(void *)shared->shm_base_addr);
+	NOTICE(0, "Shared memory initialized at address %p", (void *)shared->shm_base_addr);
 	return 0;
 err:
 	ERR(-rc, "Failed to initialize shared memory");
@@ -260,8 +259,7 @@ shm_attach()
 		goto err;
 	}
 	shm_fd = rc;
-	rc = sys_mmap((void **)&shared, NULL, sizeof(*shared), PROT_READ,
-		MAP_SHARED, shm_fd, 0);
+	rc = sys_mmap((void **)&shared, NULL, sizeof(*shared), PROT_READ, MAP_SHARED, shm_fd, 0);
 	if (rc) {
 		goto err;
 	}
@@ -474,11 +472,9 @@ shm_malloc(size_t size)
 	shm_lock();
 	new_ptr = shm_malloc_locked(size);
 	if (new_ptr != NULL) {
-		INFO(0, "Allocated %zu bytes of shared memory at %p",
-			size, new_ptr);
+		INFO(0, "Allocated %zu bytes of shared memory at %p", size, new_ptr);
 	} else {
-		WARN(ENOMEM, "Failed to allocate %zu bytes in shared memory",
-			size);
+		WARN(ENOMEM, "Failed to allocate %zu bytes in shared memory", size);
 	}
 	shm_unlock_and_free_garbage();
 	return new_ptr;

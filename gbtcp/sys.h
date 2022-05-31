@@ -158,6 +158,7 @@ ssize_t sys_recv(int, void *, size_t, int);
 ssize_t sys_recvmsg(int, struct msghdr *, int);
 ssize_t sys_write(int, const void *, size_t);
 ssize_t sys_send(int, const void *, size_t, int);
+ssize_t sys_sendto(int, const void *, size_t, int, const struct sockaddr *, socklen_t);
 ssize_t sys_sendmsg(int, const struct msghdr *, int);
 int sys_dup(int);
 int sys_getsockopt(int, int, int, void *, socklen_t *);
@@ -176,7 +177,7 @@ int sys_daemon(int, int);
 void *sys_malloc(size_t);
 #define sys_free free
 void *sys_realloc(void *, size_t);
-int sys_posix_memalign(const char *, void **, size_t, size_t);
+int sys_posix_memalign(void **, size_t, size_t);
 int sys_mmap(void **, void *, size_t, int, int, int, off_t);
 int sys_munmap(void *addr, size_t);
 int sys_mprotect(void *, size_t, int);

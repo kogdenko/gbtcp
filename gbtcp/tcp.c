@@ -2006,12 +2006,12 @@ sock_tx_flush()
 		rc = so_route(so, &r);
 		assert(rc == 0);
 		do {
-			rc = route_not_empty_txr(r.rt_ifp, &pkt,
-				TX_CAN_REDIRECT);
+			rc = route_get_tx_packet(r.rt_ifp, &pkt, TX_CAN_REDIRECT);
 			if (rc) {
 				return;
 			}
 			rc = sock_tx(&r, &pkt, so);
+			dev_put_tx_packet(&pkt);
 		} while (rc == 0);
 		so_del_txq(so);
 		so_unref(so, NULL);

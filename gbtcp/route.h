@@ -80,7 +80,6 @@ struct route_entry {
 struct route_msg_link {
 	int rtml_flags;
 	struct eth_addr rtml_hwaddr;
-	char rtml_name[IFNAMSIZ];
 };
 
 struct route_msg_route {
@@ -94,7 +93,7 @@ struct route_msg {
 	enum route_msg_cmd rtm_cmd;
 	enum route_msg_type rtm_type;
 	int rtm_af;
-	int rtm_if_idx;
+	int rtm_ifindex;
 	union {
 		struct route_msg_link rtm_link;
 		struct ipaddr rtm_addr;
@@ -102,7 +101,7 @@ struct route_msg {
 	};
 };
 
-typedef void (*route_msg_f)(struct route_msg *);
+typedef void (*route_msg_f)(struct route_msg *, void *);
 
 #define ROUTE_IF_FOREACH(ifp) \
 	DLIST_FOREACH(ifp, route_if_head(), rif_list)
@@ -123,16 +122,18 @@ struct route_if_addr *route_ifaddr_get4(be32_t);
 int route_get(int af, struct ipaddr *, struct route_entry *);
 int route_get4(be32_t, struct route_entry *);
 
-int route_not_empty_txr(struct route_if *, struct dev_pkt *, int);
+int route_get_tx_packet(struct route_if *, struct dev_pkt *, int);
 void route_transmit(struct route_if *, struct dev_pkt *);
 
 int route_open();
-int route_read(int, route_msg_f);
-int route_dump(route_msg_f);
+int route_read(int, route_msg_f, void *);
+int route_dump(route_msg_f, void *);
 
 #ifdef __linux__
 int netlink_veth_add(const char *, const char *);
 int netlink_link_del(const char *);
+int netlink_link_get_flags(int);
+int netlink_link_up(int, const char *, int);
 #endif
 
 static inline struct ipaddr *

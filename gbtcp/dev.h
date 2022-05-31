@@ -18,7 +18,10 @@
 typedef void (*dev_f)(struct dev *, void *, int);
 
 struct dev {
-	struct nm_desc *dev_nmd;
+	union {
+		struct nm_desc *dev_nmd;
+		struct xdp_queue *dev_xdp_queue;
+	};
 	struct fd_event *dev_event;
 	u_char dev_tx_throttled;
 	dev_f dev_fn;
@@ -31,10 +34,14 @@ struct dev {
 
 struct dev_pkt {
 	struct mbuf pkt_mbuf;
+	struct dev *pkt_dev;
 	u_short pkt_len;
 	u_char pkt_sid;
 	u_char *pkt_data;
-	struct netmap_ring *pkt_txr;
+	union {
+		struct netmap_ring *pkt_txr;
+		uint32_t pkt_idx;
+	};
 };
 
 int dev_init(struct dev *, const char *, int, dev_f);
@@ -42,7 +49,9 @@ void dev_deinit(struct dev *);
 void dev_close_fd(struct dev *);
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);
-int dev_not_empty_txr(struct dev *, struct dev_pkt *);
+int dev_get_tx_packet(struct dev *, struct dev_pkt *);
+void dev_put_tx_packet(struct dev_pkt *);
 void dev_transmit(struct dev_pkt *);
+void dev_tx_flush();
 
 #endif // GBTCP_DEV_H

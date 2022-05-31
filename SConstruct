@@ -24,8 +24,14 @@ ldflags = [
 AddOption('--debug-build', action = 'store_true',
     help = 'Debug build', default = False)
 
+AddOption('--without-netmap', action = 'store_true',
+    help = "Don't use netmap transport", default = False)
+
 AddOption('--without-vale', action = 'store_true',
     help = "Don't use netmap vale switch", default = False)
+
+AddOption('--without-xdp', action = 'store_true',
+    help = "Don't use XDP transport", default = False)
 
 SConscript([
     'test/SConstruct',
@@ -64,10 +70,17 @@ env = Environment(CC = 'gcc')
 
 conf = Configure(env)
 
-if conf.CheckHeader('net/netmap_user.h'):
-    cflags.append('-DHAVE_NETMAP')
-    if not GetOption('without_vale'):
-        cflags.append('-DHAVE_VALE')
+if not GetOption('without_netmap'):
+    if conf.CheckHeader('net/netmap_user.h'):
+        cflags.append('-DHAVE_NETMAP')
+        if not GetOption('without_vale'):
+            cflags.append('-DHAVE_VALE')
+
+if platform.system() == "Linux" and not GetOption('without_xdp'):
+    if (conf.CheckHeader('linux/bpf.h') and conf.CheckLib('bpf')):
+        cflags.append('-DHAVE_XDP')
+        ldflags.append('-lbpf')
+#        srcs.append('xdp.c')
 
 if platform.architecture()[0] == "64bit":
     lib_path = '/usr/lib64'

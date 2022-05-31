@@ -63,6 +63,7 @@ fd_event_add(struct fd_event **pe, int fd, void *udata, fd_event_f fn)
 	int i, id;
 	struct fd_event *e;
 
+	assert(fd >= 0);
 	assert(fn != NULL);
 	assert(fd_event_n_used < ARRAY_SIZE(fd_event_used));
 	id = -1;
@@ -207,6 +208,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	p->fdp_throttled = 0;
 	p->fdp_n_events = 0;
 	sock_tx_flush();
+	dev_tx_flush();
 	for (i = 0; i < fd_event_n_used; ++i) {
 		if (p->fdp_n_added + p->fdp_n_events == FD_SETSIZE) {
 			break;
@@ -235,8 +237,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 		fd_poll_sigmask = &current_sigprocmask;
 	}
 	SERVICE_UNLOCK;
-	rc = sys_ppoll(p->fdp_pfds, p->fdp_n_added + p->fdp_n_events,
-	               &to, fd_poll_sigmask);
+	rc = sys_ppoll(p->fdp_pfds, p->fdp_n_added + p->fdp_n_events, &to, fd_poll_sigmask);
 	SERVICE_LOCK;
 	fd_poll_epoch++;
 	elapsed = nanoseconds - t;

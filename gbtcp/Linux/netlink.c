@@ -1,11 +1,13 @@
-// gpl2
+// GPL v2 License
 #include "../internals.h"
 
 #define CURMOD route
 
 #define VETH_INFO_PEER 1
 
-#define NLM_PUT_STRING(m, attr_type, s) nlm_put_attr(m, attr_type, s, strlen(s) + 1)
+#define NLM_PUT_STR(m, attr_type, s) nlm_put_attr(m, attr_type, s, strlen(s) + 1)
+
+#define NETLINK_MSG_SIZE_MAX 32768
 
 struct nlm {
 	u_char *nlm_buf;
@@ -138,12 +140,12 @@ rtnl_open(unsigned int nl_groups)
 	if (rc) {
 		goto err;
 	}
-	opt = 32768;
+	opt = NETLINK_MSG_SIZE_MAX;
 	rc = sys_setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &opt, sizeof(opt));
 	if (rc < 0) {
 		goto err;
 	}
-	opt = 1024 * 1024;
+	opt = NETLINK_MSG_SIZE_MAX;
 	rc = sys_setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &opt, sizeof(opt));
 	if (rc < 0) {
 		goto err;
@@ -190,7 +192,7 @@ route_handle_link(struct nlmsghdr *h, struct route_msg *msg)
 	ifi = NLMSG_DATA(h);
 	attr = IFLA_RTA(ifi);
 	nl_get_rtattrs(attr, len, attrs, ARRAY_SIZE(attrs));
-	msg->rtm_if_idx = ifi->ifi_index;
+	msg->rtm_ifindex = ifi->ifi_index;
 	msg->rtm_link.rtml_flags = ifi->ifi_flags;
 	attr = attrs[IFLA_ADDRESS];
 	if (attr != NULL) {
@@ -235,7 +237,7 @@ route_handle_addr(struct nlmsghdr *h, struct route_msg *msg)
 		return -EPROTO;
 	}
 	memcpy(msg->rtm_addr.ipa_data, RTA_DATA(attr), addr_len);
-	msg->rtm_if_idx = ifa->ifa_index;
+	msg->rtm_ifindex = ifa->ifa_index;
 	return 1;
 }
 
@@ -306,7 +308,7 @@ route_handle_route(struct nlmsghdr *h, struct route_msg *msg)
 	if (RTA_PAYLOAD(attr) != sizeof(uint32_t)) {
 		return -EPROTO;
 	}
-	msg->rtm_if_idx = rtattr_get_u32(attr);
+	msg->rtm_ifindex = rtattr_get_u32(attr);
 	attr = attrs[RTA_GATEWAY];
 	if (attr != NULL) {
 		if (RTA_PAYLOAD(attr) != addr_len) {
@@ -317,14 +319,19 @@ route_handle_route(struct nlmsghdr *h, struct route_msg *msg)
 	return 1;
 }
 
+struct route_msg_handler_data {
+	route_msg_f rmhd_fn;
+	void *rmhd_udata;
+};
+
 static int
-route_dump_handler(struct nlmsghdr *h, void *udata)
+route_msg_handler(struct nlmsghdr *h, void *udata)
 {
 	int rc;
 	struct route_msg msg;
-	route_msg_f fn;
+	struct route_msg_handler_data *d;
 
-	fn = udata;
+	d = udata;
 	memset(&msg, 0, sizeof(msg));
 	msg.rtm_cmd = ROUTE_MSG_DEL;
 	switch (h->nlmsg_type) {
@@ -350,8 +357,8 @@ route_dump_handler(struct nlmsghdr *h, void *udata)
 		INFO(0, "Unknown netlink message type '%d'", h->nlmsg_type);
 		return 0;
 	}
-	if (rc == 1 && fn != NULL) {
-		(*fn)(&msg);
+	if (rc == 1 && d->rmhd_fn != NULL) {
+		(*d->rmhd_fn)(&msg, d->rmhd_udata);
 	}
 	return rc;
 }
@@ -359,7 +366,7 @@ route_dump_handler(struct nlmsghdr *h, void *udata)
 int
 rtnl_recvmsg(int fd, int (*handler)(struct nlmsghdr *, void *), void *udata)
 {
-	uint8_t buf[16384];
+	u_char buf[NETLINK_MSG_SIZE_MAX];
 	int rc, len;
 	struct msghdr msg;
 	struct nlmsghdr *h;
@@ -459,19 +466,22 @@ rtnl_read(int fd, int (*handler)(struct nlmsghdr *, void *), void *udata)
 }
 
 int
-route_dump(route_msg_f fn)
+route_dump(route_msg_f fn, void *udata)
 {
 	static int types[3] = { RTM_GETLINK, RTM_GETADDR, RTM_GETROUTE };
-	u_char buf[256];
+	u_char buf[NETLINK_MSG_SIZE_MAX];
 	int i, rc, fd;
 	uint32_t vf_mask;
 	struct ifinfomsg ifm;
 	struct nlm m;
+	struct route_msg_handler_data d;
 
 	fd = rc = rtnl_open(0);
 	if (rc < 0) {
 		goto err;
 	}
+	d.rmhd_fn = fn;
+	d.rmhd_udata = udata;
 	memset(&ifm, 0, sizeof(ifm));
 	ifm.ifi_family = AF_UNSPEC;
 	vf_mask = RTEXT_FILTER_VF;
@@ -484,7 +494,7 @@ route_dump(route_msg_f fn)
 		if (rc < 0) {
 			goto err;
 		}
-		rc = rtnl_read(fd, route_dump_handler, fn);
+		rc = rtnl_read(fd, route_msg_handler, &d);
 		if (rc < 0) {
 			goto err;
 		}
@@ -498,16 +508,20 @@ err:
 }
 
 int
-route_read(int fd, route_msg_f fn)
+route_read(int fd, route_msg_f fn, void *udata)
 {
-	return rtnl_read(fd, route_dump_handler, fn);
+	struct route_msg_handler_data d;
+
+	d.rmhd_fn = fn;
+	d.rmhd_udata = udata;
+	return rtnl_read(fd, route_msg_handler, &d);
 }
 
 int
 netlink_veth_add(const char *veth, const char *peer)
 {
-	int fd, rc;
-	u_char buf[512];
+	int rc, fd;
+	u_char buf[NETLINK_MSG_SIZE_MAX];
 	struct ifinfomsg ifm;
 	struct nlm m;
 	struct nlattr *nla_a, *nla_b, *nla_c;
@@ -522,13 +536,13 @@ netlink_veth_add(const char *veth, const char *peer)
 	memset(&ifm, 0, sizeof(ifm));
 	ifm.ifi_family = AF_UNSPEC;
 	nlm_put(&m, &ifm, sizeof(ifm));
-	NLM_PUT_STRING(&m, IFLA_IFNAME, veth);
+	NLM_PUT_STR(&m, IFLA_IFNAME, veth);
 	nla_a = nlm_nest_start(&m, IFLA_LINKINFO);
-	NLM_PUT_STRING(&m, IFLA_INFO_KIND, "veth");
+	NLM_PUT_STR(&m, IFLA_INFO_KIND, "veth");
 	nla_b = nlm_nest_start(&m, IFLA_INFO_DATA);
 	nla_c = nlm_nest_start(&m, VETH_INFO_PEER);
 	nlm_put(&m, &ifm, sizeof(ifm));
-	NLM_PUT_STRING(&m, IFLA_IFNAME, peer);
+	NLM_PUT_STR(&m, IFLA_IFNAME, peer);
 	nlm_nest_end(&m, nla_c);
 	nlm_nest_end(&m, nla_b);
 	nlm_nest_end(&m, nla_a);
@@ -540,6 +554,7 @@ netlink_veth_add(const char *veth, const char *peer)
 	if (rc < 0) {
 		goto err;
 	}
+	sys_close(fd);
 	return 0;
 err:
 	ERR(-rc, "Failed to add veth interface '%s' peer '%s'", veth, peer);
@@ -547,76 +562,107 @@ err:
 	return rc;
 }
 
-/*
-static int
-link_get_flags(int fd, int ifindex)
+static void
+route_dump_handler_copy(struct route_msg *msg, void *udata)
 {
-	int rc, flags;
-	u_char buf[4096];
-	struct ifinfomsg ifm;
-	struct nlm m;
-
-	nlm_init(&m, buf, sizeof(buf));
-	nlm_hdr(&m)->nlmsg_type = RTM_GETLINK;
-	nlm_hdr(&m)->nlmsg_flags = NLM_F_REQUEST;
-	nlm_hdr(&m)->nlmsg_pid = 0;
-	nlm_hdr(&m)->nlmsg_seq = 1;
-
-	memset(&ifm, 0, sizeof(ifm));
-	ifm.ifi_family = AF_UNSPEC;
-	ifm.ifi_flags = 0;
-	ifm.ifi_index = ifindex;
-	nlm_put(&m, &ifm, sizeof(ifm));
-
-	rc = send(fd, m.nlm_buf, nlm_hdr(&m)->nlmsg_len, 0);
-	assert(rc == nlm_hdr(&m)->nlmsg_len);
-	flags = 0;
-	netlink_read(fd, link_get_flags_handler, &flags);
-	return flags;
+	memcpy(udata, msg, sizeof(*msg));
 }
-
-void
-netlink_link_up(int ifindex)
-{
-	int rc, flags;
-	u_char buf[4096];
-	struct ifinfomsg ifm;
-	struct nlm m;
-
-	memset(&ifm, 0, sizeof(ifm));
-	ifm.ifi_family = AF_UNSPEC;
-	ifm.ifi_index = if_nametoindex(ifname);
-	assert(ifm.ifi_index > 0);
-
-	flags = link_get_flags(fd, ifm.ifi_index);
-	if (flags & IFF_UP) {
-		printf("Already UP\n");
-	}
-	ifm.ifi_flags = flags | IFF_UP;
-	ifm.ifi_change = IFF_UP;
-
-	// Copied
-	nlm_init(&m, buf, sizeof(buf));
-	nlm_hdr(&m)->nlmsg_type = RTM_NEWLINK;
-	nlm_hdr(&m)->nlmsg_flags = NLM_F_REQUEST|NLM_F_ACK;
-	nlm_hdr(&m)->nlmsg_pid = 0;
-	nlm_hdr(&m)->nlmsg_seq = 1;
-
-	nlm_put(&m, &ifm, sizeof(ifm));
-
-	NLM_PUT_STRING(&m, IFLA_IFNAME, ifname);
-
-	rc = send(fd, m.nlm_buf, nlm_hdr(&m)->nlmsg_len, 0);
-	printf("rc=%d/%d\n", rc, nlm_hdr(&m)->nlmsg_len);
-	netlink_read(fd, NULL, NULL);
-}
-*/
 
 int
-netlink_link_del(const char *ifnam)
+netlink_link_get_flags(int ifindex)
 {
 	int rc, fd;
-	u_char buf[4096];
+	u_char buf[NETLINK_MSG_SIZE_MAX];
+	char ifname[IFNAMSIZ];
+	struct ifinfomsg ifm;
+	struct nlm m;
+	struct route_msg_handler_data d;
+	struct route_msg msg;
+
+	rc = fd = rtnl_open(0);
+	if (rc < 0) {
+		goto err;
+	}
+	fd = rc;
+	nlm_init(&m, buf, sizeof(buf));
+	nlh_init(nlm_hdr(&m), RTM_GETLINK, NLM_F_REQUEST);
+	memset(&ifm, 0, sizeof(ifm));
+	ifm.ifi_family = AF_UNSPEC;
+	ifm.ifi_index = ifindex;
+	nlm_put(&m, &ifm, sizeof(ifm));
+	rc = send_record(fd, m.nlm_buf, nlm_hdr(&m)->nlmsg_len, 0);
+	if (rc < 0) {
+		goto err;
+	}
+	msg.rtm_ifindex = -1;
+	d.rmhd_fn = route_dump_handler_copy;
+	d.rmhd_udata = &msg;
+	rc = rtnl_read(fd, route_msg_handler, &d);
+	if (rc < 0) {
+		goto err;
+	}
+	if (msg.rtm_ifindex == -1) {	
+		rc = -EPROTO;
+		goto err;
+	}
+	sys_close(fd);
+	return msg.rtm_link.rtml_flags;
+err:
+	if (sys_if_indextoname(ifindex, ifname) < 0) {
+		ERR(-rc, "Failed to get link (ifindex=%d) flags", ifindex);
+	} else {
+		ERR(-rc, "FDailed to get link '%s' flags", ifname);
+	}
+	sys_close(fd);
+	return rc;
+}
+
+int
+netlink_link_up(int ifindex, const char *ifname, int flags)
+{
+	int rc, fd;
+	u_char buf[NETLINK_MSG_SIZE_MAX];
+	struct ifinfomsg ifm;
+	struct nlm m;
+
+	if (flags & IFF_UP) {
+		return 0;
+	}
+	rc = fd = rtnl_open(0);
+	if (rc < 0) {
+		goto err;
+	}
+	fd = rc;
+	nlm_init(&m, buf, sizeof(buf));
+	nlh_init(nlm_hdr(&m), RTM_NEWLINK, NLM_F_REQUEST|NLM_F_ACK);
+	memset(&ifm, 0, sizeof(ifm));
+	ifm.ifi_family = AF_UNSPEC;
+	ifm.ifi_index = ifindex;
+	ifm.ifi_flags = flags | IFF_UP;
+	ifm.ifi_change = IFF_UP;
+	nlm_put(&m, &ifm, sizeof(ifm));
+	NLM_PUT_STR(&m, IFLA_IFNAME, ifname);
+	rc = send_record(fd, m.nlm_buf, nlm_hdr(&m)->nlmsg_len, 0);
+	if (rc < 0) {
+		goto err;
+	}
+	rc = rtnl_read(fd, NULL, NULL);
+	if (rc < 0) {
+		goto err;
+	}
+	sys_close(fd);
+	return 0;
+err:
+	ERR(-rc, "Failed to UP link '%s'", ifname);
+	sys_close(fd);
+	return rc;
+}
+
+int
+netlink_link_del(const char *ifname)
+{
+	int rc, fd;
+	u_char buf[NETLINK_MSG_SIZE_MAX];
 	struct ifinfomsg ifm;
 	struct nlm m;
 
@@ -633,7 +679,7 @@ netlink_link_del(const char *ifnam)
 	ifm.ifi_family = AF_UNSPEC;
 	ifm.ifi_flags = 0;
 	nlm_put(&m, &ifm, sizeof(ifm));
-	NLM_PUT_STRING(&m, IFLA_IFNAME, ifnam);
+	NLM_PUT_STR(&m, IFLA_IFNAME, ifname);
 	rc = send_record(fd, m.nlm_buf, nlm_hdr(&m)->nlmsg_len, 0);
 	if (rc < 0) {
 		goto err;
@@ -645,6 +691,6 @@ netlink_link_del(const char *ifnam)
 	sys_close(fd);
 	return 0;
 err:
-	ERR(-rc, "Failed to del link '%s'", ifnam);
+	ERR(-rc, "Failed to del link '%s'", ifname);
 	return rc;
 }

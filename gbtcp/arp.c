@@ -110,7 +110,7 @@ arp_tx_incomplete_q(struct arp_entry *e)
 	if (e->ae_next_hop != next_hop) {
 		goto err;
 	}
-	rc = route_not_empty_txr(route.rt_ifp, &pkt, TX_CAN_REDIRECT);
+	rc = route_get_tx_packet(route.rt_ifp, &pkt, TX_CAN_REDIRECT);
 	if (rc) {
 		counter64_inc(&route.rt_ifp->rif_tx_drop);
 		goto err;
@@ -165,7 +165,7 @@ arp_probe(struct arp_entry *e)
 	if (rc) {
 		return;
 	}
-	rc = route_not_empty_txr(route.rt_ifp, &pkt, TX_CAN_REDIRECT);
+	rc = route_get_tx_packet(route.rt_ifp, &pkt, TX_CAN_REDIRECT);
 	if (rc) {
 		counter64_inc(&route.rt_ifp->rif_tx_drop);
 		return;
@@ -173,9 +173,9 @@ arp_probe(struct arp_entry *e)
 	eh = (struct eth_hdr *)pkt.pkt_data;
 	eh->eh_saddr = route.rt_ifp->rif_hwaddr;
 	if (AF_INET == AF_INET) {
-		len = arp_fill_probe4(eh, route.rt_ifa->ria_addr.ipa_4,
-		                      e->ae_next_hop);
+		len = arp_fill_probe4(eh, route.rt_ifa->ria_addr.ipa_4, e->ae_next_hop);
 	} else {
+		dev_put_tx_packet(&pkt);
 		assert(0);
 	}
 	pkt.pkt_len = len;
@@ -655,7 +655,7 @@ arp_reply(struct route_if *ifp, struct arp_hdr *ah)
 	struct arp_hdr *ah_rpl;
 	struct dev_pkt pkt;
 
-	rc = route_not_empty_txr(ifp, &pkt, TX_CAN_REDIRECT);
+	rc = route_get_tx_packet(ifp, &pkt, TX_CAN_REDIRECT);
 	if (rc) {
 		counter64_inc(&ifp->rif_tx_drop);
 		arps.arps_txrepliesdropped++;

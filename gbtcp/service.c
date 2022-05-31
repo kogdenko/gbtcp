@@ -152,7 +152,7 @@ redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, const voi
 	int rc;
 	struct dev_pkt pkt;
 
-	rc = dev_not_empty_txr(&service_redirect_dev, &pkt);
+	rc = dev_get_tx_packet(&service_redirect_dev, &pkt);
 	if (rc == 0) {
 		memcpy(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
@@ -220,6 +220,7 @@ service_redirect_dev_rx(struct dev *dev, void *data, int len)
 	struct in_context p;
 	struct dev_pkt pkt;
 
+	dbg("redir rx");
 	if (len < sizeof(*msg) + sizeof(*eh)) {
 		return;
 	}
@@ -248,7 +249,7 @@ service_redirect_dev_rx(struct dev *dev, void *data, int len)
 		service_rx(&p);
 		break;
 	case SERVICE_MSG_TX:
-		rc = route_not_empty_txr(ifp, &pkt, 0);
+		rc = route_get_tx_packet(ifp, &pkt, 0);
 		if (rc == 0) {
 			memcpy(pkt.pkt_data, data, len);
 			pkt.pkt_len = len;
@@ -346,7 +347,7 @@ service_peer_rx(struct dev *dev, void *data, int len)
 	if (s->p_pid == 0) {
 		return;
 	}
-	rc = dev_not_empty_txr(&s->p_veth_peer, &pkt);
+	rc = dev_get_tx_packet(&s->p_veth_peer, &pkt);
 	if (rc == 0) {
 		DEV_PKT_COPY(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
@@ -359,15 +360,42 @@ service_peer_rx(struct dev *dev, void *data, int len)
 static int
 service_init_shared_redirect_dev(struct service *s)
 {
-	int  rc;
-	char veth[IFNAMSIZ];
-	char peer[IFNAMSIZ];
+	int i, rc, added, ifindex, flags;
+	char ifname[2][IFNAMSIZ];
 
-	snprintf(veth, sizeof(veth), SERVICE_VETHF, 's', s->p_pid);
-	snprintf(peer, sizeof(peer), SERVICE_VETHF, 'c', s->p_pid);
-	rc = netlink_veth_add(veth, peer);
-	if (rc == 0) {
-		dev_init(&s->p_veth_peer, peer, 0, service_peer_rx);
+	added = 0;
+	snprintf(ifname[0], IFNAMSIZ, SERVICE_VETHF, 's', s->p_pid);
+	snprintf(ifname[1], IFNAMSIZ, SERVICE_VETHF, 'c', s->p_pid);
+	rc = netlink_veth_add(ifname[0], ifname[1]);
+	if (rc < 0) {
+		goto err;
+	}
+	added = 1;
+	for (i = 0; i < ARRAY_SIZE(ifname); ++i) {
+		rc = sys_if_nametoindex(ifname[i]);
+		if (rc < 0) {
+			goto err;
+		}
+		ifindex = rc;
+		rc = netlink_link_get_flags(ifindex);
+		if (rc < 0) {
+			goto err;
+		}
+		flags = rc;
+		rc = netlink_link_up(ifindex, ifname[i], flags);
+		if (rc < 0) {
+			goto err;
+		}
+	}
+	rc = dev_init(&s->p_veth_peer, ifname[1], 0, service_peer_rx);
+	if (rc < 0) {
+		goto err;
+	}
+	return rc;
+err:
+	ERR(-rc, "Failed to create device for redirecting packets");
+	if (added) {
+		netlink_link_del(ifname[1]);
 	}
 	return rc;
 }
@@ -531,7 +559,7 @@ service_attach()
 	service_sysctl_fd = rc;
 	rc = sysctl_connect(service_sysctl_fd);
 	if (rc) {
-		WARN(0, "Can't connect to controller");
+		WARN(0, "Failed connect to controller");
 		if (!service_autostart_controller) {
 			goto err;
 		}
@@ -589,7 +617,7 @@ service_attach()
 	return 0;
 err:
 	service_detach();
-	ERR(-rc, "Can't attach service");
+	ERR(-rc, "Failed to attach service");
 	spinlock_unlock(&service_attach_lock);
 	return rc;
 }
@@ -610,6 +638,7 @@ service_detach()
 		ROUTE_IF_FOREACH(ifp) {
 			for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
 				dev = &(ifp->rif_dev[current->p_sid][i]);
+				// FIXME: Do we really need this ???
 				dev_close_fd(dev);
 			}
 		}
@@ -790,7 +819,7 @@ service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr, be16_t lpo
 }
 
 int
-redirect_dev_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt)
+redirect_dev_get_tx_packet(struct route_if *ifp, struct dev_pkt *pkt)
 {
 	int i, n, rc;
 	u_char s[GT_RSS_NQ_MAX];
@@ -805,7 +834,7 @@ redirect_dev_not_empty_txr(struct route_if *ifp, struct dev_pkt *pkt)
 	if (n == 0) {
 		return -ENODEV;
 	}
-	rc = dev_not_empty_txr(&service_redirect_dev, pkt);
+	rc = dev_get_tx_packet(&service_redirect_dev, pkt);
 	if (rc) {
 		return rc;
 	}
@@ -834,7 +863,7 @@ redirect_dev_transmit(struct route_if *ifp, int msg_type, struct dev_pkt *pkt)
 	msg->msg_type = msg_type;
 	msg->msg_ifindex = ifp->rif_index;
 	pkt->pkt_len += sizeof(*msg);
-	//dbg_rl(1, "redir");
+	dbg("redir");
 	dev_transmit(pkt);
 }
 
