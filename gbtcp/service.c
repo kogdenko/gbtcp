@@ -3,9 +3,12 @@
 
 #define CURMOD service
 
+#define MSG_ETHTYPE 0x0101
+
 struct service_msg {
 	uint16_t msg_type;
 	uint16_t msg_ifindex;
+	be16_t msg_orig_type;
 	struct eth_addr msg_orig_saddr;
 	struct eth_addr msg_orig_daddr;
 };
@@ -207,27 +210,32 @@ service_rssq_rx(struct dev *dev, void *data, int len)
 static void
 service_redirect_dev_rx(struct dev *dev, void *data, int len)
 {
-	int rc;
+	int rc, dst_sid;
 	struct tcp_stat tcps;
 	struct udp_stat udps;
 	struct ip_stat ips;
 	struct icmp_stat icmps;
 	struct arp_stat arps;
 	struct eth_hdr *eh;
-	struct eth_addr a;
 	struct route_if *ifp;
 	struct service_msg *msg;
 	struct in_context p;
 	struct dev_pkt pkt;
 
-	dbg("redir rx");
-	if (len < sizeof(*msg) + sizeof(*eh)) {
-		return;
+	if (len < sizeof(*eh)) {
+		// TODO: counter
 	}
 	eh = data;
-	memset(&a, 0, sizeof(a));
-	a.ea_bytes[5] = current->p_sid;
-	if (memcmp(a.ea_bytes, eh->eh_daddr.ea_bytes, sizeof(a))) {
+	if (eh->eh_type != MSG_ETHTYPE) {
+		return;
+	}
+	if (len < sizeof(*msg) + sizeof(*eh)) {
+		// TODO: counter
+		return;
+	}
+	dst_sid = eh->eh_daddr.ea_bytes[5];
+	if (dst_sid != current->p_sid) {
+		// TODO: counter
 		return;
 	}
 	msg = (struct service_msg *)((u_char *)data + len - sizeof(*msg));
@@ -235,6 +243,7 @@ service_redirect_dev_rx(struct dev *dev, void *data, int len)
 	if (ifp == NULL) {
 		return;
 	}
+	eh->eh_type = msg->msg_orig_type;
 	eh->eh_saddr = msg->msg_orig_saddr;
 	eh->eh_daddr = msg->msg_orig_daddr;	
 	len -= sizeof(*msg);
@@ -329,13 +338,23 @@ service_peer_rx(struct dev *dev, void *data, int len)
 	struct dev_pkt pkt;
 	struct service *s;
 
-	if (len < sizeof(struct service_msg) + sizeof(*eh)) {
+	if (len < sizeof(*eh)) {
+		// TODO: counter
+		return;
+	}
+	eh = data;
+	if (eh->eh_type != MSG_ETHTYPE) {
 		return;
 	}
 	s = container_of(dev, struct service, p_veth_peer);
 	src_sid = s->p_sid;
-	eh = data;
 	dst_sid = eh->eh_daddr.ea_bytes[5];
+	if (dst_sid >= GT_SERVICES_MAX || service_get_by_sid(dst_sid)->p_pid == 0) {
+		// TODO: counter
+		dbg("BAD Packet ?????");
+		return;
+	}
+	// TODO: check dst_sid
 	if (dst_sid == src_sid) {
 		return;
 	}
@@ -854,16 +873,18 @@ redirect_dev_transmit(struct route_if *ifp, int msg_type, struct dev_pkt *pkt)
 
 	msg = (struct service_msg *)((u_char *)pkt->pkt_data + pkt->pkt_len);
 	eh = (struct eth_hdr *)pkt->pkt_data;
+	msg->msg_orig_type = eh->eh_type;
 	msg->msg_orig_saddr = eh->eh_saddr;
 	msg->msg_orig_daddr = eh->eh_daddr;
+	eh->eh_type = MSG_ETHTYPE;
 	memset(eh->eh_saddr.ea_bytes, 0, sizeof(eh->eh_saddr));
 	memset(eh->eh_daddr.ea_bytes, 0, sizeof(eh->eh_daddr));
 	eh->eh_saddr.ea_bytes[5] = current->p_sid;
+	assert(pkt->pkt_sid < GT_SERVICES_MAX);
 	eh->eh_daddr.ea_bytes[5] = pkt->pkt_sid;
 	msg->msg_type = msg_type;
 	msg->msg_ifindex = ifp->rif_index;
 	pkt->pkt_len += sizeof(*msg);
-	dbg("redir");
 	dev_transmit(pkt);
 }
 

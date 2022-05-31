@@ -191,14 +191,11 @@ xdp_queue_free_frame(struct xdp_queue *q, uint64_t frame)
 void
 xdp_queue_deinit(struct xdp_queue *q)
 {
-	int size;
-
 	xsk_socket__delete(q->xq_xsk);
 	q->xq_xsk = NULL;
 	xsk_umem__delete(q->xq_umem);
 	q->xq_umem = NULL;
-	size = XDP_FRAME_NUM * XDP_FRAME_SIZE;
-	shm_free_pages(q->xq_buf, ROUND_UP(size, PAGE_SIZE));
+	sys_free(q->xq_buf);
 	q->xq_buf = NULL;
 }
 
@@ -211,7 +208,7 @@ xdp_queue_init(struct xdp_queue *q, const char *ifname, int queue_id)
 
 	memset(q, 0, sizeof(*q));
 	size = XDP_FRAME_NUM * XDP_FRAME_SIZE;
-	rc = shm_alloc_pages(&q->xq_buf, PAGE_SIZE, ROUND_UP(size, PAGE_SIZE));
+	rc = sys_posix_memalign(&q->xq_buf, PAGE_SIZE, size);
 	if (rc < 0) {
 		goto err;
 	}
@@ -274,7 +271,7 @@ xdp_dev_init(struct dev *dev)
 		ERR(-rc, "bpf_get_link_xdp_id('%d') failed", ifindex);
 		goto err;
 	}
-	dev->dev_xdp_queue = shm_malloc(sizeof(*dev->dev_xdp_queue));
+	dev->dev_xdp_queue = sys_malloc(sizeof(*dev->dev_xdp_queue));
 	if (dev->dev_xdp_queue == NULL) {
 		ERR(0, "No memory to allocate XDP queue");
 		rc = -ENOMEM;
@@ -287,7 +284,7 @@ xdp_dev_init(struct dev *dev)
 	}
 err:
 	ERR(-rc, "Failed to create XDP device '%s-%d'", dev->dev_ifname, dev->dev_queue_id);
-	shm_free(dev->dev_xdp_queue);
+	sys_free(dev->dev_xdp_queue);
 	dev->dev_xdp_queue = NULL;
 	return rc;
 }
@@ -297,9 +294,8 @@ xdp_dev_deinit(struct dev *dev)
 {
 	NOTICE(0, "Destroy XDP device '%s-%d'", dev->dev_ifname, dev->dev_queue_id);
 	xdp_queue_deinit(dev->dev_xdp_queue);
-	shm_free(dev->dev_xdp_queue);
+	sys_free(dev->dev_xdp_queue);
 	dev->dev_xdp_queue = NULL;
-
 }
 
 void *
@@ -393,16 +389,14 @@ xdp_dev_rx(struct dev *dev)
 
 	q = dev->dev_xdp_queue;
 	n = xsk_ring_cons__peek(&q->xq_rx, DEV_RX_BURST_SIZE, &idx_rx);
-	dbg("rc %d", n);
 	if (n == 0) {
 		return 0;
 	}
-	for (i = 0; i < n; ++i, ++idx_rx) {
-		addr = xsk_ring_cons__rx_desc(&q->xq_rx, idx_rx)->addr;
+	for (i = 0; i < n; ++i) {
+		addr = xsk_ring_cons__rx_desc(&q->xq_rx, idx_rx + i)->addr;
 		frame = xsk_umem__extract_addr(addr);
 		addr = xsk_umem__add_offset_to_addr(addr);
-		len = xsk_ring_cons__rx_desc(&q->xq_rx, idx_rx)->len;
-		dbg("call...");
+		len = xsk_ring_cons__rx_desc(&q->xq_rx, idx_rx + i)->len;
 		(*dev->dev_fn)(dev, xsk_umem__get_data(q->xq_buf, addr), len);
 		xdp_queue_free_frame(q, frame);
 	}
