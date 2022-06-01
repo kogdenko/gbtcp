@@ -7,6 +7,8 @@
 
 #define TX_CAN_REDIRECT (1 << 0)
 
+#define DEV_RX_BURST_SIZE 256
+#define DEV_TX_BURST_SIZE 64
 #define DEV_PKT_SIZE_MAX 2048
 #define DEV_QUEUE_HOST (-1)
 #define DEV_QUEUE_NONE (-2)
@@ -17,12 +19,23 @@
 
 typedef void (*dev_f)(struct dev *, void *, int);
 
+struct dev_ops {
+	int (*dev_init_op)(struct dev *);
+	void (*dev_deinit_op)(struct dev *);
+	int (*dev_rx_op)(struct dev *);
+	void *(*dev_get_tx_packet_op)(struct dev *, struct dev_pkt *);
+	void (*dev_put_tx_packet_op)(struct dev_pkt *);
+	void (*dev_transmit_op)(struct dev_pkt *);
+	void (*dev_tx_flush_op)(struct dev *);
+};
+
 struct dev {
 	union {
 		struct nm_desc *dev_nmd;
 		struct xdp_queue *dev_xdp_queue;
 	};
 	struct fd_event *dev_event;
+	struct dev_ops *dev_ops;
 	u_char dev_tx_throttled;
 	dev_f dev_fn;
 	struct dlist dev_list;

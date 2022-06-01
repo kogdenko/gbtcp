@@ -40,16 +40,52 @@ SConscript([
 
 PLATFORM = platform.system()
 
-srcs = []
-for f in Glob("gbtcp/*.c"):
-    srcs.append("gbtcp/%s" % f.name)
-for f in Glob("gbtcp/%s/*.c" % PLATFORM):
-    srcs.append("gbtcp/%s/%s" % (PLATFORM, f.name))
+env = Environment(CC = 'gcc')
+conf = Configure(env)
+
+srcs = [
+    'gbtcp/epoll.c',
+    'gbtcp/fd_event.c',
+    'gbtcp/file.c',
+    'gbtcp/htable.c',
+    'gbtcp/inet.c',
+    'gbtcp/ip_addr.c',
+    'gbtcp/list.c',
+    'gbtcp/mbuf.c',
+    'gbtcp/mod.c',
+    'gbtcp/pid.c',
+    'gbtcp/poll.c',
+    'gbtcp/route.c',
+    'gbtcp/signal.c',
+    'gbtcp/sockbuf.c',
+    'gbtcp/strbuf.c',
+    'gbtcp/sysctl.c',
+    'gbtcp/timer.c',
+    'gbtcp/controller.c',
+    'gbtcp/preload.c',
+    'gbtcp/api.c',
+    'gbtcp/log.c',
+    'gbtcp/arp.c',
+    'gbtcp/lptree.c',
+    'gbtcp/shm.c',
+    'gbtcp/sys.c',
+    'gbtcp/tcp.c',
+    'gbtcp/service.c',
+    'gbtcp/subr.c',
+    'gbtcp/dev.c',
+]
 
 if PLATFORM == "Linux":
+    srcs.append('gbtcp/Linux/netlink.c')
     ldflags.append("-ldl")
     ldflags.append('-lrt')
+    if not GetOption('without_xdp'):
+        if (conf.CheckHeader('linux/bpf.h') and conf.CheckLib('bpf')):
+            srcs.append('gbtcp/Linux/xdp.c')
+            cflags.append('-DHAVE_XDP')
+            ldflags.append('-lbpf')
 elif PLATFORM == 'FreeBSD':
+    srcs.append('gbtcp/FreeBSD/route.c')
     ldflags.append('-lexecinfo')
     ldflags.append('-lutil')
 else:
@@ -66,21 +102,12 @@ else:
     cflags.append('-DNDEBUG')
     suffix=""
 
-env = Environment(CC = 'gcc')
-
-conf = Configure(env)
-
 if not GetOption('without_netmap'):
     if conf.CheckHeader('net/netmap_user.h'):
+        srcs.append('gbtcp/netmap.c')
         cflags.append('-DHAVE_NETMAP')
         if not GetOption('without_vale'):
             cflags.append('-DHAVE_VALE')
-
-if platform.system() == "Linux" and not GetOption('without_xdp'):
-    if (conf.CheckHeader('linux/bpf.h') and conf.CheckLib('bpf')):
-        cflags.append('-DHAVE_XDP')
-        ldflags.append('-lbpf')
-#        srcs.append('xdp.c')
 
 if platform.architecture()[0] == "64bit":
     lib_path = '/usr/lib64'
