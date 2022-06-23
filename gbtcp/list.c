@@ -20,7 +20,7 @@ dlist_size(struct dlist *head)
 	return size;
 }
 
-int
+bool
 dlist_is_empty(struct dlist *head)
 {
 	return head->dls_next == head;

@@ -27,7 +27,7 @@ struct fd_poll {
 
 extern int fd_poll_epoch;
 
-void clean_fd_events();
+void clean_fd_events(void);
 void wait_for_fd_events2(int, uint64_t);
 #define check_fd_events() wait_for_fd_events2(0, 0)
 #define wait_for_fd_events() wait_for_fd_events2(1, TIMER_TIMEOUT)

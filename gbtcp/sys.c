@@ -64,7 +64,7 @@ sys_kevent_f sys_kevent_fn;
 
 #ifdef __linux__
 static void
-dlsym_all_os()
+dlsym_all_os(void)
 {
 	SYS_DLSYM(clone);
 	SYS_DLSYM(epoll_create1);
@@ -74,7 +74,7 @@ dlsym_all_os()
 }
 #else // __linux__
 static void
-dlsym_all_os()
+dlsym_all_os(void)
 {
 	SYS_DLSYM(kqueue);
 	SYS_DLSYM(kevent);
@@ -82,7 +82,7 @@ dlsym_all_os()
 #endif // __linux__
 
 void
-dlsym_all()
+dlsym_all(void)
 {
 	SYS_DLSYM(fork);
 	SYS_DLSYM(open);
@@ -135,7 +135,7 @@ dlsym_all()
 }
 
 int
-sys_fork()
+sys_fork(void)
 {
 	int rc;
 
@@ -861,7 +861,7 @@ sys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *to, const sigs
 }
 
 int
-sys_signal(int signum, void **pres, void (*handler)())
+sys_signal(int signum, void **pres, void (*handler)(int))
 {
 	int rc;
 	void (*res)(int);

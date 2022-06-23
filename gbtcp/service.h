@@ -57,6 +57,7 @@ struct service {
 	int p_fd;
 	uint64_t p_start_time;
 	int p_mbuf_garbage_max;
+	struct dlist p_dev_head;
 #ifndef HABE_VALE
 	struct dev p_veth_peer;
 #endif
@@ -83,16 +84,15 @@ struct service *service_get_by_sid(u_int);
 int service_init_shared(struct service *, int, int);
 void service_deinit_shared(struct service *, int);
 
-int service_init_private();
-void service_deinit_private();
+int service_init_private(void);
+void service_deinit_private(void);
 
-int service_attach();
-void service_detach();
-void service_unlock();
+int service_attach(void);
+void service_unlock(void);
 
-void service_account_opkt();
+void service_account_opkt(void);
 
-void service_update_rss_bindings();
+void service_update_rss_bindings(void);
 
 int service_can_connect(struct route_if *, be32_t, be32_t, be16_t, be16_t);
 
@@ -101,7 +101,7 @@ void redirect_dev_transmit(struct route_if *, int, struct dev_pkt *);
 
 int service_sigprocmask(int, const sigset_t *, sigset_t *);
 
-int service_fork();
+int service_fork(void);
 
 #ifdef __linux__
 int service_clone(int (*)(void *), void *, int, void *,	void *, void *, void *);

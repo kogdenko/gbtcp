@@ -43,7 +43,7 @@ log_init_early(const char *comm, u_int log_level)
 }
 
 int
-log_mod_init(void **pp)
+log_mod_init(void)
 {
 	int rc;
 
@@ -52,8 +52,7 @@ log_mod_init(void **pp)
 		return rc;
 	}
 	curmod->log_level = log_early_level;
-	sysctl_add_int("log.level", SYSCTL_WR, &curmod->log_level,
-	               LOG_EMERG, LOG_DEBUG); 
+	sysctl_add_int("log.level", SYSCTL_WR, &curmod->log_level, LOG_EMERG, LOG_DEBUG); 
 	return 0;
 }
 

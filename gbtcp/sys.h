@@ -10,7 +10,7 @@ do { \
 	assert(sys_##x##_fn != NULL); \
 } while (0)
 
-typedef pid_t (*sys_fork_f)();
+typedef pid_t (*sys_fork_f)(void);
 typedef int (*sys_open_f)(const char *, int, mode_t);
 //typedef int (*sys_stat_f)(const char *, struct stat *);
 //typedef int (*sys_fstat_f)(int, struct stat *);
@@ -56,18 +56,16 @@ typedef int (*sys_sigprocmask_f)(int, const sigset_t *, sigset_t *);
 typedef int (*sys_kill_f)(int, int);
 typedef void *(*sys_mmap_f)(void *, size_t, int, int, int, off_t);
 #ifdef __linux__
-typedef int (*sys_clone_f)(int (*)(void *), void *, int, void *,
-	void *, void *, void *);
+typedef int (*sys_clone_f)(int (*)(void *), void *, int, void *, void *, void *, void *);
 typedef int (*sys_epoll_create1_f)(int);
 typedef int (*sys_epoll_ctl_f)(int , int, int, struct epoll_event *);
 typedef int (*sys_epoll_wait_f)(int, struct epoll_event *, int, int);
-typedef int (*sys_epoll_pwait_f)(int, struct epoll_event *, int, int,
-	const sigset_t *);
+typedef int (*sys_epoll_pwait_f)(int, struct epoll_event *, int, int, const sigset_t *);
 typedef int (*sys_dup3_f)(int, int, int);
 #else // __linux__
-typedef int (*sys_kqueue_f)();
-typedef int (*sys_kevent_f)(int, const struct kevent *, int ,
-	struct kevent *, int, const struct timespec *);
+typedef int (*sys_kqueue_f)(void);
+typedef int (*sys_kevent_f)(int, const struct kevent *, int , struct kevent *, int,
+	const struct timespec *);
 #endif // __linux__
 
 extern sys_fork_f sys_fork_fn;
@@ -128,9 +126,9 @@ extern sys_kqueue_f sys_kqueue_fn;
 extern sys_kevent_f sys_kevent_fn;
 #endif /* __linux__ */
 
-void dlsym_all();
+void dlsym_all(void);
 
-int sys_fork();
+int sys_fork(void);
 int sys_open(const char *, int, mode_t);
 int sys_fopen(FILE **, const char *, const char *);
 int sys_opendir(DIR **, const char *);

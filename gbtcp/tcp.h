@@ -94,8 +94,8 @@ struct sock {
 			&so_get_binded_bucket(UNIQV(i))->htb_head, \
 		        so_binded_list)
 
-int tcp_mod_init();
-void tcp_mod_deinit();
+int tcp_mod_init(void);
+void tcp_mod_deinit(void);
 void tcp_mod_timer(struct timer *, u_char);
 
 int service_init_tcp(struct service *);
@@ -115,7 +115,7 @@ int sock_nread(struct file *fp);
 int so_input(int, struct in_context *, be32_t, be32_t, be16_t, be16_t);
 int so_input_err(int, struct in_context *, be32_t, be32_t, be16_t, be16_t);
 
-void sock_tx_flush();
+void sock_tx_flush(void);
 
 int so_socket6(struct sock **, int, int, int, int, int);
 #define so_socket(pso, domain, type, flags, ipproto) \

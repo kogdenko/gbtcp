@@ -6,8 +6,8 @@
 
 int poll_mod_init(void **);
 int poll_mod_attach(void *);
-void poll_mod_deinit();
-void poll_mod_detach();
+void poll_mod_deinit(void);
+void poll_mod_detach(void);
 
 int u_poll(struct pollfd *, int, uint64_t, const sigset_t *);
 

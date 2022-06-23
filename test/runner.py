@@ -1,7 +1,5 @@
 #!/usr/bin/python
 
-# test/runner.py -v  -N ../../open_source/netmap/ -i eth2
-
 import os
 import sys
 import time
@@ -35,10 +33,9 @@ g_runner_cpus = None
 tester_mac = None
 device_mac = None
 device_ip = None
-clean_on_exit = False
 g_report_count = 10
 g_skip_reports = 2
-g_sample_count = 5
+g_sample_count = SAMPLE_COUNT_MAX
 g_cooling_time = 2
 g_cpu_count_min = 1
 reload_modules = False
@@ -75,18 +72,19 @@ def insmod(module_name):
 
     system("insmod %s" % path)
 
-def measure_cpu_usage(reports, cpus):
-    # Skip first and last seconds
-    time.sleep(1)
-    percent = psutil.cpu_percent(reports - 2, True)
+def measure_cpu_usage(t, delay, cpus):
+    # Skip last second
+    assert(t > delay)
+    time.sleep(delay)
+    percent = psutil.cpu_percent(t - delay - 1, True)
     cpu_usage = []
     for cpu in cpus:
         cpu_usage.append(percent[cpu])
     return cpu_usage
 
 def start_process(cmd, env=None, shell=False):
-    if get_verbose() > 1:
-        print("$", cmd, "&")
+    if get_verbose():
+        print_log("$", cmd, "&")
     proc = subprocess.Popen(cmd.split(), env=env, shell=shell,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return proc
@@ -170,7 +168,7 @@ def start_nginx(concurrency, cpu_list, native):
 def stop_nginx():
     system("nginx -s quit", True)
 
-def run_generator(args):
+def run_tester(args):
     subnet = None
     reports = None
     device_mac = None
@@ -183,8 +181,8 @@ def run_generator(args):
             "concurrency=",
             ])
     except getopt.GetoptError as err:
-        print(err)
-        die("generator: Invalid options")
+        print_log(err)
+        die("tester: Invalid options")
 
     for o, a in opts:
         if o in ("-D"):
@@ -198,7 +196,7 @@ def run_generator(args):
    
     if (device_mac == None or subnet == None or
         reports == None or concurrency == None):
-        die("generator: Required option missed")
+        die("tester: Missed required options")
     
     device_ip = get_device_ip(subnet)
     cmd = "con-gen "
@@ -221,21 +219,24 @@ def run_generator(args):
 
     return (start_process(cmd), reports)
 
-def start_generator(concurrency):
+def start_tester(concurrency):
     assert(device_mac != None)
     args = ("-D %s --subnet %s --reports %d --concurrency=%d" %
         (device_mac, subnet, g_report_count, concurrency))
     if connect == None:
-        gen, _ = run_generator(args)
+        tester, _ = run_tester(args)
     else:
         try:
-            gen = socket.create_connection((connect, 9999))
+            tester = socket.create_connection((connect, 9999))
         except socket.error as e:
             die("Can't connect to tester: %s" % e)
-        gen.send((args + "\n").encode('utf-8'))
-    return gen
+        tester.send((args + "\n").encode('utf-8'))
+    return tester
 
-def wait_generator_socket(s):
+def wait_tester_socket(s):
+    # We should get bytes from recv() without any delay,
+    # because time passed in measure_cpu_usage() called before
+    s.settimeout(10)
     data = bytearray()
     while True:
         buf = s.recv(1024)
@@ -244,51 +245,45 @@ def wait_generator_socket(s):
             return data
         data += bytearray(buf)
 
-def print_proc_output(proc):
-    for pipe in [proc.stdout, proc.stderr]:
-        while True:
-            line = pipe.readline()
-            if not line:
-                break
-            print(line)
-
-def proc_wait(proc, proc_name):
+def wait_proc(proc):
     proc.wait()
-    if proc.returncode != 0:
-        print_proc_output(proc)
-        die("%s: Failed, returncode %d" % (proc_name, proc.returncode))
+    if proc.returncode == 0:
+        return True
+    else:
+        if get_verbose():
+            print_log("$ %s # $?=%d" % (proc.args[0], proc.returncode))
+            for pipe in [proc.stdout, proc.stderr]:
+                while True:
+                    line = pipe.readline()
+                    if not line:
+                        break
+                    print(line.decode('utf-8').strip())
+        return False
 
-def wait_generator_proc(con_gen, reports):
+def wait_tester_proc(tester, reports):
     # FIXME: Wait APR negotiaition
-    time.sleep(2)
-    cpu_usage = measure_cpu_usage(reports - 2, g_tester_cpus)
+    cpu_usage = measure_cpu_usage(reports, 2, g_tester_cpus)
 
-    proc_wait(con_gen, "generator")
+    rc = wait_proc(tester)
 
-    high = False 
-    for i in cpu_usage:
-        if i > 97:
-            high = True
-            break;
-    if high:
-        print("generator: Too high CPU usage", cpu_usage, ", Please, consider to add more CPUs")
-    elif get_verbose() > 0:
-        print("generator: Done, CPU usage", cpu_usage)
+    print("tester: %s: CPU=%s ... %s" % (tester.args[0], list_to_str(cpu_usage),
+        "Ok" if rc else "Failed"))
 
     data = bytearray()
     while True:
-        line = con_gen.stdout.readline()
-        print("line=", line)
+        line = tester.stdout.readline()
+        if get_verbose():
+            print(line.decode('utf-8').strip())
         if not line:
             break
         data += bytearray(line)
     return data
 
-def wait_generator(con_gen):
+def wait_tester(tester):
     if connect != None:
-        return wait_generator_socket(con_gen)
+        return wait_tester_socket(tester)
     else:
-        return wait_generator_proc(con_gen, g_report_count)
+        return wait_tester_proc(tester, g_report_count)
 
 def tester_loop():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -308,12 +303,12 @@ def tester_loop():
                     if i == '\n':
                         done = True
                         break
-            con_gen, reports = run_generator(data.strip())
-            data = wait_generator_proc(con_gen, reports)
+            tester, reports = run_tester(data.strip())
+            data = wait_tester_proc(tester, reports)
             conn.send(data)
             conn.close()
         except socket.error as exc:
-            print("Connection failed: %s" % exc)
+            print_log("Connection failed: %s" % exc)
 
 def get_nginx_ver(app):
     s = system("nginx -v")[2]
@@ -370,9 +365,7 @@ def parse_sample(data, reports, test_id):
 
     rows = s.split('\n')
     if len(rows) != reports:
-        print(("Invalid number of reports (%d) in output, should be %d"
-            % (len(rows), reports)))
-        print("Output:")
+        print_log(("runner: Invalid number of reports (%d, should be %d)" % (len(rows), reports)))
         print(s)
         return None
     sample = Sample()
@@ -380,8 +373,8 @@ def parse_sample(data, reports, test_id):
     for row in rows:
         cols = row.split()
         if len(cols) != 9:
-            print("Invalid number of columns (%d) in report, should be 9" % len(cols))
-            print("Report: '%s'" % row)
+            print_log("runner: Invalid number of columns (%d, should be 9)" % len(cols))
+            print(row)
             return None
         sample.records[CPS].append(int(cols[0]))
         sample.records[IPPS].append(int(cols[1]))
@@ -390,13 +383,12 @@ def parse_sample(data, reports, test_id):
         sample.records[OBPS].append(int(cols[4]))
         sample.records[CONCURRENCY].append(int(cols[8]))
     sample.test_id = test_id
-    sample.status = 1
-    for i in range(len(sample.records)):
-        record = sample.records[i][g_skip_reports:]
-        sample.outliers = find_outliers(record, None)
-        if sample.outliers != None:
-            sample.status = 0
-            break
+    record = sample.records[CPS][g_skip_reports:]
+    sample.outliers, _ = find_outliers(record, None)
+    if sample.outliers != None:
+        sample.status = 0
+    else:
+        sample.status = 1
     sample.id = app.add_sample(sample)
     return sample
 
@@ -410,18 +402,39 @@ def cool_down_cpu():
         t = int(math.ceil((g_cooling_time * 1000 - ms) / 1000))
         time.sleep(t)
 
+def print_test(test_id, sample, app, driver, concurrency, cpu_usage, low):
+    if driver:
+        d = "native"
+    else:
+        d = "netmap"
+
+    s = ("runner: %d:%d: %s:%s: concurrency=%d, CPU=%s ... " %
+        (test_id, sample.id, d, app, concurrency, list_to_str(cpu_usage)))
+
+    if sample.status == 0:
+        s += "Failed "
+        if sample.outliers != None:
+            s += ("(outliers=%s)" % list_to_str(sample.outliers))
+        else:
+            assert(low)
+            s += "(Low CPU usage)"
+    else:
+        s += "Passed"
+
+    print(s)
+
 def test_nginx(app, test_id, concurrency, cpus, native):
     nginx = start_nginx(concurrency, cpus, native)
+
     # Wait netmap interface goes up
     time.sleep(2)
     cool_down_cpu()
-    con_gen = start_generator(concurrency)
+    tester = start_tester(concurrency)
 
     # FIXME: Wait ARP negotiaition
-    time.sleep(g_skip_reports)
-    cpu_usage = measure_cpu_usage(g_report_count - 2, cpus)
+    cpu_usage = measure_cpu_usage(g_report_count, g_skip_reports, cpus)
 
-    data = wait_generator(con_gen)
+    data = wait_tester(tester)
 
     low = False
     for j in cpu_usage:
@@ -431,21 +444,18 @@ def test_nginx(app, test_id, concurrency, cpus, native):
 
     sample = parse_sample(data, g_report_count, test_id)
     if sample == None:
-        die("Invalid generator output. Please, check tester")
+        die("runner: Invalid tester output")
 
     if low:
         sample.status = 0
 
     stop_nginx()
-    proc_wait(nginx, "nginx")
+    wait_proc(nginx)
     set_stop_time()
 
-    print("nginx%s: test_id=%d, sample_id=%d, c=%d, %sCPU usage"
-        % ("(native)" if native else "", test_id, sample.id, concurrency,
-        "low " if low else ""),
-        cpu_usage, "outliers=", sample.outliers)
+    print_test(test_id, sample, "nginx", native, concurrency, cpu_usage, low)
 
-    return 0
+    return False if sample.status == 0 else True
 
 ################ MAIN ####################
 app = App()
@@ -476,7 +486,7 @@ for o, a in opts:
         usage()
         sys.exit()
     elif o in ("-v", "--verbose"):
-        set_verbose(get_verbose() + 1)
+        set_verbose(True)
     elif o in ("--dry-run"):
         g_dry_run = True
     elif o in ("-i"):
@@ -604,7 +614,7 @@ else:
 
 device_ip = get_device_ip(subnet) 
 system("ip a flush dev %s" % g_runner_interface)
-system("ip a d %s/32" % device_ip, True)
+#system("ip a d %s/32" % device_ip, True)
 system("ip a a dev %s %s/32" % (g_runner_interface, device_ip))
 system("ip r flush dev %s" % g_runner_interface)
 system("ip r d %s.1.1/32" % subnet, True)
@@ -624,9 +634,13 @@ g_stop_at_milliseconds = milliseconds() - 10000
 app_id = app.app_get_id("nginx", g_nginx_ver)
 
 use_native = False
+ts_planned = 0
+ts_pass = 0
+ts_failed = 0
 for i in range (g_cpu_count_min, len(g_runner_cpus) + 1):
     cpus = g_runner_cpus[:i]
     for concurrency in g_concurrency:
+        ts_planned += g_sample_count
         if g_dry_run:
             test_id = -1
             sample_count = 0
@@ -635,13 +649,19 @@ for i in range (g_cpu_count_min, len(g_runner_cpus) + 1):
             test_id, sample_count = app.add_test(desc, app_id, concurrency,
                 len(cpus), g_report_count)
 
-        if sample_count >= g_sample_count:
-            continue
-        sample_count = g_sample_count - sample_count
-        for j in range (0, sample_count):
-            if cpus != last_used_cpus:
+        for j in range (0, g_sample_count - sample_count):
+            if last_used_cpus != cpus:
+                last_used_cpus = cpus
                 # Wait interface become available
                 time.sleep(2)
                 set_txrx_queue_count(g_runner_interface, cpus)
-            test_nginx(app, test_id, concurrency, cpus, use_native)
-            last_used_cpus = cpus
+
+            rc = test_nginx(app, test_id, concurrency, cpus, use_native)
+            if rc:
+                ts_pass += 1
+            else:
+                ts_failed += 1
+
+print("TS (Test Samples) Planned: ", ts_planned)
+print("TS Pass: ", ts_pass)
+print("TS Failed: ",ts_failed)

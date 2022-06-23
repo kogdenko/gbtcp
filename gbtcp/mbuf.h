@@ -49,7 +49,7 @@ struct mbuf_pool {
 
 int mbuf_mod_init(void **);
 int mbuf_mod_service_init(struct service *);
-void mbuf_mod_deinit();
+void mbuf_mod_deinit(void);
 void mbuf_mod_service_deinit(struct service *);
 
 int mbuf_pool_alloc(struct mbuf_pool **, u_char, int, int, int);

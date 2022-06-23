@@ -50,7 +50,7 @@ do { \
 
 void log_init_early(const char *, u_int);
 
-int log_mod_init(void **);
+int log_mod_init(void);
 
 void log_scope_init(struct log_scope *, const char *);
 void log_scope_deinit(struct log_scope *);
@@ -65,8 +65,8 @@ void log_printf(int, const char *, int, const char *, ...)
 
 void log_hexdump_ascii(uint8_t *data, int cnt);
 
-void log_buf_init();
-struct strbuf *log_buf_alloc_space();
+void log_buf_init(void);
+struct strbuf *log_buf_alloc_space(void);
 
 const char *log_add_ipaddr(int, const void *);
 const char *log_add_sockaddr_in(const struct sockaddr_in *);

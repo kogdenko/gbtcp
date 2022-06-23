@@ -6,8 +6,8 @@
 #include "service.h"
 
 struct mod {
-	int (*mod_init)();
-	void (*mod_deinit)();
+	int (*mod_init)(void);
+	void (*mod_deinit)(void);
 	void (*mod_timer)(struct timer *, u_char);
 };
 
@@ -27,6 +27,6 @@ extern struct mod mods[MODS_MAX];
 
 const char *mod_name(int);
 int mod_init2(int, size_t);
-void mod_deinit1();
+void mod_deinit1(int);
 
 #endif // GBTCP_MOD_H

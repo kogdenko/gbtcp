@@ -76,7 +76,7 @@ sysctl_add_inet_stat(const char *proto, const char *name, uintptr_t off)
 }
 
 static void
-sysctl_add_inet_stat_tcp()
+sysctl_add_inet_stat_tcp(void)
 {
 	int i, off;
 	char name[64];
@@ -93,7 +93,7 @@ sysctl_add_inet_stat_tcp()
 }
 
 static void
-sysctl_add_inet_stat_udp()
+sysctl_add_inet_stat_udp(void)
 {
 #define SYSCTL_ADD_UDP_STAT(x) \
 	sysctl_add_inet_stat("udp", #x, field_off(struct service, p_udps.udps_##x));
@@ -102,7 +102,7 @@ sysctl_add_inet_stat_udp()
 }
 
 static void
-sysctl_add_inet_stat_ip()
+sysctl_add_inet_stat_ip(void)
 {
 #define SYSCTL_ADD_IP_STAT(x) \
 	sysctl_add_inet_stat("ip", #x, field_off(struct service, p_ips.ips_##x));
@@ -111,7 +111,7 @@ sysctl_add_inet_stat_ip()
 }
 
 static void
-sysctl_add_inet_stat_arp()
+sysctl_add_inet_stat_arp(void)
 {
 #define SYSCTL_ADD_ARP_STAT(x) \
 	sysctl_add_inet_stat("arp", #x, field_off(struct service, p_arps.arps_##x));
@@ -120,7 +120,7 @@ sysctl_add_inet_stat_arp()
 }
 
 int
-inet_mod_init()
+inet_mod_init(void)
 {
 	int rc;
 

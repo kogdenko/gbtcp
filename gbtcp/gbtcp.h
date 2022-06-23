@@ -175,7 +175,7 @@ extern __thread int gt_errno;
 extern int gt_preload_passthru;
 
 void gt_init(const char *, int);
-pid_t gt_fork();
+pid_t gt_fork(void);
 int gt_socket(int, int, int);
 int gt_connect(int, const struct sockaddr *, socklen_t);
 int gt_bind(int, const struct sockaddr *, socklen_t);

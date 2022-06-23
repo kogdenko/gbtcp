@@ -203,7 +203,7 @@ arp_entry_hash(void *udata)
 }
 
 static uint64_t
-arp_calc_reachable_time()
+arp_calc_reachable_time(void)
 {
 	double x, min, max;
 
@@ -217,8 +217,7 @@ arp_calc_reachable_time()
 }
 
 static int
-sysctl_arp_add(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *out)
+sysctl_arp_add(struct sysctl_conn *cp, void *udata, const char *new, struct strbuf *out)
 {
 	int rc;
 	struct ipaddr next_hop;
@@ -246,8 +245,7 @@ sysctl_arp_add(struct sysctl_conn *cp, void *udata,
 }
 
 static int
-sysctl_arp_del(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *out)
+sysctl_arp_del(struct sysctl_conn *cp, void *udata, const char *new, struct strbuf *out)
 {
 	int rc;
 	struct ipaddr next_hop;
@@ -279,7 +277,7 @@ sysctl_arp_entry(void *udata, const char *new, struct strbuf *out)
 }
 
 int
-arp_mod_init()
+arp_mod_init(void)
 {
 	int rc;
 
@@ -287,14 +285,13 @@ arp_mod_init()
 	if (rc) {
 		return rc;
 	}
-	rc = htable_init(&curmod->arp_htable, 32,
-	                 arp_entry_hash, HTABLE_SHARED|HTABLE_POWOF2);
+	rc = htable_init(&curmod->arp_htable, 32, arp_entry_hash, HTABLE_SHARED|HTABLE_POWOF2);
 	if (rc) {
 		curmod_deinit();
 		return rc;
 	}
-	sysctl_add_htable_list(GT_SYSCTL_ARP_LIST, SYSCTL_RD,
-	                       &curmod->arp_htable, sysctl_arp_entry);
+	sysctl_add_htable_list(GT_SYSCTL_ARP_LIST, SYSCTL_RD, &curmod->arp_htable,
+		sysctl_arp_entry);
 	sysctl_add(GT_SYSCTL_ARP_ADD, SYSCTL_WR, NULL, NULL, sysctl_arp_add);
 	sysctl_add(GT_SYSCTL_ARP_DEL, SYSCTL_WR, NULL, NULL, sysctl_arp_del);
 	curmod->arp_reachable_time = arp_calc_reachable_time();
@@ -302,7 +299,7 @@ arp_mod_init()
 }
 
 void
-arp_mod_deinit()
+arp_mod_deinit(void)
 {
 	htable_deinit(&curmod->arp_htable);
 	curmod_deinit();
@@ -344,8 +341,8 @@ static inline void
 arp_set_state(struct arp_entry *e, int state)
 {
 	INFO(0, "hit; state=%s->%s, next_hop=%s",
-	     arp_state_str(e->ae_state), arp_state_str(state),
-	     log_add_ipaddr(AF_INET, &e->ae_next_hop));
+		arp_state_str(e->ae_state), arp_state_str(state),
+		log_add_ipaddr(AF_INET, &e->ae_next_hop));
 	WRITE_ONCE(e->ae_state, state);
 	if (state == ARP_REACHABLE) {
 		timer_del(&e->ae_timer);
@@ -587,8 +584,7 @@ arp_update(struct arp_advert *adv)
 	uint32_t h;
 	struct htable_bucket *b;
 
-	INFO(0, "hit; next_hop=%s",
-	     log_add_ipaddr(AF_INET, &adv->arpa_next_hop));
+	INFO(0, "hit; next_hop=%s", log_add_ipaddr(AF_INET, &adv->arpa_next_hop));
 	if (!eth_addr_is_ucast(adv->arpa_addr.ea_bytes)) {
 		return;
 	}

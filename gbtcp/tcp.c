@@ -1401,11 +1401,11 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 			ntoh16(so->so_fport),
 			in->in_tcp_seq,
 			so_get_fd(lso), so_get_fd(so));
-		dbg("theend [%s] fport=%u, seq=%u, ack=%u, tos=%u",
+		/*dbg("theend [%s] fport=%u, seq=%u, ack=%u, tos=%u",
 			log_add_tcp_flags(so->so_ipproto, in->in_tcp_flags),
 			ntoh16(so->so_fport), in->in_tcp_seq, in->in_tcp_ack,
 			in->in_ih->ih_tos);
-		abort();
+		abort();*/
 		tcps.tcps_badsyn++;
 		tcp_reset(so, in);
 		return;

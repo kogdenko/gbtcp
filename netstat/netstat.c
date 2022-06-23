@@ -208,7 +208,7 @@ print_interface_stat(int width, unsigned long long value)
 }
 
 static void
-print_interface_banner()
+print_interface_banner(void)
 {
 	printf("%-*.*s", 16, 16, "Name");
 	printf(" %12.12s %12.12s", "Ipkts", "Idrop");
@@ -352,7 +352,7 @@ get_interfaces_stat(struct interface *stat)
 }
 
 static void
-print_interfaces_rate()
+print_interfaces_rate(void)
 {
 	int n, rc;
 	struct interface if2[2], *new, *old, *tmp, diff;
@@ -391,7 +391,7 @@ print_interfaces_rate()
 }
 
 static void
-print_interfaces()
+print_interfaces(void)
 {
 	int rc;
 	struct interface *ifp;
@@ -474,7 +474,7 @@ print_socket(const char *path, void *udata, const char *buf)
 }
 
 static void
-print_sockets()
+print_sockets(void)
 {
 	printf("Active Internet connections");
 	if (aflag) {
@@ -601,7 +601,7 @@ sysctl_inet_stats(const char *name, struct stat_entry *entries)
 }
 
 static int
-print_arp_stats()
+print_arp_stats(void)
 {
 	int rc;
 
@@ -647,7 +647,7 @@ print_arp_stats()
 }
 
 static int
-print_ip_stats()
+print_ip_stats(void)
 {
 	int rc;
 
@@ -718,7 +718,7 @@ print_ip_stats()
 }
 
 static int
-print_tcp_stats()
+print_tcp_stats(void)
 {
 	int i, rc, first;
 
@@ -936,7 +936,7 @@ print_tcp_stats()
 }
 
 static int
-print_udp_stats()
+print_udp_stats(void)
 {
 	int rc;
 	unsigned long long delivered;
@@ -987,7 +987,7 @@ print_udp_stats()
 }
 
 static void
-print_stats()
+print_stats(void)
 {
 	int rc;
 

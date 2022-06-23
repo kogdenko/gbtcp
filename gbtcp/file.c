@@ -22,8 +22,6 @@ file_init(struct file *fp, int type)
 static void
 file_aio_call(struct file_aio *aio, int fd, short revents)
 {
-	DBG(0, "hit; aio=%p, fd=%d, events=%s",
-	    aio, fd, log_add_poll_events(revents));
 	(*aio->faio_fn)(aio, fd, revents);
 }
 
@@ -35,19 +33,18 @@ file_mod_init()
 	rc = curmod_init();
 	if (rc == 0) {
 		curmod->file_nofile = upper_pow2_32(GT_FIRST_FD + 100000);
-		sysctl_add_int(GT_SYSCTL_FILE_NOFILE, SYSCTL_WR,
-		               &curmod->file_nofile,
-		               GT_FIRST_FD + 1, 1 << 26);
+		sysctl_add_int(GT_SYSCTL_FILE_NOFILE, SYSCTL_WR, &curmod->file_nofile,
+			GT_FIRST_FD + 1, 1 << 26);
 	}
 	return rc;
 }
 
-void
+/*void
 file_mod_deinit()
 {
 	sysctl_del("file");
 	curmod_deinit();
-}
+}*/
 
 int
 init_files(struct service *s)
@@ -125,9 +122,6 @@ file_alloc3(struct file **fpp, int fd, int type)
 	if (rc == 0) {
 		fp = *fpp;
 		file_init(fp, type);
-		DBG(0, "ok; fp=%p, fd=%d", fp, file_get_fd(fp));
-	} else {
-		DBG(-rc, "failed;");
 	}
 	return rc;
 }
@@ -159,14 +153,12 @@ file_get(int fd, struct file **fpp)
 void
 file_free(struct file *fp)
 {
-	DBG(0, "hit; fp=%p, fd=%d", fp, file_get_fd(fp));
 	mbuf_free(&fp->fl_mbuf);
 }
 
 void
 file_free_rcu(struct file *fp)
 {
-	DBG(0, "hit; fp=%p, fd=%d", fp, file_get_fd(fp));
 	mbuf_free_rcu(&fp->fl_mbuf);
 }
 
@@ -184,7 +176,7 @@ file_close(struct file *fp)
 			u_epoll_close(fp);
 			break;
 		default:
-			assert(!"bad fl_type");
+			assert(!"Bad file type");
 		}
 	}
 }
@@ -268,7 +260,6 @@ file_wakeup(struct file *fp, short revents)
 
 	assert(revents);
 	fd = file_get_fd(fp);
-	DBG(0, "hit; fd=%d, revents=%s", fd, log_add_poll_events(revents));
 	DLIST_FOREACH_SAFE(aio, &fp->fl_aio_head, faio_list, tmp) {
 		file_aio_call(aio, fd, revents);
 	}
@@ -311,7 +302,6 @@ file_get_events(struct file *fp)
 	} else {
 		revents = 0;
 	}
-	DBG(0, "hit; events=%s", log_add_poll_events(revents));
 	return revents;
 }
 
@@ -333,7 +323,6 @@ file_aio_add(struct file *fp, struct file_aio *aio, gt_aio_f fn)
 		fd = file_get_fd(fp);
 		aio->faio_fn = fn;
 		DLIST_INSERT_HEAD(&fp->fl_aio_head, aio, faio_list);
-		DBG(0, "hit; aio=%p, fd=%d", aio, fd);
 		revents = file_get_events(fp);
 		if (revents) {
 			file_aio_call(aio, fd, revents);
@@ -345,7 +334,6 @@ void
 file_aio_cancel(struct file_aio *aio)
 {
 	if (file_aio_is_added(aio)) {
-		DBG(0, "hit; aio=%p", aio);
 		aio->faio_fn = NULL;
 		DLIST_REMOVE(aio, faio_list);
 	}

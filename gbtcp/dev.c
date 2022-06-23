@@ -1,8 +1,9 @@
+// GPL v2 License
 #include "internals.h"
 
 #define CURMOD dev
 
-static DLIST_HEAD(dev_head);
+//static DLIST_HEAD(dev_head);
 
 #ifdef HAVE_NETMAP
 extern struct dev_ops netmap_dev_ops;
@@ -25,6 +26,8 @@ dev_rxtx(void *udata, short revents)
 	}
 	if (revents & POLLIN) {
 		rc = (*dev->dev_ops->dev_rx_op)(dev);
+	} else {
+		rc = 0;
 	}
 	return rc;
 }
@@ -39,7 +42,7 @@ dev_init(struct dev *dev, const char *ifname, int queue_id, dev_f dev_fn)
 	strzcpy(dev->dev_ifname, ifname, sizeof(dev->dev_ifname));
 	dev->dev_queue_id = queue_id;
 	dev->dev_fd = -1;
-	if (1) {
+	if (0) {
 		dev->dev_ops = &xdp_dev_ops;
 	} else {
 		dev->dev_ops = &netmap_dev_ops;
@@ -52,26 +55,28 @@ dev_init(struct dev *dev, const char *ifname, int queue_id, dev_f dev_fn)
 	sys_fcntl(fd, F_SETFD, FD_CLOEXEC);
 	rc = fd_event_add(&dev->dev_event, fd, dev, dev_rxtx);
 	if (rc) {
-		(*dev->dev_ops->dev_deinit_op)(dev);
+		(*dev->dev_ops->dev_deinit_op)(dev, false);
 		return rc;
 	}
 	dev->dev_fd = fd;
 	dev->dev_fn = dev_fn;
-	DLIST_INSERT_TAIL(&dev_head, dev, dev_list);
+	DLIST_INSERT_TAIL(&current->p_dev_head, dev, dev_list);
 	dev_rx_on(dev);
 	return 0;
 }
 
 void
-dev_deinit(struct dev *dev)
+dev_deinit(struct dev *dev, bool cloexec)
 {
 	if (dev_is_inited(dev)) {
-		DLIST_REMOVE(dev, dev_list);
-		fd_event_del(dev->dev_event);
-		dev->dev_event = NULL;
-		(*dev->dev_ops->dev_deinit_op)(dev);
-		dev->dev_fn = NULL;
-		dev->dev_fd = -1;
+		if (!cloexec) {
+			DLIST_REMOVE(dev, dev_list);
+			fd_event_del(dev->dev_event);
+			dev->dev_event = NULL;
+			dev->dev_fn = NULL;
+			dev->dev_fd = -1;
+		}
+		(*dev->dev_ops->dev_deinit_op)(dev, cloexec);
 	}
 }
 
@@ -147,7 +152,7 @@ dev_tx_flush()
 {
 	struct dev *dev;
 
-	DLIST_FOREACH(dev, &dev_head, dev_list) {
+	DLIST_FOREACH(dev, &current->p_dev_head, dev_list) {
 		(*dev->dev_ops->dev_tx_flush_op)(dev);
 	}
 }

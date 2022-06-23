@@ -40,7 +40,7 @@ struct file {
 
 extern int file_sizeof;
 
-int file_mod_init();
+int file_mod_init(void);
 
 int init_files(struct service *);
 void deinit_files(struct service *);

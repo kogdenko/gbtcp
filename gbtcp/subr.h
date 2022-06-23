@@ -306,17 +306,17 @@ ssize_t send_record(int, const void *, size_t, int);
 int read_rss_key(const char *, u_char *);
 int read_rss_queue_num(const char *);
 
-pid_t gtl_gettid();
+pid_t gtl_gettid(void);
 int read_proc_comm(char *, int);
 
-uint64_t rdtsc();
+uint64_t rdtsc(void);
 
-uint64_t sleep_compute_hz();
+uint64_t sleep_compute_hz(void);
 
 int set_affinity(int);
 
-uint64_t rand64();
-uint32_t rand32();
+uint64_t rand64(void);
+uint32_t rand32(void);
 
 // to string
 const char *tcp_state_str(int tcp_state);
@@ -338,7 +338,7 @@ int iovec_accum_len(const struct iovec *, int);
 void print_backtrace(int);
 
 void set_hz(uint64_t);
-void rd_nanoseconds();
+void rd_nanoseconds(void);
 
 static inline void
 read_once(const volatile void *p, void *data, int size)

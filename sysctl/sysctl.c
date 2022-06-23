@@ -286,7 +286,7 @@ read_file(const char *path)
 }
 
 static void
-usage()
+usage(void)
 {
 	outf(
 	"Usage: sysctl [options] [variable[=name] ...]\n"

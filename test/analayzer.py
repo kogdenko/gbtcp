@@ -11,7 +11,7 @@ g_show_plot = False
 g_save_plot = None
 g_sample_ids = []
 g_test_ids = []
-g_skip_reports = 0
+g_skip_reports = 2
 g_record = CPS
 g_show = None
 g_clean_test = False
@@ -22,13 +22,50 @@ def usage():
     print("\tverbose: Be verbose")
     print("\ttest-id {id,id..}: Specify test id")
     print("\tsample-id {id,id...}: Specify sample id")
-    print("\tskip-reports {num}: Skip first num reports")
+    print("\tskip-reports {num}: Skip first num reports (default: %d)" % g_skip_reports)
     print("\tshow {git-commit}: Print all tests regarding to specified commit")
     print("\tshow {native}: Print all native tests")
     print("\tshow-plot: Show plot spicified by test-id or sample-id")
     print("\tsave-plot: Save plot spicified by test-id or sample-id")
     sys.exit(0)
 
+def make_plot(x, y, error, legend, verbose):
+    std = int(numpy.std(y))
+    if error == None:
+        error = [std] * len(y)
+    if x == None:
+        x = range(0, len(y))
+    plot.errorbar(x, y, error, label=legend)
+    if not verbose:
+        return;
+    x_array = numpy.array(x)
+    y_array = numpy.array(y)
+    # y = k*x + b
+    # degree = 1
+    kb = numpy.polyfit(x_array, y_array, 1)
+    k = kb[0]
+    b = kb[1]
+    x0 = 0
+    x1 = len(y) - 1
+    y0 = k * x0 + b
+    y1 = k * x1 + b
+    mean = int(numpy.mean(y))
+    mean, std = round_val(mean, std)
+    outliers, angle = find_outliers(y, error)
+    print("mean=%d, std=%d (%.2f%%), angle=%.2f%%, outliers=" %
+        (mean, std, round(std/mean*100, 2), round(angle, 2)), outliers)
+    plot.plot([x0, x1], [y0, y1])
+
+def get_sample(app, sample_id):
+    sample = app.get_sample(sample_id) 
+    if sample == None:
+        die("No sample with id=%d" % sample_id)
+    return sample
+
+def get_sample_record1(sample):
+    return get_sample_record(sample, g_record)[g_skip_reports:]
+
+### MAIN
 try:
     opts, args = getopt.getopt(sys.argv[1:], "hv", [
         "help",
@@ -90,46 +127,6 @@ for o, a in opts:
         g_record = PPS
     elif o in ("--bps"):
         g_record = BPS
-
-def make_plot(x, y, error, legend, verbose):
-    std = None
-    if error == None:
-        std = int(numpy.std(y))
-        error = [std] * len(y)
-    if x == None:  
-        x = range(0, len(y))
-    plot.errorbar(x, y, error, label=legend)
-    if not verbose:
-        return;
-    x_array = numpy.array(x)
-    y_array = numpy.array(y)
-    # y = k*x + b
-    # degree = 1
-    kb = numpy.polyfit(x_array, y_array, 1)
-    k = kb[0]
-    b = kb[1]
-    x0 = 0
-    x1 = len(y) - 1
-    y0 = k * x0 + b
-    y1 = k * x1 + b
-    mean = int(numpy.mean(y))
-    if std == None:
-         std = int(numpy.std(y))
-    mean, std = round_val(mean, std)
-    outliers = find_outliers(y, error)
-    angle = abs(y1 - y0)/((y1 + y0) / 2);
-    print("mean=%d, std=%d (%.2f%%), angle=%.2f%%, outliers=" %
-        (mean, std, round(std/mean*100, 2), round(angle*100, 2)), outliers)
-    plot.plot([x0, x1], [y0, y1])
-
-def get_sample(app, sample_id):
-    sample = app.get_sample(sample_id) 
-    if sample == None:
-        die("No sample with id=%d" % sample_id)
-    return sample
-
-def get_sample_record1(sample):
-    return get_sample_record(sample, g_record)[g_skip_reports:]
 
 app = App()
 

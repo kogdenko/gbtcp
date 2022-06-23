@@ -11,6 +11,7 @@ cflags = [
     '-pthread',
     '-fPIC',
     '-D_LIBC_REENTRANT',
+    '-Wstrict-prototypes',
     '-Wunused-variable',
 ]
 

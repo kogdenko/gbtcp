@@ -61,7 +61,7 @@ check_heap(const char *msg)
 #endif
 
 int
-shm_mod_init()
+shm_mod_init(void)
 {
 	int rc;
 
@@ -69,8 +69,7 @@ shm_mod_init()
 	if (rc) {
 		return rc;
 	}
-	sysctl_add_int("shm.n_allocated_pages", SYSCTL_RD,
-	               &curmod->shm_n_allocated_pages, 0, 0);
+	sysctl_add_int("shm.n_allocated_pages", SYSCTL_RD, &curmod->shm_n_allocated_pages, 0, 0);
 	return 0;
 }
 
@@ -129,19 +128,19 @@ shm_virt_to_page(uintptr_t addr)
 }
 
 void
-shm_lock()
+shm_lock(void)
 {
 	spinlock_lock(&shared->shm_lock);
 }
 
 void
-shm_unlock()
+shm_unlock(void)
 {
 	spinlock_unlock(&shared->shm_lock);
 }
 
 static void
-shm_unlock_and_free_garbage()
+shm_unlock_and_free_garbage(void)
 {
 	struct dlist head;
 
@@ -183,7 +182,7 @@ shm_garbage_pop(struct dlist *dst, u_char sid)
 }
 
 int
-shm_init()
+shm_init(void)
 {
 	int i, rc, n_pages, sb_size;
 	size_t size;
@@ -248,7 +247,7 @@ err:
 }
 
 int
-shm_attach()
+shm_attach(void)
 {
 	int rc;
 	size_t size;
@@ -283,7 +282,7 @@ err:
 }
 
 void
-shm_detach()
+shm_detach(void)
 {
 	void *tmp;
 	size_t size;
@@ -301,7 +300,7 @@ shm_detach()
 }
 
 void
-shm_deinit()
+shm_deinit(void)
 {
 	int i;
 

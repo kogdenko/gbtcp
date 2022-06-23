@@ -16,7 +16,7 @@ struct dlist {
 void dlist_init(struct  dlist *);
 void dlist_init_rcu(struct dlist *);
 int dlist_size(struct dlist *);
-int dlist_is_empty(struct dlist *);
+bool dlist_is_empty(struct dlist *);
 struct dlist *dlist_first(struct dlist *);
 struct dlist *dlist_last(struct dlist *);
 void dlist_insert_head(struct dlist *, struct dlist *);

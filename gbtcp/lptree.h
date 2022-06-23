@@ -26,7 +26,7 @@ struct lptree {
 int lptree_mod_init(void **);
 int lptree_mod_attach(void *);
 void lptree_mod_deinit(void *);
-void lptree_mod_detach();
+void lptree_mod_detach(void);
 
 int lptree_init(struct lptree *);
 void lptree_deinit(struct lptree *);

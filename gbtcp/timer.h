@@ -37,7 +37,7 @@ struct timer_ring {
 
 int init_timers(struct service *);
 void deinit_timers(struct service *);
-void run_timers();
+void run_timers(void);
 void migrate_timers(struct service *, struct service *);
 
 void timer_init(struct timer *);

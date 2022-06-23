@@ -1,3 +1,4 @@
+// GPL v2 License
 #include <linux/if_xdp.h>
 #include <linux/if_link.h>
 #include <linux/bpf.h>
@@ -13,9 +14,9 @@
 	(2 * (XSK_RING_CONS__DEFAULT_NUM_DESCS + XSK_RING_PROD__DEFAULT_NUM_DESCS))
 #define XDP_FRAME_INVALID UINT64_MAX
 
-static void xdp_queue_deinit(struct xdp_queue *);
+static void xdp_queue_deinit(struct xdp_queue *, bool);
 static int xdp_dev_init(struct dev *);
-static void xdp_dev_deinit(struct dev *);
+static void xdp_dev_deinit(struct dev *, bool);
 static int xdp_dev_rx(struct dev *);
 static void *xdp_dev_get_tx_packet(struct dev *, struct dev_pkt *);
 static void xdp_dev_put_tx_packet(struct dev_pkt *);
@@ -115,19 +116,21 @@ xdp_queue_init(struct xdp_queue *q, const char *ifname, int queue_id)
 	q->xq_fd = xsk_socket__fd(q->xq_xsk);
 	return q->xq_fd;
 err:
-	xdp_queue_deinit(q);
+	xdp_queue_deinit(q, false);
 	return rc;
 }
 
 static void
-xdp_queue_deinit(struct xdp_queue *q)
+xdp_queue_deinit(struct xdp_queue *q, bool cloexec)
 {
 	xsk_socket__delete(q->xq_xsk);
-	q->xq_xsk = NULL;
 	xsk_umem__delete(q->xq_umem);
-	q->xq_umem = NULL;
 	sys_free(q->xq_buf);
-	q->xq_buf = NULL;
+	if (!cloexec) {
+		q->xq_xsk = NULL;
+		q->xq_umem = NULL;
+		q->xq_buf = NULL;
+	}
 }
 
 static int
@@ -170,12 +173,15 @@ err:
 }
 
 static void
-xdp_dev_deinit(struct dev *dev)
+xdp_dev_deinit(struct dev *dev, bool cloexec)
 {
 	NOTICE(0, "Destroy XDP device '%s-%d'", dev->dev_ifname, dev->dev_queue_id);
-	xdp_queue_deinit(dev->dev_xdp_queue);
+	assert(dev->dev_xdp_queue != NULL);
+	xdp_queue_deinit(dev->dev_xdp_queue, cloexec);
 	sys_free(dev->dev_xdp_queue);
-	dev->dev_xdp_queue = NULL;
+	if (!cloexec) {
+		dev->dev_xdp_queue = NULL;
+	}
 }
 
 static int
@@ -187,6 +193,7 @@ xdp_dev_rx(struct dev *dev)
 	struct xdp_queue *q;
 
 	q = dev->dev_xdp_queue;
+	idx_rx = 0;
 	n = xsk_ring_cons__peek(&q->xq_rx, DEV_RX_BURST_SIZE, &idx_rx);
 	if (n == 0) {
 		return 0;

@@ -109,10 +109,10 @@ typedef void (*route_msg_f)(struct route_msg *, void *);
 #define ROUTE_IF_FOREACH_RCU(ifp) \
 	DLIST_FOREACH_RCU(ifp, route_if_head(), rif_list)
 
-int route_mod_init();
-void route_mod_deinit();
+int route_mod_init(void);
+void route_mod_deinit(void);
 
-struct dlist *route_if_head();
+struct dlist *route_if_head(void);
 struct route_if *route_if_get_by_index(int);
 //struct route_if *route_if_get_by_ifname(const char *, int, int);
 
@@ -125,7 +125,7 @@ int route_get4(be32_t, struct route_entry *);
 int route_get_tx_packet(struct route_if *, struct dev_pkt *, int);
 void route_transmit(struct route_if *, struct dev_pkt *);
 
-int route_open();
+int route_open(void);
 int route_read(int, route_msg_f, void *);
 int route_dump(route_msg_f, void *);
 

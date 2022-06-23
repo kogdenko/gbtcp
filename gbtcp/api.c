@@ -1,4 +1,4 @@
-// gpl2
+// GPL vs License
 #include "internals.h"
 
 #define CURMOD api
@@ -8,20 +8,20 @@ static __thread int api_locked;
 __thread int gt_errno;
 
 #define API_LOCK \
-	if (api_lock(__func__)) { \
+	if (api_lock()) { \
 		return -1; \
 	}
 
 #define API_UNLOCK api_unlock()
 
 static inline int
-api_lock(const char *fn_name)
+api_lock(void)
 {
 	int rc;
 
 	if (api_locked == 0) {
 		if (current == NULL) {
-			rc = service_attach(fn_name);
+			rc = service_attach();
 			if (rc) {
 				GT_RETURN(-ECANCELED);
 			}
@@ -33,7 +33,7 @@ api_lock(const char *fn_name)
 }
 
 static inline void
-api_unlock()
+api_unlock(void)
 {
 	assert(api_locked > 0);
 	api_locked--;
@@ -55,7 +55,7 @@ gt_init(const char *comm, int log_level)
 }
 
 pid_t
-gt_fork()
+gt_fork(void)
 {
 	int rc;
 
@@ -209,8 +209,7 @@ gt_listen(int fd, int backlog)
 }
 
 int
-gt_accept4_locked(int lfd, struct sockaddr *addr, socklen_t *addrlen,
-	int flags)
+gt_accept4_locked(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
 	int rc;
 	struct sock *so, *lso;
@@ -748,8 +747,7 @@ gt_aio_set(int fd, gt_aio_f fn)
 }
 
 ssize_t
-gt_aio_recvfrom(int fd, struct iovec *iov, int flags,
-	struct sockaddr *addr, socklen_t *addrlen)
+gt_aio_recvfrom(int fd, struct iovec *iov, int flags, struct sockaddr *addr, socklen_t *addrlen)
 {
 	ssize_t rc;
 	struct sock *so;

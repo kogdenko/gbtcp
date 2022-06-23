@@ -222,7 +222,7 @@ struct in_context {
 #define IP4_HDR_LEN(ver_ihl) (((ver_ihl) & 0x0f) << 2)
 #define TCP_HDR_LEN(data_off) ((data_off & 0xf0) >> 2)
 
-int inet_mod_init();
+int inet_mod_init(void);
 
 void in_context_init(struct in_context *, void *, int);
 int eth_input(struct in_context *);

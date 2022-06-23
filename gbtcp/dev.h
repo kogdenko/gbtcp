@@ -21,7 +21,7 @@ typedef void (*dev_f)(struct dev *, void *, int);
 
 struct dev_ops {
 	int (*dev_init_op)(struct dev *);
-	void (*dev_deinit_op)(struct dev *);
+	void (*dev_deinit_op)(struct dev *, bool);
 	int (*dev_rx_op)(struct dev *);
 	void *(*dev_get_tx_packet_op)(struct dev *, struct dev_pkt *);
 	void (*dev_put_tx_packet_op)(struct dev_pkt *);
@@ -58,13 +58,12 @@ struct dev_pkt {
 };
 
 int dev_init(struct dev *, const char *, int, dev_f);
-void dev_deinit(struct dev *);
-void dev_close_fd(struct dev *);
+void dev_deinit(struct dev *, bool);
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);
 int dev_get_tx_packet(struct dev *, struct dev_pkt *);
 void dev_put_tx_packet(struct dev_pkt *);
 void dev_transmit(struct dev_pkt *);
-void dev_tx_flush();
+void dev_tx_flush(void);
 
 #endif // GBTCP_DEV_H

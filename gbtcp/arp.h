@@ -13,8 +13,8 @@ struct arp_advert {
 	int arpa_override;
 };
 
-int arp_mod_init();
-void arp_mod_deinit();
+int arp_mod_init(void);
+void arp_mod_deinit(void);
 void arp_mod_timer(struct timer *, u_char);
 
 int service_init_arp(struct service *);

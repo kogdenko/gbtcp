@@ -26,7 +26,6 @@ timer_ring_init(struct service *s, uint64_t t, int ring_id, uint64_t seg_shift)
 	for (i = 0; i < TIMER_RING_SIZE; ++i) {
 		htable_bucket_init(ring->tmr_segs + i);
 	}
-	INFO(0, "ok; ring=%d, seg=%llu", ring_id, 1llu << ring->tmr_seg_shift);
 	return 0;
 }
 
@@ -132,7 +131,7 @@ migrate_timers_in_seg(u_char sid, timer_seg_t *dst_seg, timer_seg_t *src_seg)
 	while (!dlist_is_empty(&src_seg->htb_head)) {
 		timer = DLIST_FIRST(&src_seg->htb_head, struct timer, tm_list);
 		DLIST_REMOVE(timer, tm_list);
-		// timer_del executed while migrate_timers
+		// timer_del() can be executed while migrate_timers()
 		WRITE_ONCE(timer->tm_sid, sid);
 		DLIST_INSERT_TAIL(&dst_seg->htb_head, timer, tm_list);
 	}
@@ -237,8 +236,6 @@ timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 	SEG_LOCK(seg);
 	DLIST_INSERT_HEAD(&seg->htb_head, timer, tm_list);
 	SEG_UNLOCK(seg);
-	DBG(0, "ok; timer=%p, mod_id=%d, fn_id=%d, ring=%d, seg_id=%hu",
-	    timer, mod_id, fn_id, ring_id, seg_id);
 }
 
 void
@@ -265,6 +262,5 @@ restart:
 		DLIST_REMOVE(timer, tm_list);
 		SEG_UNLOCK(seg);
 		timer->tm_ring_id = TIMER_RING_POISON;
-		DBG(0, "ok; timer=%p", timer);
 	}
 }

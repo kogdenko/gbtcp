@@ -30,8 +30,8 @@ typedef int (*sysctl_list_next_f)(void *, const char *, struct strbuf *);
 typedef int (*sysctl_list_f)(void *, const char *,
 	const char *, struct strbuf *);
 
-int sysctl_root_init();
-void sysctl_root_deinit();
+int sysctl_root_init(void);
+void sysctl_root_deinit(void);
 
 void sysctl_make_sockaddr_un(struct sockaddr_un *, int);
 
@@ -56,8 +56,7 @@ void sysctl_add_int(const char *, int, int *, int, int);
 void sysctl_add_int64(const char *, int, int64_t *, int64_t, int64_t);
 void sysctl_add_uint64(const char *, int, uint64_t *, int64_t, int64_t);
 
-void sysctl_add_list(const char *, int, void *,
-	sysctl_list_next_f, sysctl_list_f);
+void sysctl_add_list(const char *, int, void *, sysctl_list_next_f, sysctl_list_f);
 
 int sysctl_del(const char *);
 

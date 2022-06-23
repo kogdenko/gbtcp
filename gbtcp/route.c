@@ -436,7 +436,7 @@ route_monitor_handler(void *udata, short revent)
 }
 
 static void
-route_monitor_stop()
+route_monitor_stop(void)
 {
 	if (route_monitor_fd != -1) {
 		sys_close(route_monitor_fd);
@@ -449,7 +449,7 @@ route_monitor_stop()
 }
 
 static int
-route_monitor_start()
+route_monitor_start(void)
 {
 	int rc;
 
@@ -523,8 +523,7 @@ sysctl_route_if_list_next(void *udata, const char *ident, struct strbuf *out)
 }
 
 static int
-sysctl_route_if_list(void *udata, const char *ident, const char *new,
-	struct strbuf *out)
+sysctl_route_if_list(void *udata, const char *ident, const char *new, struct strbuf *out)
 {
 	int ifindex;
 	uint64_t rx_pkts, rx_drop, rx_bytes, tx_pkts, tx_drop, tx_bytes;
@@ -629,8 +628,7 @@ sysctl_route_list_next(void *udata, const char *ident, struct strbuf *out)
 }
 
 static int
-sysctl_route_list(void *udata, const char *ident, const char *new,
-	struct strbuf *out)
+sysctl_route_list(void *udata, const char *ident, const char *new, struct strbuf *out)
 {
 	int id, pfx;
 	be32_t dst;
@@ -654,7 +652,7 @@ sysctl_route_list(void *udata, const char *ident, const char *new,
 }
 
 int
-route_mod_init()
+route_mod_init(void)
 {
 	int rc;
 
@@ -688,12 +686,12 @@ route_mod_init()
 		sysctl_route_list_next, sysctl_route_list);
 	return 0;
 err:
-	route_mod_deinit(curmod);
+	route_mod_deinit();
 	return rc;
 }
 
 void
-route_mod_deinit()
+route_mod_deinit(void)
 {
 	sysctl_del(GT_SYSCTL_ROUTE);
 	route_monitor_stop();

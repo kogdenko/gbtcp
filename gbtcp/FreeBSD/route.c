@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2 License
 #include "../internals.h"
 
 #define REQUIRE(type) \

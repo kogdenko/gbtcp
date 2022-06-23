@@ -4,6 +4,7 @@ import sys
 import time
 import platform
 import subprocess
+import datetime
 import sqlite3
 import numpy
 
@@ -18,11 +19,16 @@ BPS = 7
 
 SAMPLE_COUNT_MAX = 20
 
-g_verbose = 0
+g_verbose = False
+
+def print_log(*args, **kwargs):
+    now = datetime.datetime.now()
+    s = now.strftime("%Y-%m-%d %H:%M:%S.%f: ")
+    sys.stdout.write(s)
+    print(*args, **kwargs)
 
 def die(s):
-    print(s)
-    time.sleep(1000)
+    print_log(s)
     sys.exit(1)
 
 def upper_pow2_32(x):
@@ -36,11 +42,7 @@ def upper_pow2_32(x):
     x += 1
     return x;
 
-def printe(*args, **kwargs):
-#    print('\033[91m', *args, **kwargs, '\033[0m')
-    print(*args, **kwargs)
-
-def bytes_to_string(b):
+def bytes_to_str(b):
     return b.decode('utf-8').strip()
 
 def str_to_int_list(s):
@@ -61,6 +63,17 @@ def str_to_int_list(s):
                 return None;
             res.add(int(item))
     return list(res)
+
+def list_to_str(l):
+    n = 0
+    s = "["
+    for i in l:
+        if n > 0:
+            s += ", "
+        n += 1
+        s += str(i)
+    s += "]"
+    return s
 
 def sample_record_name(i):
     if i == CPS:
@@ -143,27 +156,24 @@ def milliseconds():
 def system(command, failure_tollerance=False):
     global g_verbose
 
-    proc = subprocess.Popen(command.split(),
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(command.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         out, err = proc.communicate()
     except:
         proc.kill();
-        print("$", command)
+        print_log("$", command)
         die(sys.exc_info()[0])
 
-    out = bytes_to_string(out)
-    err = bytes_to_string(err)
+    out = bytes_to_str(out)
+    err = bytes_to_str(err)
     rc = proc.returncode
      
-    if g_verbose > 1:
-        print("$", command)
+    if g_verbose:
+        print_log("$", command, "# $? = ", rc)
         if len(out):
-            print("$", out)
+            print(out)
         if len(err):
-            print("$", err)
-        print("$ echo ?$")
-        print("$", rc)
+            print(err)
 
     if rc != 0 and not failure_tollerance:
         die("Command '%s' failed with code %d, aborting" % (command, rc))
@@ -211,10 +221,14 @@ def find_outliers(sample, std):
     x1 = len(sample) - 1
     y0 = k * x0 + b
     y1 = k * x1 + b
-    if abs(y1 - y0)/y0 * 100 < 3:
-        return None
+    angle = abs(y1 - y0)/((y1 + y0) / 2) * 100
+    # angle < 3 to be sure there is no throttling
+    # Many valid samples got bad status due big angles.
+    # Need mor investigation
+    if True or angle < 3:
+        return None, angle
     else:
-        return range(0, len(sample))
+        return range(0, len(sample)), angle
 
 class Sample:
     def __init__(self):
@@ -271,6 +285,11 @@ class App:
 
         return test_id, sample_count
 
+    def del_sample(self, sample_id):
+        cmd = "delete from journal where id = %d" % sample_id
+        self.sql_cursor.execute(cmd)
+        self.sql_conn.commit()
+
     def add_sample(self, sample):
         sample.id = None
         if sample.test_id < 0:
@@ -286,10 +305,10 @@ class App:
                 if len(samples[i].records) < len(found.records):
                     found = samples[i]
             if found == sample:
-                print("%d: Don't add sample due existing samples are better then this one"
+                print_log("%d: Don't add sample due existing samples are better then this one"
                     % sample.test_id)
                 return 0
-            self.delete_sample(found.id)
+            self.del_sample(found.id)
             samples.remove(found)
 
         cmd = ("insert into journal "

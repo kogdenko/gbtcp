@@ -21,15 +21,15 @@ struct shm_hdr {
 	bitset_word_t *shm_pages;
 };
 
-int shm_mod_init();
+int shm_mod_init(void);
 
-int shm_init();
-int shm_attach();
-void shm_deinit();
-void shm_detach();
+int shm_init(void);
+int shm_attach(void);
+void shm_deinit(void);
+void shm_detach(void);
 
-void shm_lock();
-void shm_unlock();
+void shm_lock(void);
+void shm_unlock(void);
 
 void shm_garbage_push(struct service *);
 void shm_garbage_pop(struct dlist *, u_char);

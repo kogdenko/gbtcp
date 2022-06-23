@@ -79,7 +79,7 @@ controller_clean_kill(int fd)
 }
 
 static int
-controller_clean()
+controller_clean(void)
 {
 	int rc, fd, id;
 	char path[PATH_MAX];
@@ -176,7 +176,7 @@ static void
 update_rss_bindings(struct service *s)
 {
 	if (s == current) {
-		service_update_rss_bindings(s);
+		service_update_rss_bindings();
 	} else {
 		controller_lock_service_safe(s);
 		s->p_need_update_rss_bindings = 1;
@@ -247,7 +247,7 @@ set_rss_binding(u_int rss_qid, int sid)
 }
 
 static void
-controller_sched_balance()
+controller_sched_balance(void)
 {
 	int i;
 	struct service *pick, *kick;
@@ -277,7 +277,7 @@ controller_del_service(struct service *s)
 	struct sockaddr_un a;
 	struct service *new;
 
-	NOTICE(0, "Delete service process (pid=%d)", s->p_pid);
+	NOTICE(0, "Delete service (pid=%d)", s->p_pid);
 	sid = s->p_sid;
 	rss_nq = s->p_rss_nq;
 	controller_check_service_deadlock(s);
@@ -388,8 +388,7 @@ update_rss_table()
 }
 
 static int
-sysctl_controller_add(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *old)
+sysctl_controller_add(struct sysctl_conn *cp, void *udata, const char *new, struct strbuf *old)
 {
 	int i, pid;
 	struct service *s;
@@ -617,12 +616,12 @@ controller_deinit()
 }
 
 void
-controller_process()
+controller_process(void)
 {
 	rd_nanoseconds();
 	WRITE_ONCE(shared->shm_ns, nanoseconds);
 	wait_for_fd_events();
-	if (0)
+	if (1)
 		controller_sched_balance();
 }
 

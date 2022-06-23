@@ -19,7 +19,7 @@ static int service_pid_fd = -1;
 static struct dev service_redirect_dev;
 static int service_rcu_max;
 static int service_signal_guard = 1;
-static int service_autostart_controller = 1;
+static bool service_autostart_controller = true;
 static struct dlist service_rcu_active_head;
 static struct dlist service_rcu_shadow_head;
 static u_int service_rcu[GT_SERVICES_MAX];
@@ -28,6 +28,8 @@ extern struct shm_hdr *shared;
 struct service *current;
 sigset_t current_sigprocmask;
 int current_sigprocmask_set;
+
+static void service_detach(void);
 
 static int
 service_pipe(int fd[2])
@@ -318,7 +320,7 @@ service_deinit_shared_redirect_dev(struct service *s)
 {
 }
 
-static void
+static int
 service_redirect_dev_init(struct service *s)
 {
 	int rc;
@@ -351,10 +353,8 @@ service_peer_rx(struct dev *dev, void *data, int len)
 	dst_sid = eh->eh_daddr.ea_bytes[5];
 	if (dst_sid >= GT_SERVICES_MAX || service_get_by_sid(dst_sid)->p_pid == 0) {
 		// TODO: counter
-		dbg("BAD Packet ?????");
 		return;
 	}
-	// TODO: check dst_sid
 	if (dst_sid == src_sid) {
 		return;
 	}
@@ -448,6 +448,7 @@ service_init_shared(struct service *s, int pid, int fd)
 
 	assert(current->p_sid == CONTROLLER_SID && "Controller should call this function");
 	s->p_pid = pid;
+	dlist_init(&s->p_dev_head);
 	dlist_init(&s->p_tx_head);
 	s->p_sid = s - shared->shm_services;
 	s->p_need_update_rss_bindings = 0;
@@ -545,7 +546,7 @@ service_init_private()
 void
 service_deinit_private()
 {
-	dev_deinit(&service_redirect_dev);
+	dev_deinit(&service_redirect_dev, false);
 }
 
 int
@@ -641,28 +642,15 @@ err:
 	return rc;
 }
 
-void
+static void
 service_detach()
 {
-	int i;
-	struct dev *dev;
-	struct route_if *ifp;
-
 	service_deinit_private();
 	sys_close(service_sysctl_fd);
 	service_sysctl_fd = -1;
 	sys_close(service_pid_fd);
 	service_pid_fd = -1;
-	if (current != NULL) {
-		ROUTE_IF_FOREACH(ifp) {
-			for (i = 0; i < GT_RSS_NQ_MAX; ++i) {
-				dev = &(ifp->rif_dev[current->p_sid][i]);
-				// FIXME: Do we really need this ???
-				dev_close_fd(dev);
-			}
-		}
-		current = NULL;
-	}
+	current = NULL;
 	shm_detach();
 	clean_fd_events();
 	if (current_sigprocmask_set) {
@@ -673,7 +661,7 @@ service_detach()
 }
 
 static void
-service_rcu_reload()
+service_rcu_reload(void)
 {
 	int i;
 	struct service *s;
@@ -704,7 +692,7 @@ mbuf_free_rcu(struct mbuf *m)
 }
 
 static void
-service_rcu_free()
+service_rcu_free(void)
 {
 	struct dlist *head;
 	struct mbuf *m;
@@ -718,7 +706,7 @@ service_rcu_free()
 }
 
 static void
-service_rcu_check()
+service_rcu_check(void)
 {
 	u_int i, epoch, rcu_max;
 	struct service *s;
@@ -745,7 +733,7 @@ service_rcu_check()
 }
 
 void
-service_unlock()
+service_unlock(void)
 {
 	u_int epoch;
 
@@ -760,7 +748,7 @@ service_unlock()
 }
 
 void
-service_account_opkt()
+service_account_opkt(void)
 {
 	uint64_t dt;
 
@@ -793,12 +781,13 @@ service_update_rss_binding(struct route_if *ifp, int queue_id)
 			dev->dev_ifp = ifp;
 		}
 	} else {
-		dev_deinit(dev);
+		// Other service occupy this queue or interface down
+		dev_deinit(dev, false);
 	}
 }
 
 void
-service_update_rss_bindings()
+service_update_rss_bindings(void)
 {
 	int i;
 	struct route_if *ifp;
@@ -825,8 +814,7 @@ service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr, be16_t lpo
 		sid = READ_ONCE(shared->shm_rss_table[i]);
 		if (sid == current->p_sid) {
 			if (rss_qid == -1) {
-				h = rss_hash4(laddr, faddr, lport, fport,
-				              ifp->rif_rss_key);
+				h = rss_hash4(laddr, faddr, lport, fport, ifp->rif_rss_key);
 				rss_qid = h % ifp->rif_rss_queue_num;
 			}
 			if (i == rss_qid) {
@@ -843,6 +831,7 @@ redirect_dev_get_tx_packet(struct route_if *ifp, struct dev_pkt *pkt)
 	int i, n, rc;
 	u_char s[GT_RSS_NQ_MAX];
 
+	// Round robin between services which can send packet
 	n = 0;
 	for (i = 0; i < ifp->rif_rss_queue_num; ++i) {
 		s[n] = READ_ONCE(shared->shm_rss_table[i]);
@@ -927,8 +916,7 @@ service_dup_so(struct sock *oldso)
 
 	fd = so_get_fd(oldso);
 	flags = oldso->so_blocked ? SOCK_NONBLOCK : 0;
-	rc = so_socket6(&newso, fd, AF_INET,
-	                SOCK_STREAM, flags, 0);
+	rc = so_socket6(&newso, fd, AF_INET, SOCK_STREAM, flags, 0);
 	if (rc < 0) {
 		return rc;
 	}
@@ -953,21 +941,26 @@ err:
 }
 
 static void
-service_in_child0()
+service_in_child0(void)
 {
 	int rc, parent_sid, flag;
+	struct dev *dev;
 	struct sock *so;
 
+	DLIST_FOREACH(dev, &current->p_dev_head, dev_list) {
+		dev_deinit(dev, true);
+	}
+	dlist_init(&current->p_dev_head);
 	flag = 0;
 	parent_sid = current->p_sid;
 	SO_FOREACH_BINDED(so) {
 		if (so->so_sid == parent_sid &&
-		    so->so_ipproto == SO_IPPROTO_TCP &&
-		    so->so_state == GT_TCPS_LISTEN) {
+				so->so_ipproto == SO_IPPROTO_TCP &&
+				so->so_state == GT_TCPS_LISTEN) {
 			flag = 1;
 			break;
 		}
-	};
+	}
 	service_detach();
 	if (!flag) {
 		return;
@@ -979,8 +972,8 @@ service_in_child0()
 	flag = 0;
 	SO_FOREACH_BINDED(so) {
 		if (so->so_sid == parent_sid &&
-		    so->so_ipproto == SO_IPPROTO_TCP &&
-		    so->so_state == GT_TCPS_LISTEN) {
+				so->so_ipproto == SO_IPPROTO_TCP &&
+				so->so_state == GT_TCPS_LISTEN) {
 			rc = service_dup_so(so);
 			if (rc == 0) {
 				flag = 1;
@@ -995,7 +988,7 @@ service_in_child0()
 static void
 service_in_child(int pipe_fd[2])
 {
-	NOTICE(0, "This is service child process");
+	NOTICE(0, "Child process started");
 	sys_close(pipe_fd[0]);
 	service_in_child0();
 	service_peer_send(pipe_fd[1], 0);
@@ -1003,7 +996,7 @@ service_in_child(int pipe_fd[2])
 }
 
 int
-service_fork()
+service_fork(void)
 {
 	int rc, pipe_fd[2];
 

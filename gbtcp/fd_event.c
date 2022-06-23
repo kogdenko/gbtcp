@@ -47,6 +47,7 @@ wait_for_fd_events2(int force, uint64_t to)
 			break;
 		}
 	}
+	// Tiemout adjustment (slow start algorithm)
 	if (throttled) {
 		fd_event_timeout >>= 1;
 		if (fd_event_timeout < FD_EVENT_TIMEOUT_MIN) {
@@ -71,7 +72,7 @@ fd_event_add(struct fd_event **pe, int fd, void *udata, fd_event_f fn)
 		e = fd_event_buf + i;
 		if (e->fde_ref_cnt) {
 			if (e->fde_fn != NULL && e->fde_fd == fd) {
-				die(0, "duplicate; fd=%d", fd);
+				die(0, "Trying to add duplicate fd=%d to multiplexer", fd);
 			}
 		} else {
 			if (id == -1) {
@@ -104,7 +105,6 @@ fd_event_unref(struct fd_event *e)
 	e->fde_ref_cnt--;
 	ref_cnt = e->fde_ref_cnt;
 	if (ref_cnt == 0) {
-		INFO(0, "hit; fd=%d", e->fde_fd);
 		assert(e->fde_id < fd_event_n_used);
 		if (e->fde_id != fd_event_n_used - 1) {
 			last = fd_event_used[fd_event_n_used - 1];
@@ -120,7 +120,6 @@ void
 fd_event_del(struct fd_event *e)
 {
 	if (e != NULL) {
-		INFO(0, "hit; fd=%d", e->fde_fd);
 		assert(e->fde_fn != NULL);
 		assert(e->fde_id < fd_event_n_used);
 		assert(e == fd_event_used[e->fde_id]);

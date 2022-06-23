@@ -1,3 +1,4 @@
+// GPL v2 License
 #define NETMAP_WITH_LIBS
 #include <net/netmap_user.h>
 
@@ -29,7 +30,7 @@
 	(rxr)->head = (rxr)->cur = nm_ring_next(rxr, (rxr)->cur)
 
 static int netmap_dev_init(struct dev *);
-static void netmap_dev_deinit(struct dev *);
+static void netmap_dev_deinit(struct dev *, bool);
 static int netmap_dev_rx(struct dev *);
 static void *netmap_dev_get_tx_packet(struct dev *, struct dev_pkt *);
 static void netmap_dev_put_tx_packet(struct dev_pkt *) {}
@@ -76,7 +77,7 @@ netmap_dev_init(struct dev *dev)
 		assert(dev->dev_nmd->nifp != NULL);
 		dev->dev_fd = dev->dev_nmd->fd;
 		nmr = dev->dev_nmd->req;
-		NOTICE(0, "Netmap device '%s' created with %u rx slots and %u tx slots",
+		NOTICE(0, "Netmap device '%s' created %u/%u (rx/tx) slots",
 			dev_name, nmr.nr_rx_slots, nmr.nr_tx_slots);
 		return dev->dev_nmd->fd;
 	} else {
@@ -88,12 +89,16 @@ netmap_dev_init(struct dev *dev)
 }
 
 static void
-netmap_dev_deinit(struct dev *dev)
+netmap_dev_deinit(struct dev *dev, bool cloexec)
 {
 	char dev_name[NETMAP_DEV_NAMSIZ];
 
 	NOTICE(0, "Destroy netmap device '%s'", netmap_dev_name(dev, dev_name));
+	assert(dev->dev_nmd != NULL);
 	nm_close(dev->dev_nmd);
+	if (!cloexec) {
+		dev->dev_nmd = NULL;
+	}
 }
 
 static int

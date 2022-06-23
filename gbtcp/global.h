@@ -17,6 +17,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include <strings.h>
 #include <inttypes.h>
 #include <errno.h>
