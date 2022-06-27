@@ -19,7 +19,6 @@ g_clean_test = False
 def usage():
     print("analayzer.py [options]")
     print("\thelp: Print this help")
-    print("\tverbose: Be verbose")
     print("\ttest-id {id,id..}: Specify test id")
     print("\tsample-id {id,id...}: Specify sample id")
     print("\tskip-reports {num}: Skip first num reports (default: %d)" % g_skip_reports)
@@ -29,15 +28,13 @@ def usage():
     print("\tsave-plot: Save plot spicified by test-id or sample-id")
     sys.exit(0)
 
-def make_plot(x, y, error, legend, verbose):
+def make_plot(x, y, error, legend):
     std = int(numpy.std(y))
     if error == None:
         error = [std] * len(y)
     if x == None:
         x = range(0, len(y))
     plot.errorbar(x, y, error, label=legend)
-    if not verbose:
-        return;
     x_array = numpy.array(x)
     y_array = numpy.array(y)
     # y = k*x + b
@@ -67,9 +64,8 @@ def get_sample_record1(sample):
 
 ### MAIN
 try:
-    opts, args = getopt.getopt(sys.argv[1:], "hv", [
+    opts, args = getopt.getopt(sys.argv[1:], "h", [
         "help",
-        "verbose",
         "show=",
         "show-plot",
         "save-plot=",
@@ -95,8 +91,6 @@ for o, a in opts:
     if o in ("-h", "--help"):
         usage()
         sys.exit(0)
-    elif o in ("-v", "--verbose"):
-        set_verbose(1)
     elif o in ("--show"):
         g_show = a
     elif o in ("--show-plot"):
@@ -176,7 +170,7 @@ if g_show != None:
             if len(s) != 0:
                 s += ","
             s += str(sample.id) + ":" + str(len(sample.records[CPS]))
-            if sample.status == 0:
+            if sample.status != SAMPLE_STATUS_OK:
                 s += "*"
         print("%d | %s | %s | %s | %d | %d | %s" %
             (test.id, test.os_name, test.app_name, test.cpu_model_name,
@@ -199,7 +193,7 @@ if ((g_show_plot or g_save_plot != None) and
                 die("No samples in test with id=%d" % test_id)
             good_samples = []
             for sample in samples:
-                if sample.status > 0:
+                if sample.status == SAMPLE_STATUS_OK:
                     good_samples.append(sample)
             if len(good_samples) == 0:
                 die("No good samples in test with id=%d" % test_id)

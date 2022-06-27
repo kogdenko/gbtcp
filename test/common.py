@@ -4,7 +4,8 @@ import sys
 import time
 import platform
 import subprocess
-import datetime
+#import datetime
+import syslog
 import sqlite3
 import numpy
 
@@ -18,17 +19,22 @@ PPS = 6
 BPS = 7
 
 SAMPLE_COUNT_MAX = 20
+SAMPLE_TABLE = "journal"
 
-g_verbose = False
+SAMPLE_STATUS_OK = 0
+SAMPLE_STATUS_OUTLIERS = 1
+SAMPLE_STATUS_LOW_CPU_USAGE = 2
 
-def print_log(*args, **kwargs):
-    now = datetime.datetime.now()
-    s = now.strftime("%Y-%m-%d %H:%M:%S.%f: ")
-    sys.stdout.write(s)
-    print(*args, **kwargs)
+def print_log(s, to_stdout = False):
+    #now = datetime.datetime.now()
+    #s = now.strftime("%Y-%m-%d %H:%M:%S.%f: ")
+    #sys.stdout.write(s)
+    syslog.syslog(s)
+    if to_stdout:
+        print(s)
 
 def die(s):
-    print_log(s)
+    print_log(s, True)
     sys.exit(1)
 
 def upper_pow2_32(x):
@@ -92,7 +98,6 @@ def sample_record_name(i):
         return None
 
 def get_sample_record(sample, i):
-#    print(len(sample.records))
     assert(len(sample.records) == 6)
     assert(i <= BPS)
     if i == PPS:
@@ -130,53 +135,37 @@ def round_val(val, std):
     val_rounded = round(val, -n)
     return val_rounded, std_rounded
 
-def serialize_int_list(il, sizeof):
+def int_list_to_bytearray(il, sizeof):
     ba = bytearray()
     for i in il:
         ba += bytearray(i.to_bytes(sizeof, "big"))
     return ba
 
-def deserialize_int_list(ba, sizeof):
+def bytearray_to_int_list(ba, sizeof):
     il = []
     for i in range(0, len(ba), sizeof):
         il.append(int.from_bytes(ba[i:i + sizeof], "big"))
     return il
 
-def get_verbose():
-    global g_verbose
-    return g_verbose
-
-def set_verbose(v):
-    global g_verbose
-    g_verbose = v
-
 def milliseconds():
     return int(time.monotonic_ns() / 1000000)
 
-def system(command, failure_tollerance=False):
-    global g_verbose
-
-    proc = subprocess.Popen(command.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def system(cmd, failure_tollerance=False):
+    proc = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         out, err = proc.communicate()
     except:
         proc.kill();
-        print_log("$", command)
-        die(sys.exc_info()[0])
+        die("Command '%s' failed, exception: '%s'" % (cmd, sys.exc_info()[0]))
 
     out = bytes_to_str(out)
     err = bytes_to_str(err)
     rc = proc.returncode
      
-    if g_verbose:
-        print_log("$", command, "# $? = ", rc)
-        if len(out):
-            print(out)
-        if len(err):
-            print(err)
+    print_log("$ %s # $? = %d\n%s\n%s" % (cmd, rc, out, err))
 
     if rc != 0 and not failure_tollerance:
-        die("Command '%s' failed with code %d, aborting" % (command, rc))
+        die("Command '%s' failed, return code: %d" % (cmd, rc))
         
     return rc, out, err
 
@@ -184,7 +173,7 @@ def get_git_commit():
     cmd = "git log -1 --format=%H"
     commit = system(cmd)[1].strip()
     if len(commit) != 40:
-        die("'%s': Unexpected output")
+        die("'%s': Unexpected output" % cmd)
     return commit
 
 def get_cpu_name():
@@ -200,7 +189,7 @@ def get_cpu_name():
         for line in lines:
             if "model name" in line:
                 return re.sub( ".*model name.*:", "", line, 1).strip()
-    die("Couldn't get CPU name")
+    die("Couldn't get CPU model name")
 
 def find_outliers(sample, std):
     if std == None:
@@ -256,8 +245,6 @@ class App:
     def add_test(self, desc, app_id, concurrency, cpu_count, report_count):
         if desc == None:
             desc = self.git_commit
-#            print(len(desc))
-#            assert(len(desc) == 40)
         where = ("git_commit=\"%s\" and os_id=%d and app_id=%d and "
             "concurrency=%d and cpu_model_id=%d and cpu_count=%d" %
             (desc, self.os_id, app_id,
@@ -280,13 +267,13 @@ class App:
         samples = self.get_samples(test_id)
 
         for sample in samples:
-            if sample.status > 0 and len(sample.records[CPS]) >= report_count:
+            if (sample.status == SAMPLE_STATUS_OK and len(sample.records[CPS]) >= report_count):
                 sample_count += 1
 
         return test_id, sample_count
 
     def del_sample(self, sample_id):
-        cmd = "delete from journal where id = %d" % sample_id
+        cmd = "delete from %s where id = %d" % (SAMPLE_TABLE, sample_id)
         self.sql_cursor.execute(cmd)
         self.sql_conn.commit()
 
@@ -297,31 +284,31 @@ class App:
             return -1
         samples = self.get_samples(sample.test_id)
         while len(samples) > SAMPLE_COUNT_MAX:
-            found = sample
+            candidate = sample
             for i in range(len(samples)):
-                if samples[i].status == 0:
-                    found = samples[i]
+                if samples[i].status != SAMPLE_STATUS_OK:
+                    candidate = samples[i]
                     break
-                if len(samples[i].records) < len(found.records):
-                    found = samples[i]
-            if found == sample:
+                if len(samples[i].records) < len(candidate.records):
+                    candidate = samples[i]
+            if candidate == sample:
                 print_log("%d: Don't add sample due existing samples are better then this one"
                     % sample.test_id)
                 return 0
-            self.del_sample(found.id)
-            samples.remove(found)
+            self.del_sample(candidate.id)
+            samples.remove(candidate)
 
-        cmd = ("insert into journal "
+        cmd = ("insert into %s "
             "(test_id,status,cps,ipps,ibps,opps,obps,concurrency) "
             "values (%d,%d,?,?,?,?,?,?)" %
-            (sample.test_id, sample.status))
+            (SAMPLE_TABLE, sample.test_id, sample.status))
         self.sql_cursor.execute(cmd, (
-            serialize_int_list(sample.records[CPS], 4),
-            serialize_int_list(sample.records[IPPS], 4),
-            serialize_int_list(sample.records[IBPS], 6),
-            serialize_int_list(sample.records[OPPS], 4),
-            serialize_int_list(sample.records[OBPS], 6),
-            serialize_int_list(sample.records[CONCURRENCY], 4)
+            int_list_to_bytearray(sample.records[CPS], 4),
+            int_list_to_bytearray(sample.records[IPPS], 4),
+            int_list_to_bytearray(sample.records[IBPS], 6),
+            int_list_to_bytearray(sample.records[OPPS], 4),
+            int_list_to_bytearray(sample.records[OBPS], 6),
+            int_list_to_bytearray(sample.records[CONCURRENCY], 4)
             ))
         self.sql_conn.commit()
         return self.sql_cursor.lastrowid
@@ -335,12 +322,12 @@ class App:
         sample.id = int(row[0])
         sample.test_id = int(row[1])
         sample.status = int(row[2])
-        sample.records.append(deserialize_int_list(row[3], 4))
-        sample.records.append(deserialize_int_list(row[4], 4))
-        sample.records.append(deserialize_int_list(row[5], 6))
-        sample.records.append(deserialize_int_list(row[6], 4))
-        sample.records.append(deserialize_int_list(row[7], 6))
-        sample.records.append(deserialize_int_list(row[8], 4))
+        sample.records.append(bytearray_to_int_list(row[3], 4))
+        sample.records.append(bytearray_to_int_list(row[4], 4))
+        sample.records.append(bytearray_to_int_list(row[5], 6))
+        sample.records.append(bytearray_to_int_list(row[6], 4))
+        sample.records.append(bytearray_to_int_list(row[7], 6))
+        sample.records.append(bytearray_to_int_list(row[8], 4))
         return sample
 
     def fetch_test(self):
@@ -359,12 +346,12 @@ class App:
         return test;
 
     def get_sample(self, sample_id):
-        cmd = "select * from journal where id=%d" % sample_id
+        cmd = "select * from %s where id=%d" % (SAMPLE_TABLE, sample_id)
         self.sql_cursor.execute(cmd)
         return self.fetch_sample()
 
     def get_samples(self, test_id):
-        cmd = "select * FROM journal where test_id=%d" % test_id
+        cmd = "select * FROM %s where test_id=%d" % (SAMPLE_TABLE, test_id)
         self.sql_cursor.execute(cmd)
         samples = []
         while True:
@@ -374,10 +361,9 @@ class App:
             samples.append(sample)
 
     def clean_samples(self, test_id):
-        cmd = "delete from journal where test_id=%d and status=0" % test_id
+        cmd = "delete from %s where test_id=%d and status != 0" % (SAMPLE_TABLE, test_id)
         self.sql_cursor.execute(cmd)
-        self.sql_conn.commit()
-       
+        self.sql_conn.commit() 
 
     def fetchid(self):
         row = self.sql_cursor.fetchone()

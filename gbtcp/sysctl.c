@@ -805,8 +805,7 @@ sysctl_add6(const char *path, int mode, void *udata,
 }
 
 void
-sysctl_add(const char *path, int mode, void *udata,
-	void (*free_fn)(void *), sysctl_f fn)
+sysctl_add(const char *path, int mode, void *udata, void (*free_fn)(void *), sysctl_f fn)
 {
 	struct sysctl_node *node;
 

@@ -3,8 +3,6 @@
 
 #define CURMOD dev
 
-//static DLIST_HEAD(dev_head);
-
 #ifdef HAVE_NETMAP
 extern struct dev_ops netmap_dev_ops;
 #endif
@@ -12,6 +10,11 @@ extern struct dev_ops netmap_dev_ops;
 #ifdef HAVE_XDP
 extern struct dev_ops xdp_dev_ops;
 #endif
+
+struct dev_mod {
+	struct log_scope log_scope;
+	int dev_transport;
+};
 
 static int
 dev_rxtx(void *udata, short revents)
@@ -32,8 +35,74 @@ dev_rxtx(void *udata, short revents)
 	return rc;
 }
 
+const char *
+dev_transport_str(int transport)
+{
+	switch (transport) {
+#ifdef HAVE_NETMAP
+	case DEV_TRANSPORT_NETMAP: return "netmap";
+#endif // HAVE_NETMAP
+#ifdef HAVE_XDP
+	case DEV_TRANSPORT_XDP: return "xdp";
+#endif // HAVE_XDP
+	default: return NULL;
+	}
+}
+
 int
-dev_init(struct dev *dev, const char *ifname, int queue_id, dev_f dev_fn)
+dev_transport_from_str(const char *s)
+{
+#ifdef HAVE_NETMAP
+	if (!strcmp(s, "netmap")) {
+		return DEV_TRANSPORT_NETMAP;
+	}
+#endif // HAVE_NETMAP
+#ifdef HAVE_XDP
+	if (!strcmp(s, "xdp")) {
+		return DEV_TRANSPORT_XDP;
+	}
+#endif // HAVE_XDP
+	return -EINVAL;
+}
+
+int
+dev_transport_get(void)
+{
+	return curmod->dev_transport;
+}
+
+static int
+sysctl_dev_transport(struct sysctl_conn *cp, void *udata, const char *new, struct strbuf *out)
+{
+	int rc;
+
+	strbuf_add_str(out, dev_transport_str(curmod->dev_transport));
+	if (new != NULL) {
+		rc = dev_transport_from_str(new);
+		if (rc < 0) {
+			return rc;
+		}
+		curmod->dev_transport = rc;
+	}
+	return 0;
+}
+
+int
+dev_mod_init(void)
+{
+	int rc;
+
+	rc = curmod_init();
+	if (rc) {
+		return rc;
+	}
+	curmod->dev_transport = DEV_TRANSPORT_DEFAULT;
+	sysctl_add(GT_SYSCTL_DEV_TRANSPORT, SYSCTL_LD, NULL, NULL, sysctl_dev_transport);
+	return 0;
+}
+
+int
+dev_init(struct dev *dev, int transport, const char *ifname, int queue_id, dev_f dev_fn)
 {
 	int rc, fd;
 
@@ -42,11 +111,18 @@ dev_init(struct dev *dev, const char *ifname, int queue_id, dev_f dev_fn)
 	strzcpy(dev->dev_ifname, ifname, sizeof(dev->dev_ifname));
 	dev->dev_queue_id = queue_id;
 	dev->dev_fd = -1;
-	if (0) {
-		dev->dev_ops = &xdp_dev_ops;
-	} else {
+	dev->dev_ops = NULL;
+#ifdef HAVE_NETMAP
+	if (transport == DEV_TRANSPORT_NETMAP) {
 		dev->dev_ops = &netmap_dev_ops;
 	}
+#endif // HAVE_NETMAP
+#ifdef HAVE_XDP
+	if (transport == DEV_TRANSPORT_XDP) {
+		dev->dev_ops = &xdp_dev_ops;
+	}
+#endif // HAVE_XDP
+	assert(dev->dev_ops != NULL);
 	rc = (*dev->dev_ops->dev_init_op)(dev);
 	if (rc < 0) {
 		return rc;

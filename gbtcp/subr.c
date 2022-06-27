@@ -824,7 +824,7 @@ restart:
 }
 
 int
-set_affinity(int cpu_id)
+gtl_set_affinity(int cpu_id)
 {
 	int rc;
 	cpu_set_t cpumask;
@@ -833,7 +833,7 @@ set_affinity(int cpu_id)
 	CPU_SET(cpu_id, &cpumask);
 	rc = pthread_setaffinity_np(pthread_self(), sizeof(cpumask), &cpumask);
 	if (rc != 0) {
-		ERR(rc, "failed; cpu_id=%d", cpu_id);
+		ERR(rc, "pthread_setaffinity_np(self, %d) failed", cpu_id);
 	}
 	return -rc;
 }

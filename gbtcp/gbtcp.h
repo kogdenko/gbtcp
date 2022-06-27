@@ -1,23 +1,23 @@
-// gpl2
+// GPL v2 License
 #ifndef GBTCP_H
 #define GBTCP_H
 
 #define _GNU_SOURCE
 #include <stdarg.h>
 #include <stdint.h>
-//#include <assert.h>
 #include <signal.h>
 #include <unistd.h>
 #include <poll.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-//#include <syslog.h>
 #ifdef __linux__
 #include <sys/epoll.h>
 #else // __linux__
 #include <sys/event.h>
 #include <sys/time.h>
 #endif // __linux__
+
+#include <gbtcp/config.h>
 
 typedef void (*gt_aio_f)(void *, int, short);
 
@@ -41,6 +41,7 @@ typedef void (*gt_aio_f)(void *, int, short);
 #define GT_GROUP_NAME "gbtcp"
 
 #define GT_SYSCTL_FILE_NOFILE "file.nofile"
+#define GT_SYSCTL_DEV_TRANSPORT "dev.transport"
 #define GT_SYSCTL_ROUTE "route"
 #define GT_SYSCTL_ROUTE_RSS_QID "route.rss.qid"
 #define GT_SYSCTL_ROUTE_IF_LIST "route.if.list"
@@ -219,6 +220,8 @@ int gt_kqueue();
 int gt_kevent(int, const struct kevent *, int, struct kevent *, int,
 	const struct timespec *);
 #endif // __linux__
+
+int gtl_set_affinity(int);
 
 void gt_dbg5(const char *, u_int, const char *, int, const char *, ...)
 	__attribute__((format(printf, 5, 6)));

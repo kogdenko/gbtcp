@@ -81,7 +81,7 @@ route_if_get(const char *ifname)
 static int
 route_if_add(const char *ifname, struct route_if **ifpp)
 {
-	int rc;
+	int rc, dev_transport;
 	struct route_if *ifp;
 
 	if (ifpp != NULL) {
@@ -104,7 +104,9 @@ route_if_add(const char *ifname, struct route_if **ifpp)
 	rc = sys_if_nametoindex(ifname);
 	ifp->rif_index = rc;
 	DLIST_INSERT_HEAD(&curmod->route_if_head, ifp, rif_list);
-	rc = dev_init(&ifp->rif_host_dev, ifp->rif_name, DEV_QUEUE_HOST, interface_dev_host_rx);
+	dev_transport = dev_transport_get();
+	rc = dev_init(&ifp->rif_host_dev, dev_transport,
+		ifp->rif_name, DEV_QUEUE_HOST, interface_dev_host_rx);
 	if (rc < 0 && rc != -ENOTSUP) {
 		goto err;
 	}

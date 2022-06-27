@@ -48,10 +48,8 @@ def usage():
     print("")
     print("Options:")
     print("\t-h, --help: Print this help")
-    print("\t-v, --verbose: Be verbose")
     print("\t-i {interface}: For performance testing")
     print("\t--cpu-list {a-b,c,d}: Bind applications on this cpus")
-#    print("\t--clean-on-exit: Restore environment after runner finish w")
 
 def get_interface_mac(interface):
     f = open("/sys/class/net/%s/address" % interface)
@@ -83,8 +81,7 @@ def measure_cpu_usage(t, delay, cpus):
     return cpu_usage
 
 def start_process(cmd, env=None, shell=False):
-    if get_verbose():
-        print_log("$", cmd, "&")
+    print_log("$ %s &" % cmd)
     proc = subprocess.Popen(cmd.split(), env=env, shell=shell,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return proc
@@ -250,14 +247,14 @@ def wait_proc(proc):
     if proc.returncode == 0:
         return True
     else:
-        if get_verbose():
-            print_log("$ %s # $?=%d" % (proc.args[0], proc.returncode))
-            for pipe in [proc.stdout, proc.stderr]:
-                while True:
-                    line = pipe.readline()
-                    if not line:
-                        break
-                    print(line.decode('utf-8').strip())
+        out = ""
+        for pipe in [proc.stdout, proc.stderr]:
+            while True:
+                line = pipe.readline()
+                if not line:
+                    break
+                out += line.decode('utf-8').strip()
+        print_log("$ %s # $?=%d\n%s" % (proc.args[0], proc.returncode, out))
         return False
 
 def wait_tester_proc(tester, reports):
@@ -266,17 +263,19 @@ def wait_tester_proc(tester, reports):
 
     rc = wait_proc(tester)
 
-    print("tester: %s: CPU=%s ... %s" % (tester.args[0], list_to_str(cpu_usage),
-        "Ok" if rc else "Failed"))
-
     data = bytearray()
+    out = ""
     while True:
         line = tester.stdout.readline()
-        if get_verbose():
-            print(line.decode('utf-8').strip())
         if not line:
             break
+        out += line.decode('utf-8').strip()
         data += bytearray(line)
+
+    print_log("$ %s\n%s" % (tester.args[0], out))
+    print_log("tester: %s: CPU=%s ... %s" %
+        (tester.args[0], list_to_str(cpu_usage), "Ok" if rc else "Failed"), True)
+
     return data
 
 def wait_tester(tester):
@@ -360,21 +359,21 @@ def reload_netmap():
     insmod("netmap")
     insmod("veth")
 
-def parse_sample(data, reports, test_id):
+def add_sample(data, reports, test_id, low):
     s = data.decode('utf-8').strip()
 
     rows = s.split('\n')
     if len(rows) != reports:
-        print_log(("runner: Invalid number of reports (%d, should be %d)" % (len(rows), reports)))
-        print(s)
+        print_log(("runner: Invalid number of reports (%d, should be %d)\n%s" %
+            (len(rows), reports), s))
         return None
     sample = Sample()
     sample.records = [[] for i in range(6)]
     for row in rows:
         cols = row.split()
         if len(cols) != 9:
-            print_log("runner: Invalid number of columns (%d, should be 9)" % len(cols))
-            print(row)
+            print_log(("runner: Invalid number of columns (%d, should be 9)\n%s" %
+                (len(cols), row)))
             return None
         sample.records[CPS].append(int(cols[0]))
         sample.records[IPPS].append(int(cols[1]))
@@ -386,9 +385,11 @@ def parse_sample(data, reports, test_id):
     record = sample.records[CPS][g_skip_reports:]
     sample.outliers, _ = find_outliers(record, None)
     if sample.outliers != None:
-        sample.status = 0
+        sample.status = SAMPLE_STATUS_OUTLIERS
+    elif low:
+        sample.status = SAMPLE_STATUS_LOW_CPU_USAGE
     else:
-        sample.status = 1
+        sample.status = SAMPLE_STATUS_OK
     sample.id = app.add_sample(sample)
     return sample
 
@@ -402,26 +403,32 @@ def cool_down_cpu():
         t = int(math.ceil((g_cooling_time * 1000 - ms) / 1000))
         time.sleep(t)
 
-def print_test(test_id, sample, app, driver, concurrency, cpu_usage, low):
+def print_test(test_id, sample, app, driver, concurrency, cpu_usage):
     if driver:
         d = "native"
     else:
         d = "netmap"
 
-    s = ("runner: %d:%d: %s:%s: concurrency=%d, CPU=%s ... " %
-        (test_id, sample.id, d, app, concurrency, list_to_str(cpu_usage)))
+    if sample == None:
+        sample_id = "?"
+    else:
+        sample_id = str(sample.id)
 
-    if sample.status == 0:
+    s = ("runner: %d:%s: %s:%s: concurrency=%d, CPU=%s ... " %
+        (test_id, sample_id, d, app, concurrency, list_to_str(cpu_usage)))
+
+    if sample == None:
+        s += "Failed (Bad sample)"
+    elif sample.status == SAMPLE_STATUS_OK:
+        s += "Passed"
+    else:
         s += "Failed "
-        if sample.outliers != None:
+        if sample.status == SAMPLE_STATUS_OUTLIERS:
             s += ("(outliers=%s)" % list_to_str(sample.outliers))
         else:
-            assert(low)
             s += "(Low CPU usage)"
-    else:
-        s += "Passed"
 
-    print(s)
+    print_log(s, True)
 
 def test_nginx(app, test_id, concurrency, cpus, native):
     nginx = start_nginx(concurrency, cpus, native)
@@ -442,20 +449,18 @@ def test_nginx(app, test_id, concurrency, cpus, native):
             low = True
             break
 
-    sample = parse_sample(data, g_report_count, test_id)
-    if sample == None:
-        die("runner: Invalid tester output")
-
-    if low:
-        sample.status = 0
+    sample = add_sample(data, g_report_count, test_id, low)
 
     stop_nginx()
     wait_proc(nginx)
     set_stop_time()
 
-    print_test(test_id, sample, "nginx", native, concurrency, cpu_usage, low)
+    print_test(test_id, sample, "nginx", native, concurrency, cpu_usage)
 
-    return False if sample.status == 0 else True
+    if sample == None or sample.status == 0:
+        return False
+    else:
+        return True
 
 ################ MAIN ####################
 app = App()
@@ -463,7 +468,6 @@ app = App()
 try:
     opts, args = getopt.getopt(sys.argv[1:], "hvN:L:C:i:t:", [
         "help",
-        "verbose",
         "dry-run",
         "netmap=",
         "listen=",
@@ -485,8 +489,6 @@ for o, a in opts:
     if o in ("-h", "--help"):
         usage()
         sys.exit()
-    elif o in ("-v", "--verbose"):
-        set_verbose(True)
     elif o in ("--dry-run"):
         g_dry_run = True
     elif o in ("-i"):

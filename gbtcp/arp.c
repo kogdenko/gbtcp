@@ -82,7 +82,7 @@ arp_entry_add_incomplete(struct arp_entry *e, struct dev_pkt *pkt)
 	}
 	cp->pkt_len = pkt->pkt_len;
 	cp->pkt_data = (uint8_t *)cp + sizeof(*cp);
-	DEV_PKT_COPY(cp->pkt_data, pkt->pkt_data, pkt->pkt_len);
+	memcpy(cp->pkt_data, pkt->pkt_data, pkt->pkt_len);
 	e->ae_incomplete_q = cp;
 }
 
@@ -115,7 +115,7 @@ arp_tx_incomplete_q(struct arp_entry *e)
 		counter64_inc(&route.rt_ifp->rif_tx_drop);
 		goto err;
 	} else {
-		DEV_PKT_COPY(pkt.pkt_data, x->pkt_data, x->pkt_len);
+		memcpy(pkt.pkt_data, x->pkt_data, x->pkt_len);
 		pkt.pkt_len = x->pkt_len;
 		arp_set_eh(e, route.rt_ifp, pkt.pkt_data);
 		route_transmit(route.rt_ifp, &pkt);

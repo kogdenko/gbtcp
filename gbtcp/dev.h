@@ -13,7 +13,17 @@
 #define DEV_QUEUE_HOST (-1)
 #define DEV_QUEUE_NONE (-2)
 
-#define DEV_PKT_COPY(d, s, len) memcpy(d, s, len)
+#ifdef HAVE_NETMAP
+#define DEV_TRANSPORT_NETMAP 0
+#define DEV_TRANSPORT_DEFAULT DEV_TRANSPORT_NETMAP
+#endif // HAVE_NETMAP
+
+#ifdef HAVE_XDP
+#define DEV_TRANSPORT_XDP 1
+#ifndef DEV_TRANSPORT_DEFAULT
+#define DEV_TRANSPORT_DEFAULT DEV_TRANSPORT_XDP
+#endif // DEV_TRANSPORT_DEFAULT
+#endif // HAVE_XDP
 
 #define dev_is_inited(dev) ((dev)->dev_fn != NULL)
 
@@ -57,7 +67,13 @@ struct dev_pkt {
 	};
 };
 
-int dev_init(struct dev *, const char *, int, dev_f);
+const char *dev_transport_str(int);
+int dev_transport_from_str(const char *);
+int dev_transport_get(void);
+
+int dev_mod_init(void);
+
+int dev_init(struct dev *, int, const char *, int, dev_f);
 void dev_deinit(struct dev *, bool);
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);

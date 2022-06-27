@@ -1,4 +1,61 @@
 import platform
+import subprocess
+
+HAVE_NETMAP = False
+HAVE_XDP = False
+
+def install_program(env, prog):
+    env.Install('/usr/bin', prog)
+    env.Alias('install', '/usr/bin')
+
+def die(s):
+    print(s)
+    sys.exit(1)
+
+def bytes_to_str(b):
+    return b.decode('utf-8').strip()
+
+def system(cmd, failure_tollerance=False):
+    proc = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        out, err = proc.communicate()
+    except:
+        proc.kill();
+        die("Command '%s' failed, exception: '%s'" % (cmd, sys.exc_info()[0]))
+
+    out = bytes_to_str(out)
+    err = bytes_to_str(err)
+    rc = proc.returncode
+
+#    print("$ %s # $? = %d\n%s\n%s" % (cmd, rc, out, err))
+
+    if rc != 0 and not failure_tollerance:
+        die("Command '%s' failed, return code: %d" % (cmd, rc))
+
+    return rc, out, err
+
+def get_git_commit():
+    cmd = "git log -1 --format=%H"
+    commit = system(cmd)[1].strip()
+    if len(commit) != 40:
+        die("'%s': Unexpected output" % cmd)
+    return commit
+
+def configure():
+    commit = get_git_commit()
+
+    f = open("gbtcp/config.h", 'w')
+    s = ""
+    s += "#ifndef GBTCP_CONFIG_H\n"
+    s += "#define GBTCP_CONFIG_H\n"
+    s += "\n"
+    s += ("#define GTL_COMMIT %s\n" % commit)
+    s += "\n"
+    s += "#endif // GBTCP_CONFIG_H\n"
+    f.write(s)
+    f.close()
+    
+
 
 cflags = [
     '-g',
@@ -118,6 +175,8 @@ else:
 env.Append(CFLAGS = ' '.join(cflags))
 env.Append(LINKFLAGS = ' '.join(ldflags))
 
+configure()
+
 libgbtcp = env.SharedLibrary('bin/libgbtcp%s.so' % suffix, srcs)
 env.Install(lib_path, libgbtcp)
 env.Alias('install', lib_path)
@@ -133,17 +192,16 @@ env = Environment(CC = 'gcc',
 
 sysctl = env.Program('bin/gbtcp-sysctl%s' % suffix, 'sysctl/sysctl.c')
 Requires(sysctl, libgbtcp)
-env.Install('/usr/bin', sysctl)
-env.Alias('install', '/usr/bin')
+install_program(env, sysctl);
 
 netstat = env.Program('bin/gbtcp-netstat%s' % suffix, 'netstat/netstat.c')
 Requires(netstat, libgbtcp)
-env.Install('/usr/bin/', netstat)
-env.Alias('install', '/usr/bin')
+install_program(env, netstat)
 
 controller = env.Program('bin/gbtcp-controller%s' % suffix, 'controller/controller.c')
 Requires(controller, libgbtcp)
 
 aio_helloworld = env.Program('bin/gbtcp-aio-helloworld%s' % suffix,
-    'tools/gbtcp_aio_helloworld/bench_gbtcp.c')
+    'tools/gbtcp_aio_helloworld/main.c')
 Requires(aio_helloworld, libgbtcp)
+install_program(env, aio_helloworld)

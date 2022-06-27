@@ -36,8 +36,7 @@ struct tcp_opt_info tcp_opt_info[TCP_OPT_MAX] = {
 	} while (0)
 
 static int
-sysctl_inet_stat(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *old)
+sysctl_inet_stat(struct sysctl_conn *cp, void *udata, const char *new, struct strbuf *old)
 {
 	int zero;
 	uintptr_t off;

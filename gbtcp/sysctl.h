@@ -22,13 +22,9 @@ struct sysctl_conn {
 	int scc_peer_pid;
 };
 
-typedef int (*sysctl_f)(struct sysctl_conn *, void *,
-	const char *, struct strbuf *);
-
+typedef int (*sysctl_f)(struct sysctl_conn *, void *, const char *, struct strbuf *);
 typedef int (*sysctl_list_next_f)(void *, const char *, struct strbuf *);
-
-typedef int (*sysctl_list_f)(void *, const char *,
-	const char *, struct strbuf *);
+typedef int (*sysctl_list_f)(void *, const char *, const char *, struct strbuf *);
 
 int sysctl_root_init(void);
 void sysctl_root_deinit(void);
@@ -48,18 +44,13 @@ int sysctl_recv_rpl(int, char *);
 int sysctl_req(int, const char *, char *, const char *);
 
 void sysctl_add(const char *, int, void *, void (*)(void *), sysctl_f);
-
-void sysctl_add_intfn(const char *, int mode,
-	int (*)(const long long *, long long *), int, int);
-
+void sysctl_add_intfn(const char *, int mode, int (*)(const long long *, long long *), int, int);
 void sysctl_add_int(const char *, int, int *, int, int);
 void sysctl_add_int64(const char *, int, int64_t *, int64_t, int64_t);
 void sysctl_add_uint64(const char *, int, uint64_t *, int64_t, int64_t);
-
 void sysctl_add_list(const char *, int, void *, sysctl_list_next_f, sysctl_list_f);
 
 int sysctl_del(const char *);
-
 int sysctl_delf(const char *, ...)
 	__attribute__((format(printf, 1, 2)));
 

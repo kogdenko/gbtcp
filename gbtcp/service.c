@@ -324,10 +324,11 @@ static int
 service_redirect_dev_init(struct service *s)
 {
 	int rc;
-	char buf[IFNAMSIZ];
+	char ifname[IFNAMSIZ];
 
-	snprintf(buf, sizeof(buf), "vale_gt:%d", s->p_pid);
-	rc = dev_init(&service_redirect_dev, buf, DEV_QUEUE_NONE, service_redirect_dev_rx);
+	snprintf(ifname, sizeof(ifname), "vale_gt:%d", s->p_pid);
+	rc = dev_init(&service_redirect_dev, DEV_TRANSPORT_NETMAP, ifname,
+		DEV_QUEUE_NONE, service_redirect_dev_rx);
 	return rc;
 }
 #else // HAVE_VALE
@@ -368,7 +369,7 @@ service_peer_rx(struct dev *dev, void *data, int len)
 	}
 	rc = dev_get_tx_packet(&s->p_veth_peer, &pkt);
 	if (rc == 0) {
-		DEV_PKT_COPY(pkt.pkt_data, data, len);
+		memcpy(pkt.pkt_data, data, len);
 		pkt.pkt_len = len;
 		dev_transmit(&pkt);
 	}
@@ -769,7 +770,7 @@ service_account_opkt(void)
 static void
 service_update_rss_binding(struct route_if *ifp, int queue_id)
 {
-	int id, ifflags;
+	int id, ifflags, dev_transport;
 	struct dev *dev;
 
 	ifflags = READ_ONCE(ifp->rif_flags);
@@ -777,7 +778,8 @@ service_update_rss_binding(struct route_if *ifp, int queue_id)
 	dev = &(ifp->rif_dev[current->p_sid][queue_id]);
 	if ((ifflags & IFF_UP) && id == current->p_sid) {
 		if (!dev_is_inited(dev)) {
-			dev_init(dev, ifp->rif_name, queue_id, service_rssq_rx);
+			dev_transport = dev_transport_get();
+			dev_init(dev, dev_transport, ifp->rif_name, queue_id, service_rssq_rx);
 			dev->dev_ifp = ifp;
 		}
 	} else {
