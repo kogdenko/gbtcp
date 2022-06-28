@@ -3,6 +3,7 @@ import subprocess
 
 HAVE_NETMAP = False
 HAVE_XDP = False
+HAVE_VALE = False
 
 def install_program(env, prog):
     env.Install('/usr/bin', prog)
@@ -49,13 +50,17 @@ def configure():
     s += "#ifndef GBTCP_CONFIG_H\n"
     s += "#define GBTCP_CONFIG_H\n"
     s += "\n"
-    s += ("#define GTL_COMMIT %s\n" % commit)
+    s += ("#define GTL_COMMIT \"%s\"\n" % commit)
+    if HAVE_XDP:
+        s += "#define GTL_HAVE_XDP\n"
+    if HAVE_NETMAP:
+        s += "#define GTL_HAVE_NETMAP\n"
+    if HAVE_VALE:
+        s += "#define GTL_HAVE_VALE\n"
     s += "\n"
     s += "#endif // GBTCP_CONFIG_H\n"
     f.write(s)
     f.close()
-    
-
 
 cflags = [
     '-g',
@@ -140,7 +145,7 @@ if PLATFORM == "Linux":
     if not GetOption('without_xdp'):
         if (conf.CheckHeader('linux/bpf.h') and conf.CheckLib('bpf')):
             srcs.append('gbtcp/Linux/xdp.c')
-            cflags.append('-DHAVE_XDP')
+            HAVE_XDP = True
             ldflags.append('-lbpf')
 elif PLATFORM == 'FreeBSD':
     srcs.append('gbtcp/FreeBSD/route.c')
@@ -163,9 +168,9 @@ else:
 if not GetOption('without_netmap'):
     if conf.CheckHeader('net/netmap_user.h'):
         srcs.append('gbtcp/netmap.c')
-        cflags.append('-DHAVE_NETMAP')
+        HAVE_NETMAP = True
         if not GetOption('without_vale'):
-            cflags.append('-DHAVE_VALE')
+            HAVE_VALE = True
 
 if platform.architecture()[0] == "64bit":
     lib_path = '/usr/lib64'

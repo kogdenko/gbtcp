@@ -56,6 +56,18 @@ loop(int fd, int affinity)
 	gt_poll(NULL, 0, -1);
 }
 
+#ifdef GTL_HAVE_XDP
+#define HAVE_XDP " GTL_HAVE_XDP"
+#endif // GTL_HAVE_XDP
+
+#ifdef GTL_HAVE_NETMAP
+#define HAVE_NETMAP " GTL_HAVE_NETMAP"
+#endif // GTL_HAVE_NETMAP
+
+#ifdef GTL_HAVE_VALE
+#define HAVE_VALE " GTL_HAVE_VALE"
+#endif // GTL_HAVE_VALE
+
 int
 main(int argc, char **argv)
 {
@@ -75,7 +87,8 @@ main(int argc, char **argv)
 			break;
 		case 'V':
 			printf("version: 0.2.1\n");
-			printf("commit: xxx\n");
+			printf("commit: %s\n", GTL_COMMIT);
+			printf("config:%s%s%s\n", HAVE_XDP, HAVE_NETMAP, HAVE_VALE);
 			return 0;
 		}
 	}

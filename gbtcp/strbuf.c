@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2 License
 #include "internals.h"
 
 #define STRBUF_ADD_FLAG(flag) \
@@ -41,9 +41,7 @@ strbuf_remove(struct strbuf *sb, int pos, int len)
 {
 	assert(pos + len <= sb->sb_len);
 	assert(sb->sb_len <= sb->sb_cap);
-	memmove(sb->sb_buf + pos,
-	        sb->sb_buf + pos + len,
-	        sb->sb_len - (pos + len));
+	memmove(sb->sb_buf + pos, sb->sb_buf + pos + len, sb->sb_len - (pos + len));
 	sb->sb_len -= len;
 }
 
@@ -134,8 +132,8 @@ void
 strbuf_add_eth_addr(struct strbuf *sb, struct eth_addr *a)
 {
 	strbuf_addf(sb, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
-	            a->ea_bytes[0], a->ea_bytes[1], a->ea_bytes[2],
-	            a->ea_bytes[3], a->ea_bytes[4], a->ea_bytes[5]);
+		a->ea_bytes[0], a->ea_bytes[1], a->ea_bytes[2],
+		a->ea_bytes[3], a->ea_bytes[4], a->ea_bytes[5]);
 }
 
 void

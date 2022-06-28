@@ -308,7 +308,7 @@ service_get_by_sid(u_int sid)
 	return shared->shm_services + sid;
 }
 
-#ifdef HAVE_VALE
+#ifdef GTL_HAVE_VALE
 static int
 service_init_shared_redirect_dev(struct service *s)
 {
@@ -331,7 +331,7 @@ service_redirect_dev_init(struct service *s)
 		DEV_QUEUE_NONE, service_redirect_dev_rx);
 	return rc;
 }
-#else // HAVE_VALE
+#else // GTL_HAVE_VALE
 static void
 service_peer_rx(struct dev *dev, void *data, int len)
 {
@@ -440,7 +440,7 @@ service_redirect_dev_init(struct service *s)
 	rc = dev_init(&service_redirect_dev, buf, 0, service_redirect_dev_rx);
 	return rc;
 }
-#endif // HAVE_VALE
+#endif // GTL_HAVE_VALE
 
 int
 service_init_shared(struct service *s, int pid, int fd)

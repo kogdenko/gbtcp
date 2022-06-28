@@ -169,13 +169,6 @@ def system(cmd, failure_tollerance=False):
         
     return rc, out, err
 
-def get_git_commit():
-    cmd = "git log -1 --format=%H"
-    commit = system(cmd)[1].strip()
-    if len(commit) != 40:
-        die("'%s': Unexpected output" % cmd)
-    return commit
-
 def get_cpu_name():
     if platform.system() == "Windows":
         return platform.processor()
@@ -243,8 +236,6 @@ class App:
         return int(row[0])
 
     def add_test(self, desc, app_id, concurrency, cpu_count, report_count):
-        if desc == None:
-            desc = self.git_commit
         where = ("git_commit=\"%s\" and os_id=%d and app_id=%d and "
             "concurrency=%d and cpu_model_id=%d and cpu_count=%d" %
             (desc, self.os_id, app_id,
@@ -437,11 +428,33 @@ class App:
         return row[0], row[1]
 
     def __init__(self):
-        self.path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
+        self.path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../")
+        self.git_commit = None
+        self.have_xdp = None
+        self.have_netmap = None
+        self.ts_planned = 0
+        self.ts_pass = 0
+        self.ts_failed = 0
 
-        self.sql_conn = sqlite3.connect(self.path + "/data.sqlite3")
+        _, out, _ = system(self.path + "/bin/gbtcp-aio-helloworld -V")
+        for line in out.splitlines():
+            if line.startswith("commit: "):
+                self.git_commit = line[9:]
+            elif line.startswith("config: "):
+                if re.search("GTL_HAVE_XDP", line) != None:
+                    self.have_xdp = True
+                else:
+                    self.have_xdp = False
+                if re.search("GTL_HAVE_NETMAP", line) != None:
+                    self.have_netmap = True
+                else:
+                    self.have_netmap = False
+
+        if self.git_commit == None or self.have_xdp == None or self.have_netmap == None:
+            die("gbtcp-aio-helloworld -V: Invalid output")
+
+        self.sql_conn = sqlite3.connect(self.path + "/test/data.sqlite3")
         self.sql_cursor = self.sql_conn.cursor()
 
-        self.git_commit = get_git_commit()
         self.os_id = self.os_get_id(platform.system(), platform.release())
         self.cpu_model_id = self.cpu_model_get_id(get_cpu_name())

@@ -22,10 +22,10 @@ netmap_dir = None
 subnet = "10.20"
 listen = None
 connect = None
-connect_sock = None
 g_interface = None
 g_tester_interface = None
 g_runner_interface = None
+g_driver = []
 g_concurrency = []
 g_cpu_list = None
 g_tester_cpus = None
@@ -38,10 +38,11 @@ g_skip_reports = 2
 g_sample_count = SAMPLE_COUNT_MAX
 g_cooling_time = 2
 g_cpu_count_min = 1
-reload_modules = False
-g_test_path = None
+g_reload_modules = False
 g_stop_at_milliseconds = None
 g_dry_run = False
+
+app = App()
 
 def usage():
     print("Usage: runner [options] {[--netmap-dir|-N] path}")
@@ -86,7 +87,7 @@ def start_process(cmd, env=None, shell=False):
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return proc
 
-def start_nginx(concurrency, cpu_list, native):
+def start_nginx(concurrency, driver, cpu_list, native):
     worker_cpu_affinity = ""
 
     n = len(cpu_list)
@@ -135,17 +136,19 @@ def start_nginx(concurrency, cpu_list, native):
         "        }\n"
         "    }\n"
         "}\n"
-        %
-        (n, worker_cpu_affinity, worker_connections, device_ip))
+        % (n, worker_cpu_affinity, worker_connections, device_ip))
 
-    gbtcp_conf = ("route.if.add=%s" % g_runner_interface)
+    gbtcp_conf = (
+        "dev.transport=%s\n"
+        "route.if.add=%s\n"
+        % (driver, g_runner_interface))
 
     assert(netmap_dir != None)
 
-    libgbtcp_path = os.path.normpath(g_test_path + "/../bin/libgbtcp.so")
+    libgbtcp_path = os.path.normpath(app.path + "/bin/libgbtcp.so")
 
-    nginx_conf_path = g_test_path + "/nginx.conf"
-    gbtcp_conf_path = g_test_path + "/gbtcp.conf"
+    nginx_conf_path = app.path + "/test/nginx.conf"
+    gbtcp_conf_path = app.path + "/test/gbtcp.conf"
 
     f = open(nginx_conf_path, 'w')
     f.write(nginx_conf)
@@ -309,7 +312,7 @@ def tester_loop():
         except socket.error as exc:
             print_log("Connection failed: %s" % exc)
 
-def get_nginx_ver(app):
+def get_nginx_ver():
     s = system("nginx -v")[2]
     m = re.search(r'[0-9]+\.[0-9]+\.[0-9]+', s.strip())
     if m == None:
@@ -403,11 +406,9 @@ def cool_down_cpu():
         t = int(math.ceil((g_cooling_time * 1000 - ms) / 1000))
         time.sleep(t)
 
-def print_test(test_id, sample, app, driver, concurrency, cpu_usage):
-    if driver:
-        d = "native"
-    else:
-        d = "netmap"
+def print_test(test_id, sample, app, native, concurrency, driver, cpu_usage):
+    if native:
+        driver = "native"
 
     if sample == None:
         sample_id = "?"
@@ -415,7 +416,7 @@ def print_test(test_id, sample, app, driver, concurrency, cpu_usage):
         sample_id = str(sample.id)
 
     s = ("runner: %d:%s: %s:%s: concurrency=%d, CPU=%s ... " %
-        (test_id, sample_id, d, app, concurrency, list_to_str(cpu_usage)))
+        (test_id, sample_id, driver, app, concurrency, list_to_str(cpu_usage)))
 
     if sample == None:
         s += "Failed (Bad sample)"
@@ -430,8 +431,8 @@ def print_test(test_id, sample, app, driver, concurrency, cpu_usage):
 
     print_log(s, True)
 
-def test_nginx(app, test_id, concurrency, cpus, native):
-    nginx = start_nginx(concurrency, cpus, native)
+def test_nginx(app, test_id, concurrency, driver, cpus, native):
+    nginx = start_nginx(concurrency, driver, cpus, native)
 
     # Wait netmap interface goes up
     time.sleep(2)
@@ -455,16 +456,41 @@ def test_nginx(app, test_id, concurrency, cpus, native):
     wait_proc(nginx)
     set_stop_time()
 
-    print_test(test_id, sample, "nginx", native, concurrency, cpu_usage)
+    print_test(test_id, sample, "nginx", native, concurrency, driver, cpu_usage)
 
     if sample == None or sample.status == 0:
         return False
     else:
         return True
 
-################ MAIN ####################
-app = App()
+last_used_cpus = None
 
+def do_test(cpus, native, driver, concurrency):
+    global last_used_cpus
+
+    app.ts_planned += g_sample_count
+    if g_dry_run:
+        test_id = -1
+        sample_count = 0
+    else:
+        desc = "native" if native else app.git_commit
+        test_id, sample_count = app.add_test(desc, app_id, concurrency,
+            len(cpus), g_report_count)
+
+    for j in range (0, g_sample_count - sample_count):
+        if last_used_cpus != cpus:
+            last_used_cpus = cpus
+            # Wait interface become available
+            time.sleep(2)
+            set_txrx_queue_count(g_runner_interface, cpus)
+
+        rc = test_nginx(app, test_id, concurrency, driver, cpus, native)
+        if rc:
+            app.ts_pass += 1
+        else:
+            app.ts_failed += 1
+
+################ MAIN ####################
 try:
     opts, args = getopt.getopt(sys.argv[1:], "hvN:L:C:i:t:", [
         "help",
@@ -475,6 +501,7 @@ try:
         "cpu-list=",
         "cpu-count-min=",
         "concurrency=",
+        "driver=",
         "reports=",
         "skip-reports=",
         "samples=",
@@ -504,7 +531,7 @@ for o, a in opts:
     elif o in ("-C", "--connect"):
         connect = a
     elif o in ("--reload-modules"):
-        reload_modules = True
+        g_reload_modules = True
     elif o in ("--reports"):
         g_report_count = int(a)
     elif o in ("--skip-reports"):
@@ -517,11 +544,27 @@ for o, a in opts:
         g_cpu_count_min = int(a)
     elif o in ("--concurrency"):
         g_concurrency = str_to_int_list(a)
+    elif o in ("--driver"):
+        for driver in a.split(','):
+            if driver == "xdp":
+                if not app.have_xdp:
+                    die("XDP driver not supported")
+            elif driver == "netmap":
+                if not app.have_netmap:
+                    die("netmap driver not supported")
+            else:
+                    die("%s driver not supported" % driver)
+            if not driver in g_driver:
+                g_driver.append(driver)
 
 if len(g_concurrency) == 0:
     g_concurrency.append(1000)
 
-g_test_path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
+if len(g_driver) == 0:
+    if app.have_netmap:
+        g_driver.append("netmap")
+    elif app.have_xdp:
+        g_driver.append("xdp")
 
 g_cpu_count = multiprocessing.cpu_count()
 if g_cpu_list == None:
@@ -546,7 +589,7 @@ if netmap_dir == None:
 stop_nginx()
 
 if g_interface == None:
-    if reload_modules:
+    if g_reload_modules:
         reload_netmap()
 else:
     try:
@@ -557,7 +600,7 @@ else:
     except:
         die("readlink('%s') failed: %s" % (path, sys.exc_info()[0]))
     interface_module = os.path.basename(path)
-    if reload_modules:
+    if g_reload_modules:
         system("rmmod %s" % interface_module, True)
         reload_netmap()
         insmod(interface_module)
@@ -627,43 +670,19 @@ system("ip r a dev %s %s.0.0/15 via %s.1.1 initcwnd 1" % (g_runner_interface, su
 # TODO:
 # echo 0 > /proc/sys/net/ipv4/tcp_syncookies
 
-g_nginx_ver = get_nginx_ver(app)
+g_nginx_ver = get_nginx_ver()
 
-last_used_cpus = None
 # Assume that last test ended at least 10 seconds ago
 g_stop_at_milliseconds = milliseconds() - 10000
 
 app_id = app.app_get_id("nginx", g_nginx_ver)
 
-use_native = False
-ts_planned = 0
-ts_pass = 0
-ts_failed = 0
 for i in range (g_cpu_count_min, len(g_runner_cpus) + 1):
     cpus = g_runner_cpus[:i]
-    for concurrency in g_concurrency:
-        ts_planned += g_sample_count
-        if g_dry_run:
-            test_id = -1
-            sample_count = 0
-        else:
-            desc = "native" if use_native else None
-            test_id, sample_count = app.add_test(desc, app_id, concurrency,
-                len(cpus), g_report_count)
+    for driver in g_driver:
+        for concurrency in g_concurrency:
+            do_test(cpus, False, driver, concurrency)
 
-        for j in range (0, g_sample_count - sample_count):
-            if last_used_cpus != cpus:
-                last_used_cpus = cpus
-                # Wait interface become available
-                time.sleep(2)
-                set_txrx_queue_count(g_runner_interface, cpus)
-
-            rc = test_nginx(app, test_id, concurrency, cpus, use_native)
-            if rc:
-                ts_pass += 1
-            else:
-                ts_failed += 1
-
-print("TS (Test Samples) Planned: ", ts_planned)
-print("TS Pass: ", ts_pass)
-print("TS Failed: ",ts_failed)
+print("TS (Test Samples) Planned: ", app.ts_planned)
+print("TS Pass: ", app.ts_pass)
+print("TS Failed: ", app.ts_failed)

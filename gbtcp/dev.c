@@ -3,13 +3,13 @@
 
 #define CURMOD dev
 
-#ifdef HAVE_NETMAP
+#ifdef GTL_HAVE_NETMAP
 extern struct dev_ops netmap_dev_ops;
-#endif
+#endif // GTL_HAVE_NETMAP
 
-#ifdef HAVE_XDP
+#ifdef GTL_HAVE_XDP
 extern struct dev_ops xdp_dev_ops;
-#endif
+#endif // GTL_HAVE_XDP
 
 struct dev_mod {
 	struct log_scope log_scope;
@@ -39,12 +39,12 @@ const char *
 dev_transport_str(int transport)
 {
 	switch (transport) {
-#ifdef HAVE_NETMAP
+#ifdef GTL_HAVE_NETMAP
 	case DEV_TRANSPORT_NETMAP: return "netmap";
-#endif // HAVE_NETMAP
-#ifdef HAVE_XDP
+#endif // GTL_HAVE_NETMAP
+#ifdef GTL_HAVE_XDP
 	case DEV_TRANSPORT_XDP: return "xdp";
-#endif // HAVE_XDP
+#endif // GTL_HAVE_XDP
 	default: return NULL;
 	}
 }
@@ -52,16 +52,16 @@ dev_transport_str(int transport)
 int
 dev_transport_from_str(const char *s)
 {
-#ifdef HAVE_NETMAP
+#ifdef GTL_HAVE_NETMAP
 	if (!strcmp(s, "netmap")) {
 		return DEV_TRANSPORT_NETMAP;
 	}
-#endif // HAVE_NETMAP
-#ifdef HAVE_XDP
+#endif // GTL_HAVE_NETMAP
+#ifdef GTL_HAVE_XDP
 	if (!strcmp(s, "xdp")) {
 		return DEV_TRANSPORT_XDP;
 	}
-#endif // HAVE_XDP
+#endif // GTL_HAVE_XDP
 	return -EINVAL;
 }
 
@@ -112,16 +112,16 @@ dev_init(struct dev *dev, int transport, const char *ifname, int queue_id, dev_f
 	dev->dev_queue_id = queue_id;
 	dev->dev_fd = -1;
 	dev->dev_ops = NULL;
-#ifdef HAVE_NETMAP
+#ifdef GTL_HAVE_NETMAP
 	if (transport == DEV_TRANSPORT_NETMAP) {
 		dev->dev_ops = &netmap_dev_ops;
 	}
-#endif // HAVE_NETMAP
-#ifdef HAVE_XDP
+#endif // GTL_HAVE_NETMAP
+#ifdef GTL_HAVE_XDP
 	if (transport == DEV_TRANSPORT_XDP) {
 		dev->dev_ops = &xdp_dev_ops;
 	}
-#endif // HAVE_XDP
+#endif // GTL_HAVE_XDP
 	assert(dev->dev_ops != NULL);
 	rc = (*dev->dev_ops->dev_init_op)(dev);
 	if (rc < 0) {
