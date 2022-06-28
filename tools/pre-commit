@@ -1,0 +1,3 @@
+#!/usr/bin/sh
+sqlite3 ./test/data.sql .schema > ./test/schema.sql
+git add ./test/schema.sql

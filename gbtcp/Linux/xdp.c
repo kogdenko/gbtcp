@@ -98,7 +98,7 @@ xdp_queue_init(struct xdp_queue *q, const char *ifname, int queue_id)
 	rc = xsk_socket__create(&q->xq_xsk, ifname, queue_id, q->xq_umem,
 		&q->xq_rx, &q->xq_tx, &cfg);
 	if (rc < 0) {
-		ERR(-rc, "xsk_socket__create() failed");
+		ERR(-rc, "xsk_socket__create('%s', '%d') failed", ifname, queue_id);
 		goto err;
 	}
 	idx = UINT32_MAX;
@@ -139,7 +139,7 @@ xdp_dev_init(struct dev *dev)
 	int rc, ifindex;
 	uint32_t xdp_prog_id;
 
-	NOTICE(0, "Create XDP device '%s-%d", dev->dev_ifname, dev->dev_queue_id);
+	NOTICE(0, "Create XDP device '%s', queue=%d", dev->dev_ifname, dev->dev_queue_id);
 	if (dev->dev_queue_id < 0) {
 		rc = -ENOTSUP;
 		goto err;
@@ -162,11 +162,13 @@ xdp_dev_init(struct dev *dev)
 	}
 	rc = xdp_queue_init(dev->dev_xdp_queue, dev->dev_ifname, dev->dev_queue_id);
 	if (rc >= 0) {
-		NOTICE(0, "XDP device '%s-%d' created", dev->dev_ifname, dev->dev_queue_id);
+		NOTICE(0, "XDP device '%s' created, queue=%d",
+			dev->dev_ifname, dev->dev_queue_id);
 		return rc;
 	}
 err:
-	ERR(-rc, "Failed to create XDP device '%s-%d'", dev->dev_ifname, dev->dev_queue_id);
+	ERR(-rc, "Failed to create XDP device '%s', queue=%d",
+		dev->dev_ifname, dev->dev_queue_id);
 	sys_free(dev->dev_xdp_queue);
 	dev->dev_xdp_queue = NULL;
 	return rc;
@@ -175,7 +177,7 @@ err:
 static void
 xdp_dev_deinit(struct dev *dev, bool cloexec)
 {
-	NOTICE(0, "Destroy XDP device '%s-%d'", dev->dev_ifname, dev->dev_queue_id);
+	NOTICE(0, "Destroy XDP device '%s', queue=%d'", dev->dev_ifname, dev->dev_queue_id);
 	assert(dev->dev_xdp_queue != NULL);
 	xdp_queue_deinit(dev->dev_xdp_queue, cloexec);
 	sys_free(dev->dev_xdp_queue);

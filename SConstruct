@@ -1,4 +1,5 @@
 import platform
+import shutil
 import subprocess
 
 HAVE_NETMAP = False
@@ -11,7 +12,7 @@ def install_program(env, prog):
 
 def die(s):
     print(s)
-    sys.exit(1)
+    Exit(1)
 
 def bytes_to_str(b):
     return b.decode('utf-8').strip()
@@ -43,6 +44,8 @@ def get_git_commit():
     return commit
 
 def configure():
+    shutil.copyfile('./tools/pre-commit', '.git/hooks/pre-commit')
+
     commit = get_git_commit()
 
     f = open("gbtcp/config.h", 'w')
@@ -97,7 +100,7 @@ AddOption('--without-xdp', action = 'store_true',
     help = "Don't use XDP transport", default = False)
 
 SConscript([
-    'test/SConstruct',
+#    'test/SConstruct',
     'tools/epoll_helloworld/SConstruct',
 ])
 
@@ -159,11 +162,9 @@ cflags.append('-Wno-format-truncation')
 
 if GetOption('debug_build'):
     cflags.append('-O0')
-    suffix = "-d"
 else:
     cflags.append('-O2')
     cflags.append('-DNDEBUG')
-    suffix=""
 
 if not GetOption('without_netmap'):
     if conf.CheckHeader('net/netmap_user.h'):
@@ -182,31 +183,37 @@ env.Append(LINKFLAGS = ' '.join(ldflags))
 
 configure()
 
-libgbtcp = env.SharedLibrary('bin/libgbtcp%s.so' % suffix, srcs)
+libgbtcp = env.SharedLibrary('bin/libgbtcp.so', srcs)
 env.Install(lib_path, libgbtcp)
 env.Alias('install', lib_path)
 
 # Programs
 ldflags.append('-Lbin')
-ldflags.append('-lgbtcp%s' % suffix)
+ldflags.append('-lgbtcp')
 
-env = Environment(CC = 'gcc',
+env_gbtcp = Environment(CC = 'gcc',
     CCFLAGS = ' '.join(cflags),
     LINKFLAGS = ' '.join(ldflags),
 )
 
-sysctl = env.Program('bin/gbtcp-sysctl%s' % suffix, 'sysctl/sysctl.c')
+sysctl = env_gbtcp.Program('bin/gbtcp-sysctl', 'sysctl/sysctl.c')
 Requires(sysctl, libgbtcp)
-install_program(env, sysctl);
+install_program(env_gbtcp, sysctl);
 
-netstat = env.Program('bin/gbtcp-netstat%s' % suffix, 'netstat/netstat.c')
+netstat = env_gbtcp.Program('bin/gbtcp-netstat', 'netstat/netstat.c')
 Requires(netstat, libgbtcp)
-install_program(env, netstat)
+install_program(env_gbtcp, netstat)
 
-controller = env.Program('bin/gbtcp-controller%s' % suffix, 'controller/controller.c')
+controller = env_gbtcp.Program('bin/gbtcp-controller', 'controller/controller.c')
 Requires(controller, libgbtcp)
 
-aio_helloworld = env.Program('bin/gbtcp-aio-helloworld%s' % suffix,
+aio_helloworld = env_gbtcp.Program('bin/gbtcp-aio-helloworld',
     'tools/gbtcp_aio_helloworld/main.c')
 Requires(aio_helloworld, libgbtcp)
-install_program(env, aio_helloworld)
+install_program(env_gbtcp, aio_helloworld)
+
+for f in Glob('test/gbtcp-test-*.c'):
+    env.Program("bin/" + f.name[0:-2], ["test/" + f.name, env.Object('test/subr.c')])
+
+for f in Glob('test/libgbtcp-test-*.c'):
+    env_gbtcp.Program("bin/" + f.name[0:-2], ["test/" + f.name, env.Object('test/subr.c')])

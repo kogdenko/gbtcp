@@ -19,7 +19,7 @@ PPS = 6
 BPS = 7
 
 SAMPLE_COUNT_MAX = 20
-SAMPLE_TABLE = "journal"
+SAMPLE_TABLE = "sample"
 
 SAMPLE_STATUS_OK = 0
 SAMPLE_STATUS_OUTLIERS = 1
@@ -235,18 +235,18 @@ class App:
         assert(type(row[0]) == int)
         return int(row[0])
 
-    def add_test(self, desc, app_id, concurrency, cpu_count, report_count):
+    def add_test(self, desc, app_id, driver, concurrency, cpu_count, report_count):
         where = ("git_commit=\"%s\" and os_id=%d and app_id=%d and "
-            "concurrency=%d and cpu_model_id=%d and cpu_count=%d" %
+            "driver=%d and concurrency=%d and cpu_model_id=%d and cpu_count=%d" %
             (desc, self.os_id, app_id,
-            concurrency, self.cpu_model_id, cpu_count))
+            driver, concurrency, self.cpu_model_id, cpu_count))
 
         cmd = ("insert into test "
-            "(git_commit,os_id,app_id,concurrency,cpu_model_id,cpu_count) "
-            "select \"%s\",%d,%d,%d,%d,%d where not exists "
+            "(git_commit, os_id, app_id, driver, concurrency, cpu_model_id, cpu_count) "
+            "select \"%s\", %d, %d, %d, %d, %d, %d where not exists "
             "(select 1 from test where %s)" % (
             desc, self.os_id, app_id,
-            concurrency, self.cpu_model_id, cpu_count, where))
+            driver, concurrency, self.cpu_model_id, cpu_count, where))
         self.sql_cursor.execute(cmd)
 
         cmd = "select id from test where %s" % where
@@ -342,7 +342,7 @@ class App:
         return self.fetch_sample()
 
     def get_samples(self, test_id):
-        cmd = "select * FROM %s where test_id=%d" % (SAMPLE_TABLE, test_id)
+        cmd = "select * from %s where test_id=%d" % (SAMPLE_TABLE, test_id)
         self.sql_cursor.execute(cmd)
         samples = []
         while True:
@@ -453,7 +453,7 @@ class App:
         if self.git_commit == None or self.have_xdp == None or self.have_netmap == None:
             die("gbtcp-aio-helloworld -V: Invalid output")
 
-        self.sql_conn = sqlite3.connect(self.path + "/test/data.sqlite3")
+        self.sql_conn = sqlite3.connect(self.path + "/test/data.sql")
         self.sql_cursor = self.sql_conn.cursor()
 
         self.os_id = self.os_get_id(platform.system(), platform.release())

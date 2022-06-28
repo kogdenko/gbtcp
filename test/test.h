@@ -37,7 +37,7 @@
 	printf(fmt, ##__VA_ARGS__); \
 	printf("\n"); \
 } while (0)
-#endif /* dbg */
+#endif // dbg
 
 #define ASSERT(e, expr) \
 	if (!(expr)) { \
@@ -67,9 +67,9 @@ void assertion_failed(int e, const char *expr, const char *file, int line);
 int parse_sockaddr_in(struct sockaddr_in *addr, const char *s);
 
 void init_testcase(int argc, char **argv);
-void wait_SIGUSR1();
+void wait_SIGUSR1(void);
 
 int test_accept(int argc, char **argv);
 int test_connect(int argc, char **argv);
 
-#endif /* TEST_SUBR_H */
+#endif // TEST_SUBR_H

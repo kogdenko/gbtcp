@@ -133,7 +133,6 @@ sockaddr_in_aton(struct sockaddr_in *addr, const char *s)
 	return 0;
 }
 
-
 int
 test_accept(int argc, char **argv)
 {
