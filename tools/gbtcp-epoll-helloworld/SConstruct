@@ -15,5 +15,3 @@ env=Environment(CC = 'gcc',
 ) 
 
 epoll_helloworld = env.Program('../../bin/gbtcp-epoll-helloworld', 'main.c')
-env.Install('/usr/bin', epoll_helloworld)
-env.Alias('install', '/usr/bin')

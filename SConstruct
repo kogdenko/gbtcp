@@ -105,7 +105,7 @@ AddOption('--without-xdp', action = 'store_true',
     help = "Don't use XDP transport", default = False)
 
 SConscript([
-    'tools/epoll_helloworld/SConstruct',
+    'tools/gbtcp-epoll-helloworld/SConstruct',
 ])
 
 shutil.copyfile('./tools/pre-commit', '.git/hooks/pre-commit')
