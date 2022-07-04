@@ -45,7 +45,7 @@ int timer_is_running(struct timer *);
 uint64_t timer_timeout(struct timer *);
 void timer_set4(struct timer *, uint64_t, u_char, u_char);
 #define timer_set(timer, expire, fn_id) \
-	timer_set4(timer, expire, CAT2(MOD_, CURMOD), fn_id)
+	timer_set4(timer, expire, GTL_CAT2(MOD_, CURMOD), fn_id)
 void timer_del(struct timer *);
 
 #endif // GBTCP_TIMER_H

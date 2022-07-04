@@ -46,12 +46,12 @@ api_unlock(void)
 }
 
 void
-gt_init(const char *comm, int log_level)
+gt_init(void)
 {
 	dlsym_all();
 	rd_nanoseconds();
 	srand48(nanoseconds ^ getpid());
-	log_init_early(comm, log_level);
+	log_init_early();
 }
 
 pid_t

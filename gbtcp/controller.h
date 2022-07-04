@@ -11,7 +11,7 @@ int transmit_to_host(struct route_if *, void *, int);
 
 void update_rss_table(void);
 
-int controller_init(int, const char *);
+int controller_init(int);
 void controller_deinit(void);
 void controller_start(int);
 

@@ -28,15 +28,15 @@ struct file {
 };
 
 #define FILE_FOREACH2(s, fp) \
-	for (int UNIQV(fd) = 0; \
-	     (fp = file_next(s, UNIQV(fd))) != NULL; \
-	     UNIQV(fd) = file_get_fd(fp) + 1)
+	for (int GTL_UNIQV(fd) = 0; \
+		(fp = file_next(s, GTL_UNIQV(fd))) != NULL; \
+		GTL_UNIQV(fd) = file_get_fd(fp) + 1)
 
 #define FILE_FOREACH_SAFE3(s, fp, tmp_fd) \
-	for (int UNIQV(fd) = 0; \
-	     ((fp = file_next(s, UNIQV(fd))) != NULL) && \
-	     ((tmp_fd = file_get_fd(fp) + 1), 1); \
-	     UNIQV(fd) = tmp_fd)
+	for (int GTL_UNIQV(fd) = 0; \
+		((fp = file_next(s, GTL_UNIQV(fd))) != NULL) && \
+		((tmp_fd = file_get_fd(fp) + 1), 1); \
+		GTL_UNIQV(fd) = tmp_fd)
 
 extern int file_sizeof;
 

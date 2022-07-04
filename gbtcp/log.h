@@ -21,7 +21,7 @@ struct log_scope {
 #else // LOG_DISABLED
 #define LOGF(level, errnum, fmt, ...) \
 do { \
-	if (log_is_enabled(CAT2(MOD_, CURMOD), level, 0)) { \
+	if (log_is_enabled(GTL_CAT2(MOD_, CURMOD), level, 0)) { \
 		log_buf_init(); \
 		log_printf(level, __func__, errnum, fmt, ##__VA_ARGS__); \
 	} \
@@ -38,7 +38,7 @@ do { \
 #define INFO(err, ...) LOGF(LOG_INFO, err, __VA_ARGS__)
 #endif /* NDEBUG */
 
-#define die(errnum, fmt, ...) \
+#define gtl_die(errnum, fmt, ...) \
 do { \
 	LOGF(LOG_CRIT, errnum, fmt, ##__VA_ARGS__); \
 	abort(); \
@@ -48,7 +48,7 @@ do { \
 #define WARN(err, ...) LOGF(LOG_WARNING, err, __VA_ARGS__)
 #define ERR(err, ...) LOGF(LOG_ERR, err, __VA_ARGS__)
 
-void log_init_early(const char *, u_int);
+void log_init_early(void);
 
 int log_mod_init(void);
 

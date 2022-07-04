@@ -6,16 +6,14 @@ cflags = [
 
 if GetOption('debug_build'):
     cflags.append('-O0')
-    suffix = "-d"
 else:
     cflags.append('-O2')
     cflags.append('-DNDEBUG')
-    suffix=""
 
 env=Environment(CC = 'gcc',
     CCFLAGS = ' '.join(cflags)
 ) 
 
-epoll_helloworld = env.Program('../../bin/gbtcp-epoll-helloworld%s' % suffix, 'main.c')
+epoll_helloworld = env.Program('../../bin/gbtcp-epoll-helloworld', 'main.c')
 env.Install('/usr/bin', epoll_helloworld)
 env.Alias('install', '/usr/bin')

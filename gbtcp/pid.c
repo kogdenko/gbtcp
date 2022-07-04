@@ -21,7 +21,6 @@ pid_file_open(const char *path)
 	}
 	fd = rc;
 	fchgrp(fd, &buf, GT_GROUP_NAME);
-	INFO(0, "ok; fd=%d, path='%s'", fd, path);
 	return fd;
 }
 
@@ -47,7 +46,7 @@ pid_file_read(int fd)
 	buf[rc] = '\0';
 	rc = sscanf(buf, "%d", &pid);
 	if (rc != 1 || pid <= 0) {
-		ERR(0, "bad format; fd=%d", fd);
+		ERR(0, "Bad pidfile format");
 		return -EINVAL;
 	} else {
 		return pid;
@@ -75,7 +74,7 @@ pid_file_acquire(int fd, int pid)
 	if (rc == -EWOULDBLOCK) {
 		rc = pid_file_read(fd);
 		if (rc >= 0) {
-			WARN(0, "locked; fd=%d, pid=%d", fd, rc);
+			WARN(0, "Pidfile locked (pid=%d)", rc);
 		}
 		return rc;
 	} else if (rc < 0) {

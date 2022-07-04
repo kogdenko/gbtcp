@@ -71,6 +71,23 @@ dev_transport_get(void)
 	return curmod->dev_transport;
 }
 
+static void
+dev_set_ops(struct dev *dev, int transport)
+{
+	dev->dev_ops = NULL;
+#ifdef GTL_HAVE_NETMAP
+	if (transport == DEV_TRANSPORT_NETMAP) {
+		dev->dev_ops = &netmap_dev_ops;
+	}
+#endif // GTL_HAVE_NETMAP
+#ifdef GTL_HAVE_XDP
+	if (transport == DEV_TRANSPORT_XDP) {
+		dev->dev_ops = &xdp_dev_ops;
+	}
+#endif // GTL_HAVE_XDP
+	assert(dev->dev_ops != NULL);
+}
+
 static int
 sysctl_dev_transport(struct sysctl_conn *cp, void *udata, const char *new, struct strbuf *out)
 {
@@ -109,20 +126,11 @@ dev_init(struct dev *dev, int transport, const char *ifname, int queue_id, dev_f
 	assert(!dev_is_inited(dev));
 	memset(dev, 0, sizeof(*dev));
 	strzcpy(dev->dev_ifname, ifname, sizeof(dev->dev_ifname));
+	rc = sys_if_nametoindex(dev->dev_ifname);
+	dev->dev_ifindex = rc; // TODO: ifindex to XDP
 	dev->dev_queue_id = queue_id;
 	dev->dev_fd = -1;
-	dev->dev_ops = NULL;
-#ifdef GTL_HAVE_NETMAP
-	if (transport == DEV_TRANSPORT_NETMAP) {
-		dev->dev_ops = &netmap_dev_ops;
-	}
-#endif // GTL_HAVE_NETMAP
-#ifdef GTL_HAVE_XDP
-	if (transport == DEV_TRANSPORT_XDP) {
-		dev->dev_ops = &xdp_dev_ops;
-	}
-#endif // GTL_HAVE_XDP
-	assert(dev->dev_ops != NULL);
+	dev_set_ops(dev, transport);
 	rc = (*dev->dev_ops->dev_init_op)(dev);
 	if (rc < 0) {
 		return rc;
@@ -141,7 +149,7 @@ dev_init(struct dev *dev, int transport, const char *ifname, int queue_id, dev_f
 	return 0;
 }
 
-void
+int
 dev_deinit(struct dev *dev, bool cloexec)
 {
 	if (dev_is_inited(dev)) {
@@ -153,6 +161,9 @@ dev_deinit(struct dev *dev, bool cloexec)
 			dev->dev_fd = -1;
 		}
 		(*dev->dev_ops->dev_deinit_op)(dev, cloexec);
+		return 0;
+	} else {
+		return -EINVAL;
 	}
 }
 

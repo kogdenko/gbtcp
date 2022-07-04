@@ -16,10 +16,7 @@
 #include <sys/event.h>
 #include <sys/time.h>
 #endif // __linux__
-
 #include <gbtcp/config.h>
-
-typedef void (*gt_aio_f)(void *, int, short);
 
 #define GT_TCPS_CLOSED 0
 #define GT_TCPS_LISTEN 1
@@ -172,10 +169,12 @@ typedef void (*gt_aio_f)(void *, int, short);
 	x(badaddr) \
 	x(badop)
 
+typedef void (*gt_aio_f)(void *, int, short);
+
 extern __thread int gt_errno;
 extern int gt_preload_passthru;
 
-void gt_init(const char *, int);
+void gt_init(void);
 pid_t gt_fork(void);
 int gt_socket(int, int, int);
 int gt_connect(int, const struct sockaddr *, socklen_t);

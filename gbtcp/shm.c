@@ -364,8 +364,7 @@ shm_free_pages_locked(uintptr_t addr, size_t size)
 	page = shm_virt_to_page(addr);
 	for (i = 0; i < size_n; ++i) {
 		if (!shm_page_is_allocated(page + i)) {
-			die(0, "Double free page at %p",
-			    (void *)shm_page_to_virt(page + i));
+			gtl_die(0, "Double free page at %p", (void *)shm_page_to_virt(page + i));
 		}
 		shm_page_free(page + i);
 	}

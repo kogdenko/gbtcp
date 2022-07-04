@@ -236,7 +236,7 @@ sysctl_parse_line(int loader, char *s)
 }
 
 int
-sysctl_read_file(int loader, const char *comm)
+sysctl_read_file(int loader)
 {
 	int rc, line;
 	const char *path;
@@ -246,18 +246,15 @@ sysctl_read_file(int loader, const char *comm)
 	FILE *file;
 
 	path = getenv("GBTCP_CONF");
-	if (path != NULL) { 
-		rc = sys_realpath(path, path_buf);
-		if (rc) {
-			path = NULL;
-		}
-	}
 	if (path == NULL) {
-		snprintf(path_buf, sizeof(path_buf), "%s/%s.conf",
-		         SYSCTL_CONFIG_PATH, comm);
+		return 0;
+	}
+	rc = sys_realpath(path, path_buf);
+	if (rc) {
+		return rc;
 	}
 	path = path_buf;
-	NOTICE(0, "hit; path='%s'", path);
+	NOTICE(0, "Read sysctl file '%s'", path);
 	rc = sys_fopen(&file, path, "r");
 	if (rc) {
 		return rc == -ENOENT ? 0 : rc;
@@ -268,11 +265,10 @@ sysctl_read_file(int loader, const char *comm)
 		line++;
 		rc = sysctl_parse_line(loader, s);
 		if (rc) {
-			ERR(-rc, "bad line; file='%s', line=%d",  path, line);
+			ERR(-rc, "%s:%d: Inavlid configuration", path, line);
 		}
 	}
 	fclose(file);
-	INFO(0, "ok; file='%s'", path);
 	return rc;
 }
 
@@ -800,7 +796,7 @@ sysctl_add6(const char *path, int mode, void *udata,
 	assert(sysctl_root != NULL);
 	rc = sysctl_node_add(path, mode, udata, free_fn, fn, pnode);
 	if (rc < 0) {
-		die(-rc, "sysctl_add('%s') failed", path);
+		gtl_die(-rc, "sysctl_add('%s') failed", path);
 	}
 }
 

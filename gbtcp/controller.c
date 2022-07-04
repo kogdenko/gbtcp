@@ -525,12 +525,12 @@ controller_unbind(int pid)
 }
 
 int
-controller_init(int daemonize, const char *service_comm)
+controller_init(int daemonize)
 {
 	int i, rc, pid;
 	uint64_t hz;
 
-	gt_init("controller", 0);
+	gt_init();
 	gt_preload_passthru = 1;
 	shared = NULL;
 	if (daemonize) {
@@ -561,7 +561,7 @@ controller_init(int daemonize, const char *service_comm)
 	set_hz(hz);
 	shared->shm_hz = hz;
 	shared->shm_rss_table_size = 0;
-	rc = sysctl_read_file(1, service_comm);
+	rc = sysctl_read_file(1);
 	if (rc) {
 		goto err;
 	}
@@ -581,7 +581,7 @@ controller_init(int daemonize, const char *service_comm)
 	if (rc) {
 		goto err;
 	}
-	rc = sysctl_read_file(0, service_comm);
+	rc = sysctl_read_file(0);
 	if (rc) {
 		goto err;
 	}

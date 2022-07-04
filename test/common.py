@@ -150,8 +150,15 @@ def bytearray_to_int_list(ba, sizeof):
 def milliseconds():
     return int(time.monotonic_ns() / 1000000)
 
-def system(cmd, failure_tollerance=False):
-    proc = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def get_project_path():
+    return os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../")
+
+def system(cmd, fault_tollerance = False):
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = get_project_path() + "/bin"
+
+    proc = subprocess.Popen(cmd.split(), env = env,
+        stdout = subprocess.PIPE, stderr = subprocess.PIPE)
     try:
         out, err = proc.communicate()
     except:
@@ -164,7 +171,7 @@ def system(cmd, failure_tollerance=False):
      
     print_log("$ %s # $? = %d\n%s\n%s" % (cmd, rc, out, err))
 
-    if rc != 0 and not failure_tollerance:
+    if rc != 0 and not fault_tollerance:
         die("Command '%s' failed, return code: %d" % (cmd, rc))
         
     return rc, out, err
@@ -220,8 +227,8 @@ class Test:
     def __init__(self):
         self.samples = []
 
-class App:
-    path = None
+class Environment:
+    project_path = None
     sql_conn = None
     sql_cursor = None
     git_commit = None
@@ -428,7 +435,7 @@ class App:
         return row[0], row[1]
 
     def __init__(self):
-        self.path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../")
+        self.project_path = get_project_path()
         self.git_commit = None
         self.have_xdp = None
         self.have_netmap = None
@@ -436,7 +443,7 @@ class App:
         self.ts_pass = 0
         self.ts_failed = 0
 
-        _, out, _ = system(self.path + "/bin/gbtcp-aio-helloworld -V")
+        _, out, _ = system(self.project_path + "/bin/gbtcp-aio-helloworld -V")
         for line in out.splitlines():
             if line.startswith("commit: "):
                 self.git_commit = line[9:]
@@ -453,7 +460,7 @@ class App:
         if self.git_commit == None or self.have_xdp == None or self.have_netmap == None:
             die("gbtcp-aio-helloworld -V: Invalid output")
 
-        self.sql_conn = sqlite3.connect(self.path + "/test/data.sql")
+        self.sql_conn = sqlite3.connect(self.project_path + "/test/data.sql")
         self.sql_cursor = self.sql_conn.cursor()
 
         self.os_id = self.os_get_id(platform.system(), platform.release())

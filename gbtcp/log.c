@@ -14,32 +14,10 @@ static char log_buf[LOG_BUFSIZ];
 static struct strbuf log_sb;
 static int log_early_level = LOG_LEVEL_DEFAULT;
 
-// syslog() use ident pointer 
-static char ident_buf[SERVICE_COMM_MAX + 7];
-static const char *ident;
-
-static int log_fd;
-
 void
-log_init_early(const char *comm, u_int log_level)
+log_init_early(void)
 {
-	if (comm == NULL) {
-		ident = NULL;
-	} else {
-		snprintf(ident_buf, sizeof(ident_buf), "gbtcp: %s", comm);
-		ident = ident_buf;
-	}
-	assert(log_level < LOG_DEBUG);
-	if (log_level) {
-		log_set_level(log_level);
-	}
-	openlog(ident, LOG_PID, LOG_DAEMON);
-	char path[45];
-	snprintf(path, 45, "/tmp/%d.log", getpid());
-
-
-	log_fd = sys_open(path, O_CREAT|O_RDWR, 0777);
-	assert(log_fd >= 0);
+	openlog(NULL, LOG_PID, LOG_DAEMON);
 }
 
 int
@@ -132,7 +110,6 @@ log_vprintf(int level, const char *func, int errnum,
 	syslog(level, "%s", strbuf_cstr(&sb));
 
 	strbuf_add_ch(&sb, '\n');
-	sys_write(log_fd, sb.sb_buf, sb.sb_len);
 }
 
 void

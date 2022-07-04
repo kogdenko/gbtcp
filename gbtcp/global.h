@@ -1,4 +1,4 @@
-// gpl2
+// GPL v2 License
 #ifndef GBTCP_GLOBAL_H
 #define GBTCP_GLOBAL_H
 

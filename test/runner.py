@@ -19,12 +19,12 @@ import scipy
 from common import *
 
 subnet = "10.20"
-listen = None
+g_listen = None
 g_connect = None
 g_interface = None
 g_tester_interface = None
 g_runner_interface = None
-g_driver = []
+g_drivers = []
 g_concurrency = []
 g_cpu_list = None
 g_tester_cpus = None
@@ -44,7 +44,7 @@ g_test = []
 g_simple_test = []
 g_tcpkt_test = []
 
-app = App()
+env = Environment()
 
 def usage():
     print("Usage: runner [options] {[--netmap-dir|-N] path}")
@@ -55,9 +55,9 @@ def usage():
     print("\t--cpu-list {a-b,c,d}: Bind applications on this cpus")
 
 def fill_test_list():
-    for f in os.listdir(app.path + '/bin'):
+    for f in os.listdir(env.project_path + '/bin'):
         if f[:10] == "gbtcp-test":
-            if os.path.isfile(app.path + '/test/' + f + '.pkt'):
+            if os.path.isfile(env.project_path + '/test/' + f + '.pkt'):
                 g_tcpkt_test.append(f)
             else:
                 g_simple_test.append(f)
@@ -106,14 +106,8 @@ def measure_cpu_usage(t, delay, cpus):
         cpu_usage.append(percent[cpu])
     return cpu_usage
 
-def start_process(cmd, env=None, shell=False):
-    print_log("$ %s &" % cmd)
-    proc = subprocess.Popen(cmd.split(), env=env, shell=shell,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return proc
-
 def get_gbtcp_conf_path():
-    return app.path + "/test/gbtcp.conf"
+    return env.project_path + "/test/gbtcp.conf"
 
 def write_gbtcp_conf(driver):
     gbtcp_conf_path = get_gbtcp_conf_path()
@@ -127,78 +121,20 @@ def write_gbtcp_conf(driver):
     f.write(gbtcp_conf)
     f.close()
 
-def start_gbtcp_process(cmd, native):
+def start_process(cmd, env = None):
+    print_log("$ %s &" % cmd)
+    proc = subprocess.Popen(cmd.split(), env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return proc
+
+def start_process_ldpreload(cmd, native):
     gbtcp_conf_path = get_gbtcp_conf_path()
-    libgbtcp_path = os.path.normpath(app.path + "/bin/libgbtcp.so")
-    env = os.environ.copy()
+    libgbtcp_path = os.path.normpath(env.project_path + "/bin/libgbtcp.so")
+    e = os.environ.copy()
     if not native:
-        env["LD_PRELOAD"] = libgbtcp_path
-        env["GBTCP_CONF"] = gbtcp_conf_path
-    return start_process(cmd, env=env)
-
-def stop_nginx():
-    system("nginx -s quit", True)
-
-def start_nginx(driver, concurrency, cpu_list, native):
-    stop_nginx()
-
-    worker_cpu_affinity = ""
-
-    n = len(cpu_list)
-    assert(n > 0)
-
-    templ = list()
-    for i in range(0, g_cpu_count):
-        templ.append('0')
-    for i in cpu_list:
-        templ[g_cpu_count - 1 - i] = '1'
-        worker_cpu_affinity += " " + "".join(templ)
-        templ[g_cpu_count - 1 - i] = '0'
-
-    worker_connections = upper_pow2_32(concurrency/n)
-    if worker_connections < 1024:
-        worker_connections = 1024
-
-    nginx_conf = (
-        "user root;\n"
-        "daemon off;\n"
-        "master_process on;\n"
-        "\n"
-        "worker_processes %d;\n"
-        "worker_cpu_affinity %s;\n"
-        "events {\n"
-        "    use epoll;\n"
-        "    multi_accept on;\n"
-        "    worker_connections %d;\n"
-        "}\n"
-        "\n"
-        "http {\n"
-        "    access_log off;\n"
-        "    tcp_nopush on;\n"
-        "    tcp_nodelay on;\n"
-        "    keepalive_timeout 65;\n"
-        "    types_hash_max_size 2048;\n"
-        "    reset_timedout_connection on;\n"
-        "    send_timeout 2;\n"
-        "    client_body_timeout 10;\n"
-        "    include /etc/nginx/conf.d/*.conf;\n"
-        "    server {\n"
-        "        listen %s:80 reuseport;\n"
-        "        server_name  _;\n"
-        "        location / {\n"
-        "            return 200 'Hello world!!!';\n"
-        "        }\n"
-        "    }\n"
-        "}\n"
-        % (n, worker_cpu_affinity, worker_connections, device_ip))
-
-    nginx_conf_path = app.path + "/test/nginx.conf"
-
-    f = open(nginx_conf_path, 'w')
-    f.write(nginx_conf)
-    f.close()
-
-    return start_gbtcp_process("nginx -c %s" % nginx_conf_path, native)
+        e["LD_PRELOAD"] = libgbtcp_path
+        e["GBTCP_CONF"] = gbtcp_conf_path
+    return start_process(cmd, env = e)
 
 def run_tester(args):
     subnet = None
@@ -323,7 +259,7 @@ def wait_tester(tester):
 
 def tester_loop():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind((listen, 9999))
+    s.bind((g_listen, 9999))
     s.listen()
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
@@ -345,13 +281,6 @@ def tester_loop():
             conn.close()
         except socket.error as exc:
             print_log("Connection failed: %s" % exc)
-
-def get_nginx_ver():
-    s = system("nginx -v")[2]
-    m = re.search(r'[0-9]+\.[0-9]+\.[0-9]+', s.strip())
-    if m == None:
-        die("Couldn't get nginx version from '%s'" % s)
-    return m.group(0)
 
 def bind_interrupts(interface, cpus):
     f = open("/proc/interrupts", 'r')
@@ -427,7 +356,7 @@ def add_sample(data, reports, test_id, low):
         sample.status = SAMPLE_STATUS_LOW_CPU_USAGE
     else:
         sample.status = SAMPLE_STATUS_OK
-    sample.id = app.add_sample(sample)
+    sample.id = env.add_sample(sample)
     return sample
 
 def set_stop_time():
@@ -440,7 +369,7 @@ def cool_down_cpu():
         t = int(math.ceil((g_cooling_time * 1000 - ms) / 1000))
         time.sleep(t)
 
-def print_test(test_id, sample, app, native, concurrency, driver, cpu_usage):
+def print_test(test_id, sample, env, native, concurrency, driver, cpu_usage):
     if native:
         driver = "native"
 
@@ -450,7 +379,7 @@ def print_test(test_id, sample, app, native, concurrency, driver, cpu_usage):
         sample_id = str(sample.id)
 
     s = ("runner: %d:%s: %s:%s: concurrency=%d, CPU=%s ... " %
-        (test_id, sample_id, driver, app, concurrency, list_to_str(cpu_usage)))
+        (test_id, sample_id, driver, env, concurrency, list_to_str(cpu_usage)))
 
     if sample == None:
         s += "Failed (Bad sample)"
@@ -465,44 +394,12 @@ def print_test(test_id, sample, app, native, concurrency, driver, cpu_usage):
 
     print_log(s, True)
 
-def test_nginx(app, test_id, driver, concurrency, cpus, native):
-    nginx = start_nginx(driver, concurrency, cpus, native)
-
-    # Wait netmap interface goes up
-    time.sleep(2)
-    cool_down_cpu()
-    tester = start_tester(concurrency)
-
-    # FIXME: Wait ARP negotiaition
-    cpu_usage = measure_cpu_usage(g_report_count, g_skip_reports, cpus)
-
-    data = wait_tester(tester)
-
-    low = False
-    for j in cpu_usage:
-        if j < 98:
-            low = True
-            break
-
-    sample = add_sample(data, g_report_count, test_id, low)
-
-    stop_nginx()
-    wait_proc(nginx)
-    set_stop_time()
-
-    print_test(test_id, sample, "nginx", native, concurrency, driver, cpu_usage)
-
-    if sample == None or sample.status == 0:
-        return False
-    else:
-        return True
-
 last_used_cpus = None
 
-def do_test(cpus, native, driver, concurrency):
+def do_test(app, cpus, native, driver, concurrency):
     global last_used_cpus
 
-    app.ts_planned += g_sample_count
+    env.ts_planned += g_sample_count
     if g_dry_run:
         test_id = -1
         sample_count = 0
@@ -511,10 +408,10 @@ def do_test(cpus, native, driver, concurrency):
             desc = "native" 
             driver_id = 0
         else:
-            desc = app.git_commit
+            desc = env.git_commit
             driver_id = get_driver_id(driver)
 
-        test_id, sample_count = app.add_test(desc, app_id, driver_id, concurrency,
+        test_id, sample_count = env.add_test(desc, app.id, driver_id, concurrency,
             len(cpus), g_report_count)
 
     for j in range (0, g_sample_count - sample_count):
@@ -524,11 +421,11 @@ def do_test(cpus, native, driver, concurrency):
             time.sleep(2)
             set_txrx_queue_count(g_runner_interface, cpus)
 
-        rc = test_nginx(app, test_id, driver, concurrency, cpus, native)
+        rc = app.test(test_id, driver, concurrency, cpus, native)
         if rc:
-            app.ts_pass += 1
+            env.ts_pass += 1
         else:
-            app.ts_failed += 1
+            env.ts_failed += 1
 
 ################ MAIN ####################
 fill_test_list()
@@ -542,12 +439,12 @@ try:
         "cpu-list=",
         "cpu-count-min=",
         "concurrency=",
-        "driver=",
+        "drivers=",
         "reports=",
         "skip-reports=",
         "samples=",
         "cooling-time=",
-        "reload-netmap",
+        "reload-netmap=",
         "test=",
         ])
 except getopt.GetoptError as err:
@@ -567,7 +464,7 @@ for o, a in opts:
         if g_cpu_list == None:
             die("--cpu-list: Invalid argument: '%s'" % a)
     elif o in ("-L", "--listen"):
-        listen = a
+        g_listen = a
     elif o in ("--connect"):
         g_connect = a
     elif o in ("--reload-netmap"):
@@ -584,18 +481,18 @@ for o, a in opts:
         g_cpu_count_min = int(a)
     elif o in ("--concurrency"):
         g_concurrency = str_to_int_list(a)
-    elif o in ("--driver"):
+    elif o in ("--drivers"):
         for driver in a.split(','):
             if driver == "xdp":
-                if not app.have_xdp:
+                if not env.have_xdp:
                     die("XDP driver not supported")
             elif driver == "netmap":
-                if not app.have_netmap:
+                if not env.have_netmap:
                     die("netmap driver not supported")
             else:
                     die("%s driver not supported" % driver)
-            if not driver in g_driver:
-                g_driver.append(driver)
+            if not driver in g_drivers:
+                g_drivers.append(driver)
     elif o in ("--test"):
         for test in a.split(','):
             if test_exists(test):
@@ -604,17 +501,17 @@ for o, a in opts:
             else:
                 die("test '%s' doesn't exists" % test)
 
-if len(g_test) == 0:
-    die("'--test' not specified")
+if g_listen == None and len(g_test) == 0:
+    die("--test: not specified")
 
 if len(g_concurrency) == 0:
     g_concurrency.append(1000)
 
-if len(g_driver) == 0:
-    if app.have_netmap:
-        g_driver.append("netmap")
-    elif app.have_xdp:
-        g_driver.append("xdp")
+if len(g_drivers) == 0:
+    if env.have_netmap:
+        g_drivers.append("netmap")
+    elif env.have_xdp:
+        g_drivers.append("xdp")
 
 g_cpu_count = multiprocessing.cpu_count()
 if g_cpu_list == None:
@@ -659,7 +556,7 @@ else:
     system("ethtool -G %s rx 2048 tx 2048" % g_interface)
     system("ip l s dev %s up" % g_interface)
 
-if listen != None:
+if g_listen != None:
     if g_connect != None:
         die("--connect: Can't be specified with --listen option")
     if g_interface == None:
@@ -715,32 +612,161 @@ system("ip r a dev %s %s.0.0/15 via %s.1.1 initcwnd 1" % (g_runner_interface, su
 # Assume that last test ended at least 10 seconds ago
 g_stop_at_milliseconds = milliseconds() - 10000
 
-write_gbtcp_conf(g_driver[0])
+write_gbtcp_conf(g_drivers[0])
 
 for test in g_test:
     if test in g_simple_test:
-        app.ts_planned += 1
-        proc = start_gbtcp_process(app.path + '/bin/' + test, False)
+        env.ts_planned += 1
+        proc = start_process_ldpreload(env.project_path + '/bin/' + test, False)
         if wait_proc(proc):
-            app.ts_pass += 1
+            env.ts_pass += 1
             status = "Pass"
         else:
-            app.ts_failed += 1
+            env.ts_failed += 1
             status = "Failed"
         print_log("runner: %s ... %s" % (test, status), True)
 
-if "nginx" in g_test:
-    g_nginx_ver = get_nginx_ver()
+class application:
+    id = None
 
-    app_id = app.app_get_id("nginx", g_nginx_ver)
+    def __init__(self):
+        self.id = env.app_get_id(self.get_name(), self.get_version())
 
+    def test(self, test_id, driver, concurrency, cpus, native):
+        self.stop()
+
+        proc = self.start(driver, concurrency, cpus, native)
+
+        # Wait netmap interface goes up
+        time.sleep(2)
+        cool_down_cpu()
+        tester = start_tester(concurrency)
+
+        # FIXME: Wait ARP negotiaition
+        cpu_usage = measure_cpu_usage(g_report_count, g_skip_reports, cpus)
+
+        data = wait_tester(tester)
+
+        low = False
+        for j in cpu_usage:
+            if j < 98:
+                low = True
+                break
+
+        sample = add_sample(data, g_report_count, test_id, low)
+
+        self.stop()
+        wait_proc(proc)
+        set_stop_time()
+
+        print_test(test_id, sample, self.get_name(), native, concurrency, driver, cpu_usage)
+
+        if sample == None or sample.status == 0:
+            return False
+        else:
+            return True
+
+
+class nginx(application):
+
+    def get_name(self):
+        return "nginx"
+
+    def get_version(self):
+        s = system("nginx -v")[2]
+        m = re.search(r'[0-9]+\.[0-9]+\.[0-9]+', s.strip())
+        if m == None:
+            die("Couldn't get nginx version from '%s'" % s)
+        return m.group(0)
+
+    def stop(self):
+        system("nginx -s quit", True)
+
+    def start(self, driver, concurrency, cpu_list, native):
+
+        worker_cpu_affinity = ""
+
+        n = len(cpu_list)
+        assert(n > 0)
+
+        templ = list()
+        for i in range(0, g_cpu_count):
+            templ.append('0')
+        for i in cpu_list:
+            templ[g_cpu_count - 1 - i] = '1'
+            worker_cpu_affinity += " " + "".join(templ)
+            templ[g_cpu_count - 1 - i] = '0'
+
+        worker_connections = upper_pow2_32(concurrency/n)
+        if worker_connections < 1024:
+            worker_connections = 1024
+
+        nginx_conf = (
+            "user root;\n"
+            "daemon off;\n"
+            "master_process on;\n"
+            "\n"
+            "worker_processes %d;\n"
+            "worker_cpu_affinity %s;\n"
+            "events {\n"
+            "    use epoll;\n"
+            "    multi_accept on;\n"
+            "    worker_connections %d;\n"
+            "}\n"
+            "\n"
+            "http {\n"
+            "    access_log off;\n"
+            "    tcp_nopush on;\n"
+            "    tcp_nodelay on;\n"
+            "    keepalive_timeout 65;\n"
+            "    types_hash_max_size 2048;\n"
+            "    reset_timedout_connection on;\n"
+            "    send_timeout 2;\n"
+            "    client_body_timeout 10;\n"
+            "    include /etc/nginx/conf.d/*.conf;\n"
+            "    server {\n"
+            "        listen %s:80 reuseport;\n"
+            "        server_name  _;\n"
+            "        location / {\n"
+            "            return 200 'Hello world!!!';\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+            % (n, worker_cpu_affinity, worker_connections, device_ip))
+
+        nginx_conf_path = env.project_path + "/test/nginx.conf"
+
+        f = open(nginx_conf_path, 'w')
+        f.write(nginx_conf)
+        f.close()
+
+        return start_process_ldpreload("nginx -c %s" % nginx_conf_path, native)
+
+    def __init__(self):
+        application.__init__(self)
+
+class epoll_helloworld(application):
+    def get_name(self):
+        return "epoll-helloworld"
+
+    def get_version(self):
+        return "1.0"
+
+    def __init__(self):
+        application.__init__(self)
+
+app = epoll_helloworld()
+print("-- %d" % app.id)
+sys.exit(0)
+
+if app.get_name() in g_test:
     for i in range (g_cpu_count_min, len(g_runner_cpus) + 1):
         cpus = g_runner_cpus[:i]
-        for driver in g_driver:
+        for driver in g_drivers:
             write_gbtcp_conf(driver)
             for concurrency in g_concurrency:
-                do_test(cpus, False, driver, concurrency)
+                do_test(app, cpus, False, driver, concurrency)
 
-print("TS (Test Samples) Planned: ", app.ts_planned)
-print("TS Pass: ", app.ts_pass)
-print("TS Failed: ", app.ts_failed)
+print("Planned: ", env.ts_planned)
+print("Pass: ", env.ts_pass)
+print("Failed: ", env.ts_failed)

@@ -1050,7 +1050,7 @@ main(int argc, char **argv)
 	const char *long_opt_name;
 	int opt, long_opt;
 
-	gt_init("netstat", LOG_ERR);
+	gt_init();
 	gt_preload_passthru = 1;
 	while ((opt = getopt_long(argc, argv, "hvalnszI:iHbw:",
 	                          long_opts, &long_opt)) != -1) {

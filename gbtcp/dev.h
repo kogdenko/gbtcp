@@ -52,6 +52,7 @@ struct dev {
 	struct route_if *dev_ifp;
 	int dev_fd;
 	int dev_queue_id;
+	int dev_ifindex;
 	char dev_ifname[IFNAMSIZ];
 };
 
@@ -74,7 +75,7 @@ int dev_transport_get(void);
 int dev_mod_init(void);
 
 int dev_init(struct dev *, int, const char *, int, dev_f);
-void dev_deinit(struct dev *, bool);
+int dev_deinit(struct dev *, bool);
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);
 int dev_get_tx_packet(struct dev *, struct dev_pkt *);

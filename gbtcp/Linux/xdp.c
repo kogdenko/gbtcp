@@ -1,9 +1,7 @@
 // GPL v2 License
 #include <linux/if_xdp.h>
 #include <linux/if_link.h>
-#include <linux/bpf.h>
-#include <bpf/libbpf.h>
-#include <bpf/xsk.h>
+#include <xdp/xsk.h>
 #include "../sys.h"
 #include "../dev.h"
 
@@ -14,7 +12,7 @@
 	(2 * (XSK_RING_CONS__DEFAULT_NUM_DESCS + XSK_RING_PROD__DEFAULT_NUM_DESCS))
 #define XDP_FRAME_INVALID UINT64_MAX
 
-static void xdp_queue_deinit(struct xdp_queue *, bool);
+static void xdp_queue_deinit(struct dev *, bool);
 static int xdp_dev_init(struct dev *);
 static void xdp_dev_deinit(struct dev *, bool);
 static int xdp_dev_rx(struct dev *);
@@ -47,6 +45,7 @@ struct xdp_queue {
 	void *xq_tx_buf;
 	uint32_t xq_tx_idx;
 	uint64_t xq_frame[XDP_FRAME_NUM];
+	uint32_t xq_prog_id;
 };
 
 static uint64_t
@@ -70,13 +69,24 @@ xdp_queue_free_frame(struct xdp_queue *q, uint64_t frame)
 }
 
 static int
-xdp_queue_init(struct xdp_queue *q, const char *ifname, int queue_id)
+xdp_queue_init(struct dev *dev)
 {
 	int i, rc, size;
 	uint32_t idx;
 	struct xsk_socket_config cfg;
+	struct xdp_queue *q;
 
+	q = dev->dev_xdp_queue;
 	memset(q, 0, sizeof(*q));
+	q->xq_prog_id = UINT32_MAX;
+	rc = bpf_xdp_query_id(dev->dev_ifindex, 0, &q->xq_prog_id);
+	if (rc < 0) {
+		ERR(-rc, "bpf_xdp_query_id('%d') failed", dev->dev_ifindex);
+		goto err;
+	}
+
+//	bpf_xdp_attach(opt_ifindex, prog_fd, opt_xdp_flags, NULL) < 0
+
 	size = XDP_FRAME_NUM * XDP_FRAME_SIZE;
 	rc = sys_posix_memalign(&q->xq_buf, PAGE_SIZE, size);
 	if (rc < 0) {
@@ -95,10 +105,12 @@ xdp_queue_init(struct xdp_queue *q, const char *ifname, int queue_id)
 	memset(&cfg, 0, sizeof(cfg));
 	cfg.rx_size = XSK_RING_CONS__DEFAULT_NUM_DESCS;
 	cfg.tx_size = XSK_RING_PROD__DEFAULT_NUM_DESCS;
-	rc = xsk_socket__create(&q->xq_xsk, ifname, queue_id, q->xq_umem,
+//	cfg.xdp_flags = XDP_FLAGS_UPDATE_IF_NOEXIST;
+	rc = xsk_socket__create(&q->xq_xsk, dev->dev_ifname, dev->dev_queue_id, q->xq_umem,
 		&q->xq_rx, &q->xq_tx, &cfg);
 	if (rc < 0) {
-		ERR(-rc, "xsk_socket__create('%s', '%d') failed", ifname, queue_id);
+		ERR(-rc, "xsk_socket__create('%s', '%d') failed",
+			dev->dev_ifname, dev->dev_queue_id);
 		goto err;
 	}
 	idx = UINT32_MAX;
@@ -116,42 +128,38 @@ xdp_queue_init(struct xdp_queue *q, const char *ifname, int queue_id)
 	q->xq_fd = xsk_socket__fd(q->xq_xsk);
 	return q->xq_fd;
 err:
-	xdp_queue_deinit(q, false);
+	xdp_queue_deinit(dev, false);
 	return rc;
 }
 
 static void
-xdp_queue_deinit(struct xdp_queue *q, bool cloexec)
+xdp_queue_deinit(struct dev *dev, bool cloexec)
 {
+	struct xdp_queue *q;
+
+	q = dev->dev_xdp_queue;
 	xsk_socket__delete(q->xq_xsk);
 	xsk_umem__delete(q->xq_umem);
 	sys_free(q->xq_buf);
+	if (q->xq_prog_id != UINT32_MAX) {
+		bpf_xdp_detach(dev->dev_ifindex, 0, NULL);
+	}
 	if (!cloexec) {
 		q->xq_xsk = NULL;
 		q->xq_umem = NULL;
 		q->xq_buf = NULL;
+		q->xq_prog_id = UINT32_MAX;
 	}
 }
 
 static int
 xdp_dev_init(struct dev *dev)
 {
-	int rc, ifindex;
-	uint32_t xdp_prog_id;
+	int rc;
 
 	NOTICE(0, "Create XDP device '%s', queue=%d", dev->dev_ifname, dev->dev_queue_id);
 	if (dev->dev_queue_id < 0) {
 		rc = -ENOTSUP;
-		goto err;
-	}
-	rc = sys_if_nametoindex(dev->dev_ifname);
-	if (rc < 0) {
-		goto err;
-	}
-	ifindex = rc;
-	rc = bpf_get_link_xdp_id(ifindex, &xdp_prog_id, 0);
-	if (rc < 0) {
-		ERR(-rc, "bpf_get_link_xdp_id('%d') failed", ifindex);
 		goto err;
 	}
 	dev->dev_xdp_queue = sys_malloc(sizeof(*dev->dev_xdp_queue));
@@ -160,15 +168,13 @@ xdp_dev_init(struct dev *dev)
 		rc = -ENOMEM;
 		goto err;
 	}
-	rc = xdp_queue_init(dev->dev_xdp_queue, dev->dev_ifname, dev->dev_queue_id);
+	rc = xdp_queue_init(dev);
 	if (rc >= 0) {
-		NOTICE(0, "XDP device '%s' created, queue=%d",
-			dev->dev_ifname, dev->dev_queue_id);
+		NOTICE(0, "XDP device '%s' created, queue=%d", dev->dev_ifname, dev->dev_queue_id);
 		return rc;
 	}
 err:
-	ERR(-rc, "Failed to create XDP device '%s', queue=%d",
-		dev->dev_ifname, dev->dev_queue_id);
+	ERR(-rc, "Failed to create XDP device '%s', queue=%d", dev->dev_ifname, dev->dev_queue_id);
 	sys_free(dev->dev_xdp_queue);
 	dev->dev_xdp_queue = NULL;
 	return rc;
@@ -179,7 +185,7 @@ xdp_dev_deinit(struct dev *dev, bool cloexec)
 {
 	NOTICE(0, "Destroy XDP device '%s', queue=%d'", dev->dev_ifname, dev->dev_queue_id);
 	assert(dev->dev_xdp_queue != NULL);
-	xdp_queue_deinit(dev->dev_xdp_queue, cloexec);
+	xdp_queue_deinit(dev, cloexec);
 	sys_free(dev->dev_xdp_queue);
 	if (!cloexec) {
 		dev->dev_xdp_queue = NULL;

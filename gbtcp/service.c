@@ -78,7 +78,7 @@ service_peer_recv(int fd)
 }
 
 static int
-service_start_controller_nolog(const char *p_comm)
+service_start_controller_nolog(void)
 {
 	int rc, pipe_fd[2];
 
@@ -90,7 +90,7 @@ service_start_controller_nolog(const char *p_comm)
 	if (rc == 0) {
 		sys_close(pipe_fd[0]);
 		sys_close(service_sysctl_fd);
-		rc = controller_init(1, p_comm);
+		rc = controller_init(1);
 		service_peer_send(pipe_fd[1], rc);
 		sys_close(pipe_fd[1]);
 		if (rc == 0) {
@@ -108,12 +108,12 @@ service_start_controller_nolog(const char *p_comm)
 }
 
 static int
-service_start_controller(const char *p_comm)
+service_start_controller(void)
 {
 	int rc;
 
 	NOTICE(0, "Starting controller");
-	rc = service_start_controller_nolog(p_comm);
+	rc = service_start_controller_nolog();
 	if (rc < 0) {
 		ERR(-rc, "Failed to start controller");
 	} else if (rc > 0) {
@@ -380,7 +380,7 @@ service_peer_rx(struct dev *dev, void *data, int len)
 static int
 service_init_shared_redirect_dev(struct service *s)
 {
-	int i, rc, added, ifindex, flags;
+	int i, rc, added, ifindex, flags, dev_transport;
 	char ifname[2][IFNAMSIZ];
 
 	added = 0;
@@ -407,7 +407,8 @@ service_init_shared_redirect_dev(struct service *s)
 			goto err;
 		}
 	}
-	rc = dev_init(&s->p_veth_peer, ifname[1], 0, service_peer_rx);
+	dev_transport = dev_transport_get();
+	rc = dev_init(&s->p_veth_peer, dev_transport, ifname[1], 0, service_peer_rx);
 	if (rc < 0) {
 		goto err;
 	}
@@ -425,7 +426,7 @@ service_deinit_shared_redirect_dev(struct service *s)
 {
 	char peer[IFNAMSIZ];
 
-	dev_deinit(&s->p_veth_peer);
+	dev_deinit(&s->p_veth_peer, false);
 	snprintf(peer, sizeof(peer), SERVICE_VETHF, 'c', s->p_pid);
 	netlink_link_del(peer);
 }
@@ -433,11 +434,12 @@ service_deinit_shared_redirect_dev(struct service *s)
 static int
 service_redirect_dev_init(struct service *s)
 {
-	int rc;
-	char buf[IFNAMSIZ];
+	int rc, dev_transport;
+	char ifname[IFNAMSIZ];
 
-	snprintf(buf, sizeof(buf), SERVICE_VETHF, 's', s->p_pid);
-	rc = dev_init(&service_redirect_dev, buf, 0, service_redirect_dev_rx);
+	dev_transport = dev_transport_get();
+	snprintf(ifname, sizeof(ifname), SERVICE_VETHF, 's', s->p_pid);
+	rc = dev_init(&service_redirect_dev, dev_transport, ifname, 0, service_redirect_dev_rx);
 	return rc;
 }
 #endif // GTL_HAVE_VALE
@@ -555,7 +557,6 @@ service_attach()
 {
 	int rc, pid;
 	struct sockaddr_un a;
-	char p_comm[SERVICE_COMM_MAX];
 	char buf[GT_SYSCTL_BUFSIZ];
 	sigset_t sigprocmask_block;
 	struct service *s;
@@ -567,11 +568,7 @@ service_attach()
 		return 0;
 	}
 	pid = getpid();
-	rc = read_proc_comm(p_comm, pid);
-	if (rc) {
-		goto err;
-	}
-	gt_init(p_comm, 0);
+	gt_init();
 	sysctl_make_sockaddr_un(&a, pid);
 	rc = sysctl_bind(&a);
 	if (rc < 0) {
@@ -584,7 +581,7 @@ service_attach()
 		if (!service_autostart_controller) {
 			goto err;
 		}
-		rc = service_start_controller(p_comm);
+		rc = service_start_controller();
 		if (rc) {
 			goto err;
 		}

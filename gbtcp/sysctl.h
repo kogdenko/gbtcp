@@ -31,7 +31,7 @@ void sysctl_root_deinit(void);
 
 void sysctl_make_sockaddr_un(struct sockaddr_un *, int);
 
-int sysctl_read_file(int, const char *);
+int sysctl_read_file(int);
 
 int sysctl_conn_fd(struct sysctl_conn *);
 int sysctl_conn_open(struct sysctl_conn **, int);

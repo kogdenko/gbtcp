@@ -43,12 +43,15 @@ def get_git_commit():
         die("'%s': Unexpected output" % cmd)
     return commit
 
-def configure():
-    shutil.copyfile('./tools/pre-commit', '.git/hooks/pre-commit')
+def add_target(target, source, env):
+    env.Append(CPPPATH = ['.'])
+    #target.append(str(target[0]))
+    return target, source
 
+def configure(target, source, env):
     commit = get_git_commit()
 
-    f = open("gbtcp/config.h", 'w')
+    f = open(str(target[0]), 'w')
     s = ""
     s += "#ifndef GBTCP_CONFIG_H\n"
     s += "#define GBTCP_CONFIG_H\n"
@@ -60,10 +63,12 @@ def configure():
         s += "#define GTL_HAVE_NETMAP\n"
     if HAVE_VALE:
         s += "#define GTL_HAVE_VALE\n"
+
     s += "\n"
     s += "#endif // GBTCP_CONFIG_H\n"
     f.write(s)
     f.close()
+    return None
 
 cflags = [
     '-g',
@@ -100,13 +105,20 @@ AddOption('--without-xdp', action = 'store_true',
     help = "Don't use XDP transport", default = False)
 
 SConscript([
-#    'test/SConstruct',
     'tools/epoll_helloworld/SConstruct',
 ])
+
+shutil.copyfile('./tools/pre-commit', '.git/hooks/pre-commit')
 
 PLATFORM = platform.system()
 
 env = Environment(CC = 'gcc')
+
+bld = Builder(action = configure, emitter = add_target)
+env.Append(BUILDERS = { 'Configure': bld })
+env.Configure('gbtcp/config.h', None)
+env.AlwaysBuild('gbtcp/config.h')
+
 conf = Configure(env)
 
 srcs = [
@@ -146,7 +158,8 @@ if PLATFORM == "Linux":
     ldflags.append("-ldl")
     ldflags.append('-lrt')
     if not GetOption('without_xdp'):
-        if (conf.CheckHeader('linux/bpf.h') and conf.CheckLib('bpf')):
+        print("XDP disabled due cleanup bug, see libgbtcp-test-xdp.c")
+        if (False and conf.CheckHeader('linux/bpf.h') and conf.CheckLib('bpf')):
             srcs.append('gbtcp/Linux/xdp.c')
             HAVE_XDP = True
             ldflags.append('-lbpf')
@@ -173,6 +186,8 @@ if not GetOption('without_netmap'):
         if not GetOption('without_vale'):
             HAVE_VALE = True
 
+conf.Finish()
+
 if platform.architecture()[0] == "64bit":
     lib_path = '/usr/lib64'
 else:
@@ -181,9 +196,12 @@ else:
 env.Append(CFLAGS = ' '.join(cflags))
 env.Append(LINKFLAGS = ' '.join(ldflags))
 
-configure()
+env.Depends('gbtcp/dev.c' , 'gbtcp/config.h')
+
 
 libgbtcp = env.SharedLibrary('bin/libgbtcp.so', srcs)
+
+
 env.Install(lib_path, libgbtcp)
 env.Alias('install', lib_path)
 

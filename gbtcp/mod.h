@@ -16,14 +16,14 @@ extern struct mod mods[MODS_MAX];
 #define mod_get(id) \
 	(shared == NULL ? NULL : shared->shm_mods[id])
 
-#define curmod ((struct CAT2(CURMOD, _mod) *) \
-	(shared->shm_mods[CAT2(MOD_, CURMOD)]))
+#define curmod ((struct GTL_CAT2(CURMOD, _mod) *) \
+	(shared->shm_mods[GTL_CAT2(MOD_, CURMOD)]))
 
 #define curmod_init() \
-	mod_init2(CAT2(MOD_, CURMOD), sizeof(struct CAT2(CURMOD, _mod)))
+	mod_init2(GTL_CAT2(MOD_, CURMOD), sizeof(struct GTL_CAT2(CURMOD, _mod)))
 
 #define curmod_deinit() \
-	mod_deinit1(CAT2(MOD_, CURMOD))
+	mod_deinit1(GTL_CAT2(MOD_, CURMOD))
 
 const char *mod_name(int);
 int mod_init2(int, size_t);

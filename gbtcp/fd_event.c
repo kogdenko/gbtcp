@@ -72,7 +72,7 @@ fd_event_add(struct fd_event **pe, int fd, void *udata, fd_event_f fn)
 		e = fd_event_buf + i;
 		if (e->fde_ref_cnt) {
 			if (e->fde_fn != NULL && e->fde_fd == fd) {
-				die(0, "Trying to add duplicate fd=%d to multiplexer", fd);
+				gtl_die(0, "Trying to add duplicate fd=%d to multiplexer", fd);
 			}
 		} else {
 			if (id == -1) {

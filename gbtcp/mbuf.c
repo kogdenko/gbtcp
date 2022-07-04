@@ -27,13 +27,11 @@ mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 
 	if (p->mbp_chunk_map_size != 0 &&
 	    p->mbp_n_allocated_chunks == p->mbp_chunk_map_size) {
-		dbg("y");
 		return -ENOMEM;
 	}
 	rc = shm_alloc_pages((void **)pchunk,
 		p->mbp_chunk_size, p->mbp_chunk_size);
 	if (rc) {
-		dbg("z %u", p->mbp_chunk_size);
 		return rc;
 	}
 	p->mbp_n_allocated_chunks++;
