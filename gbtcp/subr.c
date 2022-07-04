@@ -572,8 +572,7 @@ restart:
  \
 	ret = 0; \
 	for (off = 0; off < cnt; off += rc) { \
-		rc = sys_##name(fd, (const u_char *)buf + off, \
-		                cnt - off, ##__VA_ARGS__); \
+		rc = sys_##name(fd, (const u_char *)buf + off, cnt - off, ##__VA_ARGS__); \
 		if (rc < 0) { \
 			ret = rc; \
 			break; \

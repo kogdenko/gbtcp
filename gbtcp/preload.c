@@ -1,7 +1,7 @@
-// gpl2
+// GPL V2 License
 #include "internals.h"
 
-static __thread int gt_called;
+static __thread int preload_called;
 
 int gt_preload_passthru = 0;
 
@@ -22,15 +22,13 @@ int gt_preload_passthru = 0;
 	int new_fd; \
 	ssize_t rc; \
  \
-	if (gt_preload_passthru || \
-	    ((flags) & PRELOAD_FLAG_PASSTHRU) || \
-	    gt_called || \
-	    (((flags) & PRELOAD_FLAG_FD_ARG) && fd < GT_FIRST_FD)) { \
+	if (gt_preload_passthru || ((flags) & PRELOAD_FLAG_PASSTHRU) || preload_called || \
+			(((flags) & PRELOAD_FLAG_FD_ARG) && fd < GT_FIRST_FD)) { \
 		rc = SYS_CALL(fn, ##__VA_ARGS__); \
 	} else { \
-		gt_called = 1; \
+		preload_called = 1; \
 		rc = gt_##fn(__VA_ARGS__); \
-		gt_called = 0; \
+		preload_called = 0; \
 		if (rc == -1) { \
 			if (gt_errno == ENOTSUP && \
 			    ((flags) & PRELOAD_FLAG_FD_RET)) { \
@@ -50,51 +48,49 @@ int gt_preload_passthru = 0;
 })
 
 #if 1
-#define PRELOAD_FORK fork
-#define PRELOAD_VFORK vfork
-#define PRELOAD_SOCKET socket
-#define PRELOAD_BIND bind
-#define PRELOAD_CONNECT connect
-#define PRELOAD_LISTEN listen
-#define PRELOAD_ACCEPT accept
-#define PRELOAD_ACCEPT4 accept4
-#define PRELOAD_SHUTDOWN shutdown
-#define PRELOAD_CLOSE close
-#define PRELOAD_READ read
-#define PRELOAD_READV readv
-#define PRELOAD_RECV recv
-#define PRELOAD_RECVFROM recvfrom
-#define PRELOAD_WRITE write
-#define PRELOAD_WRITEV writev
-#define PRELOAD_SEND send
-#define PRELOAD_SENDTO sendto
-#define PRELOAD_SENDMSG sendmsg
-#define PRELOAD_FCNTL fcntl
-#define PRELOAD_IOCTL ioctl
-#define PRELOAD_GETSOCKOPT getsockopt
-#define PRELOAD_SETSOCKOPT setsockopt
-#define PRELOAD_GETPEERNAME getpeername
-#define PRELOAD_PPOLL ppoll
-#define PRELOAD_POLL poll
-#define PRELOAD_PSELECT pselect
-#define PRELOAD_SELECT select
-//#define PRELOAD_SIGNAL signal
-//#define PRELOAD_SIGACTION sigaction
-#define PRELOAD_SIGPROCMASK sigprocmask
-#define PRELOAD_SIGSUSPEND sigsuspend
-//#define PRELOAD_KILL kill
+#define preload_fork fork
+#define preload_vfork vfork
+#define preload_socket socket
+#define preload_bind bind
+#define preload_connect connect
+#define preload_listen listen
+#define preload_accept accept
+#define preload_accept4 accept4
+#define preload_shutdown shutdown
+#define preload_close close
+#define preload_read read
+#define preload_readv readv
+#define preload_recv recv
+#define preload_recvfrom recvfrom
+#define preload_write write
+#define preload_writev writev
+#define preload_send send
+#define preload_sendto sendto
+#define preload_sendmsg sendmsg
+#define preload_fcntl fcntl
+#define preload_ioctl ioctl
+#define preload_getsockopt getsockopt
+#define preload_setsockopt setsockopt
+#define preload_getpeername getpeername
+#define preload_ppoll ppoll
+#define preload_poll poll
+#define preload_pselect pselect
+#define preload_select select
+#define preload_sleep sleep
+#define preload_sigprocmask sigprocmask
+#define preload_sigsuspend sigsuspend
 
 #ifdef __linux__
-#define PRELOAD_CLONE clone
-#define PRELOAD_EPOLL_CREATE epoll_create
-#define PRELOAD_EPOLL_CREATE1 epoll_create1
-#define PRELOAD_EPOLL_CTL epoll_ctl
-#define PRELOAD_EPOLL_PWAIT epoll_pwait
-#define PRELOAD_EPOLL_WAIT epoll_wait
+#define preload_clone clone
+#define preload_epoll_create1 epoll_create1
+#define preload_epoll_create epoll_create
+#define preload_epoll_ctl epoll_ctl
+#define preload_epoll_pwait epoll_pwait
+#define preload_epoll_wait epoll_wait
 #else // __linux__
-#define PRELOAD_RFORK rfork
-#define PRELOAD_KEVENT kevent
-#define PRELOAD_KQUEUE kqueue
+#define preload_rfork rfork
+#define preload_kevent kevent
+#define preload_kqueue kqueue
 #endif // __linux__
 #endif // 1
 
@@ -105,7 +101,7 @@ preload_set_errno(int e)
 }
 
 pid_t
-PRELOAD_FORK()
+preload_fork(void)
 {
 	int rc;
 
@@ -114,7 +110,7 @@ PRELOAD_FORK()
 }
 
 pid_t
-PRELOAD_VFORK()
+preload_vfork(void)
 {
 	assert(0);
 	errno = EINVAL;
@@ -122,7 +118,7 @@ PRELOAD_VFORK()
 }
 
 int
-PRELOAD_SOCKET(int domain, int type, int protocol)
+preload_socket(int domain, int type, int protocol)
 {
 	int rc, pf;
 
@@ -135,7 +131,7 @@ PRELOAD_SOCKET(int domain, int type, int protocol)
 }
 
 int
-PRELOAD_BIND(int fd, const struct sockaddr *addr, socklen_t addrlen)
+preload_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
 
@@ -144,7 +140,7 @@ PRELOAD_BIND(int fd, const struct sockaddr *addr, socklen_t addrlen)
 }
 
 int
-PRELOAD_CONNECT(int fd, const struct sockaddr *addr, socklen_t addrlen)
+preload_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
 
@@ -153,7 +149,7 @@ PRELOAD_CONNECT(int fd, const struct sockaddr *addr, socklen_t addrlen)
 }
 
 int
-PRELOAD_LISTEN(int fd, int backlog)
+preload_listen(int fd, int backlog)
 {
 	int rc;
 
@@ -162,8 +158,7 @@ PRELOAD_LISTEN(int fd, int backlog)
 }
 
 int
-PRELOAD_ACCEPT4(int fd, struct sockaddr *addr, socklen_t *addrlen,
-	int flags)
+preload_accept4(int fd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
 	int rc;
 
@@ -173,16 +168,16 @@ PRELOAD_ACCEPT4(int fd, struct sockaddr *addr, socklen_t *addrlen,
 }
 
 int
-PRELOAD_ACCEPT(int fd, struct sockaddr *addr, socklen_t *addrlen)
+preload_accept(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
 
-	rc =  PRELOAD_ACCEPT4(fd, addr, addrlen, 0);
+	rc =  preload_accept4(fd, addr, addrlen, 0);
 	return rc;
 }
 
 int
-PRELOAD_SHUTDOWN(int fd, int how)
+preload_shutdown(int fd, int how)
 {
 	int rc;
 
@@ -191,7 +186,7 @@ PRELOAD_SHUTDOWN(int fd, int how)
 }
 
 int
-PRELOAD_CLOSE(int fd)
+preload_close(int fd)
 {
 	int rc;
 
@@ -200,7 +195,7 @@ PRELOAD_CLOSE(int fd)
 }
 
 ssize_t
-PRELOAD_READ(int fd, void *buf, size_t count)
+preload_read(int fd, void *buf, size_t count)
 {
 	ssize_t rc;
 
@@ -209,7 +204,7 @@ PRELOAD_READ(int fd, void *buf, size_t count)
 }
 
 ssize_t
-PRELOAD_READV(int fd, const struct iovec *iov, int iovcnt)
+preload_readv(int fd, const struct iovec *iov, int iovcnt)
 {
 	ssize_t rc;
 
@@ -218,7 +213,7 @@ PRELOAD_READV(int fd, const struct iovec *iov, int iovcnt)
 }
 
 ssize_t
-PRELOAD_RECV(int fd, void *buf, size_t len, int flags)
+preload_recv(int fd, void *buf, size_t len, int flags)
 {
 	ssize_t rc;
 
@@ -227,18 +222,18 @@ PRELOAD_RECV(int fd, void *buf, size_t len, int flags)
 }
 
 ssize_t
-PRELOAD_RECVFROM(int fd, void *buf, size_t len, int flags,
-	struct sockaddr *src_addr, socklen_t *addrlen)
+preload_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *src_addr,
+	socklen_t *addrlen)
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(recvfrom, fd, PRELOAD_FLAG_FD_ARG,
-		fd, buf, len, flags, src_addr, addrlen);
+	rc = PRELOAD_CALL(recvfrom, fd, PRELOAD_FLAG_FD_ARG, fd, buf, len, flags,
+		src_addr, addrlen);
 	return rc;
 }
 
 ssize_t
-PRELOAD_RECVMSG(int fd, struct msghdr *msg, int flags)
+preload_recvmsg(int fd, struct msghdr *msg, int flags)
 {
 	ssize_t rc;
 
@@ -247,7 +242,7 @@ PRELOAD_RECVMSG(int fd, struct msghdr *msg, int flags)
 }
 
 ssize_t
-PRELOAD_WRITE(int fd, const void *buf, size_t count)
+preload_write(int fd, const void *buf, size_t count)
 {
 	ssize_t rc;
 
@@ -256,7 +251,7 @@ PRELOAD_WRITE(int fd, const void *buf, size_t count)
 }
 
 ssize_t
-PRELOAD_WRITEV(int fd, const struct iovec *iov, int iovcnt)
+preload_writev(int fd, const struct iovec *iov, int iovcnt)
 {
 	ssize_t rc;
 
@@ -265,7 +260,7 @@ PRELOAD_WRITEV(int fd, const struct iovec *iov, int iovcnt)
 }
 
 ssize_t
-PRELOAD_SEND(int fd, const void *buf, size_t len, int flags)
+preload_send(int fd, const void *buf, size_t len, int flags)
 {
 	ssize_t rc;
 
@@ -274,18 +269,18 @@ PRELOAD_SEND(int fd, const void *buf, size_t len, int flags)
 }
 
 ssize_t
-PRELOAD_SENDTO(int fd, const void *buf, size_t len, int flags,
-	const struct sockaddr *dest_addr, socklen_t addrlen)
+preload_sendto(int fd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr,
+	socklen_t addrlen)
 {
 	ssize_t rc;
 
-	rc = PRELOAD_CALL(sendto, fd, PRELOAD_FLAG_FD_ARG,
-		fd, buf, len, flags, dest_addr, addrlen);
+	rc = PRELOAD_CALL(sendto, fd, PRELOAD_FLAG_FD_ARG, fd, buf, len, flags, dest_addr,
+		addrlen);
 	return rc;
 }
 
 ssize_t
-PRELOAD_SENDMSG(int fd, const struct msghdr *msg, int flags)
+preload_sendmsg(int fd, const struct msghdr *msg, int flags)
 {
 	ssize_t rc;
 
@@ -294,7 +289,7 @@ PRELOAD_SENDMSG(int fd, const struct msghdr *msg, int flags)
 }
 
 int
-PRELOAD_FCNTL(int fd, int cmd, ...)
+preload_fcntl(int fd, int cmd, ...)
 {
 	int rc;
 	uintptr_t arg;
@@ -308,7 +303,7 @@ PRELOAD_FCNTL(int fd, int cmd, ...)
 }
 
 int
-PRELOAD_IOCTL(int fd, unsigned long request, ...)
+preload_ioctl(int fd, unsigned long request, ...)
 {
 	int rc;
 	va_list ap;
@@ -322,7 +317,7 @@ PRELOAD_IOCTL(int fd, unsigned long request, ...)
 }
 
 int
-PRELOAD_PPOLL(struct pollfd *pfds, nfds_t npfds, const struct timespec *to,
+preload_ppoll(struct pollfd *pfds, nfds_t npfds, const struct timespec *to,
 	const sigset_t *sigmask)
 {
 	int rc;
@@ -332,24 +327,24 @@ PRELOAD_PPOLL(struct pollfd *pfds, nfds_t npfds, const struct timespec *to,
 }
 
 int
-PRELOAD_POLL(struct pollfd *fds, nfds_t nfds, int timeout)
+preload_poll(struct pollfd *fds, nfds_t nfds, int timeout)
 {
 	int rc;
 	struct timespec ts;
 
 	if (timeout < 0) {
-		rc = PRELOAD_PPOLL(fds, nfds, NULL, NULL);
+		rc = preload_ppoll(fds, nfds, NULL, NULL);
 	} else {
 		ts.tv_sec = timeout / 1000;
 		ts.tv_nsec = (timeout - ts.tv_sec * 1000) * 1000000;
-		rc = PRELOAD_PPOLL(fds, nfds, &ts, NULL);
+		rc = preload_ppoll(fds, nfds, &ts, NULL);
 	}
 	return rc;
 }
 
 int
-PRELOAD_PSELECT(int n, fd_set *rfds, fd_set *wfds, fd_set *efds,
-	const struct timespec *timeout, const sigset_t *sigmask)
+preload_pselect(int n, fd_set *rfds, fd_set *wfds, fd_set *efds, const struct timespec *timeout,
+	const sigset_t *sigmask)
 {
 	int i, m, s, fd, npfds;
 	struct pollfd *pfd, pfds[FD_SETSIZE];
@@ -416,8 +411,7 @@ PRELOAD_PSELECT(int n, fd_set *rfds, fd_set *wfds, fd_set *efds,
 }
 
 int
-PRELOAD_SELECT(int nfds, fd_set *readfds, fd_set *writefds,
-	fd_set *exceptfds, struct timeval *tv)
+preload_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *tv)
 {
 	int rc;
 	struct timespec *ts, ts_buf;
@@ -429,73 +423,48 @@ PRELOAD_SELECT(int nfds, fd_set *readfds, fd_set *writefds,
 		ts->tv_sec = tv->tv_sec;
 		ts->tv_nsec = tv->tv_usec * 1000;
 	}
-	rc = PRELOAD_PSELECT(nfds, readfds, writefds, exceptfds, ts, NULL);
+	rc = preload_pselect(nfds, readfds, writefds, exceptfds, ts, NULL);
+	return rc;
+}
+
+unsigned int
+preload_sleep(unsigned int seconds)
+{
+	int rc;
+
+	rc = PRELOAD_CALL(sleep, 0, 0, seconds);
+	return rc; 
+}
+
+int
+preload_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
+{
+	int rc;
+
+	rc = PRELOAD_CALL(getsockopt, fd, PRELOAD_FLAG_FD_ARG, fd, level, optname, optval, optlen);
 	return rc;
 }
 
 int
-PRELOAD_GETSOCKOPT(int fd, int level, int optname, void *optval,
-	socklen_t *optlen)
+preload_setsockopt(int fd, int level, int optname, const void *optval, socklen_t optlen)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(getsockopt, fd, PRELOAD_FLAG_FD_ARG,
-		fd, level, optname, optval, optlen);
+	rc = PRELOAD_CALL(setsockopt, fd, PRELOAD_FLAG_FD_ARG, fd, level, optname, optval, optlen);
 	return rc;
 }
 
 int
-PRELOAD_SETSOCKOPT(int fd, int level, int optname, const void *optval,
-	socklen_t optlen)
+preload_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(setsockopt, fd, PRELOAD_FLAG_FD_ARG,
-		fd, level, optname, optval, optlen);
+	rc = PRELOAD_CALL(getpeername, fd, PRELOAD_FLAG_FD_ARG, fd, addr, addrlen);
 	return rc;
 }
 
 int
-PRELOAD_GETPEERNAME(int fd, struct sockaddr *addr, socklen_t *addrlen)
-{
-	int rc;
-
-	rc = PRELOAD_CALL(getpeername, fd, PRELOAD_FLAG_FD_ARG,
-		fd, addr, addrlen);
-	return rc;
-}
-
-/*sighandler_t
-PRELOAD_SIGNAL(int signum, void (*handler)(int))
-{
-	int rc;
-	struct sigaction act, oldact;
-
-	memset(&act, 0, sizeof(act));
-	act.sa_handler = handler;
-	rc = PRELOAD_CALL(sigaction, 0, 0, signum, &act, &oldact);
-	if (rc < 0) {
-		return SIG_ERR;
-	}
-	if (oldact.sa_flags & SA_SIGINFO) {
-		return (sighandler_t)oldact.sa_sigaction;
-	} else {
-		return oldact.sa_handler;
-	}
-}
-
-int
-PRELOAD_SIGACTION(int signum, const struct sigaction *act,
-	struct sigaction *oldact)
-{
-	int rc;
-
-	rc = PRELOAD_CALL(sigaction, 0, 0, signum, act, oldact);
-	return rc;
-}*/
-
-int
-PRELOAD_SIGPROCMASK(int how, const sigset_t *set, sigset_t *oldset)
+preload_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 {
 	int rc;
 
@@ -504,21 +473,14 @@ PRELOAD_SIGPROCMASK(int how, const sigset_t *set, sigset_t *oldset)
 }
 
 int
-PRELOAD_SIGSUSPEND(const sigset_t *mask)
+preload_sigsuspend(const sigset_t *mask)
 {
-	return PRELOAD_PPOLL(NULL, 0, NULL, mask);
+	return preload_ppoll(NULL, 0, NULL, mask);
 }
-
-/*int
-PRELOAD_KILL(int pid, int sig)
-{
-	return PRELOAD_CALL(kill, 0, 0, pid, sig);
-}*/
 
 #ifdef __linux__
 int
-PRELOAD_CLONE(int (*fn)(void *), void *child_stack, int flags,
-	void *arg, ...)
+preload_clone(int (*fn)(void *), void *child_stack, int flags, void *arg, ...)
 {
 	int rc;
 	void *ptid, *tls, *ctid;
@@ -529,13 +491,12 @@ PRELOAD_CLONE(int (*fn)(void *), void *child_stack, int flags,
 	tls = va_arg(ap, void *);
 	ctid = va_arg(ap, void *);
 	va_end(ap);
-	rc = PRELOAD_CALL(clone, 0, 0, fn, child_stack, flags, arg,
-		ptid, tls, ctid);
+	rc = PRELOAD_CALL(clone, 0, 0, fn, child_stack, flags, arg, ptid, tls, ctid);
 	return rc;
 }
 
 int
-PRELOAD_EPOLL_CREATE1(int flags)
+preload_epoll_create1(int flags)
 {
 	int rc;
 
@@ -544,48 +505,46 @@ PRELOAD_EPOLL_CREATE1(int flags)
 }
 
 int
-PRELOAD_EPOLL_CREATE(int size)
+preload_epoll_create(int size)
 {
 	int rc;
 
-	rc = PRELOAD_EPOLL_CREATE1(EPOLL_CLOEXEC);
+	rc = preload_epoll_create1(EPOLL_CLOEXEC);
 	return rc;
 }
 
 int
-PRELOAD_EPOLL_CTL(int ep_fd, int op, int fd, struct epoll_event *event)
+preload_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(epoll_ctl, ep_fd, PRELOAD_FLAG_FD_ARG,
-	                  ep_fd, op, fd, event);
+	rc = PRELOAD_CALL(epoll_ctl, ep_fd, PRELOAD_FLAG_FD_ARG, ep_fd, op, fd, event);
 	return rc;
 }
 
 int
-PRELOAD_EPOLL_PWAIT(int ep_fd, struct epoll_event *events, int maxevents,
-	int timeout, const sigset_t *sigmask)
+preload_epoll_pwait(int ep_fd, struct epoll_event *events, int maxevents, int timeout,
+	const sigset_t *sigmask)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(epoll_pwait, ep_fd, PRELOAD_FLAG_FD_ARG,
-	                  ep_fd, events, maxevents, timeout, sigmask);
+	rc = PRELOAD_CALL(epoll_pwait, ep_fd, PRELOAD_FLAG_FD_ARG, ep_fd, events, maxevents,
+		timeout, sigmask);
 	return rc;
 }
 
 int
-PRELOAD_EPOLL_WAIT(int ep_fd, struct epoll_event *events, int maxevents,
-	int timeout)
+preload_epoll_wait(int ep_fd, struct epoll_event *events, int maxevents, int timeout)
 {
 	int rc;
 
-	rc = PRELOAD_EPOLL_PWAIT(ep_fd, events, maxevents, timeout, NULL);
+	rc = preload_epoll_pwait(ep_fd, events, maxevents, timeout, NULL);
 	return rc;
 }
 
 #else // __linux__
 pid_t
-PRELOAD_RFORK(int flags)
+preload_rfork(int flags)
 {
 	assert(0);
 	preload_set_errno(EINVAL);
@@ -593,7 +552,7 @@ PRELOAD_RFORK(int flags)
 }
 
 int
-PRELOAD_KQUEUE()
+preload_kqueue()
 {
 	int rc;
 
@@ -602,13 +561,13 @@ PRELOAD_KQUEUE()
 }
 
 int
-PRELOAD_KEVENT(int kq, const struct kevent *changelist, int nchanges,
+preload_kevent(int kq, const struct kevent *changelist, int nchanges,
 	struct kevent *eventlist, int nevents, const struct timespec *timeout)
 {
 	int rc;
 
-	rc = PRELOAD_CALL(kevent, kq, PRELOAD_FLAG_FD_ARG,
-		kq, changelist, nchanges, eventlist, nevents, timeout);
+	rc = PRELOAD_CALL(kevent, kq, PRELOAD_FLAG_FD_ARG, kq, changelist, nchanges,
+		eventlist, nevents, timeout);
 	return rc;
 }
 #endif // __linux__

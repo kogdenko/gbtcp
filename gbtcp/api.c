@@ -653,6 +653,13 @@ gt_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *timeout,
 	GT_RETURN(rc);
 }
 
+unsigned int
+gt_sleep(unsigned int seconds)
+{
+	assert(0 && "TODO");
+	return 0;
+}
+
 /*int
 gt_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact)
 {

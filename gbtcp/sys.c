@@ -45,6 +45,7 @@ sys_flock_f sys_flock_fn;
 sys_getgrnam_f sys_getgrnam_fn;
 sys_chown_f sys_chown_fn;
 sys_ppoll_f sys_ppoll_fn;
+sys_sleep_f sys_sleep_fn;
 sys_signal_f sys_signal_fn;
 sys_sigaction_f sys_sigaction_fn;
 sys_sigprocmask_f sys_sigprocmask_fn;
@@ -126,6 +127,7 @@ dlsym_all(void)
 	SYS_DLSYM(getgrnam);
 	SYS_DLSYM(chown);
 	SYS_DLSYM(ppoll);
+	SYS_DLSYM(sleep);
 	SYS_DLSYM(signal);
 	SYS_DLSYM(sigaction);
 	SYS_DLSYM(sigprocmask);
