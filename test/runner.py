@@ -764,9 +764,6 @@ system("ip r a dev %s %s.1.1/32 initcwnd 1" % (g_runner_interface, subnet))
 system("ip r d %s.0.0/15" % subnet, True)
 system("ip r a dev %s %s.0.0/15 via %s.1.1 initcwnd 1" % (g_runner_interface, subnet, subnet))
 
-# TODO:
-# echo 0 > /proc/sys/net/ipv4/tcp_syncookies
-
 # Assume that last test ended at least 10 seconds ago
 g_stop_at_milliseconds = milliseconds() - 10000
 

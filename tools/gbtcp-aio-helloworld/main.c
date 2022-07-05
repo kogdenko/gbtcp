@@ -4,6 +4,24 @@
 #include <arpa/inet.h>
 #include <gbtcp/gbtcp.h>
 
+#ifdef GTL_HAVE_XDP
+#define HAVE_XDP " GTL_HAVE_XDP"
+#else // GTL_HAVE_XDP
+#define HAVE_XDP ""
+#endif // GTL_HAVE_XDP
+
+#ifdef GTL_HAVE_NETMAP
+#define HAVE_NETMAP " GTL_HAVE_NETMAP"
+#else // GTL_HAVE_NETMAP
+#define HAVE_NETMAP ""
+#endif // GTL_HAVE_NETMAP
+
+#ifdef GTL_HAVE_VALE
+#define HAVE_VALE " GTL_HAVE_VALE"
+#else // GTL_HAVE_VAL
+#define HAVE_VALE ""
+#endif // GTL_HAVE_VALE
+
 static int http_len;
 static const char *http =
 	"HTTP/1.0 200 OK\r\n"
@@ -55,24 +73,6 @@ loop(int fd, int affinity)
 	gt_aio_set(fd, accept_handler);
 	gt_poll(NULL, 0, -1);
 }
-
-#ifdef GTL_HAVE_XDP
-#define HAVE_XDP " GTL_HAVE_XDP"
-#else // GTL_HAVE_XDP
-#define HAVE_XDP ""
-#endif // GTL_HAVE_XDP
-
-#ifdef GTL_HAVE_NETMAP
-#define HAVE_NETMAP " GTL_HAVE_NETMAP"
-#else // GTL_HAVE_NETMAP
-#define HAVE_NETMAP ""
-#endif // GTL_HAVE_NETMAP
-
-#ifdef GTL_HAVE_VALE
-#define HAVE_VALE " GTL_HAVE_VALE"
-#else // GTL_HAVE_VAL
-#define HAVE_VALE ""
-#endif // GTL_HAVE_VALE
 
 int
 main(int argc, char **argv)

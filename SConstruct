@@ -89,7 +89,6 @@ ldflags = [
     '-rdynamic',
     '-pthread',
     '-lm',
-    '-L.'
 ]
 
 AddOption('--debug-build', action = 'store_true',
@@ -103,10 +102,6 @@ AddOption('--without-vale', action = 'store_true',
 
 AddOption('--without-xdp', action = 'store_true',
     help = "Don't use XDP transport", default = False)
-
-SConscript([
-    'tools/gbtcp-epoll-helloworld/SConstruct',
-])
 
 shutil.copyfile('./tools/pre-commit', '.git/hooks/pre-commit')
 
@@ -196,14 +191,15 @@ else:
 env.Append(CFLAGS = ' '.join(cflags))
 env.Append(LINKFLAGS = ' '.join(ldflags))
 
-env.Depends('gbtcp/dev.c' , 'gbtcp/config.h')
-
-
 libgbtcp = env.SharedLibrary('bin/libgbtcp.so', srcs)
-
 
 env.Install(lib_path, libgbtcp)
 env.Alias('install', lib_path)
+
+libgbtcptools = env.SharedLibrary('bin/libgbtcptools.so', [
+    'tools/common/subr.c',
+    'tools/common/pid.c',
+    ])
 
 # Programs
 ldflags.append('-Lbin')
@@ -226,10 +222,20 @@ controller = env_gbtcp.Program('bin/gbtcp-controller', 'controller/controller.c'
 Requires(controller, libgbtcp)
 
 aio_helloworld = env_gbtcp.Program('bin/gbtcp-aio-helloworld',
-    'tools/gbtcp_aio_helloworld/main.c')
+    'tools/gbtcp-aio-helloworld/main.c')
 Requires(aio_helloworld, libgbtcp)
-install_program(env_gbtcp, aio_helloworld)
 
+def epoll_helloworld_program(orig):
+    ldflags = ['-Lbin', '-lgbtcptools']
+    env = orig.Clone()
+    env.Append(LINKFLAGS = ' '.join(ldflags))
+    prog = env.Program('bin/gbtcp-epoll-helloworld',
+        'tools/gbtcp-epoll-helloworld/main.c')
+    Requires(prog, libgbtcptools)
+
+epoll_helloworld_program(env)
+
+# Tests
 for f in Glob('test/gbtcp-test-*.c'):
     env.Program("bin/" + f.name[0:-2], ["test/" + f.name, env.Object('test/subr.c')])
 
