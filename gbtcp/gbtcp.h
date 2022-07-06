@@ -18,6 +18,8 @@
 #endif // __linux__
 #include <gbtcp/config.h>
 
+#define GT_EXPORT __attribute__ ((visibility("default")))
+
 #define GT_TCPS_CLOSED 0
 #define GT_TCPS_LISTEN 1
 #define GT_TCPS_SYN_SENT 2
@@ -171,58 +173,56 @@
 
 typedef void (*gt_aio_f)(void *, int, short);
 
-extern __thread int gt_errno;
-extern int gt_preload_passthru;
+extern __thread int gt_errno GT_EXPORT;
+extern int gt_preload_passthru GT_EXPORT;
 
-void gt_init(void);
-pid_t gt_fork(void);
-int gt_socket(int, int, int);
-int gt_connect(int, const struct sockaddr *, socklen_t);
-int gt_bind(int, const struct sockaddr *, socklen_t);
-int gt_listen(int, int);
-int gt_accept4(int, struct sockaddr *, socklen_t *, int);
-int gt_shutdown(int, int);
-int gt_close(int);
-ssize_t gt_read(int, void *, size_t);
-ssize_t gt_readv(int, const struct iovec *, int);
-ssize_t gt_recv(int, void *, size_t, int);
-ssize_t gt_recvfrom(int, void *, size_t, int, struct sockaddr *, socklen_t *);
-ssize_t gt_recvmsg(int, struct msghdr *, int);
-ssize_t gt_write(int, const void *, size_t);
-ssize_t gt_writev(int, const struct iovec *, int);
-ssize_t gt_send(int, const void *, size_t, int);
-ssize_t gt_sendto(int, const void *, size_t, int, const struct sockaddr *, socklen_t);
-ssize_t gt_sendmsg(int, const struct msghdr *, int);
-int gt_getsockopt(int, int, int, void *, socklen_t *);
-int gt_setsockopt(int, int, int, const void *, socklen_t);
-int gt_getpeername(int, struct sockaddr *, socklen_t *);
-int gt_fcntl(int, int, uintptr_t);
-int gt_ioctl(int, unsigned long, uintptr_t);
-int gt_poll(struct pollfd *, nfds_t, int);
-int gt_ppoll(struct pollfd *, nfds_t, const struct timespec *, const sigset_t *);
-unsigned int gt_sleep(unsigned int);
-int gt_sigprocmask(int, const sigset_t *, sigset_t *);
-int gt_aio_cancel(int);
-int gt_aio_set(int, gt_aio_f);
-ssize_t gt_aio_recvfrom(int, struct iovec *, int, struct sockaddr *, socklen_t *);
-ssize_t gt_recvdrain(int, size_t);
-int gt_sysctl(const char *, char *, const char *);
+void gt_init(void) GT_EXPORT;
+pid_t gt_fork(void) GT_EXPORT;
+int gt_socket(int, int, int) GT_EXPORT;
+int gt_connect(int, const struct sockaddr *, socklen_t) GT_EXPORT;
+int gt_bind(int, const struct sockaddr *, socklen_t) GT_EXPORT;
+int gt_listen(int, int) GT_EXPORT;
+int gt_accept4(int, struct sockaddr *, socklen_t *, int) GT_EXPORT;
+int gt_shutdown(int, int) GT_EXPORT;
+int gt_close(int) GT_EXPORT;
+ssize_t gt_read(int, void *, size_t) GT_EXPORT;
+ssize_t gt_readv(int, const struct iovec *, int) GT_EXPORT;
+ssize_t gt_recv(int, void *, size_t, int) GT_EXPORT;
+ssize_t gt_recvfrom(int, void *, size_t, int, struct sockaddr *, socklen_t *) GT_EXPORT;
+ssize_t gt_recvmsg(int, struct msghdr *, int) GT_EXPORT;
+ssize_t gt_write(int, const void *, size_t) GT_EXPORT;
+ssize_t gt_writev(int, const struct iovec *, int) GT_EXPORT;
+ssize_t gt_send(int, const void *, size_t, int) GT_EXPORT;
+ssize_t gt_sendto(int, const void *, size_t, int, const struct sockaddr *, socklen_t) GT_EXPORT;
+ssize_t gt_sendmsg(int, const struct msghdr *, int) GT_EXPORT;
+int gt_getsockopt(int, int, int, void *, socklen_t *) GT_EXPORT;
+int gt_setsockopt(int, int, int, const void *, socklen_t) GT_EXPORT;
+int gt_getpeername(int, struct sockaddr *, socklen_t *) GT_EXPORT;
+int gt_fcntl(int, int, uintptr_t) GT_EXPORT;
+int gt_ioctl(int, unsigned long, uintptr_t) GT_EXPORT;
+int gt_poll(struct pollfd *, nfds_t, int) GT_EXPORT;
+int gt_ppoll(struct pollfd *, nfds_t, const struct timespec *, const sigset_t *) GT_EXPORT;
+unsigned int gt_sleep(unsigned int) GT_EXPORT;
+int gt_sigprocmask(int, const sigset_t *, sigset_t *) GT_EXPORT;
+int gt_aio_cancel(int) GT_EXPORT;
+int gt_aio_set(int, gt_aio_f) GT_EXPORT;
+ssize_t gt_aio_recvfrom(int, struct iovec *, int, struct sockaddr *, socklen_t *) GT_EXPORT;
+ssize_t gt_recvdrain(int, size_t) GT_EXPORT;
+int gt_sysctl(const char *, char *, const char *) GT_EXPORT;
 
 #ifdef __linux__
-int gt_clone(int (*)(void *), void *, int, void *, void *, void *, void *);
-int gt_epoll_create1(int);
-int gt_epoll_ctl(int, int, int, struct epoll_event *);
-int gt_epoll_pwait(int, struct epoll_event *, int, int, const sigset_t *);
+int gt_clone(int (*)(void *), void *, int, void *, void *, void *, void *) GT_EXPORT;
+int gt_epoll_create1(int) GT_EXPORT;
+int gt_epoll_ctl(int, int, int, struct epoll_event *) GT_EXPORT;
+int gt_epoll_pwait(int, struct epoll_event *, int, int, const sigset_t *) GT_EXPORT;
 #else // __linux__
-int gt_kqueue();
-int gt_kevent(int, const struct kevent *, int, struct kevent *, int,
-	const struct timespec *);
+int gt_kqueue(void) GT_EXPORT;
+int gt_kevent(int, const struct kevent *, int, struct kevent *, int, const struct timespec *)
+	GT_EXPORT;
 #endif // __linux__
 
-int gtl_set_affinity(int);
-
 void gt_dbg5(const char *, u_int, const char *, int, const char *, ...)
-	__attribute__((format(printf, 5, 6)));
+	__attribute__((format(printf, 5, 6))) GT_EXPORT;
 
 #define gt_dbg(fmt, ...) \
 	gt_dbg5(__FILE__, __LINE__, __func__, 0, fmt, ##__VA_ARGS__)

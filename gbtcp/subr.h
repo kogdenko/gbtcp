@@ -310,7 +310,7 @@ uint64_t rdtsc(void);
 
 uint64_t sleep_compute_hz(void);
 
-int set_affinity(int);
+int gtl_set_affinity(int) GT_EXPORT;
 
 uint64_t rand64(void);
 uint32_t rand32(void);

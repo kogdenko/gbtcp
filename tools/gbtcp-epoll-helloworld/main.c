@@ -1,6 +1,6 @@
 // GPL V2 License
 #include <tools/common/subr.h>
-#include <tools/common/pid.h>
+#include <tools/common/worker.h>
 
 #define PROG_NAME "gbtcp-epoll-helloworld"
 
@@ -12,22 +12,12 @@ union connection {
 	uint64_t conn_u64;
 };
 
-struct worker {
-	pthread_t wrk_pthread;
-	int wrk_pid;
-	unsigned long long wrk_reqs;
-	int wrk_conns;
-	int wrk_concurrency;
-	int wrk_cpu;
-	char wrk_buf[2048];
-};
-
 static int g_lflag;
-static bool g_done = false;
 static struct sockaddr_in g_addr;
 static int g_Cflag;
 static char g_http[512];
 static int g_http_len;
+static __thread char g_buf[2048];
 
 static void on_event(struct worker *, int, const union connection *, short);
 
@@ -332,8 +322,7 @@ on_event(struct worker *worker, int eq_fd, const union connection *cp, short rev
 		len = 0;
 		assert(revents & (POLLIN|POLLERR));
 		if (revents & POLLIN) {
-			rc = read_record(cp->conn_fd, worker->wrk_buf, sizeof(worker->wrk_buf),
-				&len);
+			rc = read_record(cp->conn_fd, g_buf, sizeof(g_buf), &len);
 			if (rc <= 0) {
 				fin = 1;
 			}
@@ -375,8 +364,7 @@ on_event(struct worker *worker, int eq_fd, const union connection *cp, short rev
 		if (revents & POLLERR) {
 			closed = 1;
 		} else {
-			rc = read_record(cp->conn_fd, worker->wrk_buf, sizeof(worker->wrk_buf),
-				&len);
+			rc = read_record(cp->conn_fd, g_buf, sizeof(g_buf), &len);
 			if (rc <= 0) {
 				closed = 1;
 			}
@@ -394,72 +382,22 @@ on_event(struct worker *worker, int eq_fd, const union connection *cp, short rev
 }
 
 static void *
-loop(void *udata)
+worker_loop(void *udata)
 {
 	int eq_fd;
 	struct worker *worker;
 
 	worker = udata;
-	set_affinity(worker->wrk_cpu);
 	eq_fd = event_queue_create();
 	if (g_lflag) {
 		server(eq_fd);
 	} else {
 		clientn(worker, eq_fd);
 	}
-	while (!g_done) {
+	for (;;) {
 		event_queue_wait(worker, eq_fd, -1);
 	}
 	return NULL;
-}
-
-static void
-kill_workers(struct worker **workers, int worker_num)
-{
-	int i, rc, wstatus;
-
-	for (i = 0; i < worker_num; ++i) {
-		if (workers[i]->wrk_pid) {
-			rc = kill(workers[i]->wrk_pid, SIGKILL);
-			if (rc == -1) {
-				errorf(errno, "kill(pid=%d) failed", workers[i]->wrk_pid);
-			}
-			rc = waitpid(workers[i]->wrk_pid, &wstatus, 0);
-			if (rc == -1) {
-				errorf(errno, "waitpid(pid=%d) failed", workers[i]->wrk_pid);
-			}
-		}
-	}
-}
-
-static struct worker *
-alloc_worker(void)
-{
-	struct worker *worker;
-
-	worker = mmap(NULL, sizeof(*worker), PROT_READ|PROT_WRITE,
-		MAP_SHARED|MAP_ANONYMOUS, -1, 0);
-	if (worker == MAP_FAILED) {
-		errorf(errno, "mmap(%zu, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS) failed",
-			sizeof(*worker));
-		return NULL;
-	} else {
-		return worker;
-	}
-
-}
-
-static void
-sigusr1(int signum)
-{
-	g_done = true;	
-}
-
-static void
-sigchld(int signum)
-{
-	errorf(0, "Worker terminated");
-	g_done = true;
 }
 
 static void
@@ -486,32 +424,24 @@ usage(void)
 int
 main(int argc, char **argv)
 {
-	int i, rc, opt, pid, port, worker_num, worker_num_safe;
-	int concurrency, concurrency_per_worker, pid_file_fd;
-	bool use_threads, stop;
-	unsigned long long reqs, reqs2;
-	double rps;
-	char pid_file_path[PATH_MAX];
+	int rc, opt, tflag, Sflag, port;
+	int concurrency;
 	char hostname[32];
-	suseconds_t usec;
-	struct timeval tv, tv2, to;
-	cpuset_t cpumask;
-	struct worker *worker, *workers[CPU_SETSIZE];
+	cpuset_t worker_cpus;
 
-	use_threads = false;
-	stop = false;
-	CPU_ZERO(&cpumask);
+	tflag = 0;
+	Sflag = 0;
+	CPU_ZERO(&worker_cpus);
 	concurrency = 0;
 	assert(sizeof(union connection) == sizeof(uint64_t));
 	port = 80;
-	pid_file_fd = -1;
 	while ((opt = getopt(argc, argv, "hp:lc:Ca:tSv")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
 			return EXIT_SUCCESS;
 		case 'v':
-			printf("%s 0.5.1\n", PROG_NAME);
+			printf("version 0.5.1\n");
 			return 0;
 		case 'p':
 			port = strtoul(optarg, NULL, 10);
@@ -529,41 +459,27 @@ main(int argc, char **argv)
 			g_Cflag = 1;
 			break;
 		case 'a':
-			rc = cpuset_from_string(&cpumask, optarg);
+			rc = cpuset_from_string(&worker_cpus, optarg);
 			if (rc < 0) {
 				die(-rc, "-a: Invalid cpu list");
 			}
 			break;
 		case 't':
-			use_threads = true;
+			tflag = 1;
 			break;
 		case 'S':
-			stop = true;
+			Sflag = 1;
 			break;
 		}
 	}
 	g_addr.sin_family = AF_INET;
 	g_addr.sin_port = htons(port);
 	g_addr.sin_addr.s_addr = INADDR_ANY;
-	if (stop) {
-		pid_file_get_path(pid_file_path, PROG_NAME, port); 
-		pid_file_fd = pid_file_open(pid_file_path);
-		rc = pid_file_lock(pid_file_fd, true);
-		if (rc < 0) {
-			pid = pid_file_read(pid_file_fd);
-			kill(pid, SIGUSR1);
-			pid_file_lock(pid_file_fd, false);
-		}
-		return 0;
+	if (Sflag) {
+		stop_master(PROG_NAME, port);
+		return EXIT_SUCCESS;
 	}
 	if (g_lflag) {
-		pid_file_get_path(pid_file_path, PROG_NAME, port); 
-		pid_file_fd = pid_file_open(pid_file_path);
-		pid = getpid();
-		rc = pid_file_acquire(pid_file_fd, pid);
-		if (rc < 0) {
-			die(0, "%s already listen on port %d", PROG_NAME, port);
-		}
 		g_http_len = snprintf(g_http, sizeof(g_http),
 			"HTTP/1.0 200 OK\r\n"
 			"Server: %s\r\n"
@@ -583,18 +499,6 @@ main(int argc, char **argv)
 		        "\r\n",
 			hostname, PROG_NAME);
 	}
-	worker_num = CPU_COUNT(&cpumask);
-	if (worker_num == 0) {
-		usage();
-		die(0, "-a: Not specified");
-	}
-	if (concurrency == 0) {
-		concurrency = worker_num;
-	}
-	if (concurrency < worker_num) {
-		die(0, "Number of workers should be greater then concurrency");
-	}
-	concurrency_per_worker = concurrency / worker_num;
 	if (optind < argc) {
 		rc = inet_aton(argv[optind], &g_addr.sin_addr);
 		if (rc != 1) {
@@ -606,64 +510,12 @@ main(int argc, char **argv)
 			die(0, "Address or '-l' flag must be specified");
 		}
 	}
-	signal(SIGUSR1, sigusr1);
-	signal(SIGCHLD, sigchld);
-	worker_num_safe = worker_num;
-	worker_num = 0;
-	for (i = 0; i < CPU_SETSIZE; ++i) {
-		if (CPU_ISSET(i, &cpumask)) {
-			worker = alloc_worker();
-			if (worker == NULL) {
-				kill_workers(workers, worker_num);
-				return EXIT_FAILURE;
-			}
-			worker->wrk_pid = 0;
-			worker->wrk_reqs = 0;
-			worker->wrk_cpu = i;
-			worker->wrk_concurrency = concurrency_per_worker;
-			if (use_threads) {
-				rc = pthread_create(&worker->wrk_pthread, NULL, loop, worker);
-				if (rc) {
-					die(rc, "pthread_create() failed");
-				}
-			} else {
-				rc = fork();
-				if (rc == -1) {
-					kill_workers(workers, worker_num);
-					die(errno, "fork() failed");
-				} else if (rc == 0) {
-					loop(worker);
-				} else {
-					worker->wrk_pid = rc;
-				}
-			}
-			workers[worker_num++] = worker;
-		}
-	}
-	assert(worker_num == worker_num_safe);
-	UNUSED(worker_num_safe);
-	gettimeofday(&tv, NULL);
-	reqs = reqs2 = 0;
-	while (!g_done) {
-		to.tv_sec = 1;
-		to.tv_usec = 0;
-		select(0, NULL, NULL, NULL, &to);
-		gettimeofday(&tv2, NULL);
-		reqs2 = 0;
-		for (i = 0; i < worker_num; ++i) {
-			reqs2 += workers[i]->wrk_reqs;
-		}
-		usec = 1000000 * (tv2.tv_sec - tv.tv_sec) +  (tv2.tv_usec - tv.tv_usec);
-		rps = 1000000.0 * (reqs2 - reqs) / usec;
-		printf("%d\n", (int)rps);
-		tv = tv2;
-		reqs = reqs2;
-	}
-	if (!use_threads) {
-		kill_workers(workers, worker_num);
-	}
-	if (g_lflag) {
-		close(pid_file_fd);
-	}
+	start_master(&worker_cpus,
+		concurrency,
+		PROG_NAME,
+		g_lflag ? port : 0,
+		worker_loop,
+		tflag ? NULL : fork,
+		sleep);
 	return 0;
 }

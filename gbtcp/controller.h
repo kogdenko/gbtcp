@@ -11,8 +11,8 @@ int transmit_to_host(struct route_if *, void *, int);
 
 void update_rss_table(void);
 
-int controller_init(int);
-void controller_deinit(void);
-void controller_start(int);
+int gtl_controller_init(int) GT_EXPORT;
+void gtl_controller_deinit(void) GT_EXPORT;
+void gtl_controller_start(int) GT_EXPORT;
 
 #endif // GBTCP_CONTROLLER_H

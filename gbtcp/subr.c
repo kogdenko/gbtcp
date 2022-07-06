@@ -531,8 +531,9 @@ read_timed(int fd, void *buf, size_t count, uint64_t *to)
 		rc = sys_read(fd, buf, count);
 		return rc;
 	}
+	flags = 0;
 	rc = fcntl_setfl_nonblock(fd, &flags);
-	if (rc) {
+	if (rc < 0) {
 		return rc;
 	}
 	pfd.events = POLLIN;

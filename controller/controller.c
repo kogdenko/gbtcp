@@ -23,13 +23,13 @@ main(int argc, char **argv)
 			break;
 		}
 	}
-	rc = controller_init(daemonize);
+	rc = gtl_controller_init(daemonize);
 	if (rc) {
 		return EXIT_FAILURE;
 	}
 	if (affinity != -1) {
 		gtl_set_affinity(affinity);
 	}
-	controller_start(persist);
+	gtl_controller_start(persist);
 	return 0;
 }

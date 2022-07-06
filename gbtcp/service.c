@@ -90,11 +90,11 @@ service_start_controller_nolog(void)
 	if (rc == 0) {
 		sys_close(pipe_fd[0]);
 		sys_close(service_sysctl_fd);
-		rc = controller_init(1);
+		rc = gtl_controller_init(1);
 		service_peer_send(pipe_fd[1], rc);
 		sys_close(pipe_fd[1]);
 		if (rc == 0) {
-			controller_start(0);
+			gtl_controller_start(0);
 		}
 		exit(EXIT_SUCCESS);
 	} else if (rc > 0) {

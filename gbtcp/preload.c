@@ -48,51 +48,98 @@ int gt_preload_passthru = 0;
 })
 
 #if 1
-#define preload_fork fork
-#define preload_vfork vfork
-#define preload_socket socket
-#define preload_bind bind
-#define preload_connect connect
-#define preload_listen listen
-#define preload_accept accept
-#define preload_accept4 accept4
-#define preload_shutdown shutdown
-#define preload_close close
-#define preload_read read
-#define preload_readv readv
-#define preload_recv recv
-#define preload_recvfrom recvfrom
-#define preload_write write
-#define preload_writev writev
-#define preload_send send
-#define preload_sendto sendto
-#define preload_sendmsg sendmsg
-#define preload_fcntl fcntl
-#define preload_ioctl ioctl
-#define preload_getsockopt getsockopt
-#define preload_setsockopt setsockopt
-#define preload_getpeername getpeername
-#define preload_ppoll ppoll
-#define preload_poll poll
-#define preload_pselect pselect
-#define preload_select select
-#define preload_sleep sleep
-#define preload_sigprocmask sigprocmask
-#define preload_sigsuspend sigsuspend
+#define gt_preload_fork fork
+#define gt_preload_vfork vfork
+#define gt_preload_socket socket
+#define gt_preload_bind bind
+#define gt_preload_connect connect
+#define gt_preload_listen listen
+#define gt_preload_accept accept
+#define gt_preload_accept4 accept4
+#define gt_preload_shutdown shutdown
+#define gt_preload_close close
+#define gt_preload_read read
+#define gt_preload_readv readv
+#define gt_preload_recv recv
+#define gt_preload_recvfrom recvfrom
+#define gt_preload_write write
+#define gt_preload_writev writev
+#define gt_preload_send send
+#define gt_preload_sendto sendto
+#define gt_preload_sendmsg sendmsg
+#define gt_preload_fcntl fcntl
+#define gt_preload_ioctl ioctl
+#define gt_preload_getsockopt getsockopt
+#define gt_preload_setsockopt setsockopt
+#define gt_preload_getpeername getpeername
+#define gt_preload_ppoll ppoll
+#define gt_preload_poll poll
+#define gt_preload_pselect pselect
+#define gt_preload_select select
+#define gt_preload_sleep sleep
+#define gt_preload_sigprocmask sigprocmask
+#define gt_preload_sigsuspend sigsuspend
 
 #ifdef __linux__
-#define preload_clone clone
-#define preload_epoll_create1 epoll_create1
-#define preload_epoll_create epoll_create
-#define preload_epoll_ctl epoll_ctl
-#define preload_epoll_pwait epoll_pwait
-#define preload_epoll_wait epoll_wait
+#define gt_preload_clone clone
+#define gt_preload_epoll_create1 epoll_create1
+#define gt_preload_epoll_create epoll_create
+#define gt_preload_epoll_ctl epoll_ctl
+#define gt_preload_epoll_pwait epoll_pwait
+#define gt_preload_epoll_wait epoll_wait
 #else // __linux__
-#define preload_rfork rfork
-#define preload_kevent kevent
-#define preload_kqueue kqueue
+#define gt_preload_rfork rfork
+#define gt_preload_kevent kevent
+#define gt_preload_kqueue kqueue
 #endif // __linux__
 #endif // 1
+
+pid_t gt_preload_fork(void) GT_EXPORT;
+pid_t gt_preload_vfork(void) GT_EXPORT;
+int gt_preload_socket(int, int, int) GT_EXPORT;
+int gt_preload_bind(int, const struct sockaddr *, socklen_t) GT_EXPORT;
+int gt_preload_connect(int, const struct sockaddr *, socklen_t) GT_EXPORT;
+int gt_preload_listen(int, int) GT_EXPORT;
+int gt_preload_accept(int, struct sockaddr *, socklen_t *) GT_EXPORT;
+int gt_preload_accept4(int, struct sockaddr *, socklen_t *, int) GT_EXPORT;
+int gt_preload_shutdown(int, int) GT_EXPORT;
+int gt_preload_close(int) GT_EXPORT;
+ssize_t gt_preload_read(int, void *, size_t) GT_EXPORT;
+ssize_t gt_preload_readv(int, const struct iovec *, int) GT_EXPORT;
+ssize_t gt_preload_recv(int, void *, size_t, int) GT_EXPORT;
+ssize_t gt_preload_recvfrom(int, void *, size_t, int, struct sockaddr *, socklen_t *) GT_EXPORT;
+ssize_t gt_preload_write(int, const void *, size_t) GT_EXPORT;
+ssize_t gt_preload_writev(int, const struct iovec *, int) GT_EXPORT;
+ssize_t gt_preload_send(int, const void *, size_t, int) GT_EXPORT;
+ssize_t gt_preload_sendto(int, const void *, size_t, int, const struct sockaddr *, socklen_t)
+	GT_EXPORT;
+ssize_t gt_preload_sendmsg(int, const struct msghdr *, int) GT_EXPORT;
+int gt_preload_fcntl(int, int, ...) GT_EXPORT;
+int gt_preload_ioctl(int, unsigned long, ...) GT_EXPORT;
+int gt_preload_getsockopt(int, int, int, void *, socklen_t *) GT_EXPORT;
+int gt_preload_setsockopt(int, int, int, const void *, socklen_t) GT_EXPORT;
+int gt_preload_getpeername(int, struct sockaddr *, socklen_t *) GT_EXPORT;
+int gt_preload_ppoll(struct pollfd *, nfds_t, const struct timespec *, const sigset_t *) GT_EXPORT;
+int gt_preload_poll(struct pollfd *, nfds_t, int) GT_EXPORT;
+int gt_preload_pselect(int, fd_set *, fd_set *, fd_set *, const struct timespec *,
+	const sigset_t *) GT_EXPORT;
+int gt_preload_select(int, fd_set *, fd_set *, fd_set *, struct timeval *) GT_EXPORT;
+unsigned int gt_preload_sleep(unsigned int) GT_EXPORT;
+int gt_preload_sigprocmask(int, const sigset_t *, sigset_t *) GT_EXPORT;
+int gt_preload_sigsuspend(const sigset_t *) GT_EXPORT;
+#ifdef __linux__
+int gt_preload_clone(int (*)(void *), void *, int, void *, ...) GT_EXPORT;
+int gt_preload_epoll_create1(int) GT_EXPORT;
+int gt_preload_epoll_create(int) GT_EXPORT;
+int gt_preload_epoll_ctl(int, int, int, struct epoll_event *) GT_EXPORT;
+int gt_preload_epoll_pwait(int, struct epoll_event *, int, int, const sigset_t *) GT_EXPORT;
+int gt_preload_epoll_wait(int, struct epoll_event *, int, int) GT_EXPORT;
+#else // __linux__
+pid_t gt_preload_rfork(int) GT_EXPORT;
+int gt_preload_kevent(int, const struct kevent *, int, struct kevent *, int,
+	const struct timespec *) GT_EXPORT;
+int gt_preload_kqueue(void) GT_EXPORT;
+#endif // __linux__
 
 static inline void
 preload_set_errno(int e)
@@ -101,7 +148,7 @@ preload_set_errno(int e)
 }
 
 pid_t
-preload_fork(void)
+gt_preload_fork(void)
 {
 	int rc;
 
@@ -110,7 +157,7 @@ preload_fork(void)
 }
 
 pid_t
-preload_vfork(void)
+gt_preload_vfork(void)
 {
 	assert(0);
 	errno = EINVAL;
@@ -118,7 +165,7 @@ preload_vfork(void)
 }
 
 int
-preload_socket(int domain, int type, int protocol)
+gt_preload_socket(int domain, int type, int protocol)
 {
 	int rc, pf;
 
@@ -131,7 +178,7 @@ preload_socket(int domain, int type, int protocol)
 }
 
 int
-preload_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
+gt_preload_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
 
@@ -140,7 +187,7 @@ preload_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 }
 
 int
-preload_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
+gt_preload_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
 
@@ -149,7 +196,7 @@ preload_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 }
 
 int
-preload_listen(int fd, int backlog)
+gt_preload_listen(int fd, int backlog)
 {
 	int rc;
 
@@ -158,7 +205,16 @@ preload_listen(int fd, int backlog)
 }
 
 int
-preload_accept4(int fd, struct sockaddr *addr, socklen_t *addrlen, int flags)
+gt_preload_accept(int fd, struct sockaddr *addr, socklen_t *addrlen)
+{
+	int rc;
+
+	rc =  gt_preload_accept4(fd, addr, addrlen, 0);
+	return rc;
+}
+
+int
+gt_preload_accept4(int fd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
 	int rc;
 
@@ -168,16 +224,7 @@ preload_accept4(int fd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 }
 
 int
-preload_accept(int fd, struct sockaddr *addr, socklen_t *addrlen)
-{
-	int rc;
-
-	rc =  preload_accept4(fd, addr, addrlen, 0);
-	return rc;
-}
-
-int
-preload_shutdown(int fd, int how)
+gt_preload_shutdown(int fd, int how)
 {
 	int rc;
 
@@ -186,7 +233,7 @@ preload_shutdown(int fd, int how)
 }
 
 int
-preload_close(int fd)
+gt_preload_close(int fd)
 {
 	int rc;
 
@@ -195,7 +242,7 @@ preload_close(int fd)
 }
 
 ssize_t
-preload_read(int fd, void *buf, size_t count)
+gt_preload_read(int fd, void *buf, size_t count)
 {
 	ssize_t rc;
 
@@ -204,7 +251,7 @@ preload_read(int fd, void *buf, size_t count)
 }
 
 ssize_t
-preload_readv(int fd, const struct iovec *iov, int iovcnt)
+gt_preload_readv(int fd, const struct iovec *iov, int iovcnt)
 {
 	ssize_t rc;
 
@@ -213,7 +260,7 @@ preload_readv(int fd, const struct iovec *iov, int iovcnt)
 }
 
 ssize_t
-preload_recv(int fd, void *buf, size_t len, int flags)
+gt_preload_recv(int fd, void *buf, size_t len, int flags)
 {
 	ssize_t rc;
 
@@ -222,7 +269,7 @@ preload_recv(int fd, void *buf, size_t len, int flags)
 }
 
 ssize_t
-preload_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *src_addr,
+gt_preload_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *src_addr,
 	socklen_t *addrlen)
 {
 	ssize_t rc;
@@ -242,7 +289,7 @@ preload_recvmsg(int fd, struct msghdr *msg, int flags)
 }
 
 ssize_t
-preload_write(int fd, const void *buf, size_t count)
+gt_preload_write(int fd, const void *buf, size_t count)
 {
 	ssize_t rc;
 
@@ -251,7 +298,7 @@ preload_write(int fd, const void *buf, size_t count)
 }
 
 ssize_t
-preload_writev(int fd, const struct iovec *iov, int iovcnt)
+gt_preload_writev(int fd, const struct iovec *iov, int iovcnt)
 {
 	ssize_t rc;
 
@@ -260,7 +307,7 @@ preload_writev(int fd, const struct iovec *iov, int iovcnt)
 }
 
 ssize_t
-preload_send(int fd, const void *buf, size_t len, int flags)
+gt_preload_send(int fd, const void *buf, size_t len, int flags)
 {
 	ssize_t rc;
 
@@ -269,8 +316,8 @@ preload_send(int fd, const void *buf, size_t len, int flags)
 }
 
 ssize_t
-preload_sendto(int fd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr,
-	socklen_t addrlen)
+gt_preload_sendto(int fd, const void *buf, size_t len, int flags,
+	const struct sockaddr *dest_addr, socklen_t addrlen)
 {
 	ssize_t rc;
 
@@ -280,7 +327,7 @@ preload_sendto(int fd, const void *buf, size_t len, int flags, const struct sock
 }
 
 ssize_t
-preload_sendmsg(int fd, const struct msghdr *msg, int flags)
+gt_preload_sendmsg(int fd, const struct msghdr *msg, int flags)
 {
 	ssize_t rc;
 
@@ -289,7 +336,7 @@ preload_sendmsg(int fd, const struct msghdr *msg, int flags)
 }
 
 int
-preload_fcntl(int fd, int cmd, ...)
+gt_preload_fcntl(int fd, int cmd, ...)
 {
 	int rc;
 	uintptr_t arg;
@@ -303,7 +350,7 @@ preload_fcntl(int fd, int cmd, ...)
 }
 
 int
-preload_ioctl(int fd, unsigned long request, ...)
+gt_preload_ioctl(int fd, unsigned long request, ...)
 {
 	int rc;
 	va_list ap;
@@ -317,7 +364,7 @@ preload_ioctl(int fd, unsigned long request, ...)
 }
 
 int
-preload_ppoll(struct pollfd *pfds, nfds_t npfds, const struct timespec *to,
+gt_preload_ppoll(struct pollfd *pfds, nfds_t npfds, const struct timespec *to,
 	const sigset_t *sigmask)
 {
 	int rc;
@@ -327,23 +374,23 @@ preload_ppoll(struct pollfd *pfds, nfds_t npfds, const struct timespec *to,
 }
 
 int
-preload_poll(struct pollfd *fds, nfds_t nfds, int timeout)
+gt_preload_poll(struct pollfd *fds, nfds_t nfds, int timeout)
 {
 	int rc;
 	struct timespec ts;
 
 	if (timeout < 0) {
-		rc = preload_ppoll(fds, nfds, NULL, NULL);
+		rc = gt_preload_ppoll(fds, nfds, NULL, NULL);
 	} else {
 		ts.tv_sec = timeout / 1000;
 		ts.tv_nsec = (timeout - ts.tv_sec * 1000) * 1000000;
-		rc = preload_ppoll(fds, nfds, &ts, NULL);
+		rc = gt_preload_ppoll(fds, nfds, &ts, NULL);
 	}
 	return rc;
 }
 
 int
-preload_pselect(int n, fd_set *rfds, fd_set *wfds, fd_set *efds, const struct timespec *timeout,
+gt_preload_pselect(int n, fd_set *rfds, fd_set *wfds, fd_set *efds, const struct timespec *timeout,
 	const sigset_t *sigmask)
 {
 	int i, m, s, fd, npfds;
@@ -411,7 +458,8 @@ preload_pselect(int n, fd_set *rfds, fd_set *wfds, fd_set *efds, const struct ti
 }
 
 int
-preload_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *tv)
+gt_preload_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+	struct timeval *tv)
 {
 	int rc;
 	struct timespec *ts, ts_buf;
@@ -423,12 +471,12 @@ preload_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, s
 		ts->tv_sec = tv->tv_sec;
 		ts->tv_nsec = tv->tv_usec * 1000;
 	}
-	rc = preload_pselect(nfds, readfds, writefds, exceptfds, ts, NULL);
+	rc = gt_preload_pselect(nfds, readfds, writefds, exceptfds, ts, NULL);
 	return rc;
 }
 
 unsigned int
-preload_sleep(unsigned int seconds)
+gt_preload_sleep(unsigned int seconds)
 {
 	int rc;
 
@@ -437,7 +485,7 @@ preload_sleep(unsigned int seconds)
 }
 
 int
-preload_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
+gt_preload_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
 {
 	int rc;
 
@@ -446,7 +494,7 @@ preload_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optl
 }
 
 int
-preload_setsockopt(int fd, int level, int optname, const void *optval, socklen_t optlen)
+gt_preload_setsockopt(int fd, int level, int optname, const void *optval, socklen_t optlen)
 {
 	int rc;
 
@@ -455,7 +503,7 @@ preload_setsockopt(int fd, int level, int optname, const void *optval, socklen_t
 }
 
 int
-preload_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
+gt_preload_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
 
@@ -464,7 +512,7 @@ preload_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 }
 
 int
-preload_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
+gt_preload_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 {
 	int rc;
 
@@ -473,14 +521,14 @@ preload_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 }
 
 int
-preload_sigsuspend(const sigset_t *mask)
+gt_preload_sigsuspend(const sigset_t *mask)
 {
-	return preload_ppoll(NULL, 0, NULL, mask);
+	return gt_preload_ppoll(NULL, 0, NULL, mask);
 }
 
 #ifdef __linux__
 int
-preload_clone(int (*fn)(void *), void *child_stack, int flags, void *arg, ...)
+gt_preload_clone(int (*fn)(void *), void *child_stack, int flags, void *arg, ...)
 {
 	int rc;
 	void *ptid, *tls, *ctid;
@@ -496,7 +544,7 @@ preload_clone(int (*fn)(void *), void *child_stack, int flags, void *arg, ...)
 }
 
 int
-preload_epoll_create1(int flags)
+gt_preload_epoll_create1(int flags)
 {
 	int rc;
 
@@ -505,16 +553,16 @@ preload_epoll_create1(int flags)
 }
 
 int
-preload_epoll_create(int size)
+gt_preload_epoll_create(int size)
 {
 	int rc;
 
-	rc = preload_epoll_create1(EPOLL_CLOEXEC);
+	rc = gt_preload_epoll_create1(EPOLL_CLOEXEC);
 	return rc;
 }
 
 int
-preload_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
+gt_preload_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 {
 	int rc;
 
@@ -523,7 +571,7 @@ preload_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 }
 
 int
-preload_epoll_pwait(int ep_fd, struct epoll_event *events, int maxevents, int timeout,
+gt_preload_epoll_pwait(int ep_fd, struct epoll_event *events, int maxevents, int timeout,
 	const sigset_t *sigmask)
 {
 	int rc;
@@ -534,17 +582,17 @@ preload_epoll_pwait(int ep_fd, struct epoll_event *events, int maxevents, int ti
 }
 
 int
-preload_epoll_wait(int ep_fd, struct epoll_event *events, int maxevents, int timeout)
+gt_preload_epoll_wait(int ep_fd, struct epoll_event *events, int maxevents, int timeout)
 {
 	int rc;
 
-	rc = preload_epoll_pwait(ep_fd, events, maxevents, timeout, NULL);
+	rc = gt_preload_epoll_pwait(ep_fd, events, maxevents, timeout, NULL);
 	return rc;
 }
 
 #else // __linux__
 pid_t
-preload_rfork(int flags)
+gt_preload_rfork(int flags)
 {
 	assert(0);
 	preload_set_errno(EINVAL);
@@ -552,7 +600,7 @@ preload_rfork(int flags)
 }
 
 int
-preload_kqueue()
+gt_preload_kqueue(void)
 {
 	int rc;
 
@@ -561,7 +609,7 @@ preload_kqueue()
 }
 
 int
-preload_kevent(int kq, const struct kevent *changelist, int nchanges,
+gt_preload_kevent(int kq, const struct kevent *changelist, int nchanges,
 	struct kevent *eventlist, int nevents, const struct timespec *timeout)
 {
 	int rc;

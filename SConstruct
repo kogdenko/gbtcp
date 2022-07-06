@@ -70,6 +70,34 @@ def configure(target, source, env):
     f.close()
     return None
 
+def flags_to_string(flags):
+    return ' ' + ' '.join(flags)
+
+def libgbtcp_library(orig, srcs):
+    cflags = [
+        '-fvisibility=hidden',
+    ]
+    env = orig.Clone()
+    env.Append(CFLAGS = flags_to_string(cflags))
+    return env.SharedLibrary('bin/libgbtcp.so', srcs)
+
+def aio_helloworld_program(orig):
+    ldflags = ['-Lbin', '-lgbtcptools']
+    env = orig.Clone()
+    env.Append(LINKFLAGS = flags_to_string(ldflags))
+    prog = env.Program('bin/gbtcp-aio-helloworld',
+        'tools/gbtcp-aio-helloworld/main.c')
+    Requires(prog, libgbtcptools)
+    Requires(prog, libgbtcp)
+
+def epoll_helloworld_program(orig):
+    ldflags = ['-Lbin', '-lgbtcptools']
+    env = orig.Clone()
+    env.Append(LINKFLAGS = flags_to_string(ldflags))
+    prog = env.Program('bin/gbtcp-epoll-helloworld',
+        'tools/gbtcp-epoll-helloworld/main.c')
+    Requires(prog, libgbtcptools)
+
 cflags = [
     '-g',
     '-Wall',
@@ -188,10 +216,10 @@ if platform.architecture()[0] == "64bit":
 else:
     lib_path = '/usr/lib'
 
-env.Append(CFLAGS = ' '.join(cflags))
-env.Append(LINKFLAGS = ' '.join(ldflags))
+env.Append(CFLAGS = flags_to_string(cflags))
+env.Append(LINKFLAGS = flags_to_string(ldflags))
 
-libgbtcp = env.SharedLibrary('bin/libgbtcp.so', srcs)
+libgbtcp = libgbtcp_library(env, srcs)
 
 env.Install(lib_path, libgbtcp)
 env.Alias('install', lib_path)
@@ -199,6 +227,7 @@ env.Alias('install', lib_path)
 libgbtcptools = env.SharedLibrary('bin/libgbtcptools.so', [
     'tools/common/subr.c',
     'tools/common/pid.c',
+    'tools/common/worker.c',
     ])
 
 # Programs
@@ -206,8 +235,8 @@ ldflags.append('-Lbin')
 ldflags.append('-lgbtcp')
 
 env_gbtcp = Environment(CC = 'gcc',
-    CCFLAGS = ' '.join(cflags),
-    LINKFLAGS = ' '.join(ldflags),
+    CCFLAGS = flags_to_string(cflags),
+    LINKFLAGS = flags_to_string(ldflags),
 )
 
 sysctl = env_gbtcp.Program('bin/gbtcp-sysctl', 'sysctl/sysctl.c')
@@ -221,18 +250,7 @@ install_program(env_gbtcp, netstat)
 controller = env_gbtcp.Program('bin/gbtcp-controller', 'controller/controller.c')
 Requires(controller, libgbtcp)
 
-aio_helloworld = env_gbtcp.Program('bin/gbtcp-aio-helloworld',
-    'tools/gbtcp-aio-helloworld/main.c')
-Requires(aio_helloworld, libgbtcp)
-
-def epoll_helloworld_program(orig):
-    ldflags = ['-Lbin', '-lgbtcptools']
-    env = orig.Clone()
-    env.Append(LINKFLAGS = ' '.join(ldflags))
-    prog = env.Program('bin/gbtcp-epoll-helloworld',
-        'tools/gbtcp-epoll-helloworld/main.c')
-    Requires(prog, libgbtcptools)
-
+aio_helloworld_program(env_gbtcp)
 epoll_helloworld_program(env)
 
 # Tests

@@ -525,7 +525,7 @@ controller_unbind(int pid)
 }
 
 int
-controller_init(int daemonize)
+gtl_controller_init(int daemonize)
 {
 	int i, rc, pid;
 	uint64_t hz;
@@ -592,12 +592,12 @@ controller_init(int daemonize)
 	return 0;
 err:
 	ERR(-rc, "Controller initialization failed");
-	controller_deinit();
+	gtl_controller_deinit();
 	return rc;
 }
 
 void
-controller_deinit()
+gtl_controller_deinit()
 {
 	int pid;
 
@@ -626,10 +626,10 @@ controller_process(void)
 }
 
 void
-controller_start(int persist)
+gtl_controller_start(int persist)
 {
 	while (!controller_done || persist) {
 		controller_process();
 	}
-	controller_deinit();
+	gtl_controller_deinit();
 }

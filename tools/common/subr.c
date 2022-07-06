@@ -98,18 +98,24 @@ read_record(int fd, void *buf, int cnt, int *len)
 }
 
 int
-set_affinity(int cpu_id)
+set_affinity2(pthread_t thread, int cpu_id)
 {
 	int rc;
 	cpuset_t cpumask;
 
 	CPU_ZERO(&cpumask);
 	CPU_SET(cpu_id, &cpumask);
-	rc = pthread_setaffinity_np(pthread_self(), sizeof(cpumask), &cpumask);
+	rc = pthread_setaffinity_np(thread, sizeof(cpumask), &cpumask);
 	if (rc != 0) {
 		errorf(rc, "pthread_setaffinity_np(%d) failed", cpu_id);
 	}
 	return -rc;
+}
+
+int
+set_affinity(int cpu_id)
+{
+	return set_affinity2(pthread_self(), cpu_id);
 }
 
 static int

@@ -1,8 +1,9 @@
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <arpa/inet.h>
+// GPL V2 License
+#include <tools/common/subr.h>
+#include <tools/common/worker.h>
 #include <gbtcp/gbtcp.h>
+
+#define PROG_NAME "gbtcp-aio-helloworld"
 
 #ifdef GTL_HAVE_XDP
 #define HAVE_XDP " GTL_HAVE_XDP"
@@ -22,10 +23,11 @@
 #define HAVE_VALE ""
 #endif // GTL_HAVE_VALE
 
+static int g_fd;
 static int http_len;
 static const char *http =
 	"HTTP/1.0 200 OK\r\n"
-	"Server: gbtcp-aio-helloworld\r\n"
+	"Server: "PROG_NAME"\r\n"
 	"Content-Type: text/html\r\n"
 	"Connection: close\r\n"
 	"Hi\r\n\r\n";
@@ -64,67 +66,87 @@ accept_handler(void *unused, int fd, short revents)
 	}
 }
 
-static void
-loop(int fd, int affinity)
+static void *
+worker_loop(void *udata)
 {
-	if (affinity >= 0) {
-		gtl_set_affinity(affinity);
-	}
-	gt_aio_set(fd, accept_handler);
+	struct worker *worker;
+
+	worker = udata;	
+	set_affinity(worker->wrk_cpu);
+	gt_aio_set(g_fd, accept_handler);
 	gt_poll(NULL, 0, -1);
+	return NULL;
+}
+
+static void
+usage(void)
+{
 }
 
 int
 main(int argc, char **argv)
 {
-	int i, rc, fd, opt, n_workers, affinity;
+	int rc, fd, opt, port, Sflag;
 	struct sockaddr_in a;
+	cpuset_t worker_cpus;
 
-	//signal(SIGPIPE, SIG_IGN);
-	n_workers = 1;
-	affinity = -1;
-	while ((opt = getopt(argc, argv, "a:P:V")) != -1) {
+	Sflag = 0;
+	port = 80;
+	http_len = strlen(http);
+	CPU_ZERO(&worker_cpus);
+	while ((opt = getopt(argc, argv, "hvp:a:S")) != -1) {
 		switch (opt) {
-		case 'a':
-			affinity = strtoul(optarg, NULL, 10);
-			break;
-		case 'P':
-			n_workers = strtoul(optarg, NULL, 10);
-			break;
-		case 'V':
-			printf("version: 0.2.1\n");
+		case 'h':
+			usage();
+			return EXIT_SUCCESS;
+		case 'v':
+			printf("version: 0.5.1\n");
+			printf("gbtcp: 0.2.1\n");
 			printf("commit: %s\n", GTL_COMMIT);
 			printf("config:%s%s%s\n", HAVE_XDP, HAVE_NETMAP, HAVE_VALE);
-			return 0;
+			return EXIT_SUCCESS;
+		case 'p':
+			port = strtoul(optarg, NULL, 10);
+			break;
+		case 'a':
+			rc = cpuset_from_string(&worker_cpus, optarg);
+			if (rc < 0) {
+				die(-rc, "-a: Invalid cpu list");
+			}
+			break;
+		case 'S':
+			Sflag = 1;
+			break;
 		}
 	}
-	http_len = strlen(http);
+	if (Sflag) {
+		stop_master(PROG_NAME, port);
+		return EXIT_SUCCESS;
+	}
 	a.sin_family = AF_INET;
 	a.sin_addr.s_addr = 0;
-	a.sin_port = htons(80);
-	if (n_workers < 1) {
-		n_workers = 1;
-	}
+	a.sin_port = htons(port);
 	gt_preload_passthru = 1;
 	rc = gt_socket(AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0);
 	if (rc < 0) {
-		return 1;
+		die(-rc, "gt_socket() failed");
 	}
 	fd = rc;
 	rc = gt_bind(fd, (struct sockaddr *)&a, sizeof(a));
 	if (rc < 0) {
-		return 2;
+		die(-rc, "gt_bind() failed");
 	}
 	rc = gt_listen(fd, 0);
 	if (rc < 0) {
-		return 3;
+		die(-rc, "gt_listen() failed");
 	}
-	for (i = 1; i < n_workers; ++i) {
-		rc = gt_fork();
-		if (rc == 0) {
-			loop(fd, affinity == -1 ? affinity : affinity + i);
-		}
-	}
-	loop(fd, affinity);
-	return 0;
+	g_fd = fd;
+	start_master(&worker_cpus,
+		0,
+		PROG_NAME,
+		port,
+		worker_loop,
+		gt_fork,
+		gt_sleep);
+	return EXIT_SUCCESS;
 }

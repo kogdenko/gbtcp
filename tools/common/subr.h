@@ -52,6 +52,7 @@ void *xmalloc(size_t);
 ssize_t write_record(int, const void *, size_t);
 int read_record(int, void *, int, int *);
 
+int set_affinity2(pthread_t thread, int cpu_id);
 int set_affinity(int);
 
 int cpuset_from_string(cpuset_t *, char *);
