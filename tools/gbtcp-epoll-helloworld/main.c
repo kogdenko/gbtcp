@@ -435,13 +435,13 @@ main(int argc, char **argv)
 	concurrency = 0;
 	assert(sizeof(union connection) == sizeof(uint64_t));
 	port = 80;
-	while ((opt = getopt(argc, argv, "hp:lc:Ca:tSv")) != -1) {
+	while ((opt = getopt(argc, argv, "hvp:lc:Ca:tS")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
 			return EXIT_SUCCESS;
 		case 'v':
-			printf("version 0.5.1\n");
+			printf("version: 0.5.1\n");
 			return 0;
 		case 'p':
 			port = strtoul(optarg, NULL, 10);

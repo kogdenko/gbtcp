@@ -443,7 +443,8 @@ class Environment:
         self.ts_pass = 0
         self.ts_failed = 0
 
-        _, out, _ = system(self.project_path + "/bin/gbtcp-aio-helloworld -V")
+        cmd = self.project_path + "/bin/gbtcp-aio-helloworld -v"
+        _, out, _ = system(cmd)
         for line in out.splitlines():
             if line.startswith("commit: "):
                 self.git_commit = line[9:]
@@ -458,7 +459,7 @@ class Environment:
                     self.have_netmap = False
 
         if self.git_commit == None or self.have_xdp == None or self.have_netmap == None:
-            die("gbtcp-aio-helloworld -V: Invalid output")
+            die("%s: Parse error"  % cmd)
 
         self.sql_conn = sqlite3.connect(self.project_path + "/test/data.sql")
         self.sql_cursor = self.sql_conn.cursor()

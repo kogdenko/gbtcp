@@ -121,20 +121,31 @@ def write_gbtcp_conf(driver):
     f.write(gbtcp_conf)
     f.close()
 
-def start_process(cmd, env = None):
-    print_log("$ %s &" % cmd)
-    proc = subprocess.Popen(cmd.split(), env=env,
+def start_process(cmd, preload):
+    e = os.environ.copy()
+    e["LD_LIBRARY_PATH"] = env.project_path + "/bin"
+    if preload:
+        e["LD_PRELOAD"] = os.path.normpath(env.project_path + "/bin/libgbtcp.so")
+        e["GBTCP_CONF"] = get_gbtcp_conf_path()
+
+    proc = subprocess.Popen(cmd.split(), env = e,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    print_log("$ %s &\n[%d]" % (cmd, proc.pid))
+
     return proc
 
-def start_process_ldpreload(cmd, native):
-    gbtcp_conf_path = get_gbtcp_conf_path()
-    libgbtcp_path = os.path.normpath(env.project_path + "/bin/libgbtcp.so")
-    e = os.environ.copy()
-    if not native:
-        e["LD_PRELOAD"] = libgbtcp_path
-        e["GBTCP_CONF"] = gbtcp_conf_path
-    return start_process(cmd, env = e)
+def wait_process(proc):
+    proc.wait()
+    lines = []
+    for pipe in [proc.stdout, proc.stderr]:
+        while True:
+            line = pipe.readline()
+            if not line:
+                break
+            lines.append(line.decode('utf-8').strip())
+    print_log("$ [%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
+    return proc.returncode, lines
 
 def run_tester(args):
     subnet = None
@@ -175,17 +186,17 @@ def run_tester(args):
 
     n = len(g_tester_cpus)
     for i in range(n):
-        cpu_concurrency = concurrency / n
+        concurrency_per_cpu = concurrency / n
         if i == 0:
-            cpu_concurrency += concurrency % n
+            concurrency_per_cpu += concurrency % n
         else:
             cmd += " --"
         cmd += " -i %s-%d" % (g_tester_interface, i)
-        cmd += " -c %d" % cpu_concurrency
+        cmd += " -c %d" % concurrency_per_cpu
         cmd += " -a %d" % g_tester_cpus[i]
         cmd += " -s %s.%d.1-%s.%d.255" % (subnet, i + 1, subnet, i + 1)
 
-    return (start_process(cmd), reports)
+    return (start_process(cmd, False), reports)
 
 def start_tester(concurrency):
     assert(device_mac != None)
@@ -214,40 +225,20 @@ def wait_tester_socket(s):
             s.close()
             return data
         data += bytearray(buf)
-
-def wait_proc(proc):
-    proc.wait()
-    if proc.returncode == 0:
-        return True
-    else:
-        out = ""
-        for pipe in [proc.stdout, proc.stderr]:
-            while True:
-                line = pipe.readline()
-                if not line:
-                    break
-                out += line.decode('utf-8').strip()
-        print_log("$ %s # $?=%d\n%s" % (proc.args[0], proc.returncode, out))
-        return False
+    return data
 
 def wait_tester_proc(tester, reports):
     # FIXME: Wait APR negotiaition
     cpu_usage = measure_cpu_usage(reports, 2, g_tester_cpus)
 
-    rc = wait_proc(tester)
+    rc, lines = wait_process(tester)
 
     data = bytearray()
-    out = ""
-    while True:
-        line = tester.stdout.readline()
-        if not line:
-            break
-        out += line.decode('utf-8').strip()
-        data += bytearray(line)
+    for line in lines:
+        data += bytearray((line + "\n").encode('utf-8'))
 
-    print_log("$ %s\n%s" % (tester.args[0], out))
     print_log("tester: %s: CPU=%s ... %s" %
-        (tester.args[0], list_to_str(cpu_usage), "Ok" if rc else "Failed"), True)
+        (tester.args[0], list_to_str(cpu_usage), "Ok" if rc == 0 else "Failed"), True)
 
     return data
 
@@ -330,8 +321,7 @@ def add_sample(data, reports, test_id, low):
 
     rows = s.split('\n')
     if len(rows) != reports:
-        print_log("runner: Invalid number of reports (%d, should be %d)\n%s" %
-            (len(rows), reports, s))
+        print_log("runner: Invalid number of reports (%d, should be %d)" % (len(rows), reports))
         return None
     sample = Sample()
     sample.records = [[] for i in range(6)]
@@ -369,8 +359,8 @@ def cool_down_cpu():
         t = int(math.ceil((g_cooling_time * 1000 - ms) / 1000))
         time.sleep(t)
 
-def print_test(test_id, sample, env, native, concurrency, driver, cpu_usage):
-    if native:
+def print_test(test_id, sample, env, preload, concurrency, driver, cpu_usage):
+    if not preload:
         driver = "native"
 
     if sample == None:
@@ -405,7 +395,7 @@ def print_test(test_id, sample, env, native, concurrency, driver, cpu_usage):
 
 last_used_cpus = None
 
-def do_test(app, cpus, native, driver, concurrency):
+def do_test(app, cpus, preload, driver, concurrency):
     global last_used_cpus
 
     env.ts_planned += g_sample_count
@@ -413,12 +403,12 @@ def do_test(app, cpus, native, driver, concurrency):
         test_id = -1
         sample_count = 0
     else:
-        if native:
-            desc = "native" 
-            driver_id = 0
-        else:
+        if preload:
             desc = env.git_commit
             driver_id = get_driver_id(driver)
+        else:
+            desc = "" 
+            driver_id = 0
 
         test_id, sample_count = env.add_test(desc, app.id, driver_id, concurrency,
             len(cpus), g_report_count)
@@ -430,7 +420,7 @@ def do_test(app, cpus, native, driver, concurrency):
             time.sleep(2)
             set_txrx_queue_count(g_runner_interface, cpus)
 
-        rc = app.start_test(test_id, driver, concurrency, cpus, native)
+        rc = app.start_test(test_id, driver, concurrency, cpus, preload)
         if rc:
             env.ts_pass += 1
         else:
@@ -448,10 +438,10 @@ class application:
             die("Couldn't get nginx version from '%s'" % s)
         return m.group(0)
 
-    def start_test(self, test_id, driver, concurrency, cpus, native):
+    def start_test(self, test_id, driver, concurrency, cpus, preload):
         self.stop()
 
-        proc = self.start(concurrency, cpus, native)
+        proc = self.start(concurrency, cpus, preload)
 
         # Wait netmap interface goes up
         time.sleep(2)
@@ -469,13 +459,13 @@ class application:
                 low = True
                 break
 
-        sample = add_sample(data, g_report_count, test_id, low)
-
         self.stop()
-        wait_proc(proc)
+        wait_process(proc)
         set_stop_time()
 
-        print_test(test_id, sample, self.get_name(), native, concurrency, driver, cpu_usage)
+        sample = add_sample(data, g_report_count, test_id, low)
+
+        print_test(test_id, sample, self.get_name(), preload, concurrency, driver, cpu_usage)
 
         if sample == None or sample.status != SAMPLE_STATUS_OK:
             return False
@@ -494,7 +484,7 @@ class nginx(application):
     def stop(self):
         system("nginx -s quit", True)
 
-    def start(self, concurrency, cpus, native):
+    def start(self, concurrency, cpus, preload):
 
         worker_cpu_affinity = ""
 
@@ -552,41 +542,50 @@ class nginx(application):
         f.write(nginx_conf)
         f.close()
 
-        return start_process_ldpreload("nginx -c %s" % nginx_conf_path, native)
+        return start_process("nginx -c %s" % nginx_conf_path, preload)
 
     def __init__(self):
         application.__init__(self)
 
-class gbtcp_epoll_helloworld(application):
+class gbtcp_base_helloworld(application):
     path = None
 
-    def get_name(self):
-        return "gbtcp-epoll-helloworld"
-
     def get_version(self):
-        s = system("%s -v" % self.path)[1]
-        return self.parse_version(s)
+        cmd = "%s -v" % self.path
+        s = system(cmd)[1]
+        for line in s.splitlines():
+            if line.startswith("version: "):
+                return self.parse_version(line)
+        die("%s: Invalid output" % cmd)
 
     def stop(self):
         system("%s -S" % self.path, True)
 
-    def start(self, concurrency, cpus, native):
+    def start(self, concurrency, cpus, preload):
         cmd = "%s -l -a " % self.path
         for i in range(len(cpus)):
             if i != 0:
                 cmd += ","
             cmd += str(cpus[i])
-        return start_process_ldpreload(cmd, native)
+        return start_process(cmd, preload)
 
     def __init__(self):
-        self.path = env.project_path + "/bin/gbtcp-epoll-helloworld"
+        self.path = env.project_path + "/bin/" + self.get_name()
         application.__init__(self)
 
+class gbtcp_epoll_helloworld(gbtcp_base_helloworld):
+    def get_name(self):
+        return "gbtcp-epoll-helloworld"
+
+class gbtcp_aio_helloworld(gbtcp_base_helloworld):
+    def get_name(self):
+        return "gbtcp-aio-helloworld"
 
 ################ MAIN ####################
 fill_test_list()
 g_apps.append(nginx())
 g_apps.append(gbtcp_epoll_helloworld())
+g_apps.append(gbtcp_aio_helloworld())
 
 try:
     opts, args = getopt.getopt(sys.argv[1:], "hvL:i:t:", [
@@ -653,14 +652,15 @@ for o, a in opts:
                 g_drivers.append(driver)
     elif o in ("--test"):
         for test in a.split(','):
-            if test_exists(test):
-                if not test in g_tests:
-                    g_tests.append(test)
-            else:
-                die("test '%s' doesn't exists" % test)
+            if test != "":
+                if test_exists(test):
+                    if not test in g_tests:
+                        g_tests.append(test)
+                else:
+                    die("Test '%s' doesn't exists" % test)
 
 if g_listen == None and len(g_tests) == 0:
-    die("--test: not specified")
+    die("No tests specified (see '--test')")
 
 if len(g_concurrency) == 0:
     g_concurrency.append(1000)
@@ -772,8 +772,8 @@ write_gbtcp_conf(g_drivers[0])
 for test in g_tests:
     if test in g_simple_test:
         env.ts_planned += 1
-        proc = start_process_ldpreload(env.project_path + '/bin/' + test, False)
-        if wait_proc(proc):
+        proc = start_process(env.project_path + '/bin/' + test, False)
+        if wait_process(proc)[0] == 0:
             env.ts_pass += 1
             status = "Pass"
         else:
@@ -788,7 +788,7 @@ for test in g_tests:
                     for driver in g_drivers:
                         write_gbtcp_conf(driver)
                         for concurrency in g_concurrency:
-                            do_test(app, cpus, False, driver, concurrency)
+                            do_test(app, cpus, True, driver, concurrency)
                 break
 
 print("Planned: ", env.ts_planned)

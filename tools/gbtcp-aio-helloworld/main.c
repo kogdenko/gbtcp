@@ -94,7 +94,7 @@ main(int argc, char **argv)
 	port = 80;
 	http_len = strlen(http);
 	CPU_ZERO(&worker_cpus);
-	while ((opt = getopt(argc, argv, "hvp:a:S")) != -1) {
+	while ((opt = getopt(argc, argv, "hvp:la:S")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
