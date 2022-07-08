@@ -10,10 +10,10 @@
 #define NETMAP_DEV_NAMSIZ (IFNAMSIZ + 32)
 
 #define DEV_FOREACH_TXRING(txr, dev) \
-	for (int GTL_UNIQV(i) = (dev)->dev_nmd->first_tx_ring; \
-		GTL_UNIQV(i) <= (dev)->dev_nmd->last_tx_ring && \
-		((txr = NETMAP_TXRING((dev)->dev_nmd->nifp, GTL_UNIQV(i))), 1); \
-		++GTL_UNIQV(i))
+	for (int GT_UNIQV(i) = (dev)->dev_nmd->first_tx_ring; \
+		GT_UNIQV(i) <= (dev)->dev_nmd->last_tx_ring && \
+		((txr = NETMAP_TXRING((dev)->dev_nmd->nifp, GT_UNIQV(i))), 1); \
+		++GT_UNIQV(i))
 
 #define DEV_FOREACH_TXRING_CONTINUE(i, txr, dev) \
 	for (; i <= (dev)->dev_nmd->last_tx_ring && \
@@ -21,10 +21,10 @@
 		++i)
 
 #define DEV_FOREACH_RXRING(rxr, dev) \
-	for (int GTL_UNIQV(i) = (dev)->dev_nmd->first_rx_ring; \
-		GTL_UNIQV(i) <= (dev)->dev_nmd->last_rx_ring && \
-		((rxr = NETMAP_RXRING((dev)->dev_nmd->nifp, GTL_UNIQV(i))), 1); \
-		++GTL_UNIQV(i))
+	for (int GT_UNIQV(i) = (dev)->dev_nmd->first_rx_ring; \
+		GT_UNIQV(i) <= (dev)->dev_nmd->last_rx_ring && \
+		((rxr = NETMAP_RXRING((dev)->dev_nmd->nifp, GT_UNIQV(i))), 1); \
+		++GT_UNIQV(i))
 
 #define DEV_RXR_NEXT(rxr) \
 	(rxr)->head = (rxr)->cur = nm_ring_next(rxr, (rxr)->cur)

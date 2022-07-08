@@ -21,7 +21,7 @@ struct log_scope {
 #else // LOG_DISABLED
 #define LOGF(level, errnum, fmt, ...) \
 do { \
-	if (log_is_enabled(GTL_CAT2(MOD_, CURMOD), level, 0)) { \
+	if (log_is_enabled(GT_CAT2(MOD_, CURMOD), level, 0)) { \
 		log_buf_init(); \
 		log_printf(level, __func__, errnum, fmt, ##__VA_ARGS__); \
 	} \

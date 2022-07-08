@@ -1048,6 +1048,7 @@ sysctl_req_safe(const char *path, char *old, const char *new)
 	return rc;
 }
 
+// TODO: Move to API
 int
 gt_sysctl(const char *path, char *old, const char *new)
 {
@@ -1055,9 +1056,39 @@ gt_sysctl(const char *path, char *old, const char *new)
 
 	rc = sysctl_req_safe(path, old, new);
 	if (rc < 0) {
-		INFO(-rc, "sysctl('%s') failed", path);
+		INFO(-rc, "gt_sysctl('%s') failed", path);
 	} else {
-		INFO(0, "stsctl('%s') ok", path);
+		INFO(0, "gt_stsctl('%s') ok", path);
 	}
 	GT_RETURN(rc);
+}
+
+int
+gt_get_build_version(char *version, int size)
+{
+	return snprintf(version, size, "%s", GT_VERSION);
+}
+
+int
+gt_get_build_config(char *config, int size)
+{
+#ifdef GT_HAVE_XDP
+#define HAVE_XDP " GT_HAVE_XDP"
+#else // GT_HAVE_XDP
+#define HAVE_XDP ""
+#endif // GT_HAVE_XDP
+
+#ifdef GT_HAVE_NETMAP
+#define HAVE_NETMAP " GT_HAVE_NETMAP"
+#else // GT_HAVE_NETMAP
+#define HAVE_NETMAP ""
+#endif // GT_HAVE_NETMAP
+
+#ifdef GT_HAVE_VALE
+#define HAVE_VALE " GT_HAVE_VALE"
+#else // GT_HAVE_VAL
+#define HAVE_VALE ""
+#endif // GT_HAVE_VALE
+
+	return snprintf(config, size, "%s%s%s", HAVE_XDP, HAVE_NETMAP, HAVE_VALE);
 }

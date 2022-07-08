@@ -13,17 +13,17 @@
 #define DEV_QUEUE_HOST (-1)
 #define DEV_QUEUE_NONE (-2)
 
-#ifdef GTL_HAVE_NETMAP
+#ifdef GT_HAVE_NETMAP
 #define DEV_TRANSPORT_NETMAP 1
 #define DEV_TRANSPORT_DEFAULT DEV_TRANSPORT_NETMAP
-#endif // GTL_HAVE_NETMAP
+#endif // GT_HAVE_NETMAP
 
-#ifdef GTL_HAVE_XDP
+#ifdef GT_HAVE_XDP
 #define DEV_TRANSPORT_XDP 2
 #ifndef DEV_TRANSPORT_DEFAULT
 #define DEV_TRANSPORT_DEFAULT DEV_TRANSPORT_XDP
 #endif // DEV_TRANSPORT_DEFAULT
-#endif // GTL_HAVE_XDP
+#endif // GT_HAVE_XDP
 
 #define dev_is_inited(dev) ((dev)->dev_fn != NULL)
 

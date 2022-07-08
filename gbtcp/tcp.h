@@ -89,8 +89,8 @@ struct sock {
 };
 
 #define SO_FOREACH_BINDED(so) \
-	for (int GTL_UNIQV(i) = 0; GTL_UNIQV(i) < EPHEMERAL_PORT_MAX; ++GTL_UNIQV(i)) \
-		DLIST_FOREACH_RCU(so, &so_get_binded_bucket(GTL_UNIQV(i))->htb_head, \
+	for (int GT_UNIQV(i) = 0; GT_UNIQV(i) < EPHEMERAL_PORT_MAX; ++GT_UNIQV(i)) \
+		DLIST_FOREACH_RCU(so, &so_get_binded_bucket(GT_UNIQV(i))->htb_head, \
 			so_binded_list)
 
 int tcp_mod_init(void);

@@ -69,14 +69,6 @@ def test_exists(test):
             return True
     return False
 
-def get_driver_id(driver):
-    if driver == "netmap":
-        return 1
-    elif driver == "xdp":
-        return 2
-    else:
-        assert(0)
-
 def get_interface_mac(interface):
     f = open("/sys/class/net/%s/address" % interface)
     mac = f.read().strip()
@@ -404,13 +396,13 @@ def do_test(app, cpus, preload, driver, concurrency):
         sample_count = 0
     else:
         if preload:
-            desc = env.git_commit
+            commit = env.commit
             driver_id = get_driver_id(driver)
         else:
-            desc = "" 
+            commit = ""
             driver_id = 0
 
-        test_id, sample_count = env.add_test(desc, app.id, driver_id, concurrency,
+        test_id, sample_count = env.add_test(commit, app.id, driver_id, concurrency,
             len(cpus), g_report_count)
 
     for j in range (0, g_sample_count - sample_count):
@@ -670,6 +662,8 @@ if len(g_drivers) == 0:
         g_drivers.append("netmap")
     elif env.have_xdp:
         g_drivers.append("xdp")
+    else:
+        die("No driver supported")
 
 g_cpu_count = multiprocessing.cpu_count()
 if g_cpu_list == None:

@@ -1,3 +1,4 @@
+# GPL V2 License
 import os
 import re
 import sys
@@ -81,19 +82,40 @@ def list_to_str(l):
     s += "]"
     return s
 
+
+drivers = {
+    0: "native",
+    1: "netmap",
+    2: "xdp",
+}
+
+def get_driver_id(driver_name):
+    for id, name in drivers.items():
+        if name == driver_name:
+            return id
+    die("Unknown driver '%s'" % driver_name)
+    return None
+
+def get_driver_name(driver_id):
+    return drivers[driver_id]
+
 def sample_record_name(i):
     if i == CPS:
-        return "cps"
+        return "CPS"
     elif i == IPPS:
-        return "ipps"
+        return "IPPS"
     elif i == IBPS:
-        return "ibps"
+        return "IBPS"
     elif i == OPPS:
-        return "opps"
+        return "OPPS"
     elif i == OBPS:
-        return "obps"
+        return "OBPS"
     elif i == CONCURRENCY:
         return "concurrency"
+    elif i == PPS:
+        return "PPS"
+    elif i == BPS:
+        return "BPS"
     else:
         return None
 
@@ -191,6 +213,12 @@ def get_cpu_name():
                 return re.sub( ".*model name.*:", "", line, 1).strip()
     die("Couldn't get CPU model name")
 
+def git_rev_parse(rev):
+    commit = system("git rev-parse %s" % rev)[1].strip()
+    if len(commit) != 40:
+        die("Invalid git revision '%s'" % rev)
+    return commit
+
 def find_outliers(sample, std):
     if std == None:
         std = [numpy.std(sample)] * len(sample)
@@ -231,7 +259,7 @@ class Environment:
     project_path = None
     sql_conn = None
     sql_cursor = None
-    git_commit = None
+    commit = None
     os_id = None
     cpu_model_id = None
 
@@ -243,13 +271,13 @@ class Environment:
         return int(row[0])
 
     def add_test(self, desc, app_id, driver, concurrency, cpu_count, report_count):
-        where = ("git_commit=\"%s\" and os_id=%d and app_id=%d and "
+        where = ("gbtcp_commit=\"%s\" and os_id=%d and app_id=%d and "
             "driver=%d and concurrency=%d and cpu_model_id=%d and cpu_count=%d" %
             (desc, self.os_id, app_id,
             driver, concurrency, self.cpu_model_id, cpu_count))
 
         cmd = ("insert into test "
-            "(git_commit, os_id, app_id, driver, concurrency, cpu_model_id, cpu_count) "
+            "(gbtcp_commit, os_id, app_id, driver, concurrency, cpu_model_id, cpu_count) "
             "select \"%s\", %d, %d, %d, %d, %d, %d where not exists "
             "(select 1 from test where %s)" % (
             desc, self.os_id, app_id,
@@ -332,15 +360,16 @@ class Environment:
         row = self.sql_cursor.fetchone()
         if row == None:
             return None
-        assert(len(row) == 7)
+        assert(len(row) == 8)
         test = Test()
         test.id = int(row[0])
-        test.commit_hash = row[1]
+        test.commit = row[1]
         test.os_id = int(row[2])
         test.app_id = int(row[3])
-        test.concurrency = int(row[4])
-        test.cpu_model_id = int(row[5])
-        test.cpu_count = int(row[6])
+        test.driver_id = int(row[4])
+        test.concurrency = int(row[5])
+        test.cpu_model_id = int(row[6])
+        test.cpu_count = int(row[7])
         return test;
 
     def get_sample(self, sample_id):
@@ -399,13 +428,14 @@ class Environment:
 
     def get_tests(self, description):
         tests = []
-        cmd = "select * from test where git_commit=\"%s\"" % description
+        cmd = "select * from test where gbtcp_commit=\"%s\"" % description
         self.sql_cursor.execute(cmd)
         while True:
             test = self.fetch_test()
             if test == None:
                 return tests
             tests.append(test)
+        return tests
 
     def get_os(self, os_id):
         cmd = "select name, ver from os where id=%d" % os_id
@@ -436,7 +466,7 @@ class Environment:
 
     def __init__(self):
         self.project_path = get_project_path()
-        self.git_commit = None
+        self.commit = None
         self.have_xdp = None
         self.have_netmap = None
         self.ts_planned = 0
@@ -446,19 +476,19 @@ class Environment:
         cmd = self.project_path + "/bin/gbtcp-aio-helloworld -v"
         _, out, _ = system(cmd)
         for line in out.splitlines():
-            if line.startswith("commit: "):
-                self.git_commit = line[9:]
+            if line.startswith("gbtcp: "):
+                self.commit = git_rev_parse(line[7:])
             elif line.startswith("config: "):
-                if re.search("GTL_HAVE_XDP", line) != None:
+                if re.search("HAVE_XDP", line) != None:
                     self.have_xdp = True
                 else:
                     self.have_xdp = False
-                if re.search("GTL_HAVE_NETMAP", line) != None:
+                if re.search("HAVE_NETMAP", line) != None:
                     self.have_netmap = True
                 else:
                     self.have_netmap = False
 
-        if self.git_commit == None or self.have_xdp == None or self.have_netmap == None:
+        if self.commit == None or self.have_xdp == None or self.have_netmap == None:
             die("%s: Parse error"  % cmd)
 
         self.sql_conn = sqlite3.connect(self.project_path + "/test/data.sql")

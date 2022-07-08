@@ -141,15 +141,15 @@ struct profiler {
 #define ntoh32(x) ((uint32_t)BSWAP32(x))
 #endif // __BIG_ENDIAN
 
-#define GTL_CAT2_RES(_, res) res
-#define GTL_CAT2_MED(x, y) GTL_CAT2_RES(~, x##y)
-#define GTL_CAT2(x, y) GTL_CAT2_MED(x, y)
+#define GT_CAT2_RES(_, res) res
+#define GT_CAT2_MED(x, y) GT_CAT2_RES(~, x##y)
+#define GT_CAT2(x, y) GT_CAT2_MED(x, y)
 
-#define GTL_CAT3_RES(_, res) res
-#define GTL_CAT3_MED(x, y, z) GTL_CAT3_RES(~, x##y##z)
-#define GTL_CAT3(x, y, z) GTL_CAT3_MED(x, y, z)
+#define GT_CAT3_RES(_, res) res
+#define GT_CAT3_MED(x, y, z) GT_CAT3_RES(~, x##y##z)
+#define GT_CAT3(x, y, z) GT_CAT3_MED(x, y, z)
 
-#define GTL_UNIQV(name) GTL_CAT3(name, uniqv_, __LINE__)
+#define GT_UNIQV(name) GT_CAT3(name, uniqv_, __LINE__)
 
 #define MEM_PREFETCH(ptr) \
 	__builtin_prefetch(ptr)
@@ -159,36 +159,36 @@ struct profiler {
 
 #define printf_rl(period, fmt, ...) \
 do { \
-	static uint64_t GTL_UNIQV(last); \
-	static uint64_t GTL_UNIQV(now); \
-	static int GTL_UNIQV(cnt); \
+	static uint64_t GT_UNIQV(last); \
+	static uint64_t GT_UNIQV(now); \
+	static int GT_UNIQV(cnt); \
  \
-	GTL_UNIQV(now) = nanoseconds; \
-	if (GTL_UNIQV(now) - GTL_UNIQV(last) >= period) { \
-		GTL_UNIQV(last) = GTL_UNIQV(now); \
-		if (GTL_UNIQV(cnt)) { \
-			printf("suppresed %d; ", GTL_UNIQV(cnt)); \
+	GT_UNIQV(now) = nanoseconds; \
+	if (GT_UNIQV(now) - GT_UNIQV(last) >= period) { \
+		GT_UNIQV(last) = GT_UNIQV(now); \
+		if (GT_UNIQV(cnt)) { \
+			printf("suppresed %d; ", GT_UNIQV(cnt)); \
 		} \
 		printf(fmt, ##__VA_ARGS__); \
-		GTL_UNIQV(cnt) = 0; \
+		GT_UNIQV(cnt) = 0; \
 	} else { \
-		GTL_UNIQV(cnt)++; \
+		GT_UNIQV(cnt)++; \
 	} \
 } while (0)
 
 #define dbg_rl(period, fmt, ...) \
 do { \
-	static uint64_t GTL_UNIQV(last); \
-	static uint64_t GTL_UNIQV(now); \
-	static int GTL_UNIQV(cnt); \
+	static uint64_t GT_UNIQV(last); \
+	static uint64_t GT_UNIQV(now); \
+	static int GT_UNIQV(cnt); \
  \
-	GTL_UNIQV(now) = nanoseconds; \
-	if (GTL_UNIQV(now) - GTL_UNIQV(last) >= (period) * NSEC_SEC) { \
-		GTL_UNIQV(last) = GTL_UNIQV(now); \
-		gt_dbg5(__FILE__, __LINE__, __func__, GTL_UNIQV(cnt), fmt, ##__VA_ARGS__); \
-		GTL_UNIQV(cnt) = 0; \
+	GT_UNIQV(now) = nanoseconds; \
+	if (GT_UNIQV(now) - GT_UNIQV(last) >= (period) * NSEC_SEC) { \
+		GT_UNIQV(last) = GT_UNIQV(now); \
+		gt_dbg5(__FILE__, __LINE__, __func__, GT_UNIQV(cnt), fmt, ##__VA_ARGS__); \
+		GT_UNIQV(cnt) = 0; \
 	} else { \
-		GTL_UNIQV(cnt)++; \
+		GT_UNIQV(cnt)++; \
 	} \
 } while (0)
 

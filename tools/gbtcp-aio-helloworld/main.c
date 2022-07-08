@@ -5,24 +5,6 @@
 
 #define PROG_NAME "gbtcp-aio-helloworld"
 
-#ifdef GTL_HAVE_XDP
-#define HAVE_XDP " GTL_HAVE_XDP"
-#else // GTL_HAVE_XDP
-#define HAVE_XDP ""
-#endif // GTL_HAVE_XDP
-
-#ifdef GTL_HAVE_NETMAP
-#define HAVE_NETMAP " GTL_HAVE_NETMAP"
-#else // GTL_HAVE_NETMAP
-#define HAVE_NETMAP ""
-#endif // GTL_HAVE_NETMAP
-
-#ifdef GTL_HAVE_VALE
-#define HAVE_VALE " GTL_HAVE_VALE"
-#else // GTL_HAVE_VAL
-#define HAVE_VALE ""
-#endif // GTL_HAVE_VALE
-
 static int g_fd;
 static int http_len;
 static const char *http =
@@ -87,6 +69,7 @@ int
 main(int argc, char **argv)
 {
 	int rc, fd, opt, port, Sflag;
+	char buf[256];
 	struct sockaddr_in a;
 	cpuset_t worker_cpus;
 
@@ -101,9 +84,10 @@ main(int argc, char **argv)
 			return EXIT_SUCCESS;
 		case 'v':
 			printf("version: 0.5.1\n");
-			printf("gbtcp: 0.2.1\n");
-			printf("commit: %s\n", GTL_COMMIT);
-			printf("config:%s%s%s\n", HAVE_XDP, HAVE_NETMAP, HAVE_VALE);
+			gt_get_build_version(buf, sizeof(buf));
+			printf("gbtcp: %s\n", buf);
+			gt_get_build_config(buf, sizeof(buf));
+			printf("config: %s\n", buf);
 			return EXIT_SUCCESS;
 		case 'p':
 			port = strtoul(optarg, NULL, 10);

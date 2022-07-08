@@ -2,7 +2,7 @@
 #include <test/test.h>
 #include <gbtcp/dev.h>
 
-#ifdef GTL_HAVE_XDP
+#ifdef DEV_TRANSPORT_XDP
 static void
 rx_drop(struct dev *dev, void *data, int len)
 {
@@ -34,10 +34,10 @@ main(int argc, char **argv)
 	}
 	return EXIT_SUCCESS;
 }
-#else // GTL_HAVE_XDP
+#else // DEV_TRANSPORT_XDP
 int
 main(int argc, char **argv)
 {
 	return EXIT_SUCCESS;
 }
-#endif // GTL_HAVE_XDP
+#endif // DEV_TRANSPORT_XDP
