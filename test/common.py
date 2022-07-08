@@ -15,9 +15,10 @@ IPPS = 1
 IBPS = 2
 OPPS = 3
 OBPS = 4
-CONCURRENCY = 5
-PPS = 6
-BPS = 7
+RXMTPS = 5
+CONCURRENCY = 6
+PPS = 7
+BPS = 8
 
 SAMPLE_COUNT_MAX = 20
 SAMPLE_TABLE = "sample"
@@ -69,7 +70,9 @@ def str_to_int_list(s):
             if not item.isdigit():
                 return None;
             res.add(int(item))
-    return list(res)
+    res = list(res)
+    res.sort()
+    return res
 
 def list_to_str(l):
     n = 0
@@ -81,7 +84,6 @@ def list_to_str(l):
         s += str(i)
     s += "]"
     return s
-
 
 drivers = {
     0: "native",
@@ -112,6 +114,8 @@ def sample_record_name(i):
         return "OBPS"
     elif i == CONCURRENCY:
         return "concurrency"
+    elif i == RXMTPS:
+        return "rxmtps"
     elif i == PPS:
         return "PPS"
     elif i == BPS:
@@ -334,6 +338,7 @@ class Environment:
             int_list_to_bytearray(sample.records[IBPS], 6),
             int_list_to_bytearray(sample.records[OPPS], 4),
             int_list_to_bytearray(sample.records[OBPS], 6),
+            int_list_to_bytearray(sample.records[RXMTPS], 4),
             int_list_to_bytearray(sample.records[CONCURRENCY], 4)
             ))
         self.sql_conn.commit()
@@ -343,7 +348,7 @@ class Environment:
         row = self.sql_cursor.fetchone()
         if row == None:
             return None
-        assert(len(row) == 9)
+        assert(len(row) == 10)
         sample = Sample()
         sample.id = int(row[0])
         sample.test_id = int(row[1])
@@ -354,6 +359,7 @@ class Environment:
         sample.records.append(bytearray_to_int_list(row[6], 4))
         sample.records.append(bytearray_to_int_list(row[7], 6))
         sample.records.append(bytearray_to_int_list(row[8], 4))
+        sample.records.append(bytearray_to_int_list(row[9], 4))
         return sample
 
     def fetch_test(self):

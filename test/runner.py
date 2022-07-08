@@ -25,9 +25,10 @@ g_tester_interface = None
 g_runner_interface = None
 g_drivers = []
 g_concurrency = []
-g_cpu_list = None
+g_cpus = None
 g_tester_cpus = None
 g_runner_cpus = None
+g_runner_cpu_count = None
 tester_mac = None
 device_mac = None
 device_ip = None
@@ -35,7 +36,6 @@ g_report_count = 10
 g_skip_reports = 2
 g_sample_count = SAMPLE_COUNT_MAX
 g_cooling_time = 2
-g_cpu_count_min = 1
 g_reload_netmap = None
 g_stop_at_milliseconds = None
 g_dry_run = False
@@ -52,7 +52,7 @@ def usage():
     print("Options:")
     print("\t-h, --help: Print this help")
     print("\t-i {interface}: For performance testing")
-    print("\t--cpu-list {a-b,c,d}: Bind applications on this cpus")
+    print("\t--cpu {a-b,c,d}: Bind applications on this cpus")
 
 def fill_test_list():
     for f in os.listdir(env.project_path + '/bin'):
@@ -68,6 +68,32 @@ def test_exists(test):
     if  test in [app.get_name() for app in g_apps]:
             return True
     return False
+
+def configure_cpus():
+    cpu_count = multiprocessing.cpu_count()
+    if g_cpus == None:
+        die("No cpu specified (see '--cpu'")
+
+    for i in g_cpus:
+        if i >= cpu_count:
+            die("--cpu: CPU %d exceeds number of CPUs %d" % (i, cpu_count))
+
+    for i in g_cpus:
+        path = "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_governor" % i
+        f = open(path, 'w')
+        f.write("performance")
+        f.close()
+
+def configure_runner_cpu_count():
+    global g_runner_cpu_count
+
+    if g_runner_cpu_count == None or len(g_runner_cpu_count) == 0:
+        g_runner_cpu_count = range(1, len(g_runner_cpus))
+    else:
+        if g_runner_cpu_count[-1] > len(g_runner_cpus):
+            die("--cpu-count: Should be less then number of specified cpus (see '--cpu')")
+        if g_runner_cpu_count[0] <= 0:
+            die("--cpu-count: Should be greater then 0")
 
 def get_interface_mac(interface):
     f = open("/sys/class/net/%s/address" % interface)
@@ -316,7 +342,7 @@ def add_sample(data, reports, test_id, low):
         print_log("runner: Invalid number of reports (%d, should be %d)" % (len(rows), reports))
         return None
     sample = Sample()
-    sample.records = [[] for i in range(6)]
+    sample.records = [[] for i in range(CONCURRENCY + 1)]
     for row in rows:
         cols = row.split()
         if len(cols) != 9:
@@ -328,6 +354,7 @@ def add_sample(data, reports, test_id, low):
         sample.records[IBPS].append(int(cols[2]))
         sample.records[OPPS].append(int(cols[3]))
         sample.records[OBPS].append(int(cols[4]))
+        sample.records[RXMTPS].append(int(cols[7]))
         sample.records[CONCURRENCY].append(int(cols[8]))
     sample.test_id = test_id
     record = sample.records[CPS][g_skip_reports:]
@@ -355,20 +382,24 @@ def print_test(test_id, sample, env, preload, concurrency, driver, cpu_usage):
     if not preload:
         driver = "native"
 
-    if sample == None:
-        sample_id = "?"
-        pps = None
-    else:
-        sample_id = str(sample.id)
+    s = "runner: "
+    if sample != None:
+        s += ("%d/%d: " % (test_id, sample.id))
+
+    s = ("%s:%s: concurrency=%d, CPU=%s" %
+        (driver, env, concurrency, list_to_str(cpu_usage)))
+
+    if sample != None:
         pps = []
+        rxmtps = []
         for i in range(len(sample.records[IPPS])):
             pps.append(sample.records[IPPS][i] + sample.records[OPPS][i])
+            rxmtps.append(sample.records[RXMTPS][i])
         pps = numpy.mean(pps)
-
-    s = ("runner: %d:%s: %s:%s: concurrency=%d, CPU=%s" %
-        (test_id, sample_id, driver, env, concurrency, list_to_str(cpu_usage)))
-    if pps != None:
+        rxmtps = numpy.mean(rxmtps)
         s += ", %.2f mpps" % (pps/1000000)
+        if False:
+            s += ", %.2f rxmtps" % (rxmtps/1000000)
 
     s += " ... "
 
@@ -483,13 +514,14 @@ class nginx(application):
         n = len(cpus)
         assert(n > 0)
 
+        cpu_count = multiprocessing.cpu_count()
         templ = list()
-        for i in range(0, g_cpu_count):
+        for i in range(0, cpu_count):
             templ.append('0')
         for i in cpus:
-            templ[g_cpu_count - 1 - i] = '1'
+            templ[cpu_count - 1 - i] = '1'
             worker_cpu_affinity += " " + "".join(templ)
-            templ[g_cpu_count - 1 - i] = '0'
+            templ[cpu_count - 1 - i] = '0'
 
         worker_connections = upper_pow2_32(concurrency/n)
         if worker_connections < 1024:
@@ -585,13 +617,13 @@ try:
         "dry-run",
         "listen=",
         "connect=",
-        "cpu-list=",
-        "cpu-count-min=",
+        "cpu=",
+        "cpu-count=",
         "concurrency=",
-        "drivers=",
+        "driver=",
         "reports=",
         "skip-reports=",
-        "samples=",
+        "sample=",
         "cooling-time=",
         "reload-netmap=",
         "test=",
@@ -608,10 +640,10 @@ for o, a in opts:
         g_dry_run = True
     elif o in ("-i"):
         g_interface = a
-    elif o in ("--cpu-list"):
-        g_cpu_list = str_to_int_list(a)
-        if g_cpu_list == None:
-            die("--cpu-list: Invalid argument: '%s'" % a)
+    elif o in ("--cpu"):
+        g_cpus = str_to_int_list(a)
+        if g_cpus == None:
+            die("--cpu: Invalid argument: '%s'" % a)
     elif o in ("-L", "--listen"):
         g_listen = a
     elif o in ("--connect"):
@@ -622,15 +654,15 @@ for o, a in opts:
         g_report_count = int(a)
     elif o in ("--skip-reports"):
         g_skip_reports = int(a)
-    elif o in ("--samples"):
+    elif o in ("--sample"):
         g_sample_count = int(a)
     elif o in ("--cooling-time"):
         g_cooling_time = int(a)
-    elif o in ("--cpu-count-min"):
-        g_cpu_count_min = int(a)
+    elif o in ("--cpu-count"):
+        g_runner_cpu_count = str_to_int_list(a)
     elif o in ("--concurrency"):
         g_concurrency = str_to_int_list(a)
-    elif o in ("--drivers"):
+    elif o in ("--driver"):
         for driver in a.split(','):
             if driver == "xdp":
                 if not env.have_xdp:
@@ -665,21 +697,7 @@ if len(g_drivers) == 0:
     else:
         die("No driver supported")
 
-g_cpu_count = multiprocessing.cpu_count()
-if g_cpu_list == None:
-    g_cpu_list = list()
-    for i in range(0, g_cpu_count):
-        g_cpu_list.append(i)
-else:
-    for i in g_cpu_list:
-        if i >= g_cpu_count:
-            die("--cpu-list: CPU %d exceeds number of CPUs %d" % (i, g_cpu_count))
-
-for i in g_cpu_list:
-    path = "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_governor" % i
-    f = open(path, 'w')
-    f.write("performance")
-    f.close()
+configure_cpus()
 
 if g_interface == None:
     if g_reload_netmap != None:
@@ -716,14 +734,15 @@ if g_listen != None:
 
     g_tester_interface = g_interface
     tester_mac = get_interface_mac(g_tester_interface)
-    g_tester_cpus = g_cpu_list
+    g_tester_cpus = g_cpus
     set_txrx_queue_count(g_interface, g_tester_cpus)
     tester_loop()
     sys.exit(0)
 
+# FIXME: As usual
 if g_interface == None:
-    if len(g_cpu_list) < 2:
-        die("--cpu-list: Specify more then 1 cpu for testing on veth")
+    if len(g_cpus) != 2:
+        die("--cpu: Specify 2 cpu for testing on veth")
 
     vethc = "gt_veth_c"
     veths = "gt_veth_s"
@@ -736,17 +755,19 @@ if g_interface == None:
     system("ip l s dev %s address %s up" % (veths, smac))
     system("ip l s dev %s address %s up" % (vethc, cmac))
 
-    g_tester_cpus = g_cpu_list[1:2]
-    g_runner_cpus = g_cpu_list[0:1]
+    g_tester_cpus = g_cpus[1:2]
+    g_runner_cpus = g_cpus[0:1]
     g_tester_interface = vethc
     g_runner_interface = veths
     tester_mac = cmac
     device_mac = smac
 
 else:
-    g_runner_cpus = g_cpu_list
+    g_runner_cpus = g_cpus
     g_runner_interface = g_interface
     device_mac = get_interface_mac(g_runner_interface) 
+
+configure_runner_cpu_count()
 
 device_ip = get_device_ip(subnet) 
 system("ip a flush dev %s" % g_runner_interface)
@@ -777,7 +798,7 @@ for test in g_tests:
     else:
         for app in g_apps:
             if test == app.get_name():
-                for i in range (g_cpu_count_min, len(g_runner_cpus) + 1):
+                for i in g_runner_cpu_count:
                     cpus = g_runner_cpus[:i]
                     for driver in g_drivers:
                         write_gbtcp_conf(driver)

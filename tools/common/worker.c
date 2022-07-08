@@ -112,6 +112,7 @@ stop_master(const char *pname, int port)
 	if (rc < 0) {
 		pid = pid_file_read(pid_file_fd);
 		kill(pid, SIGUSR1);
+		// TODO: timeout!!!
 		pid_file_lock(pid_file_fd, false);
 	}
 }
