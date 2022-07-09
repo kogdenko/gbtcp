@@ -9,7 +9,7 @@ import matplotlib.pyplot as plot
 from common import *
 
 class Graph:
-    attrs = [ "version", "os", "app", "cpu_model", "driver", "concurrency" ]
+    attrs = [ "version", "os", "app", "cpu_model", "transport", "concurrency" ]
 
     def is_same(a, graphs):
         value = None
@@ -30,7 +30,7 @@ class Graph:
         self.app_id = None
         self.cpu_model = None
         self.cpu_model_id = None
-        self.driver = None
+        self.transport = None
         self.concurrency = None
 
     def compare(self, test):
@@ -48,7 +48,7 @@ class Graph:
                     return False
             elif graph_a_id != test_a_id:
                 return False
-        for a in [ "driver", "concurrency" ]:
+        for a in [ "transport", "concurrency" ]:
             graph_a = getattr(self, a)
             test_a = getattr(test, a)
             if graph_a == None:
@@ -153,7 +153,7 @@ def resolve_test(test):
         else:
             test.cpu_model = alias
 
-    test.driver = get_driver_name(test.driver_id)
+    test.transport = get_transport_name(test.transport_id)
 
     return res
 
@@ -171,7 +171,7 @@ def parse_graph(argv):
             "os=",
             "app=",
             "cpu-model=",
-            "driver=",
+            "transport=",
             "concurrency=",
             ])
     except getopt.GetoptError as err:
@@ -186,9 +186,9 @@ def parse_graph(argv):
             graph.app = a
         elif o in ("--cpu-model"):
             graph.cpu_model = a
-        elif o in ("--driver"):
-            graph.driver = a
-            get_driver_id(a)
+        elif o in ("--transport"):
+            graph.transport = a
+            get_transport_id(a)
         elif o in ("--concurrency"):
             graph.concurrency = a
     if graph.version == None:
@@ -316,7 +316,7 @@ if g_show != None:
                 s += "*"
         print("%d | %s | %s | %s | %s | %d | %d | %s" %
             (test.id, test.os, test.app, test.cpu,
-            test.driver, test.concurrency, test.cpu_count, s))
+            test.transport, test.concurrency, test.cpu_count, s))
 
 def get_test_good_samples(test_id):
     samples = env.get_samples(test_id)

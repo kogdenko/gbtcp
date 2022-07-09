@@ -85,21 +85,21 @@ def list_to_str(l):
     s += "]"
     return s
 
-drivers = {
+transports = {
     0: "native",
     1: "netmap",
     2: "xdp",
 }
 
-def get_driver_id(driver_name):
-    for id, name in drivers.items():
-        if name == driver_name:
+def get_transport_id(transport_name):
+    for id, name in transports.items():
+        if name == transport_name:
             return id
-    die("Unknown driver '%s'" % driver_name)
+    die("Unknown transport '%s'" % transport_name)
     return None
 
-def get_driver_name(driver_id):
-    return drivers[driver_id]
+def get_transport_name(transport_id):
+    return transports[transport_id]
 
 def sample_record_name(i):
     if i == CPS:
@@ -274,18 +274,18 @@ class Environment:
         assert(type(row[0]) == int)
         return int(row[0])
 
-    def add_test(self, desc, app_id, driver, concurrency, cpu_count, report_count):
+    def add_test(self, desc, app_id, transport_id, concurrency, cpu_count, report_count):
         where = ("gbtcp_commit=\"%s\" and os_id=%d and app_id=%d and "
-            "driver=%d and concurrency=%d and cpu_model_id=%d and cpu_count=%d" %
+            "transport_id=%d and concurrency=%d and cpu_model_id=%d and cpu_count=%d" %
             (desc, self.os_id, app_id,
-            driver, concurrency, self.cpu_model_id, cpu_count))
+            transport_id, concurrency, self.cpu_model_id, cpu_count))
 
         cmd = ("insert into test "
-            "(gbtcp_commit, os_id, app_id, driver, concurrency, cpu_model_id, cpu_count) "
+            "(gbtcp_commit, os_id, app_id, transport_id, concurrency, cpu_model_id, cpu_count) "
             "select \"%s\", %d, %d, %d, %d, %d, %d where not exists "
             "(select 1 from test where %s)" % (
             desc, self.os_id, app_id,
-            driver, concurrency, self.cpu_model_id, cpu_count, where))
+            transport_id, concurrency, self.cpu_model_id, cpu_count, where))
         self.sql_cursor.execute(cmd)
 
         cmd = "select id from test where %s" % where
@@ -329,8 +329,8 @@ class Environment:
             samples.remove(candidate)
 
         cmd = ("insert into %s "
-            "(test_id,status,cps,ipps,ibps,opps,obps,concurrency) "
-            "values (%d,%d,?,?,?,?,?,?)" %
+            "(test_id,status,cps,ipps,ibps,opps,obps,rxmtps,concurrency) "
+            "values (%d,%d,?,?,?,?,?,?,?)" %
             (SAMPLE_TABLE, sample.test_id, sample.status))
         self.sql_cursor.execute(cmd, (
             int_list_to_bytearray(sample.records[CPS], 4),
@@ -372,7 +372,7 @@ class Environment:
         test.commit = row[1]
         test.os_id = int(row[2])
         test.app_id = int(row[3])
-        test.driver_id = int(row[4])
+        test.transport_id = int(row[4])
         test.concurrency = int(row[5])
         test.cpu_model_id = int(row[6])
         test.cpu_count = int(row[7])
@@ -497,7 +497,7 @@ class Environment:
         if self.commit == None or self.have_xdp == None or self.have_netmap == None:
             die("%s: Parse error"  % cmd)
 
-        self.sql_conn = sqlite3.connect(self.project_path + "/test/data.sql")
+        self.sql_conn = sqlite3.connect(self.project_path + "/test/data.sqlite3")
         self.sql_cursor = self.sql_conn.cursor()
 
         self.os_id = self.os_get_id(platform.system(), platform.release())
