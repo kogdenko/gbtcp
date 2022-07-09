@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 import platform
 import shutil
 import subprocess
@@ -137,8 +138,6 @@ AddOption('--without-vale', action = 'store_true',
 
 AddOption('--without-xdp', action = 'store_true',
     help = "Don't use XDP transport", default = False)
-
-shutil.copyfile('./tools/pre-commit', '.git/hooks/pre-commit')
 
 PLATFORM = platform.system()
 

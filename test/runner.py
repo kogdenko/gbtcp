@@ -88,7 +88,7 @@ def configure_runner_cpu_count():
     global g_runner_cpu_count
 
     if g_runner_cpu_count == None or len(g_runner_cpu_count) == 0:
-        g_runner_cpu_count = range(1, len(g_runner_cpus))
+        g_runner_cpu_count = [ * range(1, len(g_runner_cpus) + 1) ]
     else:
         if g_runner_cpu_count[-1] > len(g_runner_cpus):
             die("--cpu-count: Should be less then number of specified cpus (see '--cpu')")
@@ -740,6 +740,7 @@ if g_listen != None:
     sys.exit(0)
 
 # FIXME: As usual
+
 if g_interface == None:
     if len(g_cpus) != 2:
         die("--cpu: Specify 2 cpu for testing on veth")
@@ -749,6 +750,7 @@ if g_interface == None:
     cmac = "72:9c:29:36:5e:02"
     smac = "72:9c:29:36:5e:01"
 
+    system("ip l d %s" % vethc, True)
     system("ip l a dev %s type veth peer name %s" % (veths, vethc))
     system("ethtool -K %s rx off tx off" % veths)
     system("ethtool -K %s rx off tx off" % vethc)
