@@ -1,10 +1,12 @@
-# GPL V2 License
+# SPDX-License-Identifier: GPL-2.0
 import os
 import re
 import sys
 import time
+import psutil
 import platform
 import subprocess
+import multiprocessing
 #import datetime
 import syslog
 import sqlite3
@@ -30,6 +32,8 @@ SAMPLE_STATUS_LOW_CPU_USAGE = 2
 
 TESTER_LOCAL_CON_GEN = 1
 TESTER_REMOTE_CON_GEN = 2
+
+g_reload_netmap = None
 
 def print_log(s, to_stdout = False):
     #now = datetime.datetime.now()
@@ -190,6 +194,155 @@ def bytearray_to_int_list(ba, sizeof):
         il.append(int.from_bytes(ba[i:i + sizeof], "big"))
     return il
 
+def get_runner_ip(subnet):
+    return subnet + ".255.1"
+
+def measure_cpu_usage(t, delay, cpus):
+    # Skip last second
+    assert(t > delay)
+    time.sleep(delay)
+    percent = psutil.cpu_percent(t - delay - 1, True)
+    cpu_usage = []
+    for cpu in cpus:
+        cpu_usage.append(percent[cpu])
+    return cpu_usage
+
+def rmmod(module):
+    rc, _, err = system("rmmod %s" % module, True)
+    if rc == 0:
+        return True
+    lines = err.splitlines()
+    if len(lines) == 1:
+        msg = lines[0].strip()
+        p = "rmmod: ERROR: Module %s is not currently loaded" % module
+        m = re.search(p, msg)
+        if m != None:
+            return False
+        p = "rmmod: ERROR: Module %s is in use by: " % module
+        m = re.search(p, msg)
+        if m != None and rmmod(msg[len(p):]):
+            rmmod(module)
+            return True
+    die("Cannot remove module '%s" % module)
+
+def insmod(netmap_path, module_name):
+    if module_name == "ixgbe":
+        module_dir = "ixgbe"
+    else:
+        module_dir = ""
+    path = netmap_path + "/" + module_dir + "/" + module_name + ".ko"
+    system("insmod %s" % path)
+
+def reload_netmap(netmap_path, driver):
+    rmmod(driver)
+    rmmod("netmap")
+    insmod(netmap_path, "netmap")
+    insmod(netmap_path, driver)
+    # Wait interfaces after inserting module
+    time.sleep(1)
+
+def set_irqs(interface, cpus):
+    f = open("/proc/interrupts", 'r')
+    lines = f.readlines()
+    f.close()
+
+    irqs = []
+
+    p = re.compile("^%s-TxRx-[0-9]*$" % interface)
+    for i in range (1, len(lines)):       
+        columns = lines[i].split()
+        for col in columns:
+            m = re.match(p, col.strip())
+            if m != None:
+                irq = columns[0].strip(" :")
+                if not irq.isdigit():
+                    die("Bad irq at /proc/interrupts:%d" % i + 1)
+                irqs.append(int(irq))
+
+    if len(cpus) != len(irqs):
+        die("Unexpected number of irqs (%d), shoud be %d" % (len(irqs), len(cpus)))
+
+    for i in range(0, len(irqs)):
+        f = open("/proc/irq/%d/smp_affinity" % irqs[i], 'w')
+        f.write("%x" % (1 << cpus[i]))
+        f.close()
+
+def init_cpus(cpus):
+    cpu_count = multiprocessing.cpu_count()
+
+    for cpu in cpus:
+        if cpu >= cpu_count:
+            die("CPU %d exceeds number of CPUs %d" % (cpu, cpu_count))
+
+    for cpu in cpus:
+        path = "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_governor" % cpu
+        f = open(path, 'w')
+        f.write("performance")
+        f.close()
+
+def get_interface_driver(name):
+    cmd = "ethtool -i %s" % name
+    rc, out, _ = system(cmd, True)
+    if rc != 0:
+        die("Unknown interface '%s'" % name)
+    for line in out.splitlines():
+        if line.startswith("driver: "):
+            return line[8:].strip()
+    die("Cannot get interface '%s' driver" % name)
+
+class interface:
+    def __init__(self, name):
+        self.name = name
+        f = open("/sys/class/net/%s/address" % name)
+        self.mac = f.read().strip()
+        f.close()
+
+class ixgbe(interface):
+    def get_driver(self):
+        return "ixgbe"
+
+    def __init__(self, name):
+        interface.__init__(self, name)
+        system("ethtool -K %s rx off tx off" % name)
+        system("ethtool -K %s gso off" % name)
+        system("ethtool -K %s ntuple on" % name)
+        system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)
+        system("ethtool -N %s rx-flow-hash udp4 sdfn" % name)
+        system("ethtool -G %s rx 2048 tx 2048" % name)
+
+    def set_channels(self, cpus):
+        system("ethtool -L %s combined %d" % (self.name, len(cpus)))
+        set_irqs(self.name, cpus)
+
+class veth(interface):
+    def get_driver(self):
+        return "veth"
+
+    def set_channels_max(self):
+        return 1;
+
+    def __init__(self, name):
+        interface.__init__(self, name)
+        system("ethtool -K %s rx off tx off" % name)
+        system("ethtool -K %s gso off" % name)
+        system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)
+        system("ethtool -N %s rx-flow-hash udp4 sdfn" % name)
+
+    def set_channels(self, cpus):
+        if len(cpus) != 1:
+            die("veth interface doesn't support multiqueue mode. Please, use single cpu")
+
+def create_interface(driver, name):
+    driver_id = get_dict_id(driver_dict, driver)
+    if driver_id == None:
+        die("Unsupported driver '%s'", driver)        
+    instance = globals().get(driver)
+    assert(instance != None)
+    interface = instance(name)
+    interface.driver_id = driver_id
+    system("ip l s dev %s up" % interface.name)
+    return interface
+
 def milliseconds():
     return int(time.monotonic_ns() / 1000000)
 
@@ -292,9 +445,7 @@ class Test:
         self.samples = []
 
 class Environment:
-    project_path = None
     sql_conn = None
-    commit = None
     os_id = None
     cpu_model_id = None
 
@@ -553,8 +704,46 @@ class Environment:
         assert(len(row) == 2)
         return row[0], row[1]
 
+    def write_gbtcp_conf(self, transport):
+        gbtcp_conf = (
+            "dev.transport=%s\n"
+            "route.if.add=%s\n"
+            % (transport, self.interface.name))
+
+        f = open(self.gbtcp_conf_path, 'w')
+        f.write(gbtcp_conf)
+        f.close()
+
+    def start_process(self, cmd, preload):
+        e = os.environ.copy()
+        e["LD_LIBRARY_PATH"] = self.project_path + "/bin"
+        if preload:
+            e["LD_PRELOAD"] = os.path.normpath(self.project_path + "/bin/libgbtcp.so")
+            e["GBTCP_CONF"] = self.gbtcp_conf_path
+
+        proc = subprocess.Popen(cmd.split(), env = e,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        print_log("$ %s &\n[%d]" % (cmd, proc.pid))
+
+        return proc
+
+    def wait_process(self, proc):
+        proc.wait()
+        lines = []
+        for pipe in [proc.stdout, proc.stderr]:
+            while True:
+                line = pipe.readline()
+                if not line:
+                    break
+                lines.append(line.decode('utf-8').strip())
+        print_log("$ [%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
+        return proc.returncode, lines
+
     def __init__(self):
         self.project_path = get_project_path()
+        self.gbtcp_conf_path = self.project_path + "/test/gbtcp.conf"
+
         self.commit = None
         self.have_xdp = None
         self.have_netmap = None

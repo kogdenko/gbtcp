@@ -1,5 +1,5 @@
 #!/usr/bin/python
-
+# SPDX-License-Identifier: GPL-2.0
 import os
 import sys
 import time
@@ -12,14 +12,12 @@ import subprocess
 import platform
 import importlib
 import multiprocessing
-import psutil
 import re
 import numpy
 
 from common import *
 
 g_subnet = "10.20"
-g_listen = None
 g_connect = None
 g_interface_name = None
 g_transport = []
@@ -30,7 +28,6 @@ g_report_count = 10
 g_skip_reports = 2
 g_sample_count = SAMPLE_COUNT_MAX
 g_cooling_time = 2
-g_reload_netmap = None
 g_stop_at_milliseconds = None
 g_dry_run = False
 g_apps = []
@@ -47,6 +44,17 @@ def usage():
     print("\t-h, --help: Print this help")
     print("\t-i {interface}: For performance testing")
     print("\t--cpu {a-b,c,d}: Bind applications on this cpus")
+
+def is_local(address):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind((address, 9999))
+    except socket.error as e:
+        if e.errno == errno.EADDRINUSE:
+            return True
+        else:
+            return False
+    return True
 
 def fill_test_list():
     for f in os.listdir(env.project_path + '/bin'):
@@ -72,21 +80,6 @@ def configure_transport():
         else:
             die("No transport supported")
 
-def configure_cpus():
-    cpu_count = multiprocessing.cpu_count()
-    if g_cpus == None:
-        die("No cpu specified (see '--cpu'")
-
-    for i in g_cpus:
-        if i >= cpu_count:
-            die("--cpu: CPU %d exceeds number of CPUs %d" % (i, cpu_count))
-
-    for i in g_cpus:
-        path = "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_governor" % i
-        f = open(path, 'w')
-        f.write("performance")
-        f.close()
-
 def configure_cpu_count():
     global g_cpu_count
 
@@ -98,122 +91,12 @@ def configure_cpu_count():
         if g_cpu_count[0] <= 0:
             die("--cpu-count: Should be greater then 0")
 
-def get_runner_ip(subnet):
-    return subnet + ".255.1"
 
-def insmod(module_name):
-    if module_name == "ixgbe":
-        module_dir = "ixgbe"
-    else:
-        module_dir = ""
-    path = g_reload_netmap + "/" + module_dir + "/" + module_name + ".ko"
-    system("insmod %s" % path)
 
-def measure_cpu_usage(t, delay, cpus):
-    # Skip last second
-    assert(t > delay)
-    time.sleep(delay)
-    percent = psutil.cpu_percent(t - delay - 1, True)
-    cpu_usage = []
-    for cpu in cpus:
-        cpu_usage.append(percent[cpu])
-    return cpu_usage
-
-def get_gbtcp_conf_path():
-    return env.project_path + "/test/gbtcp.conf"
-
-def write_gbtcp_conf(transport):
-    gbtcp_conf_path = get_gbtcp_conf_path()
-
-    gbtcp_conf = (
-        "dev.transport=%s\n"
-        "route.if.add=%s\n"
-        % (transport, g_interface.name))
-
-    f = open(gbtcp_conf_path, 'w')
-    f.write(gbtcp_conf)
-    f.close()
-
-def start_process(cmd, preload):
-    e = os.environ.copy()
-    e["LD_LIBRARY_PATH"] = env.project_path + "/bin"
-    if preload:
-        e["LD_PRELOAD"] = os.path.normpath(env.project_path + "/bin/libgbtcp.so")
-        e["GBTCP_CONF"] = get_gbtcp_conf_path()
-
-    proc = subprocess.Popen(cmd.split(), env = e,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    print_log("$ %s &\n[%d]" % (cmd, proc.pid))
-
-    return proc
-
-def wait_process(proc):
-    proc.wait()
-    lines = []
-    for pipe in [proc.stdout, proc.stderr]:
-        while True:
-            line = pipe.readline()
-            if not line:
-                break
-            lines.append(line.decode('utf-8').strip())
-    print_log("$ [%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
-    return proc.returncode, lines
-
-def run_tester(args):
-    subnet = None
-    reports = None
-    dst_mac = None
-    concurrency = None
-
-    try:
-        opts, args = getopt.getopt(args.split(), "D:", [
-            "subnet=",
-            "reports=",
-            "concurrency=",
-            ])
-    except getopt.GetoptError as err:
-        print_log(err)
-        die("tester: Invalid options")
-
-    for o, a in opts:
-        if o in ("-D"):
-            dst_mac = a
-        elif o in ("--subnet"):
-            subnet = a
-        elif o in ("--reports"):
-            reports = int(a)
-        elif o in ("--concurrency"):
-            concurrency = int(a)
-   
-    if (dst_mac == None or subnet == None or
-        reports == None or concurrency == None):
-        die("tester: Missed required options")
-    
-    dst_ip = get_runner_ip(subnet)
-    cmd = "con-gen "
-#    cmd += "--toy "
-    cmd += "--print-banner 0 --print-statistics 0 --report-bytes 1 "
-    cmd += ("-S %s -D %s --reports %d -N -p 80 -d %s" %
-        (g_interface.mac, dst_mac, reports, dst_ip))
-
-    n = len(g_cpus)
-    for i in range(n):
-        concurrency_per_cpu = concurrency / n
-        if i == 0:
-            concurrency_per_cpu += concurrency % n
-        else:
-            cmd += " --"
-        cmd += " -i %s-%d" % (g_interface.name, i)
-        cmd += " -c %d" % concurrency_per_cpu
-        cmd += " -a %d" % g_cpus[i]
-        cmd += " -s %s.%d.1-%s.%d.255" % (subnet, i + 1, subnet, i + 1)
-
-    return (start_process(cmd, False), reports)
 
 def sendto_tester(concurrency):
     args = ("-D %s --subnet %s --reports %d --concurrency=%d" %
-        (g_interface.mac, g_subnet, g_report_count, concurrency))
+        (env.interface.mac, g_subnet, g_report_count, concurrency))
     try:
         tester = socket.create_connection((g_connect, 9999))
     except socket.error as e:
@@ -233,72 +116,6 @@ def recvfrom_tester(s):
             return data
         data += bytearray(buf)
     return data
-
-def tester_loop():
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind((g_listen, 9999))
-    s.listen()
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-
-    while True:
-        try:
-            conn, addr = s.accept()
-            data = ""
-            done = False
-            while not done:
-                data += conn.recv(1024).decode('utf-8')
-                for i in data:
-                    if i == '\n':
-                        done = True
-                        break
-            tester, reports = run_tester(data.strip())
-
-            # FIXME: Wait APR negotiaition
-            cpu_usage = measure_cpu_usage(reports, 2, g_cpus)
-
-            rc, lines = wait_process(tester)
-
-            data = bytearray()
-            for line in lines:
-                data += bytearray((line + "\n").encode('utf-8'))
-
-            print_log("tester: %s: CPU=%s ... %s" %
-                (tester.args[0], list_to_str(cpu_usage), "Ok" if rc == 0 else "Failed"), True)
-
-            conn.send(data)
-            conn.close()
-        except socket.error as exc:
-            print_log("Connection failed: %s" % exc)
-
-def bind_interrupts(interface, cpus):
-    f = open("/proc/interrupts", 'r')
-    lines = f.readlines()
-    f.close()
-
-    irqs = []
-
-    p = re.compile("^%s-TxRx-[0-9]*$" % interface)
-    for i in range (1, len(lines)):       
-        columns = lines[i].split()
-        for col in columns:
-            m = re.match(p, col.strip())
-            if m != None:
-                irq = columns[0].strip(" :")
-                if not irq.isdigit():
-                    return 1
-                irqs.append(int(irq))
-
-    if len(cpus) != len(irqs):
-        return 1
-
-    for i in range(0, len(irqs)):
-        f = open("/proc/irq/%d/smp_affinity" % irqs[i], 'w')
-        f.write("%x" % (1 << cpus[i]))
-        f.close()
-
-    return 0
-
 
 
 def add_sample(data, reports, test_id, low):
@@ -387,7 +204,6 @@ last_used_cpus = None
 
 def do_test(app, cpus, preload, transport, concurrency):
     global last_used_cpus
-    global g_driver_id
 
     env.ts_planned += g_sample_count
     if g_dry_run:
@@ -403,14 +219,14 @@ def do_test(app, cpus, preload, transport, concurrency):
             transport_id = TRANSPORT_NATIVE
 
         test_id, sample_count = env.add_test(commit, g_tester_id, app.id,
-            transport_id, g_driver_id, concurrency, len(cpus), g_report_count)
+            transport_id, env.interface.driver_id, concurrency, len(cpus), g_report_count)
 
     for j in range (0, g_sample_count - sample_count):
         if last_used_cpus != cpus:
             last_used_cpus = cpus
             # Wait interface become available
             time.sleep(2)
-            g_interface.set_channels(cpus)
+            env.interface.set_channels(cpus)
 
         rc = app.start_test(test_id, transport, concurrency, cpus, preload)
         if rc:
@@ -452,7 +268,7 @@ class application:
                 break
 
         self.stop()
-        wait_process(proc)
+        env.wait_process(proc)
         set_stop_time()
 
         sample = add_sample(data, g_report_count, test_id, low)
@@ -535,7 +351,7 @@ class nginx(application):
         f.write(nginx_conf)
         f.close()
 
-        return start_process("nginx -c %s" % nginx_conf_path, preload)
+        return env.start_process("nginx -c %s" % nginx_conf_path, preload)
 
     def __init__(self):
         application.__init__(self)
@@ -560,7 +376,7 @@ class gbtcp_base_helloworld(application):
             if i != 0:
                 cmd += ","
             cmd += str(cpus[i])
-        return start_process(cmd, preload)
+        return env.start_process(cmd, preload)
 
     def __init__(self):
         self.path = env.project_path + "/bin/" + self.get_name()
@@ -574,71 +390,6 @@ class gbtcp_aio_helloworld(gbtcp_base_helloworld):
     def get_name(self):
         return "gbtcp-aio-helloworld"
 
-class interface:
-    def __init__(self, name):
-        self.name = name
-        f = open("/sys/class/net/%s/address" % name)
-        self.mac = f.read().strip()
-        f.close()
-
-class ixgbe(interface):
-    def get_driver(self):
-        return "ixgbe"
-
-    def __init__(self, name):
-        interface.__init__(self, name)
-        system("ethtool -K %s rx off tx off" % name)
-        system("ethtool -K %s gso off" % name)
-        system("ethtool -K %s ntuple on" % name)
-        system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)
-        system("ethtool -N %s rx-flow-hash udp4 sdfn" % name)
-        system("ethtool -G %s rx 2048 tx 2048" % name)
-
-    def set_channels(self, cpus):
-        system("ethtool -L %s combined %d" % (self.name, len(cpus)))
-        err = bind_interrupts(self.name, cpus)
-        if err != 0:
-            die("%s: Failed to bind interrupts" % self.name)
-
-class veth(interface):
-    def get_driver(self):
-        return "veth"
-
-    def set_channels_max(self):
-        return 1;
-
-    def __init__(self, name):
-        interface.__init__(self, name)
-        system("ethtool -K %s rx off tx off" % name)
-        system("ethtool -K %s gso off" % name)
-        system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)
-        system("ethtool -N %s rx-flow-hash udp4 sdfn" % name)
-
-    def set_channels(self, cpus):
-        if len(cpus) != 1:
-            die("veth interface doesn't support multiqueue mode. Please, use single cpu")
-
-def get_interface_driver(name):
-    cmd = "ethtool -i %s" % name
-    rc, out, _ = system(cmd, True)
-    if rc != 0:
-        die("Unknown interface '%s'" % name)
-    for line in out.splitlines():
-        if line.startswith("driver: "):
-            return line[8:].strip()
-    die("Cannot get interface '%s' driver" % name)
-
-g_driver_id = None
-
-def create_interface(driver, name):
-    global g_driver_id
-
-    g_driver_id = get_dict_id(driver_dict, driver)
-    if g_driver_id == None:
-        die("Unsupported driver '%s'", driver)        
-    instance = globals().get(driver)
-    assert(instance != None)
-    return instance(name)
 
 ################ MAIN ####################
 fill_test_list()
@@ -670,7 +421,7 @@ except getopt.GetoptError as err:
 for o, a in opts:
     if o in ("-h", "--help"):
         usage()
-        sys.exit()
+        sys.exit(0)
     elif o in ("--dry-run"):
         g_dry_run = True
     elif o in ("-i"):
@@ -679,8 +430,6 @@ for o, a in opts:
         g_cpus = str_to_int_list(a)
         if g_cpus == None:
             die("--cpu: Invalid argument: '%s'" % a)
-    elif o in ("--listen"):
-        g_listen = a
     elif o in ("--connect"):
         g_connect = a
     elif o in ("--reload-netmap"):
@@ -715,65 +464,28 @@ for o, a in opts:
 if g_interface_name == None:
     die("Interface not specified (see '-i')")
 
-if g_listen == None and len(g_tests) == 0:
+if g_cpus == None:
+    die("No cpu specified (see '--cpu'")
+
+init_cpus(g_cpus)
+
+driver = get_interface_driver(g_interface_name)
+
+if g_reload_netmap != None:
+    reload_netmap(g_reload_netmap, driver)
+
+env.interface = create_interface(driver, g_interface_name);
+
+if g_connect == None:
+    die("'--connect' must be specified")
+
+if len(g_tests) == 0:
     die("No tests specified (see '--test')")
 
 if len(g_concurrency) == 0:
     g_concurrency.append(1000)
 
 configure_transport()
-configure_cpus()
-
-def rmmod(module):
-    rc, _, err = system("rmmod %s" % module, True)
-    if rc == 0:
-        return True
-    lines = err.splitlines()
-    if len(lines) == 1:
-        msg = lines[0].strip()
-        p = "rmmod: ERROR: Module %s is not currently loaded" % module
-        m = re.search(p, msg)
-        if m != None:
-            return False
-        p = "rmmod: ERROR: Module %s is in use by: " % module
-        m = re.search(p, msg)
-        if m != None and rmmod(msg[len(p):]):
-            rmmod(module)
-            return True
-    die("Cannot remove module '%s" % module)
-
-driver = get_interface_driver(g_interface_name)
-if g_reload_netmap != None:
-    rmmod(driver)
-    rmmod("netmap")
-    insmod("netmap")
-    insmod(driver)
-    # Wait interfaces after inserting module
-    time.sleep(1)
-
-g_interface = create_interface(driver, g_interface_name);
-system("ip l s dev %s up" % g_interface.name)
-
-if g_listen != None:
-    if g_connect != None:
-        die("--connect: Can't be specified with '--listen' option")
-    g_interface.set_channels(g_cpus)
-    tester_loop()
-    sys.exit(0)
-elif g_connect == None:
-    die("'--connect' or '--listen' must be specified")
-
-
-def is_local(address):
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind((address, 9999))
-    except socket.error as e:
-        if e.errno == errno.EADDRINUSE:
-            return True
-        else:
-            return False
-    return True
 
 if is_local(g_connect):
     g_tester_id = TESTER_LOCAL_CON_GEN
@@ -782,25 +494,25 @@ else:
 
 configure_cpu_count()
 
-system("ip a flush dev %s" % g_interface.name)
-system("ip a a dev %s %s/32" % (g_interface.name, get_runner_ip(g_subnet)))
-system("ip r flush dev %s" % g_interface.name)
+system("ip a flush dev %s" % env.interface.name)
+system("ip a a dev %s %s/32" % (env.interface.name, get_runner_ip(g_subnet)))
+system("ip r flush dev %s" % env.interface.name)
 system("ip r d %s.1.1/32" % g_subnet, True)
-system("ip r a dev %s %s.1.1/32 initcwnd 1" % (g_interface.name, g_subnet))
+system("ip r a dev %s %s.1.1/32 initcwnd 1" % (env.interface.name, g_subnet))
 system("ip r d %s.0.0/15" % g_subnet, True)
 system(("ip r a dev %s %s.0.0/15 via %s.1.1 initcwnd 1" %
-    (g_interface.name, g_subnet, g_subnet)))
+    (env.interface.name, g_subnet, g_subnet)))
 
 # Assume that last test ended at least 10 seconds ago
 g_stop_at_milliseconds = milliseconds() - 10000
 
-write_gbtcp_conf(g_transport[0])
+env.write_gbtcp_conf(g_transport[0])
 
 for test in g_tests:
     if test in g_simple_test:
         env.ts_planned += 1
-        proc = start_process(env.project_path + '/bin/' + test, False)
-        if wait_process(proc)[0] == 0:
+        proc = env.start_process(env.project_path + '/bin/' + test, False)
+        if env.wait_process(proc)[0] == 0:
             env.ts_pass += 1
             status = "Pass"
         else:
@@ -813,7 +525,7 @@ for test in g_tests:
                 for i in g_cpu_count:
                     cpus = g_cpus[:i]
                     for transport in g_transport:
-                        write_gbtcp_conf(transport)
+                        env.write_gbtcp_conf(transport)
                         for concurrency in g_concurrency:
                             do_test(app, cpus, True, transport, concurrency)
                 break
