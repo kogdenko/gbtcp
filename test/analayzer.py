@@ -9,17 +9,6 @@ import matplotlib.pyplot as plot
 from common import *
 
 class Graph:
-    attrs = [
-        "commit",
-        "tester",
-        "os",
-        "app",
-        "cpu_model",
-        "driver",
-        "transport",
-        "concurrency",
-    ]
-
     def is_same(a, graphs):
         value = None
         for graph in graphs:
@@ -32,12 +21,12 @@ class Graph:
 
     def __init__(self):
         self.tests = {}
-        for attr in Graph.attrs:
+        for attr in Test.attrs:
             setattr(self, attr, None)
             setattr(self, attr + "_id", None)
 
     def compare(self, test):
-        for a in Graph.attrs:
+        for a in Test.attrs:
             if a == "commit":
                 continue
             graph_a_id = getattr(self, a + "_id")
@@ -137,12 +126,12 @@ def parse_graph(argv):
     graph.id = len(g_graphs)
     if len(g_graphs) > 0:
         template = g_graphs[-1]
-        for a in Graph.attrs:
-            setattr(graph, a, getattr(template, a))
+        for attr in Test.attrs:
+            setattr(graph, attr, getattr(template, attr))
     g_graphs.append(graph)
     try:
         longopts = []
-        for attr in Graph.attrs:
+        for attr in Test.attrs:
             longopts.append("%s=" % attr)
 
         opts, args = getopt.getopt(argv, "", longopts)
@@ -172,7 +161,7 @@ def init_graph(graph):
 
 def get_graphs_title(graphs):
     title = ""
-    for attr in Graph.attrs:
+    for attr in Test.attrs:
         if Graph.is_same(attr, graphs):
             if len(title) > 0:
                 title += "/"
@@ -181,7 +170,7 @@ def get_graphs_title(graphs):
 
 def get_graph_legend(graph, graphs):
     legend = ""
-    for attr in Graph.attrs:
+    for attr in Test.attrs:
         if not Graph.is_same(attr, graphs):
             if len(legend) > 0:
                 legend += "/"
@@ -262,20 +251,28 @@ if g_clean_test:
 
 if g_show != None:
     tests = env.get_tests(git_rev_parse(g_show))
-    print("Id | Operating system | Application | CPU model | Transport | Concurrency | CPUs | Samples")
-    print(len(tests))
+    s = ""
+    for attr in Test.attrs:
+        if attr != "commit":
+            if len(s) > 0:
+                s += " | "
+            s += attr
+    print("id | %s | samples" % s)
     for test in tests:
         test.samples = env.get_samples(test.id)
-        s = ""
-        for sample in test.samples:
-            if len(s) != 0:
+        s = "%d" % test.id
+        for attr in Test.attrs:
+            if attr != "commit":
+                s += " | " + str(getattr(test, attr))
+        s += " | "
+        for i in range(len(test.samples)):
+            if i > 0:
                 s += ","
+            sample = test.samples[i]
             s += str(sample.id) + ":" + str(len(sample.records[CPS]))
             if sample.status != SAMPLE_STATUS_OK:
                 s += "*"
-        print("%d | %s | %s | %s | %s | %d | %d | %s" %
-            (test.id, test.os, test.app, test.cpu_model,
-            test.transport, test.concurrency, test.cpu_count, s))
+        print(s)
 
 def get_test_good_samples(test_id):
     samples = env.get_samples(test_id)

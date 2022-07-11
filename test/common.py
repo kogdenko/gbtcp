@@ -100,16 +100,16 @@ transport_dict = {
 }
 
 def get_dict_id(d, name):
-    for id, name in d.items():
-        if name == name:
-            return id
+    for key, value in d.items():
+        if value == name:
+            return key
     return None
 
 DRIVER_VETH = 1
 DRIVER_IXGBE = 2
 
 driver_dict = {
-    DRIVER_VETH: "driver",
+    DRIVER_VETH: "veth",
     DRIVER_IXGBE: "ixgbe",
 }
 
@@ -277,55 +277,70 @@ class Sample:
         self.records = []
 
 class Test:
+    attrs = [
+        "commit",
+        "tester",
+        "os",
+        "app",
+        "cpu_model",
+        "transport",
+        "driver",
+        "concurrency",
+    ]
+
     def __init__(self):
         self.samples = []
 
 class Environment:
     project_path = None
     sql_conn = None
-    sql_cursor = None
     commit = None
     os_id = None
     cpu_model_id = None
 
-    def fetchid(self):
-        row = self.sql_cursor.fetchone()
+    def execute(self, cmd, *args):
+        sql_cursor = self.sql_conn.cursor()
+        sql_cursor.execute(cmd, *args);
+        return sql_cursor
+
+    def fetchid(self, sql_cursor):
+        row = sql_cursor.fetchone()
         assert(row != None)
         assert(len(row) == 1)
         assert(type(row[0]) == int)
         return int(row[0])
 
     def add_test(self, commit, tester_id, app_id,
-            driver_id, transport_id, concurrency, cpu_count, report_count):
+            transport_id, driver_id, concurrency, cpu_count, report_count):
         assert(commit != None)
         assert(tester_id != None)
         assert(app_id != None)
-        assert(driver_id != None)
         assert(transport_id != None)
+        assert(driver_id != None)
         assert(concurrency != None)
         assert(cpu_count != None)
         assert(report_count != None)
         where = ("gbtcp_commit=\"%s\" and tester_id=%d and os_id=%d and app_id=%d and "
-            "driver_id=%d and transport_id=%d and concurrency=%d and cpu_model_id=%d and "
+            "transport_id=%d and driver_id=%d and concurrency=%d and cpu_model_id=%d and "
             "cpu_count=%d" %
             (commit, tester_id, self.os_id, app_id,
-            driver_id, transport_id, concurrency, self.cpu_model_id,
+            transport_id, driver_id, concurrency, self.cpu_model_id,
             cpu_count))
 
         cmd = ("insert into %s "
             "(gbtcp_commit, tester_id, os_id, app_id, "
-            "driver_id, transport_id, concurrency, cpu_model_id, cpu_count) "
+            "transport_id, driver_id, concurrency, cpu_model_id, cpu_count) "
             "select \"%s\", %d, %d, %d, %d, %d, %d, %d, %d where not exists "
             "(select 1 from %s where %s)" % (
             TEST_TABLE, commit, tester_id, self.os_id, app_id,
-            driver_id, transport_id, concurrency, self.cpu_model_id, cpu_count,
+            transport_id, driver_id, concurrency, self.cpu_model_id, cpu_count,
             TEST_TABLE, where))
-        self.sql_cursor.execute(cmd)
+        self.execute(cmd)
 
         cmd = "select id from %s where %s" % (TEST_TABLE, where)
-        self.sql_cursor.execute(cmd)
+        sql_cursor = self.execute(cmd)
         self.sql_conn.commit()
-        test_id = self.fetchid()
+        test_id = self.fetchid(sql_cursor)
 
         sample_count = 0
         samples = self.get_samples(test_id)
@@ -338,7 +353,7 @@ class Environment:
 
     def del_sample(self, sample_id):
         cmd = "delete from %s where id = %d" % (SAMPLE_TABLE, sample_id)
-        self.sql_cursor.execute(cmd)
+        self.execute(cmd)
         self.sql_conn.commit()
 
     def add_sample(self, sample):
@@ -366,7 +381,7 @@ class Environment:
             "(test_id,status,cps,ipps,ibps,opps,obps,rxmtps,concurrency) "
             "values (%d,%d,?,?,?,?,?,?,?)" %
             (SAMPLE_TABLE, sample.test_id, sample.status))
-        self.sql_cursor.execute(cmd, (
+        sql_cursor = self.execute(cmd, (
             int_list_to_bytearray(sample.records[CPS], 4),
             int_list_to_bytearray(sample.records[IPPS], 4),
             int_list_to_bytearray(sample.records[IBPS], 6),
@@ -376,10 +391,10 @@ class Environment:
             int_list_to_bytearray(sample.records[CONCURRENCY], 4)
             ))
         self.sql_conn.commit()
-        return self.sql_cursor.lastrowid
+        return sql_cursor.lastrowid
 
-    def fetch_sample(self):
-        row = self.sql_cursor.fetchone()
+    def fetch_sample(self, sql_cursor):
+        row = sql_cursor.fetchone()
         if row == None:
             return None
         assert(len(row) == 10)
@@ -396,10 +411,9 @@ class Environment:
         sample.records.append(bytearray_to_int_list(row[9], 4))
         return sample
 
-    def fetch_test(self):
-        row = self.sql_cursor.fetchone()
+    def fetch_test(self, sql_cursor):
+        row = sql_cursor.fetchone()
         if row == None:
-            print("a")
             return None
         assert(len(row) == 10)
         test = Test()
@@ -408,8 +422,8 @@ class Environment:
         test.tester_id = int(row[2])
         test.os_id = int(row[3])
         test.app_id = int(row[4])
-        test.driver_id = int(row[5])
-        test.transport_id = int(row[6])
+        test.transport_id = int(row[5])
+        test.driver_id = int(row[6])
         test.concurrency = int(row[7])
         test.cpu_model_id = int(row[8])
         test.cpu_count = int(row[9])
@@ -431,14 +445,16 @@ class Environment:
             return None
         test.app = name + "-" + ver
 
+        test.transport = transport_dict.get(test.transport_id)
+        if test.transport == None:
+            log_invalid_test_field(test, 'transport_id')
+
         test.driver = driver_dict.get(test.driver_id)
         if test.driver == None:
             log_invalid_test_field(test, 'driver_id')
             return None
 
-        test.transport = transport_dict.get(test.transport_id)
-        if test.transport == None:
-            log_invalid_test_field(test, 'transport_id')
+        print(">>>", test.driver)
 
         name, alias = self.get_cpu_model(test.cpu_model_id)
         if name == None:
@@ -454,51 +470,44 @@ class Environment:
 
     def get_sample(self, sample_id):
         cmd = "select * from %s where id=%d" % (SAMPLE_TABLE, sample_id)
-        self.sql_cursor.execute(cmd)
-        return self.fetch_sample()
+        sql_cursor = self.execute(cmd)
+        return self.fetch_sample(sql_cursor)
 
     def get_samples(self, test_id):
         cmd = "select * from %s where test_id=%d" % (SAMPLE_TABLE, test_id)
-        self.sql_cursor.execute(cmd)
+        sql_cursor = self.execute(cmd)
         samples = []
         while True:
-            sample = self.fetch_sample()
+            sample = self.fetch_sample(sql_cursor)
             if sample == None:
                 return samples
             samples.append(sample)
 
     def clean_samples(self, test_id):
         cmd = "delete from %s where test_id=%d and status != 0" % (SAMPLE_TABLE, test_id)
-        self.sql_cursor.execute(cmd)
+        self.execute(cmd)
         self.sql_conn.commit() 
-
-    def fetchid(self):
-        row = self.sql_cursor.fetchone()
-        assert(row != None)
-        assert(len(row) == 1)
-        assert(type(row[0]) == int)
-        return int(row[0])
 
     def table_get_id(self, table, name, ver):
         cmd = ("insert into %s(name, ver) select \"%s\", \"%s\" "
             "where not exists (select 1 from %s where name=\"%s\" and ver=\"%s\");"
             % (table, name, ver, table, name, ver))
-        self.sql_cursor.execute(cmd)
+        self.execute(cmd)
         cmd = "select id from %s where name=\"%s\" and ver=\"%s\"" % (table, name, ver)
-        self.sql_cursor.execute(cmd)
+        sql_cursor = self.execute(cmd)
         self.sql_conn.commit()
-        return self.fetchid()
+        return self.fetchid(sql_cursor)
 
     def cpu_model_get_id(self, cpu_model_name, cpu_model_alias=None):
         assert(cpu_model_alias == None)
         cmd = ("insert into cpu_model(name) select \"%s\" "
             "where not exists (select 1 from cpu_model where name=\"%s\")"
             % (cpu_model_name, cpu_model_name))
-        self.sql_cursor.execute(cmd)
+        self.execute(cmd)
         cmd = "select id from cpu_model where name=\"%s\"" % cpu_model_name
-        self.sql_cursor.execute(cmd)
+        sql_cursor = self.execute(cmd)
         self.sql_conn.commit()
-        return self.fetchid()
+        return self.fetchid(sql_cursor)
 
     def app_get_id(self, name, ver):
         return self.table_get_id("app", name, ver)
@@ -509,9 +518,9 @@ class Environment:
     def get_tests(self, commit):
         tests = []
         cmd = "select * from %s where gbtcp_commit='%s'" % (TEST_TABLE, commit)
-        self.sql_cursor.execute(cmd)
+        sql_cursor = self.execute(cmd)
         while True:
-            test = self.fetch_test()
+            test = self.fetch_test(sql_cursor)
             if test == None:
                 return tests
             tests.append(test)
@@ -519,8 +528,8 @@ class Environment:
 
     def get_os(self, os_id):
         cmd = "select name, ver from os where id=%d" % os_id
-        self.sql_cursor.execute(cmd)
-        row = self.sql_cursor.fetchone()
+        sql_cursor = self.execute(cmd)
+        row = sql_cursor.fetchone()
         if row == None:
             return None, None
         assert(len(row) == 2)
@@ -528,8 +537,8 @@ class Environment:
 
     def get_app(self, app_id):
         cmd = "select name, ver from app where id=%d" % app_id
-        self.sql_cursor.execute(cmd)
-        row = self.sql_cursor.fetchone()
+        sql_cursor = self.execute(cmd)
+        row = sql_cursor.fetchone()
         if row == None:
             return None, None
         assert(len(row) == 2)
@@ -537,8 +546,8 @@ class Environment:
    
     def get_cpu_model(self, cpu_model_id):
         cmd = "select name, alias from cpu_model where id=%d" % cpu_model_id
-        self.sql_cursor.execute(cmd)
-        row = self.sql_cursor.fetchone()
+        sql_cursor = self.execute(cmd)
+        row = sql_cursor.fetchone()
         if row == None:
             return None, None
         assert(len(row) == 2)
@@ -572,7 +581,6 @@ class Environment:
             die("%s: Parse error"  % cmd)
 
         self.sql_conn = sqlite3.connect(self.project_path + "/test/data.sqlite3")
-        self.sql_cursor = self.sql_conn.cursor()
 
         self.os_id = self.os_get_id(platform.system(), platform.release())
         self.cpu_model_id = self.cpu_model_get_id(get_cpu_name())

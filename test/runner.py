@@ -403,7 +403,7 @@ def do_test(app, cpus, preload, transport, concurrency):
             transport_id = TRANSPORT_NATIVE
 
         test_id, sample_count = env.add_test(commit, g_tester_id, app.id,
-            g_driver_id, transport_id, concurrency, len(cpus), g_report_count)
+            transport_id, g_driver_id, concurrency, len(cpus), g_report_count)
 
     for j in range (0, g_sample_count - sample_count):
         if last_used_cpus != cpus:
