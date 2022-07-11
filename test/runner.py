@@ -5,6 +5,7 @@ import sys
 import time
 import math
 import atexit
+import errno
 import getopt
 import socket
 import subprocess
@@ -386,6 +387,7 @@ last_used_cpus = None
 
 def do_test(app, cpus, preload, transport, concurrency):
     global last_used_cpus
+    global g_driver_id
 
     env.ts_planned += g_sample_count
     if g_dry_run:
@@ -394,13 +396,14 @@ def do_test(app, cpus, preload, transport, concurrency):
     else:
         if preload:
             commit = env.commit
-            transport_id = get_transport_id(transport)
+            transport_id = get_dict_id(transport_dict, transport)
+            assert(transport_id != None)
         else:
             commit = ""
-            transport_id = get_transport_id("native")
+            transport_id = TRANSPORT_NATIVE
 
-        test_id, sample_count = env.add_test(commit, app.id, transport_id, concurrency,
-            len(cpus), g_report_count)
+        test_id, sample_count = env.add_test(commit, g_tester_id, app.id,
+            g_driver_id, transport_id, concurrency, len(cpus), g_report_count)
 
     for j in range (0, g_sample_count - sample_count):
         if last_used_cpus != cpus:
@@ -625,13 +628,17 @@ def get_interface_driver(name):
             return line[8:].strip()
     die("Cannot get interface '%s' driver" % name)
 
+g_driver_id = None
+
 def create_interface(driver, name):
-    if driver == "ixgbe":
-        return ixgbe(name)
-    elif driver == "veth":
-        return veth(name)
-    else:
-        die("Interface '%s' driver '%s' not supported" % (name, driver))
+    global g_driver_id
+
+    g_driver_id = get_dict_id(driver_dict, driver)
+    if g_driver_id == None:
+        die("Unsupported driver '%s'", driver)        
+    instance = globals().get(driver)
+    assert(instance != None)
+    return instance(name)
 
 ################ MAIN ####################
 fill_test_list()
@@ -692,7 +699,8 @@ for o, a in opts:
         g_concurrency = str_to_int_list(a)
     elif o in ("--transport"):
         for transport in a.split(','):
-            get_transport_id(transport)
+            if get_dict_id(transport_dict, transport) == None:
+                die("Unknown '--transport' argument")
             if not transport in g_transport:
                 g_transport.append(transport)
     elif o in ("--test"):
@@ -754,6 +762,23 @@ if g_listen != None:
     sys.exit(0)
 elif g_connect == None:
     die("'--connect' or '--listen' must be specified")
+
+
+def is_local(address):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind((address, 9999))
+    except socket.error as e:
+        if e.errno == errno.EADDRINUSE:
+            return True
+        else:
+            return False
+    return True
+
+if is_local(g_connect):
+    g_tester_id = TESTER_LOCAL_CON_GEN
+else:
+    g_tester_id = TESTER_REMOTE_CON_GEN
 
 configure_cpu_count()
 

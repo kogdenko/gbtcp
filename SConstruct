@@ -48,7 +48,7 @@ def get_gbtcp_version():
         cmd = "git log -1 --format=%H"
         commit = system(cmd)[1].strip()
         if len(commit) != 40:
-            die("'%s': Unexpected output" % cmd)
+            die("Cannot extract gbtcp version")
         return commit
 
 def add_target(target, source, env):
@@ -138,6 +138,8 @@ AddOption('--without-vale', action = 'store_true',
 
 AddOption('--without-xdp', action = 'store_true',
     help = "Don't use XDP transport", default = False)
+
+shutil.copyfile('./tools/pre-commit', '.git/hooks/pre-commit')
 
 PLATFORM = platform.system()
 

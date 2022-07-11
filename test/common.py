@@ -22,10 +22,14 @@ BPS = 8
 
 SAMPLE_COUNT_MAX = 20
 SAMPLE_TABLE = "sample"
+TEST_TABLE = "test"
 
 SAMPLE_STATUS_OK = 0
 SAMPLE_STATUS_OUTLIERS = 1
 SAMPLE_STATUS_LOW_CPU_USAGE = 2
+
+TESTER_LOCAL_CON_GEN = 1
+TESTER_REMOTE_CON_GEN = 2
 
 def print_log(s, to_stdout = False):
     #now = datetime.datetime.now()
@@ -85,41 +89,54 @@ def list_to_str(l):
     s += "]"
     return s
 
-transports = {
-    0: "native",
-    1: "netmap",
-    2: "xdp",
+TRANSPORT_NATIVE = 0
+TRANSPORT_NETMAP = 1
+TRANSPORT_XDP = 2
+
+transport_dict = {
+    TRANSPORT_NATIVE: "native",
+    TRANSPORT_NETMAP: "netmap",
+    TRANSPORT_XDP: "xdp",
 }
 
-def get_transport_id(transport_name):
-    for id, name in transports.items():
-        if name == transport_name:
+def get_dict_id(d, name):
+    for id, name in d.items():
+        if name == name:
             return id
-    die("Unknown transport '%s'" % transport_name)
     return None
 
-def get_transport_name(transport_id):
-    return transports[transport_id]
+DRIVER_VETH = 1
+DRIVER_IXGBE = 2
 
-def sample_record_name(i):
+driver_dict = {
+    DRIVER_VETH: "driver",
+    DRIVER_IXGBE: "ixgbe",
+}
+
+tester_dict = {
+    TESTER_LOCAL_CON_GEN: "local:con-gen",
+    TESTER_REMOTE_CON_GEN: "con-gen",
+}
+
+def get_record_name(i):
     if i == CPS:
-        return "CPS"
+        return "cps"
     elif i == IPPS:
-        return "IPPS"
+        return "ipps"
     elif i == IBPS:
-        return "IBPS"
+        return "ibps"
     elif i == OPPS:
-        return "OPPS"
+        return "opps"
     elif i == OBPS:
-        return "OBPS"
+        return "obps"
     elif i == CONCURRENCY:
         return "concurrency"
     elif i == RXMTPS:
         return "rxmtps"
     elif i == PPS:
-        return "PPS"
+        return "pps"
     elif i == BPS:
-        return "BPS"
+        return "bps"
     else:
         return None
 
@@ -251,6 +268,10 @@ def find_outliers(sample, std):
     else:
         return range(0, len(sample)), angle
 
+def log_invalid_test_field(test, field):
+    print_log("Invalid field '%s' in table '%s' where 'test_id=%d'" %
+        (field, TEST_TABLE, test.id), True)
+
 class Sample:
     def __init__(self):
         self.records = []
@@ -274,21 +295,34 @@ class Environment:
         assert(type(row[0]) == int)
         return int(row[0])
 
-    def add_test(self, desc, app_id, transport_id, concurrency, cpu_count, report_count):
-        where = ("gbtcp_commit=\"%s\" and os_id=%d and app_id=%d and "
-            "transport_id=%d and concurrency=%d and cpu_model_id=%d and cpu_count=%d" %
-            (desc, self.os_id, app_id,
-            transport_id, concurrency, self.cpu_model_id, cpu_count))
+    def add_test(self, commit, tester_id, app_id,
+            driver_id, transport_id, concurrency, cpu_count, report_count):
+        assert(commit != None)
+        assert(tester_id != None)
+        assert(app_id != None)
+        assert(driver_id != None)
+        assert(transport_id != None)
+        assert(concurrency != None)
+        assert(cpu_count != None)
+        assert(report_count != None)
+        where = ("gbtcp_commit=\"%s\" and tester_id=%d and os_id=%d and app_id=%d and "
+            "driver_id=%d and transport_id=%d and concurrency=%d and cpu_model_id=%d and "
+            "cpu_count=%d" %
+            (commit, tester_id, self.os_id, app_id,
+            driver_id, transport_id, concurrency, self.cpu_model_id,
+            cpu_count))
 
-        cmd = ("insert into test "
-            "(gbtcp_commit, os_id, app_id, transport_id, concurrency, cpu_model_id, cpu_count) "
-            "select \"%s\", %d, %d, %d, %d, %d, %d where not exists "
-            "(select 1 from test where %s)" % (
-            desc, self.os_id, app_id,
-            transport_id, concurrency, self.cpu_model_id, cpu_count, where))
+        cmd = ("insert into %s "
+            "(gbtcp_commit, tester_id, os_id, app_id, "
+            "driver_id, transport_id, concurrency, cpu_model_id, cpu_count) "
+            "select \"%s\", %d, %d, %d, %d, %d, %d, %d, %d where not exists "
+            "(select 1 from %s where %s)" % (
+            TEST_TABLE, commit, tester_id, self.os_id, app_id,
+            driver_id, transport_id, concurrency, self.cpu_model_id, cpu_count,
+            TEST_TABLE, where))
         self.sql_cursor.execute(cmd)
 
-        cmd = "select id from test where %s" % where
+        cmd = "select id from %s where %s" % (TEST_TABLE, where)
         self.sql_cursor.execute(cmd)
         self.sql_conn.commit()
         test_id = self.fetchid()
@@ -365,17 +399,57 @@ class Environment:
     def fetch_test(self):
         row = self.sql_cursor.fetchone()
         if row == None:
+            print("a")
             return None
-        assert(len(row) == 8)
+        assert(len(row) == 10)
         test = Test()
         test.id = int(row[0])
         test.commit = row[1]
-        test.os_id = int(row[2])
-        test.app_id = int(row[3])
-        test.transport_id = int(row[4])
-        test.concurrency = int(row[5])
-        test.cpu_model_id = int(row[6])
-        test.cpu_count = int(row[7])
+        test.tester_id = int(row[2])
+        test.os_id = int(row[3])
+        test.app_id = int(row[4])
+        test.driver_id = int(row[5])
+        test.transport_id = int(row[6])
+        test.concurrency = int(row[7])
+        test.cpu_model_id = int(row[8])
+        test.cpu_count = int(row[9])
+
+        test.tester = tester_dict.get(test.tester_id)
+        if test.tester == None:
+            log_invalid_test_field(test, 'tester_id')
+            return None
+
+        name, ver = self.get_os(test.os_id)
+        if name == None:
+            log_invalid_test_field(test, 'os_id')
+            return None
+        test.os = name + "-" + ver
+
+        name, ver = self.get_app(test.app_id)
+        if name == None:
+            log_invalid_test_field(test, 'app_id')
+            return None
+        test.app = name + "-" + ver
+
+        test.driver = driver_dict.get(test.driver_id)
+        if test.driver == None:
+            log_invalid_test_field(test, 'driver_id')
+            return None
+
+        test.transport = transport_dict.get(test.transport_id)
+        if test.transport == None:
+            log_invalid_test_field(test, 'transport_id')
+
+        name, alias = self.get_cpu_model(test.cpu_model_id)
+        if name == None:
+            log_invalid_test_field(test, 'cpu_model_id')
+            return None
+        else:
+            if alias == None or len(alias) == 0:
+                test.cpu_model = name
+            else:
+                test.cpu_model = alias
+
         return test;
 
     def get_sample(self, sample_id):
@@ -432,9 +506,9 @@ class Environment:
     def os_get_id(self, name, ver):
         return self.table_get_id("os", name, ver)
 
-    def get_tests(self, description):
+    def get_tests(self, commit):
         tests = []
-        cmd = "select * from test where gbtcp_commit=\"%s\"" % description
+        cmd = "select * from %s where gbtcp_commit='%s'" % (TEST_TABLE, commit)
         self.sql_cursor.execute(cmd)
         while True:
             test = self.fetch_test()

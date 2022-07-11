@@ -9,7 +9,16 @@ import matplotlib.pyplot as plot
 from common import *
 
 class Graph:
-    attrs = [ "version", "os", "app", "cpu_model", "transport", "concurrency" ]
+    attrs = [
+        "commit",
+        "tester",
+        "os",
+        "app",
+        "cpu_model",
+        "driver",
+        "transport",
+        "concurrency",
+    ]
 
     def is_same(a, graphs):
         value = None
@@ -22,39 +31,35 @@ class Graph:
         return True
 
     def __init__(self):
-        self.version = None
         self.tests = {}
-        self.os = None
-        self.os_id = None
-        self.app = None
-        self.app_id = None
-        self.cpu_model = None
-        self.cpu_model_id = None
-        self.transport = None
-        self.concurrency = None
+        for attr in Graph.attrs:
+            setattr(self, attr, None)
+            setattr(self, attr + "_id", None)
 
     def compare(self, test):
-        for a in [ "os", "app", "cpu_model" ]:
+        for a in Graph.attrs:
+            if a == "commit":
+                continue
             graph_a_id = getattr(self, a + "_id")
             graph_a = getattr(self, a)
-            test_a_id = getattr(test, a + "_id")
             test_a = getattr(test, a)
-            if graph_a_id == None:
-                if graph_a == None or test_a.find(graph_a) >= 0:
-                    if graph_a == None:
-                        setattr(self, a, test_a)
-                    setattr(self, a + "_id", test_a_id)
-                else:
+            if hasattr(test, a + "_id"):
+                test_a_id = getattr(test, a + "_id")
+                if graph_a_id == None:
+                    if graph_a == None or test_a.find(graph_a) >= 0:
+                        if graph_a == None:
+                            setattr(self, a, test_a)
+                        setattr(self, a + "_id", test_a_id)
+                    else:
+                        return False
+                elif graph_a_id != test_a_id:
                     return False
-            elif graph_a_id != test_a_id:
-                return False
-        for a in [ "transport", "concurrency" ]:
-            graph_a = getattr(self, a)
-            test_a = getattr(test, a)
-            if graph_a == None:
-                setattr(self, a, test_a)
-            elif graph_a != test_a:
-                return False
+            else:
+                if graph_a == None:
+                    setattr(self, a, test_a)
+                elif graph_a != test_a:
+                    return False
+
         return True
 
 g_show_plot = False
@@ -76,7 +81,7 @@ def usage():
     print("\ttest-id {id,id..}: Specify test id")
     print("\tsample-id {id,id...}: Specify sample id")
     print("\tskip-reports {num}: Skip first num reports (default: %d)" % g_skip_reports)
-    print("\tshow {version}: Print all tests regarding to specified version")
+    print("\tshow {commit}: Print all tests regarding to specified commit")
     print("\tshow {native}: Print all native tests")
     print("\tshow-plot: Show plot spicified by test-id or sample-id")
     print("\tsave-plot: Save plot spicified by test-id or sample-id")
@@ -127,36 +132,6 @@ def get_sample(env, sample_id):
 def get_sample_record1(sample):
     return get_sample_record(sample, g_record)[g_skip_reports:]
 
-def resolve_test(test):
-    res = True
-    name, ver = env.get_app(test.app_id)
-    if name == None:
-        print("Test %d has invalid application id %d" % (test.id, test.app_id))
-        res = False
-    else:
-        test.app = name + "-" + ver
-
-    name, ver = env.get_os(test.os_id)
-    if name == None:
-        print("Test %d has invalid OS id" % (test.id, test.os_id))
-        res = False
-    else:
-        test.os = name + "-" + ver
-
-    name, alias = env.get_cpu_model(test.cpu_model_id)
-    if name == None:
-        print("Test %d has invalid cpu_model id %d" % (test.id, test.cpu_model_id))
-        res = False
-    else:
-        if alias == None or len(alias) == 0:
-            test.cpu_model = name
-        else:
-            test.cpu_model = alias
-
-    test.transport = get_transport_name(test.transport_id)
-
-    return res
-
 def parse_graph(argv):
     graph = Graph()
     graph.id = len(g_graphs)
@@ -166,39 +141,23 @@ def parse_graph(argv):
             setattr(graph, a, getattr(template, a))
     g_graphs.append(graph)
     try:
-        opts, args = getopt.getopt(argv, "", [
-            "version=",
-            "os=",
-            "app=",
-            "cpu-model=",
-            "transport=",
-            "concurrency=",
-            ])
+        longopts = []
+        for attr in Graph.attrs:
+            longopts.append("%s=" % attr)
+
+        opts, args = getopt.getopt(argv, "", longopts)
     except getopt.GetoptError as err:
         print(err)
         die("Invalid graph options")
     for o, a in opts:
-        if o in ("--version"):
-            graph.version = a
-        elif o in ("--os"):
-            graph.os = a
-        elif o in ("--app"):
-            graph.app = a
-        elif o in ("--cpu-model"):
-            graph.cpu_model = a
-        elif o in ("--transport"):
-            graph.transport = a
-            get_transport_id(a)
-        elif o in ("--concurrency"):
-            graph.concurrency = a
-    if graph.version == None:
-        die("Graph %d version should be specified (see '--version')" % graph.id)
+        assert(hasattr(graph, o[2:]))
+        setattr(graph, o[2:], a)
+    if graph.commit == None:
+        die("Graph %d commit should be specified" % graph.id)
 
 def init_graph(graph):
-    tests = env.get_tests(git_rev_parse(graph.version))
+    tests = env.get_tests(git_rev_parse(graph.commit))
     for test in tests:
-        if not resolve_test(test):
-            continue
         if not graph.compare(test):
             continue
         t = graph.tests.get(test.cpu_count)
@@ -213,20 +172,20 @@ def init_graph(graph):
 
 def get_graphs_title(graphs):
     title = ""
-    for a in Graph.attrs:
-        if Graph.is_same(a, graphs):
+    for attr in Graph.attrs:
+        if Graph.is_same(attr, graphs):
             if len(title) > 0:
                 title += "/"
-            title += str(getattr(graphs[0], a))
+            title += str(getattr(graphs[0], attr))
     return title
 
 def get_graph_legend(graph, graphs):
     legend = ""
-    for a in Graph.attrs:
-        if not Graph.is_same(a, graphs):
+    for attr in Graph.attrs:
+        if not Graph.is_same(attr, graphs):
             if len(legend) > 0:
                 legend += "/"
-            legend += getattr(graph, a)
+            legend += getattr(graph, attr)
     return legend
 
 ### MAIN
@@ -303,10 +262,10 @@ if g_clean_test:
 
 if g_show != None:
     tests = env.get_tests(git_rev_parse(g_show))
-    print("Id | Operating system | Application | CPU model | Driver | Concurrency | CPUs | Samples")
+    print("Id | Operating system | Application | CPU model | Transport | Concurrency | CPUs | Samples")
+    print(len(tests))
     for test in tests:
         test.samples = env.get_samples(test.id)
-        resolve_test(test)
         s = ""
         for sample in test.samples:
             if len(s) != 0:
@@ -315,7 +274,7 @@ if g_show != None:
             if sample.status != SAMPLE_STATUS_OK:
                 s += "*"
         print("%d | %s | %s | %s | %s | %d | %d | %s" %
-            (test.id, test.os, test.app, test.cpu,
+            (test.id, test.os, test.app, test.cpu_model,
             test.transport, test.concurrency, test.cpu_count, s))
 
 def get_test_good_samples(test_id):
@@ -380,7 +339,7 @@ if g_show_plot or g_save_plot != None:
         step = 1
     plot.yticks(range(0, math.ceil(g_plot_ymax) + step, step))
     plot.legend()
-    plot.ylabel("m" + sample_record_name(g_record))
+    plot.ylabel("m" + get_record_name(g_record))
     if g_save_plot != None:
         plot.savefig(g_save)
     if g_show_plot:
