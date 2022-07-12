@@ -10,6 +10,7 @@ import multiprocessing
 #import datetime
 import syslog
 import sqlite3
+import mysql.connector
 import numpy
 
 CPS = 0
@@ -145,7 +146,7 @@ def get_record_name(i):
         return None
 
 def get_sample_record(sample, i):
-    assert(len(sample.records) == 6)
+    assert(len(sample.records) == 7)
     assert(i <= BPS)
     if i == PPS:
         a = IPPS
@@ -444,13 +445,13 @@ class Test:
     def __init__(self):
         self.samples = []
 
-class Environment:
-    sql_conn = None
-    os_id = None
-    cpu_model_id = None
+class Database:
+    def __init__(self, address):
+        #self.sql_conn = sqlite3.connect(address)
+        self.sql_conn = mysql.connector.connect(user = 'root', database='gbtcp')
 
     def execute(self, cmd, *args):
-        sql_cursor = self.sql_conn.cursor()
+        sql_cursor = self.sql_conn.cursor(buffered = True)
         sql_cursor.execute(cmd, *args);
         return sql_cursor
 
@@ -461,21 +462,23 @@ class Environment:
         assert(type(row[0]) == int)
         return int(row[0])
 
-    def add_test(self, commit, tester_id, app_id,
-            transport_id, driver_id, concurrency, cpu_count, report_count):
+    def add_test(self, commit, tester_id, os_id, app_id,
+            transport_id, driver_id, concurrency, cpu_model_id, cpu_count, report_count):
         assert(commit != None)
         assert(tester_id != None)
+        assert(os_id != None)
         assert(app_id != None)
         assert(transport_id != None)
         assert(driver_id != None)
         assert(concurrency != None)
+        assert(cpu_model_id != None)
         assert(cpu_count != None)
         assert(report_count != None)
         where = ("gbtcp_commit=\"%s\" and tester_id=%d and os_id=%d and app_id=%d and "
             "transport_id=%d and driver_id=%d and concurrency=%d and cpu_model_id=%d and "
             "cpu_count=%d" %
-            (commit, tester_id, self.os_id, app_id,
-            transport_id, driver_id, concurrency, self.cpu_model_id,
+            (commit, tester_id, os_id, app_id,
+            transport_id, driver_id, concurrency, cpu_model_id,
             cpu_count))
 
         cmd = ("insert into %s "
@@ -483,8 +486,8 @@ class Environment:
             "transport_id, driver_id, concurrency, cpu_model_id, cpu_count) "
             "select \"%s\", %d, %d, %d, %d, %d, %d, %d, %d where not exists "
             "(select 1 from %s where %s)" % (
-            TEST_TABLE, commit, tester_id, self.os_id, app_id,
-            transport_id, driver_id, concurrency, self.cpu_model_id, cpu_count,
+            TEST_TABLE, commit, tester_id, os_id, app_id,
+            transport_id, driver_id, concurrency, cpu_model_id, cpu_count,
             TEST_TABLE, where))
         self.execute(cmd)
 
@@ -528,9 +531,10 @@ class Environment:
             self.del_sample(candidate.id)
             samples.remove(candidate)
 
+        # Use '?' instead of '%%s' for sqlite3
         cmd = ("insert into %s "
             "(test_id,status,cps,ipps,ibps,opps,obps,rxmtps,concurrency) "
-            "values (%d,%d,?,?,?,?,?,?,?)" %
+            "values (%d,%d,%%s,%%s,%%s,%%s,%%s,%%s,%%s)" %
             (SAMPLE_TABLE, sample.test_id, sample.status))
         sql_cursor = self.execute(cmd, (
             int_list_to_bytearray(sample.records[CPS], 4),
@@ -604,8 +608,6 @@ class Environment:
         if test.driver == None:
             log_invalid_test_field(test, 'driver_id')
             return None
-
-        print(">>>", test.driver)
 
         name, alias = self.get_cpu_model(test.cpu_model_id)
         if name == None:
@@ -704,6 +706,12 @@ class Environment:
         assert(len(row) == 2)
         return row[0], row[1]
 
+class Environment(Database):
+    def add_test(self, commit, tester_id, app_id,
+            transport_id, driver_id, concurrency, cpu_count, report_count):
+        return Database.add_test(self, commit, tester_id, self.os_id, app_id,
+            transport_id, driver_id, concurrency, self.cpu_model_id, cpu_count, report_count)
+
     def write_gbtcp_conf(self, transport):
         gbtcp_conf = (
             "dev.transport=%s\n"
@@ -769,7 +777,7 @@ class Environment:
         if self.commit == None or self.have_xdp == None or self.have_netmap == None:
             die("%s: Parse error"  % cmd)
 
-        self.sql_conn = sqlite3.connect(self.project_path + "/test/data.sqlite3")
+        Database.__init__(self, self.project_path + "/test/data.sqlite3")
 
         self.os_id = self.os_get_id(platform.system(), platform.release())
         self.cpu_model_id = self.cpu_model_get_id(get_cpu_name())
