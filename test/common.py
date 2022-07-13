@@ -48,6 +48,13 @@ def die(s):
     print_log(s, True)
     sys.exit(1)
 
+def is_int(s):
+    try:
+        i = int(s)
+    except:
+        return False, 0
+    return True, i
+
 def upper_pow2_32(x):
     x = int(x)
     x -= 1
@@ -357,7 +364,7 @@ def system(cmd, fault_tollerance = False):
     proc = subprocess.Popen(cmd.split(), env = env,
         stdout = subprocess.PIPE, stderr = subprocess.PIPE)
     try:
-        out, err = proc.communicate()
+        out, err = proc.communicate(timeout = 5)
     except:
         proc.kill();
         die("Command '%s' failed, exception: '%s'" % (cmd, sys.exc_info()[0]))
@@ -444,6 +451,9 @@ class Test:
 
     def __init__(self):
         self.samples = []
+
+class Cpu_model:
+    pass
 
 class Database:
     def __init__(self, address):
@@ -609,11 +619,13 @@ class Database:
             log_invalid_test_field(test, 'driver_id')
             return None
 
-        name, alias = self.get_cpu_model(test.cpu_model_id)
-        if name == None:
+        cpu_models = self.get_cpu_model(test.cpu_model_id)
+        if len(cpu_models) == 0:
             log_invalid_test_field(test, 'cpu_model_id')
             return None
         else:
+            alias = cpu_models[0].alias
+            name = cpu_models[0].name
             if alias == None or len(alias) == 0:
                 test.cpu_model = name
             else:
@@ -641,7 +653,7 @@ class Database:
         self.execute(cmd)
         self.sql_conn.commit() 
 
-    def table_get_id(self, table, name, ver):
+    def get_table_id(self, table, name, ver):
         cmd = ("insert into %s(name, ver) select \"%s\", \"%s\" "
             "where not exists (select 1 from %s where name=\"%s\" and ver=\"%s\");"
             % (table, name, ver, table, name, ver))
@@ -651,7 +663,7 @@ class Database:
         self.sql_conn.commit()
         return self.fetchid(sql_cursor)
 
-    def cpu_model_get_id(self, cpu_model_name, cpu_model_alias=None):
+    def get_cpu_model_id(self, cpu_model_name, cpu_model_alias=None):
         assert(cpu_model_alias == None)
         cmd = ("insert into cpu_model(name) select \"%s\" "
             "where not exists (select 1 from cpu_model where name=\"%s\")"
@@ -662,11 +674,16 @@ class Database:
         self.sql_conn.commit()
         return self.fetchid(sql_cursor)
 
-    def app_get_id(self, name, ver):
-        return self.table_get_id("app", name, ver)
+    def set_cpu_model_alias(self, cpu_model_id, cpu_model_alias):
+        cmd = "update cpu_model set alias = '%s' where id = %d" % (cpu_model_alias, cpu_model_id)
+        self.execute(cmd)
+        self.sql_conn.commit();
 
-    def os_get_id(self, name, ver):
-        return self.table_get_id("os", name, ver)
+    def get_app_id(self, name, ver):
+        return self.get_table_id("app", name, ver)
+
+    def get_os_id(self, name, ver):
+        return self.get_table_id("os", name, ver)
 
     def get_tests(self, commit):
         tests = []
@@ -697,14 +714,24 @@ class Database:
         assert(len(row) == 2)
         return row[0], row[1]
    
-    def get_cpu_model(self, cpu_model_id):
-        cmd = "select name, alias from cpu_model where id=%d" % cpu_model_id
+    def get_cpu_model(self, cpu_model_id = None):
+        cpu_models = []
+        if cpu_model_id == None:
+            cmd = "select * from cpu_model"
+        else:
+            cmd = "select * from cpu_model where id=%d" % cpu_model_id
         sql_cursor = self.execute(cmd)
-        row = sql_cursor.fetchone()
-        if row == None:
-            return None, None
-        assert(len(row) == 2)
-        return row[0], row[1]
+        while True:
+            row = sql_cursor.fetchone()
+            if row == None:
+                break
+            assert(len(row) == 3)
+            cpu_model = Cpu_model()
+            cpu_model.id = int(row[0])
+            cpu_model.name = row[1]
+            cpu_model.alias = row[2]
+            cpu_models.append(cpu_model)
+        return cpu_models
 
 class Environment(Database):
     def add_test(self, commit, tester_id, app_id,
@@ -737,7 +764,7 @@ class Environment(Database):
         return proc
 
     def wait_process(self, proc):
-        proc.wait()
+        proc.wait(timeout = 5)
         lines = []
         for pipe in [proc.stdout, proc.stderr]:
             while True:
@@ -779,5 +806,5 @@ class Environment(Database):
 
         Database.__init__(self, self.project_path + "/test/data.sqlite3")
 
-        self.os_id = self.os_get_id(platform.system(), platform.release())
-        self.cpu_model_id = self.cpu_model_get_id(get_cpu_name())
+        self.os_id = self.get_os_id(platform.system(), platform.release())
+        self.cpu_model_id = self.get_cpu_model_id(get_cpu_name())

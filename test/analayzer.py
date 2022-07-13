@@ -58,11 +58,28 @@ g_test_ids = []
 g_skip_reports = 2
 g_record = PPS
 g_show = None
+g_show_cpu_model = False
+g_set_cpu_model_alias = None
+g_cpu_model_id = None
 g_clean_test = False
 g_plot_xticks = []
 g_plot_ymax = 0
 g_graphs = []
-env = Environment()
+g_hide = []
+g_db = Environment()
+
+def get_test_good_samples(test_id):
+    samples = g_db.get_samples(test_id)
+    if len(samples) == 0:
+        die("No samples in test with id=%d" % test_id)
+    good_samples = []
+    for sample in samples:
+        if sample.status == SAMPLE_STATUS_OK:
+            good_samples.append(sample)
+    if len(good_samples) == 0:
+        die("No good samples in test with id=%d" % test_id)
+#    print("%d good samples in test %d" % (len(good_samples), test_id))
+    return good_samples
 
 def usage():
     print("analayzer.py [options]")
@@ -112,8 +129,8 @@ def make_plot(x, y, error, legend, line_approximation):
             (mean, std, round(std/mean*100, 2), round(angle, 2)), outliers)
         plot.plot([x0, x1], [y0, y1])
 
-def get_sample(env, sample_id):
-    sample = env.get_sample(sample_id) 
+def get_sample(sample_id):
+    sample = g_db.get_sample(sample_id) 
     if sample == None:
         die("No sample with id=%d" % sample_id)
     return sample
@@ -145,7 +162,7 @@ def parse_graph(argv):
         die("Graph %d commit should be specified" % graph.id)
 
 def init_graph(graph):
-    tests = env.get_tests(git_rev_parse(graph.commit))
+    tests = g_db.get_tests(git_rev_parse(graph.commit))
     for test in tests:
         if not graph.compare(test):
             continue
@@ -162,7 +179,7 @@ def init_graph(graph):
 def get_graphs_title(graphs):
     title = ""
     for attr in Test.attrs:
-        if Graph.is_same(attr, graphs):
+        if Graph.is_same(attr, graphs) and attr not in g_hide:
             if len(title) > 0:
                 title += "/"
             title += str(getattr(graphs[0], attr))
@@ -181,6 +198,9 @@ def get_graph_legend(graph, graphs):
 try:
     opts, args = getopt.getopt(sys.argv[1:], "h", [
         "help",
+        "show-cpu-model",
+        "set-cpu-model-alias=",
+        "cpu-model-id=",
         "show=",
         "show-plot",
         "save-plot=",
@@ -188,6 +208,7 @@ try:
         "test-id=",
         "sample-id=",
         "skip-reports=",
+        "hide=",
         "cps",
         "ipps",
         "ibps",
@@ -205,6 +226,12 @@ for o, a in opts:
     if o in ("-h", "--help"):
         usage()
         sys.exit(0)
+    elif o in ("--show-cpu-model"):
+        g_show_cpu_model = True
+    elif o in ("--set-cpu-model-alias"):
+        g_set_cpu_model_alias = a
+    elif o in ("--cpu-model-id"):
+        g_cpu_model_id = int(a)
     elif o in ("--show"):
         g_show = a
     elif o in ("--show-plot"):
@@ -219,6 +246,11 @@ for o, a in opts:
         g_skip_reports = int(a)
     elif o in ("--clean-test"):
         g_clean_test = True
+    elif o in ("--hide"):
+        for hide in a.split(','):
+            if hide in Test.attrs:
+                if hide not in g_hide:
+                    g_hide.append(hide)
     elif o in ("--cps"):
         g_record = CPS
     elif o in ("--ipps"):
@@ -243,14 +275,25 @@ for i in range(1, len(sys.argv)):
 for graph in g_graphs:
     init_graph(graph)
 
+if g_show_cpu_model:
+    cpu_models = g_db.get_cpu_model(g_cpu_model_id)
+    print("id | name | alias")
+    for cpu_model in cpu_models:
+        print("%d | %s | %s" % (cpu_model.id, cpu_model.name, cpu_model.alias))
+
+if g_set_cpu_model_alias:
+    if g_cpu_model_id == None:
+        die("To '--set-cpu-model-alias', please, specify --cpu-model-id")
+    g_db.set_cpu_model_alias(g_cpu_model_id, g_set_cpu_model_alias)
+
 if g_clean_test:
     if len(g_test_ids) == 0:
         print("--clean-test: Please, specify --test-id")
     for test_id in g_test_ids:
-        env.clean_samples(test_id)
+        g_db.clean_samples(test_id)
 
 if g_show != None:
-    tests = env.get_tests(git_rev_parse(g_show))
+    tests = g_db.get_tests(git_rev_parse(g_show))
     s = ""
     for attr in Test.attrs:
         if attr != "commit":
@@ -259,7 +302,7 @@ if g_show != None:
             s += attr
     print("id | %s | samples" % s)
     for test in tests:
-        test.samples = env.get_samples(test.id)
+        test.samples = g_db.get_samples(test.id)
         s = "%d" % test.id
         for attr in Test.attrs:
             if attr != "commit":
@@ -274,23 +317,10 @@ if g_show != None:
                 s += "*"
         print(s)
 
-def get_test_good_samples(test_id):
-    samples = env.get_samples(test_id)
-    if len(samples) == 0:
-        die("No samples in test with id=%d" % test_id)
-    good_samples = []
-    for sample in samples:
-        if sample.status == SAMPLE_STATUS_OK:
-            good_samples.append(sample)
-    if len(good_samples) == 0:
-        die("No good samples in test with id=%d" % test_id)
-#    print("%d good samples in test %d" % (len(good_samples), test_id))
-    return good_samples
-
 if g_show_plot or g_save_plot != None:
     if len(g_sample_ids) > 0:
         for sample_id in g_sample_ids:
-            sample = get_sample(env, sample_id)
+            sample = get_sample(sample_id)
             print("sample_id=%d, test_id=%d, status=%d" %
                 (sample.id, sample.test_id, sample.status))
             y = get_sample_record1(sample)

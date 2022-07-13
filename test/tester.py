@@ -79,19 +79,19 @@ def tester_loop():
                     if i == '\n':
                         done = True
                         break
-            tester, reports = run_tester(data.strip())
+            proc, reports = run_tester(data.strip())
 
             # FIXME: Wait APR negotiaition
             cpu_usage = measure_cpu_usage(reports, 2, g_cpus)
 
-            rc, lines = env.wait_process(tester)
+            rc, lines = env.wait_process(proc)
 
             data = bytearray()
             for line in lines:
                 data += bytearray((line + "\n").encode('utf-8'))
 
-            print_log("tester: %s: CPU=%s ... %s" %
-                (tester.args[0], list_to_str(cpu_usage), "Ok" if rc == 0 else "Failed"), True)
+            print_log("%s: CPU=%s ... %s" %
+                (proc.args[0], list_to_str(cpu_usage), "Ok" if rc == 0 else "Failed"), True)
 
             conn.send(data)
             conn.close()

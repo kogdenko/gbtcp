@@ -16,6 +16,7 @@ import re
 import numpy
 
 from common import *
+import netstat
 
 g_subnet = "10.20"
 g_connect = None
@@ -30,6 +31,7 @@ g_sample_count = SAMPLE_COUNT_MAX
 g_cooling_time = 2
 g_stop_at_milliseconds = None
 g_dry_run = False
+g_preload = True
 g_apps = []
 g_tests = []
 g_simple_test = []
@@ -205,7 +207,6 @@ last_used_cpus = None
 def do_test(app, cpus, preload, transport, concurrency):
     global last_used_cpus
 
-    env.ts_planned += g_sample_count
     if g_dry_run:
         test_id = -1
         sample_count = 0
@@ -215,11 +216,15 @@ def do_test(app, cpus, preload, transport, concurrency):
             transport_id = get_dict_id(transport_dict, transport)
             assert(transport_id != None)
         else:
+            if not app.support_native():
+                return
             commit = ""
             transport_id = TRANSPORT_NATIVE
 
         test_id, sample_count = env.add_test(commit, g_tester_id, app.id,
             transport_id, env.interface.driver_id, concurrency, len(cpus), g_report_count)
+
+    env.ts_planned += g_sample_count
 
     for j in range (0, g_sample_count - sample_count):
         if last_used_cpus != cpus:
@@ -238,7 +243,10 @@ class application:
     id = None
 
     def __init__(self):
-        self.id = env.app_get_id(self.get_name(), self.get_version())
+        self.id = env.get_app_id(self.get_name(), self.get_version())
+
+    def support_native(self):
+        return True
 
     def parse_version(self, s):
         m = re.search(r'[0-9]+\.[0-9]+\.[0-9]+', s.strip())
@@ -248,6 +256,9 @@ class application:
 
     def start_test(self, test_id, transport, concurrency, cpus, preload):
         self.stop()
+
+        if not preload:
+            ns = netstat.read()
 
         proc = self.start(concurrency, cpus, preload)
 
@@ -274,6 +285,12 @@ class application:
         sample = add_sample(data, g_report_count, test_id, low)
 
         print_test(test_id, sample, self.get_name(), preload, concurrency, transport, cpu_usage)
+
+        if not preload:
+            ns2 = netstat.read()
+            ns = netstat.diff(ns, ns2)
+            s = netstat.to_string(ns)
+            print_log("netstat:\n%s" % s)
 
         if sample == None or sample.status != SAMPLE_STATUS_OK:
             return False
@@ -308,7 +325,7 @@ class nginx(application):
             worker_cpu_affinity += " " + "".join(templ)
             templ[cpu_count - 1 - i] = '0'
 
-        worker_connections = upper_pow2_32(concurrency/n)
+        worker_connections = upper_pow2_32(concurrency)
         if worker_connections < 1024:
             worker_connections = 1024
 
@@ -319,6 +336,7 @@ class nginx(application):
             "\n"
             "worker_processes %d;\n"
             "worker_cpu_affinity %s;\n"
+            "worker_rlimit_nofile %d;\n"
             "events {\n"
             "    use epoll;\n"
             "    multi_accept on;\n"
@@ -343,7 +361,11 @@ class nginx(application):
             "        }\n"
             "    }\n"
             "}\n"
-            % (n, worker_cpu_affinity, worker_connections, get_runner_ip(g_subnet)))
+            % (n,
+                worker_cpu_affinity,
+                worker_connections,
+                worker_connections,
+                get_runner_ip(g_subnet)))
 
         nginx_conf_path = env.project_path + "/test/nginx.conf"
 
@@ -390,6 +412,9 @@ class gbtcp_aio_helloworld(gbtcp_base_helloworld):
     def get_name(self):
         return "gbtcp-aio-helloworld"
 
+    def support_native(self):
+        return False
+
 
 ################ MAIN ####################
 fill_test_list()
@@ -413,6 +438,7 @@ try:
         "cooling-time=",
         "reload-netmap=",
         "test=",
+        "preload=",
         ])
 except getopt.GetoptError as err:
     print(err)
@@ -452,6 +478,8 @@ for o, a in opts:
                 die("Unknown '--transport' argument")
             if not transport in g_transport:
                 g_transport.append(transport)
+    elif o in ("--preload"):
+        g_preload = bool(int(a) != 0)
     elif o in ("--test"):
         for test in a.split(','):
             if test != "":
@@ -527,7 +555,7 @@ for test in g_tests:
                     for transport in g_transport:
                         env.write_gbtcp_conf(transport)
                         for concurrency in g_concurrency:
-                            do_test(app, cpus, True, transport, concurrency)
+                            do_test(app, cpus, g_preload, transport, concurrency)
                 break
 
 print("Planned: ", env.ts_planned)

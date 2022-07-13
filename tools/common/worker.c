@@ -11,6 +11,7 @@ kill_workers(void)
 {
 	int i, rc, wstatus;
 
+	//signal(SIGCHLD, SIG_IGN);
 	for (i = 0; i < worker_num; ++i) {
 		if (workers[i]->wrk_pid) {
 			rc = kill(workers[i]->wrk_pid, SIGKILL);
@@ -123,7 +124,7 @@ sigusr1(int signum)
 	master_quit();	
 }
 
-static void
+/*static void
 sigchld(int signum)
 {
 	int i, rc, pid, wstatus;
@@ -141,7 +142,7 @@ sigchld(int signum)
 			}
 		}
 	}
-}
+}*/
 
 void
 start_master(cpuset_t *worker_cpus, int concurrency, const char *pname, int port,
@@ -172,7 +173,7 @@ start_master(cpuset_t *worker_cpus, int concurrency, const char *pname, int port
 	}
 	concurrency_per_worker = concurrency / worker_num;
 	signal(SIGUSR1, sigusr1);
-	signal(SIGCHLD, sigchld);
+//	signal(SIGCHLD, sigchld);
 	for (i = 0; i < worker_num; ++i) {
 		worker = workers[i];
 		worker->wrk_concurrency = concurrency_per_worker;
