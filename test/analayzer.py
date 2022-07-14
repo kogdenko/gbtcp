@@ -1,5 +1,5 @@
 #!/usr/bin/python
-
+# SPDX-License-Identifier: GPL-2.0
 import sys
 import getopt
 import math
@@ -21,12 +21,12 @@ class Graph:
 
     def __init__(self):
         self.tests = {}
-        for attr in Test.attrs:
+        for attr in Database.Test.attrs:
             setattr(self, attr, None)
             setattr(self, attr + "_id", None)
 
     def compare(self, test):
-        for a in Test.attrs:
+        for a in Database.Test.attrs:
             if a == "commit":
                 continue
             graph_a_id = getattr(self, a + "_id")
@@ -66,7 +66,7 @@ g_plot_xticks = []
 g_plot_ymax = 0
 g_graphs = []
 g_hide = []
-g_db = Environment()
+g_db = Database("")
 
 def get_test_good_samples(test_id):
     samples = g_db.get_samples(test_id)
@@ -143,12 +143,12 @@ def parse_graph(argv):
     graph.id = len(g_graphs)
     if len(g_graphs) > 0:
         template = g_graphs[-1]
-        for attr in Test.attrs:
+        for attr in Database.Test.attrs:
             setattr(graph, attr, getattr(template, attr))
     g_graphs.append(graph)
     try:
         longopts = []
-        for attr in Test.attrs:
+        for attr in Database.Test.attrs:
             longopts.append("%s=" % attr)
 
         opts, args = getopt.getopt(argv, "", longopts)
@@ -178,7 +178,7 @@ def init_graph(graph):
 
 def get_graphs_title(graphs):
     title = ""
-    for attr in Test.attrs:
+    for attr in Database.Test.attrs:
         if Graph.is_same(attr, graphs) and attr not in g_hide:
             if len(title) > 0:
                 title += "/"
@@ -187,7 +187,7 @@ def get_graphs_title(graphs):
 
 def get_graph_legend(graph, graphs):
     legend = ""
-    for attr in Test.attrs:
+    for attr in Database.Test.attrs:
         if not Graph.is_same(attr, graphs):
             if len(legend) > 0:
                 legend += "/"
@@ -248,7 +248,7 @@ for o, a in opts:
         g_clean_test = True
     elif o in ("--hide"):
         for hide in a.split(','):
-            if hide in Test.attrs:
+            if hide in Database.Test.attrs:
                 if hide not in g_hide:
                     g_hide.append(hide)
     elif o in ("--cps"):
@@ -295,7 +295,7 @@ if g_clean_test:
 if g_show != None:
     tests = g_db.get_tests(git_rev_parse(g_show))
     s = ""
-    for attr in Test.attrs:
+    for attr in Databse.Test.attrs:
         if attr != "commit":
             if len(s) > 0:
                 s += " | "
@@ -304,7 +304,7 @@ if g_show != None:
     for test in tests:
         test.samples = g_db.get_samples(test.id)
         s = "%d" % test.id
-        for attr in Test.attrs:
+        for attr in Database.Test.attrs:
             if attr != "commit":
                 s += " | " + str(getattr(test, attr))
         s += " | "
@@ -346,7 +346,7 @@ if g_show_plot or g_save_plot != None:
                 good_samples = get_test_good_samples(test.id)
                 record = []
                 for sample in good_samples:
-                    record.append(get_sample_record1(sample))
+                    record += get_sample_record1(sample)
                 x.append(cpu_count)
                 y.append(int(numpy.mean(record)))
                 e.append(int(numpy.std(record)))

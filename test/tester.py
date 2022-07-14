@@ -1,4 +1,5 @@
 #!/usr/bin/python
+# SPDX-License-Identifier: GPL-2.0
 import getopt
 import socket
 from common import *
@@ -8,27 +9,78 @@ g_reload_netmap = None
 g_interface_name = None
 g_cpus = None
 
-env = Environment()
+class Tester:
+    pass
+
+g_project = Project()
+g_tester = Tester()
+
+def run_con_gen(dst_mac, subnet, reports, concurrency):
+    dst_ip = get_runner_ip(subnet)
+    cmd = "con-gen "
+#    cmd += "--toy "
+    cmd += "--print-banner 0 --print-statistics 0 --report-bytes 1 "
+    cmd += ("-S %s -D %s --reports %d -N -p 80 -d %s" %
+        (g_tester.interface.mac, dst_mac, reports, dst_ip))
+
+    n = len(g_cpus)
+    for i in range(n):
+        concurrency_per_cpu = concurrency / n
+        if i == 0:
+            concurrency_per_cpu += concurrency % n
+        else:
+            cmd += " --"
+        cmd += " -i %s-%d" % (g_tester.interface.name, i)
+        cmd += " -c %d" % concurrency_per_cpu
+        cmd += " -a %d" % g_cpus[i]
+        cmd += " -s %s.%d.1-%s.%d.255" % (subnet, i + 1, subnet, i + 1)
+    return g_project.start_process(cmd, False)
+
+def run_epoll(subnet, reports, concurrency):
+    ifname = g_tester.interface.name
+
+    system("ip a flush dev %s" % ifname)
+    system("ip r flush dev %s" % ifname)
+    for i in range(1, 255):
+        system("ip a a dev %s %s.1.%d " % (ifname, subnet, i))
+    system("ip r a dev %s %s.0.0/16" % (ifname, subnet))
+
+    n = len(g_cpus)
+    concurrency_per_cpu = concurrency / n
+    if concurrency_per_cpu == 0:
+        concurrency_per_cpu = 1
+
+    cmd = g_project.path + "/bin/gbtcp-epoll-helloworld "
+    cmd += "-c %d -n %d -a " % (concurrency_per_cpu, reports)
+    for cpu in g_cpus:
+        cmd += ",%d" % cpu
+    cmd += " %s" % get_runner_ip(subnet)
+
+    return g_project.start_process(cmd, False)
 
 def run_tester(args):
     subnet = None
     reports = None
     dst_mac = None
     concurrency = None
+    tester = None
 
     try:
         opts, args = getopt.getopt(args.split(), "D:", [
+            "tester=",
             "subnet=",
             "reports=",
             "concurrency=",
             ])
     except getopt.GetoptError as err:
         print_log(err)
-        die("Invalid tester options")
+        return None, 0
 
     for o, a in opts:
         if o in ("-D"):
             dst_mac = a
+        elif o in ("--tester"):
+            tester = a
         elif o in ("--subnet"):
             subnet = a
         elif o in ("--reports"):
@@ -40,26 +92,14 @@ def run_tester(args):
         reports == None or concurrency == None):
         die("Missed tester required options")
     
-    dst_ip = get_runner_ip(subnet)
-    cmd = "con-gen "
-#    cmd += "--toy "
-    cmd += "--print-banner 0 --print-statistics 0 --report-bytes 1 "
-    cmd += ("-S %s -D %s --reports %d -N -p 80 -d %s" %
-        (env.interface.mac, dst_mac, reports, dst_ip))
+    if tester == "con-gen":
+        proc = run_con_gen(dst_mac, subnet, reports, concurrency)
+    elif tester == "epoll":
+        proc = run_epoll(subnet, reports, concurrency)
+    else:
+        die("Unsupported")
 
-    n = len(g_cpus)
-    for i in range(n):
-        concurrency_per_cpu = concurrency / n
-        if i == 0:
-            concurrency_per_cpu += concurrency % n
-        else:
-            cmd += " --"
-        cmd += " -i %s-%d" % (env.interface.name, i)
-        cmd += " -c %d" % concurrency_per_cpu
-        cmd += " -a %d" % g_cpus[i]
-        cmd += " -s %s.%d.1-%s.%d.255" % (subnet, i + 1, subnet, i + 1)
-
-    return (env.start_process(cmd, False), reports)
+    return (proc, reports)
 
 def tester_loop():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -79,12 +119,17 @@ def tester_loop():
                     if i == '\n':
                         done = True
                         break
+
             proc, reports = run_tester(data.strip())
+            if proc == None:
+                print_log("Invalid request, closing connection")
+                conn.close()
+                continue
 
             # FIXME: Wait APR negotiaition
             cpu_usage = measure_cpu_usage(reports, 2, g_cpus)
 
-            rc, lines = env.wait_process(proc)
+            rc, lines = g_project.wait_process(proc)
 
             data = bytearray()
             for line in lines:
@@ -140,6 +185,6 @@ driver = get_interface_driver(g_interface_name)
 if g_reload_netmap != None:
     reload_netmap(g_reload_netmap, driver)
 
-env.interface = create_interface(driver, g_interface_name);
-env.interface.set_channels(g_cpus)
+g_tester.interface = create_interface(driver, g_interface_name);
+g_tester.interface.set_channels(g_cpus)
 tester_loop()

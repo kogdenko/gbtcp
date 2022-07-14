@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 from common import *
 
 # { 'Ip': [['Forwarding', 'DefaultTTL', ... ], [2, 64, ... ]],
@@ -25,10 +26,9 @@ def parse_file(a, fn):
         else:
             for i in range(len(vl)):
                 vle = vl[i]
-                vle_is_int, vlei = is_int(vle)
-                if not vle_is_int:
+                if not is_int(vle):
                     die("%s:%d:%d: Not an integer" % (fn, ln, i))
-                a[k][1].append(vlei)
+                a[k][1].append(int(vle))
             k_num = len(a[k][0])
             v_num = len(a[k][1])
             if (k_num != v_num):

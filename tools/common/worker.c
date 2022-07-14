@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include "subr.h"
 #include "pid.h"
 #include "worker.h"
@@ -76,17 +77,21 @@ master_quit(void)
 }
 
 static void
-master_loop(unsigned int (*sleep_fn)(unsigned int))
+master_loop(int report_num, unsigned int (*sleep_fn)(unsigned int))
 {
-	int i;
+	int i, j;
+
 	unsigned long long reqs, reqs2;
 	double rps;
 	suseconds_t usec;
 	struct timeval tv, tv2;
 
 	gettimeofday(&tv, NULL);
-	reqs = reqs2 = 0;
-	while (!master_done) {
+	reqs = reqs2 = 1;
+	for (j = 0; j < report_num; ++j) {
+		if (master_done) {
+			break;
+		}
 		(*sleep_fn)(1);
 		gettimeofday(&tv2, NULL);
 		reqs2 = 0;
@@ -99,6 +104,7 @@ master_loop(unsigned int (*sleep_fn)(unsigned int))
 		tv = tv2;
 		reqs = reqs2;
 	}
+	master_done = 1;
 }
 
 void
@@ -146,6 +152,7 @@ sigchld(int signum)
 
 void
 start_master(cpuset_t *worker_cpus, int concurrency, const char *pname, int port,
+	int report_num,
 	void *(*worker_loop_fn)(void *),
 	pid_t (*fork_fn)(void),
 	unsigned int (*sleep_fn)(unsigned int))
@@ -196,7 +203,7 @@ start_master(cpuset_t *worker_cpus, int concurrency, const char *pname, int port
 			}
 		}
 	}
-	master_loop(sleep_fn);
+	master_loop(report_num, sleep_fn);
 	kill_workers();
 	if (port) {
 		close(pid_file_fd);

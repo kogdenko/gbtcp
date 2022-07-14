@@ -37,7 +37,17 @@ g_tests = []
 g_simple_test = []
 g_tcpkt_test = []
 
-env = Environment()
+
+g_project = Project()
+g_db = Database("")
+
+class Runner:
+   def __init__(self): 
+        self.ts_planned = 0
+        self.ts_pass = 0
+        self.ts_failed = 0
+
+g_runner = Runner()
 
 def usage():
     print("Usage: runner [options] {[--netmap-dir|-N] path}")
@@ -59,9 +69,9 @@ def is_local(address):
     return True
 
 def fill_test_list():
-    for f in os.listdir(env.project_path + '/bin'):
+    for f in os.listdir(g_project.path + '/bin'):
         if f[:10] == "gbtcp-test":
-            if os.path.isfile(env.project_path + '/test/' + f + '.pkt'):
+            if os.path.isfile(g_project.path + '/test/' + f + '.pkt'):
                 g_tcpkt_test.append(f)
             else:
                 g_simple_test.append(f)
@@ -75,9 +85,9 @@ def test_exists(test):
 
 def configure_transport():
     if len(g_transport) == 0:
-        if env.have_netmap:
+        if g_project.have_netmap:
             g_transport.append("netmap")
-        elif env.have_xdp:
+        elif g_project.have_xdp:
             g_transport.append("xdp")
         else:
             die("No transport supported")
@@ -93,12 +103,9 @@ def configure_cpu_count():
         if g_cpu_count[0] <= 0:
             die("--cpu-count: Should be greater then 0")
 
-
-
-
 def sendto_tester(concurrency):
-    args = ("-D %s --subnet %s --reports %d --concurrency=%d" %
-        (env.interface.mac, g_subnet, g_report_count, concurrency))
+    args = ("-D %s --subnet %s --reports %d --concurrency=%d --tester=con-gen" %
+        (g_runner.interface.mac, g_subnet, g_report_count, concurrency))
     try:
         tester = socket.create_connection((g_connect, 9999))
     except socket.error as e:
@@ -127,7 +134,7 @@ def add_sample(data, reports, test_id, low):
     if len(rows) != reports:
         print_log("runner: Invalid number of reports (%d, should be %d)" % (len(rows), reports))
         return None
-    sample = Sample()
+    sample = Database.Sample()
     sample.records = [[] for i in range(CONCURRENCY + 1)]
     for row in rows:
         cols = row.split()
@@ -151,7 +158,7 @@ def add_sample(data, reports, test_id, low):
         sample.status = SAMPLE_STATUS_LOW_CPU_USAGE
     else:
         sample.status = SAMPLE_STATUS_OK
-    sample.id = env.add_sample(sample)
+    sample.id = g_db.add_sample(sample)
     return sample
 
 def set_stop_time():
@@ -164,7 +171,7 @@ def cooling():
         t = int(math.ceil((g_cooling_time * 1000 - ms) / 1000))
         time.sleep(t)
 
-def print_test(test_id, sample, env, preload, concurrency, transport, cpu_usage):
+def print_test(test_id, sample, app, preload, concurrency, transport, cpu_usage):
     if not preload:
         transport = "native"
 
@@ -173,7 +180,7 @@ def print_test(test_id, sample, env, preload, concurrency, transport, cpu_usage)
         s += ("%d/%d: " % (test_id, sample.id))
 
     s = ("%s:%s: concurrency=%d, CPU=%s" %
-        (transport, env, concurrency, list_to_str(cpu_usage)))
+        (transport, app, concurrency, list_to_str(cpu_usage)))
 
     if sample != None:
         pps = []
@@ -212,7 +219,7 @@ def do_test(app, cpus, preload, transport, concurrency):
         sample_count = 0
     else:
         if preload:
-            commit = env.commit
+            commit = g_project.commit
             transport_id = get_dict_id(transport_dict, transport)
             assert(transport_id != None)
         else:
@@ -221,29 +228,29 @@ def do_test(app, cpus, preload, transport, concurrency):
             commit = ""
             transport_id = TRANSPORT_NATIVE
 
-        test_id, sample_count = env.add_test(commit, g_tester_id, app.id,
-            transport_id, env.interface.driver_id, concurrency, len(cpus), g_report_count)
+        test_id, sample_count = g_db.add_test(commit, g_tester_id, app.id,
+            transport_id, g_runner.interface.driver_id, concurrency, len(cpus), g_report_count)
 
-    env.ts_planned += g_sample_count
+    g_runner.ts_planned += g_sample_count
 
     for j in range (0, g_sample_count - sample_count):
         if last_used_cpus != cpus:
             last_used_cpus = cpus
             # Wait interface become available
             time.sleep(2)
-            env.interface.set_channels(cpus)
+            g_runner.interface.set_channels(cpus)
 
         rc = app.start_test(test_id, transport, concurrency, cpus, preload)
         if rc:
-            env.ts_pass += 1
+            g_runner.ts_pass += 1
         else:
-            env.ts_failed += 1
+            g_runner.ts_failed += 1
 
 class application:
     id = None
 
     def __init__(self):
-        self.id = env.get_app_id(self.get_name(), self.get_version())
+        self.id = g_db.get_app_id(self.get_name(), self.get_version())
 
     def support_native(self):
         return True
@@ -279,7 +286,7 @@ class application:
                 break
 
         self.stop()
-        env.wait_process(proc)
+        g_project.wait_process(proc)
         set_stop_time()
 
         sample = add_sample(data, g_report_count, test_id, low)
@@ -367,13 +374,13 @@ class nginx(application):
                 worker_connections,
                 get_runner_ip(g_subnet)))
 
-        nginx_conf_path = env.project_path + "/test/nginx.conf"
+        nginx_conf_path = g_project.path + "/test/nginx.conf"
 
         f = open(nginx_conf_path, 'w')
         f.write(nginx_conf)
         f.close()
 
-        return env.start_process("nginx -c %s" % nginx_conf_path, preload)
+        return g_project.start_process("nginx -c %s" % nginx_conf_path, preload)
 
     def __init__(self):
         application.__init__(self)
@@ -383,14 +390,14 @@ class gbtcp_base_helloworld(application):
 
     def get_version(self):
         cmd = "%s -v" % self.path
-        s = system(cmd)[1]
+        s = g_project.system(cmd)[1]
         for line in s.splitlines():
             if line.startswith("version: "):
                 return self.parse_version(line)
         die("%s: Invalid output" % cmd)
 
     def stop(self):
-        system("%s -S" % self.path, True)
+        g_project.system("%s -S" % self.path, True)
 
     def start(self, concurrency, cpus, preload):
         cmd = "%s -l -a " % self.path
@@ -398,10 +405,10 @@ class gbtcp_base_helloworld(application):
             if i != 0:
                 cmd += ","
             cmd += str(cpus[i])
-        return env.start_process(cmd, preload)
+        return g_project.start_process(cmd, preload)
 
     def __init__(self):
-        self.path = env.project_path + "/bin/" + self.get_name()
+        self.path = g_project.path + "/bin/" + self.get_name()
         application.__init__(self)
 
 class gbtcp_epoll_helloworld(gbtcp_base_helloworld):
@@ -502,7 +509,7 @@ driver = get_interface_driver(g_interface_name)
 if g_reload_netmap != None:
     reload_netmap(g_reload_netmap, driver)
 
-env.interface = create_interface(driver, g_interface_name);
+g_runner.interface = create_interface(driver, g_interface_name);
 
 if g_connect == None:
     die("'--connect' must be specified")
@@ -522,29 +529,29 @@ else:
 
 configure_cpu_count()
 
-system("ip a flush dev %s" % env.interface.name)
-system("ip a a dev %s %s/32" % (env.interface.name, get_runner_ip(g_subnet)))
-system("ip r flush dev %s" % env.interface.name)
+system("ip a flush dev %s" % g_runner.interface.name)
+system("ip a a dev %s %s/32" % (g_runner.interface.name, get_runner_ip(g_subnet)))
+system("ip r flush dev %s" % g_runner.interface.name)
 system("ip r d %s.1.1/32" % g_subnet, True)
-system("ip r a dev %s %s.1.1/32 initcwnd 1" % (env.interface.name, g_subnet))
+system("ip r a dev %s %s.1.1/32 initcwnd 1" % (g_runner.interface.name, g_subnet))
 system("ip r d %s.0.0/15" % g_subnet, True)
 system(("ip r a dev %s %s.0.0/15 via %s.1.1 initcwnd 1" %
-    (env.interface.name, g_subnet, g_subnet)))
+    (g_runner.interface.name, g_subnet, g_subnet)))
 
 # Assume that last test ended at least 10 seconds ago
 g_stop_at_milliseconds = milliseconds() - 10000
 
-env.write_gbtcp_conf(g_transport[0])
+g_project.write_gbtcp_conf(g_transport[0], g_runner.interface.name)
 
 for test in g_tests:
     if test in g_simple_test:
-        env.ts_planned += 1
-        proc = env.start_process(env.project_path + '/bin/' + test, False)
-        if env.wait_process(proc)[0] == 0:
-            env.ts_pass += 1
+        g_runner.ts_planned += 1
+        proc = g_project.start_process(g_project.path + '/bin/' + test, False)
+        if g_project.wait_process(proc)[0] == 0:
+            g_runner.ts_pass += 1
             status = "Pass"
         else:
-            env.ts_failed += 1
+            g_runner.ts_failed += 1
             status = "Failed"
         print_log("runner: %s ... %s" % (test, status), True)
     else:
@@ -553,11 +560,11 @@ for test in g_tests:
                 for i in g_cpu_count:
                     cpus = g_cpus[:i]
                     for transport in g_transport:
-                        env.write_gbtcp_conf(transport)
+                        g_project.write_gbtcp_conf(transport, g_runner.interface.name)
                         for concurrency in g_concurrency:
                             do_test(app, cpus, g_preload, transport, concurrency)
                 break
 
-print("Planned: ", env.ts_planned)
-print("Pass: ", env.ts_pass)
-print("Failed: ", env.ts_failed)
+print("Planned: ", g_runner.ts_planned)
+print("Pass: ", g_runner.ts_pass)
+print("Failed: ", g_runner.ts_failed)

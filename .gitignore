@@ -1,4 +1,5 @@
 *.o
+*.os
 *.d
 *.ko
 *.so
@@ -6,11 +7,6 @@
 *.swp
 *.bak
 *.log
+gbtcp/config.h
 tags
-bin/gbtcp_test_*
-bin/gbtcpd
-bin/netstat
-bin/sysctl
-bin/so_echo
-bin/fwd
-
+bin

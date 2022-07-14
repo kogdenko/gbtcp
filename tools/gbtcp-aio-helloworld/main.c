@@ -1,4 +1,4 @@
-// GPL V2 License
+// SPDX-License-Identifier: GPL-2.0
 #include <tools/common/subr.h>
 #include <tools/common/worker.h>
 #include <gbtcp/gbtcp.h>
@@ -129,6 +129,7 @@ main(int argc, char **argv)
 		0,
 		PROG_NAME,
 		port,
+		INT_MAX,
 		worker_loop,
 		gt_fork,
 		gt_sleep);

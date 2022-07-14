@@ -7,7 +7,6 @@ import psutil
 import platform
 import subprocess
 import multiprocessing
-#import datetime
 import syslog
 import sqlite3
 import mysql.connector
@@ -34,12 +33,32 @@ SAMPLE_STATUS_LOW_CPU_USAGE = 2
 TESTER_LOCAL_CON_GEN = 1
 TESTER_REMOTE_CON_GEN = 2
 
+tester_dict = {
+    TESTER_LOCAL_CON_GEN: "local:con-gen",
+    TESTER_REMOTE_CON_GEN: "con-gen",
+}
+
+TRANSPORT_NATIVE = 0
+TRANSPORT_NETMAP = 1
+TRANSPORT_XDP = 2
+
+transport_dict = {
+    TRANSPORT_NATIVE: "native",
+    TRANSPORT_NETMAP: "netmap",
+    TRANSPORT_XDP: "xdp",
+}
+
+DRIVER_VETH = 1
+DRIVER_IXGBE = 2
+
+driver_dict = {
+    DRIVER_VETH: "veth",
+    DRIVER_IXGBE: "ixgbe",
+}
+
 g_reload_netmap = None
 
 def print_log(s, to_stdout = False):
-    #now = datetime.datetime.now()
-    #s = now.strftime("%Y-%m-%d %H:%M:%S.%f: ")
-    #sys.stdout.write(s)
     syslog.syslog(s)
     if to_stdout:
         print(s)
@@ -52,8 +71,8 @@ def is_int(s):
     try:
         i = int(s)
     except:
-        return False, 0
-    return True, i
+        return False
+    return True
 
 def upper_pow2_32(x):
     x = int(x)
@@ -101,35 +120,67 @@ def list_to_str(l):
     s += "]"
     return s
 
-TRANSPORT_NATIVE = 0
-TRANSPORT_NETMAP = 1
-TRANSPORT_XDP = 2
-
-transport_dict = {
-    TRANSPORT_NATIVE: "native",
-    TRANSPORT_NETMAP: "netmap",
-    TRANSPORT_XDP: "xdp",
-}
-
 def get_dict_id(d, name):
     for key, value in d.items():
         if value == name:
             return key
     return None
 
-DRIVER_VETH = 1
-DRIVER_IXGBE = 2
+def system(cmd, fault_tollerance = False, env = None):
+    proc = subprocess.Popen(cmd.split(), env = env,
+        stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+    try:
+        out, err = proc.communicate(timeout = 5)
+    except:
+        proc.kill();
+        die("Command '%s' failed, exception: '%s'" % (cmd, sys.exc_info()[0]))
 
-driver_dict = {
-    DRIVER_VETH: "veth",
-    DRIVER_IXGBE: "ixgbe",
-}
+    out = bytes_to_str(out)
+    err = bytes_to_str(err)
+    rc = proc.returncode
+     
+    print_log("$ %s # $? = %d\n%s\n%s" % (cmd, rc, out, err))
 
-tester_dict = {
-    TESTER_LOCAL_CON_GEN: "local:con-gen",
-    TESTER_REMOTE_CON_GEN: "con-gen",
-}
+    if rc != 0 and not fault_tollerance:
+        die("Command '%s' failed with code '%d'" % (cmd, rc))
+        
+    return rc, out, err
 
+def rmmod(netmap_path, module):
+    rc, _, err = system("rmmod %s" % module, True)
+    if rc == 0:
+        return True
+    lines = err.splitlines()
+    if len(lines) == 1:
+        msg = lines[0].strip()
+        p = "rmmod: ERROR: Module %s is not currently loaded" % module
+        m = re.search(p, msg)
+        if m != None:
+            return False
+        p = "rmmod: ERROR: Module %s is in use by: " % module
+        m = re.search(p, msg)
+        if m != None and rmmod(msg[len(p):]):
+            rmmod(module)
+            return True
+    die("Cannot remove module '%s" % module)
+
+def insmod(netmap_path, module_name):
+    if module_name == "ixgbe":
+        module_dir = "ixgbe"
+    else:
+        module_dir = ""
+    path = netmap_path + "/" + module_dir + "/" + module_name + ".ko"
+    system("insmod %s" % path)
+
+def reload_netmap(netmap_path, driver):
+    rmmod(driver)
+    rmmod("netmap")
+    insmod(netmap_path, "netmap")
+    insmod(netmap_path, driver)
+    # Wait interfaces after inserting module
+    time.sleep(1)
+
+# FIXME: to dict
 def get_record_name(i):
     if i == CPS:
         return "cps"
@@ -215,40 +266,6 @@ def measure_cpu_usage(t, delay, cpus):
         cpu_usage.append(percent[cpu])
     return cpu_usage
 
-def rmmod(module):
-    rc, _, err = system("rmmod %s" % module, True)
-    if rc == 0:
-        return True
-    lines = err.splitlines()
-    if len(lines) == 1:
-        msg = lines[0].strip()
-        p = "rmmod: ERROR: Module %s is not currently loaded" % module
-        m = re.search(p, msg)
-        if m != None:
-            return False
-        p = "rmmod: ERROR: Module %s is in use by: " % module
-        m = re.search(p, msg)
-        if m != None and rmmod(msg[len(p):]):
-            rmmod(module)
-            return True
-    die("Cannot remove module '%s" % module)
-
-def insmod(netmap_path, module_name):
-    if module_name == "ixgbe":
-        module_dir = "ixgbe"
-    else:
-        module_dir = ""
-    path = netmap_path + "/" + module_dir + "/" + module_name + ".ko"
-    system("insmod %s" % path)
-
-def reload_netmap(netmap_path, driver):
-    rmmod(driver)
-    rmmod("netmap")
-    insmod(netmap_path, "netmap")
-    insmod(netmap_path, driver)
-    # Wait interfaces after inserting module
-    time.sleep(1)
-
 def set_irqs(interface, cpus):
     f = open("/proc/interrupts", 'r')
     lines = f.readlines()
@@ -298,48 +315,6 @@ def get_interface_driver(name):
             return line[8:].strip()
     die("Cannot get interface '%s' driver" % name)
 
-class interface:
-    def __init__(self, name):
-        self.name = name
-        f = open("/sys/class/net/%s/address" % name)
-        self.mac = f.read().strip()
-        f.close()
-
-class ixgbe(interface):
-    def get_driver(self):
-        return "ixgbe"
-
-    def __init__(self, name):
-        interface.__init__(self, name)
-        system("ethtool -K %s rx off tx off" % name)
-        system("ethtool -K %s gso off" % name)
-        system("ethtool -K %s ntuple on" % name)
-        system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)
-        system("ethtool -N %s rx-flow-hash udp4 sdfn" % name)
-        system("ethtool -G %s rx 2048 tx 2048" % name)
-
-    def set_channels(self, cpus):
-        system("ethtool -L %s combined %d" % (self.name, len(cpus)))
-        set_irqs(self.name, cpus)
-
-class veth(interface):
-    def get_driver(self):
-        return "veth"
-
-    def set_channels_max(self):
-        return 1;
-
-    def __init__(self, name):
-        interface.__init__(self, name)
-        system("ethtool -K %s rx off tx off" % name)
-        system("ethtool -K %s gso off" % name)
-        system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)
-        system("ethtool -N %s rx-flow-hash udp4 sdfn" % name)
-
-    def set_channels(self, cpus):
-        if len(cpus) != 1:
-            die("veth interface doesn't support multiqueue mode. Please, use single cpu")
-
 def create_interface(driver, name):
     driver_id = get_dict_id(driver_dict, driver)
     if driver_id == None:
@@ -353,32 +328,6 @@ def create_interface(driver, name):
 
 def milliseconds():
     return int(time.monotonic_ns() / 1000000)
-
-def get_project_path():
-    return os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../")
-
-def system(cmd, fault_tollerance = False):
-    env = os.environ.copy()
-    env["LD_LIBRARY_PATH"] = get_project_path() + "/bin"
-
-    proc = subprocess.Popen(cmd.split(), env = env,
-        stdout = subprocess.PIPE, stderr = subprocess.PIPE)
-    try:
-        out, err = proc.communicate(timeout = 5)
-    except:
-        proc.kill();
-        die("Command '%s' failed, exception: '%s'" % (cmd, sys.exc_info()[0]))
-
-    out = bytes_to_str(out)
-    err = bytes_to_str(err)
-    rc = proc.returncode
-     
-    print_log("$ %s # $? = %d\n%s\n%s" % (cmd, rc, out, err))
-
-    if rc != 0 and not fault_tollerance:
-        die("Command '%s' failed, return code: %d" % (cmd, rc))
-        
-    return rc, out, err
 
 def get_cpu_name():
     if platform.system() == "Windows":
@@ -429,36 +378,158 @@ def find_outliers(sample, std):
     else:
         return range(0, len(sample)), angle
 
-def log_invalid_test_field(test, field):
-    print_log("Invalid field '%s' in table '%s' where 'test_id=%d'" %
-        (field, TEST_TABLE, test.id), True)
 
-class Sample:
+
+
+###############################
+class interface:
+    def __init__(self, name):
+        self.name = name
+        f = open("/sys/class/net/%s/address" % name)
+        self.mac = f.read().strip()
+        f.close()
+
+class ixgbe(interface):
+    def get_driver(self):
+        return "ixgbe"
+
+    def __init__(self, name):
+        interface.__init__(self, name)
+        system("ethtool -K %s rx off tx off" % name)
+        system("ethtool -K %s gso off" % name)
+        system("ethtool -K %s ntuple on" % name)
+        system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)
+        system("ethtool -N %s rx-flow-hash udp4 sdfn" % name)
+        system("ethtool -G %s rx 2048 tx 2048" % name)
+
+    def set_channels(self, cpus):
+        system("ethtool -L %s combined %d" % (self.name, len(cpus)))
+        set_irqs(self.name, cpus)
+
+class veth(interface):
+    def get_driver(self):
+        return "veth"
+
+    def set_channels_max(self):
+        return 1;
+
+    def __init__(self, name):
+        interface.__init__(self, name)
+        system("ethtool -K %s rx off tx off" % name)
+        system("ethtool -K %s gso off" % name)
+        system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)
+        system("ethtool -N %s rx-flow-hash udp4 sdfn" % name)
+
+    def set_channels(self, cpus):
+        if len(cpus) != 1:
+            die("veth interface doesn't support multiqueue mode. Please, use single cpu")
+
+class Project:
+    def system(self, cmd, fault_tollerance = False):
+        env = os.environ.copy()
+        env["LD_LIBRARY_PATH"] = self.path + "/bin"
+        return system(cmd, fault_tollerance, env)
+
     def __init__(self):
-        self.records = []
+        self.path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../")
+        self.gbtcp_conf_path = self.path + "/test/gbtcp.conf"
 
-class Test:
-    attrs = [
-        "commit",
-        "tester",
-        "os",
-        "app",
-        "cpu_model",
-        "transport",
-        "driver",
-        "concurrency",
-    ]
+        self.commit = None
+        self.have_xdp = None
+        self.have_netmap = None
 
-    def __init__(self):
-        self.samples = []
+        cmd = self.path + "/bin/gbtcp-aio-helloworld -v"
+        _, out, _ = self.system(cmd)
+        for line in out.splitlines():
+            if line.startswith("gbtcp: "):
+                self.commit = git_rev_parse(line[7:])
+            elif line.startswith("config: "):
+                if re.search("HAVE_XDP", line) != None:
+                    self.have_xdp = True
+                else:
+                    self.have_xdp = False
+                if re.search("HAVE_NETMAP", line) != None:
+                    self.have_netmap = True
+                else:
+                    self.have_netmap = False
 
-class Cpu_model:
-    pass
+        if self.commit == None or self.have_xdp == None or self.have_netmap == None:
+            die("%s: Parse error"  % cmd)
+
+    def write_gbtcp_conf(self, transport, ifname):
+        gbtcp_conf = (
+            "dev.transport=%s\n"
+            "route.if.add=%s\n"
+            % (transport, ifname))
+
+        f = open(self.gbtcp_conf_path, 'w')
+        f.write(gbtcp_conf)
+        f.close()
+
+    def start_process(self, cmd, preload):
+        e = os.environ.copy()
+        e["LD_LIBRARY_PATH"] = self.path + "/bin"
+        if preload:
+            e["LD_PRELOAD"] = os.path.normpath(self.path + "/bin/libgbtcp.so")
+            e["GBTCP_CONF"] = self.gbtcp_conf_path
+
+        proc = subprocess.Popen(cmd.split(), env = e,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        print_log("$ %s &\n[%d]" % (cmd, proc.pid))
+
+        return proc
+
+    def wait_process(self, proc):
+        t0 = milliseconds()
+        try:
+            proc.wait(timeout = 5)
+        except Exception as e:
+            t1 = milliseconds()
+            print("dt = %d milliseconds" % (t1 - t0))
+            raise e
+        lines = []
+        for pipe in [proc.stdout, proc.stderr]:
+            while True:
+                line = pipe.readline()
+                if not line:
+                    break
+                lines.append(line.decode('utf-8').strip())
+        print_log("$ [%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
+        return proc.returncode, lines
 
 class Database:
+    class Cpu_model:
+        pass
+
+    class Sample:
+        def __init__(self):
+            self.records = []
+
+    class Test:
+        attrs = [
+            "commit",
+            "tester",
+            "os",
+            "app",
+            "cpu_model",
+            "transport",
+            "driver",
+            "concurrency",
+        ]
+
+        def __init__(self):
+            self.samples = []
+
+    def log_invalid_test_field(test, field):
+        print_log("Invalid field '%s' in table '%s' where 'test_id=%d'" %
+            (field, TEST_TABLE, test.id), True)
+
     def __init__(self, address):
         #self.sql_conn = sqlite3.connect(address)
         self.sql_conn = mysql.connector.connect(user = 'root', database='gbtcp')
+        self.os_id = self.get_os_id(platform.system(), platform.release())
+        self.cpu_model_id = self.get_cpu_model_id(get_cpu_name())
 
     def execute(self, cmd, *args):
         sql_cursor = self.sql_conn.cursor(buffered = True)
@@ -472,23 +543,21 @@ class Database:
         assert(type(row[0]) == int)
         return int(row[0])
 
-    def add_test(self, commit, tester_id, os_id, app_id,
-            transport_id, driver_id, concurrency, cpu_model_id, cpu_count, report_count):
+    def add_test(self, commit, tester_id, app_id,
+            transport_id, driver_id, concurrency, cpu_count, report_count):
         assert(commit != None)
         assert(tester_id != None)
-        assert(os_id != None)
         assert(app_id != None)
         assert(transport_id != None)
         assert(driver_id != None)
         assert(concurrency != None)
-        assert(cpu_model_id != None)
         assert(cpu_count != None)
         assert(report_count != None)
         where = ("gbtcp_commit=\"%s\" and tester_id=%d and os_id=%d and app_id=%d and "
             "transport_id=%d and driver_id=%d and concurrency=%d and cpu_model_id=%d and "
             "cpu_count=%d" %
-            (commit, tester_id, os_id, app_id,
-            transport_id, driver_id, concurrency, cpu_model_id,
+            (commit, tester_id, self.os_id, app_id,
+            transport_id, driver_id, concurrency, self.cpu_model_id,
             cpu_count))
 
         cmd = ("insert into %s "
@@ -496,8 +565,8 @@ class Database:
             "transport_id, driver_id, concurrency, cpu_model_id, cpu_count) "
             "select \"%s\", %d, %d, %d, %d, %d, %d, %d, %d where not exists "
             "(select 1 from %s where %s)" % (
-            TEST_TABLE, commit, tester_id, os_id, app_id,
-            transport_id, driver_id, concurrency, cpu_model_id, cpu_count,
+            TEST_TABLE, commit, tester_id, self.os_id, app_id,
+            transport_id, driver_id, concurrency, self.cpu_model_id, cpu_count,
             TEST_TABLE, where))
         self.execute(cmd)
 
@@ -563,7 +632,7 @@ class Database:
         if row == None:
             return None
         assert(len(row) == 10)
-        sample = Sample()
+        sample = Database.Sample()
         sample.id = int(row[0])
         sample.test_id = int(row[1])
         sample.status = int(row[2])
@@ -581,7 +650,7 @@ class Database:
         if row == None:
             return None
         assert(len(row) == 10)
-        test = Test()
+        test = Database.Test()
         test.id = int(row[0])
         test.commit = row[1]
         test.tester_id = int(row[2])
@@ -726,85 +795,9 @@ class Database:
             if row == None:
                 break
             assert(len(row) == 3)
-            cpu_model = Cpu_model()
+            cpu_model = Database.Cpu_model()
             cpu_model.id = int(row[0])
             cpu_model.name = row[1]
             cpu_model.alias = row[2]
             cpu_models.append(cpu_model)
         return cpu_models
-
-class Environment(Database):
-    def add_test(self, commit, tester_id, app_id,
-            transport_id, driver_id, concurrency, cpu_count, report_count):
-        return Database.add_test(self, commit, tester_id, self.os_id, app_id,
-            transport_id, driver_id, concurrency, self.cpu_model_id, cpu_count, report_count)
-
-    def write_gbtcp_conf(self, transport):
-        gbtcp_conf = (
-            "dev.transport=%s\n"
-            "route.if.add=%s\n"
-            % (transport, self.interface.name))
-
-        f = open(self.gbtcp_conf_path, 'w')
-        f.write(gbtcp_conf)
-        f.close()
-
-    def start_process(self, cmd, preload):
-        e = os.environ.copy()
-        e["LD_LIBRARY_PATH"] = self.project_path + "/bin"
-        if preload:
-            e["LD_PRELOAD"] = os.path.normpath(self.project_path + "/bin/libgbtcp.so")
-            e["GBTCP_CONF"] = self.gbtcp_conf_path
-
-        proc = subprocess.Popen(cmd.split(), env = e,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        print_log("$ %s &\n[%d]" % (cmd, proc.pid))
-
-        return proc
-
-    def wait_process(self, proc):
-        proc.wait(timeout = 5)
-        lines = []
-        for pipe in [proc.stdout, proc.stderr]:
-            while True:
-                line = pipe.readline()
-                if not line:
-                    break
-                lines.append(line.decode('utf-8').strip())
-        print_log("$ [%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
-        return proc.returncode, lines
-
-    def __init__(self):
-        self.project_path = get_project_path()
-        self.gbtcp_conf_path = self.project_path + "/test/gbtcp.conf"
-
-        self.commit = None
-        self.have_xdp = None
-        self.have_netmap = None
-        self.ts_planned = 0
-        self.ts_pass = 0
-        self.ts_failed = 0
-
-        cmd = self.project_path + "/bin/gbtcp-aio-helloworld -v"
-        _, out, _ = system(cmd)
-        for line in out.splitlines():
-            if line.startswith("gbtcp: "):
-                self.commit = git_rev_parse(line[7:])
-            elif line.startswith("config: "):
-                if re.search("HAVE_XDP", line) != None:
-                    self.have_xdp = True
-                else:
-                    self.have_xdp = False
-                if re.search("HAVE_NETMAP", line) != None:
-                    self.have_netmap = True
-                else:
-                    self.have_netmap = False
-
-        if self.commit == None or self.have_xdp == None or self.have_netmap == None:
-            die("%s: Parse error"  % cmd)
-
-        Database.__init__(self, self.project_path + "/test/data.sqlite3")
-
-        self.os_id = self.get_os_id(platform.system(), platform.release())
-        self.cpu_model_id = self.get_cpu_model_id(get_cpu_name())

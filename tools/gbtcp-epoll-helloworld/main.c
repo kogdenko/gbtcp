@@ -1,4 +1,4 @@
-// GPL V2 License
+// SPDX-License-Identifier: GPL-2.0
 #include <tools/common/subr.h>
 #include <tools/common/worker.h>
 
@@ -424,7 +424,7 @@ usage(void)
 int
 main(int argc, char **argv)
 {
-	int rc, opt, tflag, Sflag, port;
+	int rc, opt, nflag, tflag, Sflag, port;
 	int concurrency;
 	char hostname[32];
 	cpuset_t worker_cpus;
@@ -434,8 +434,9 @@ main(int argc, char **argv)
 	CPU_ZERO(&worker_cpus);
 	concurrency = 0;
 	assert(sizeof(union connection) == sizeof(uint64_t));
+	nflag = 0;
 	port = 80;
-	while ((opt = getopt(argc, argv, "hvp:lc:Ca:tS")) != -1) {
+	while ((opt = getopt(argc, argv, "hvp:lc:n:Ca:tS")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
@@ -455,6 +456,9 @@ main(int argc, char **argv)
 				concurrency = 1;
 			}
 			break;
+		case 'n':
+			nflag = strtoul(optarg, NULL, 10);
+			break;
 		case 'C':
 			g_Cflag = 1;
 			break;
@@ -470,7 +474,13 @@ main(int argc, char **argv)
 		case 'S':
 			Sflag = 1;
 			break;
+		default:
+			usage();
+			return EXIT_FAILURE;
 		}
+	}
+	if (nflag == 0) {
+		nflag = INT_MAX;
 	}
 	g_addr.sin_family = AF_INET;
 	g_addr.sin_port = htons(port);
@@ -514,6 +524,7 @@ main(int argc, char **argv)
 		concurrency,
 		PROG_NAME,
 		g_lflag ? port : 0,
+		nflag,
 		worker_loop,
 		tflag ? NULL : fork,
 		sleep);

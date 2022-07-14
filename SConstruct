@@ -51,10 +51,10 @@ def get_gbtcp_version():
             die("Cannot extract gbtcp version")
         return commit
 
-def add_target(target, source, env):
-    env.Append(CPPPATH = ['.'])
-    #target.append(str(target[0]))
-    return target, source
+#def add_target(target, source, env):
+#    env.Append(CPPPATH = ['.'])
+#    #target.append(str(target[0]))
+#    return target, source
 
 def configure(target, source, env):
     version = get_gbtcp_version()
@@ -143,14 +143,15 @@ shutil.copyfile('./tools/pre-commit', '.git/hooks/pre-commit')
 
 PLATFORM = platform.system()
 
-env = Environment(CC = 'gcc')
+g_env = Environment(CC = 'gcc')
+g_env.Append(CPPPATH = ['.'])
 
-bld = Builder(action = configure, emitter = add_target)
-env.Append(BUILDERS = { 'Configure': bld })
-env.Configure('gbtcp/config.h', None)
-env.AlwaysBuild('gbtcp/config.h')
+bld = Builder(action = configure)#, emitter = add_target)
+g_env.Append(BUILDERS = { 'Configure': bld })
+g_env.Configure('gbtcp/config.h', None)
+g_env.AlwaysBuild('gbtcp/config.h')
 
-conf = Configure(env)
+conf = Configure(g_env)
 
 srcs = [
     'gbtcp/epoll.c',
@@ -224,15 +225,15 @@ if platform.architecture()[0] == "64bit":
 else:
     lib_path = '/usr/lib'
 
-env.Append(CFLAGS = flags_to_string(cflags))
-env.Append(LINKFLAGS = flags_to_string(ldflags))
+g_env.Append(CFLAGS = flags_to_string(cflags))
+g_env.Append(LINKFLAGS = flags_to_string(ldflags))
 
-libgbtcp = libgbtcp_library(env, srcs)
+libgbtcp = libgbtcp_library(g_env, srcs)
 
-env.Install(lib_path, libgbtcp)
-env.Alias('install', lib_path)
+g_env.Install(lib_path, libgbtcp)
+g_env.Alias('install', lib_path)
 
-libgbtcptools = env.SharedLibrary('bin/libgbtcptools.so', [
+libgbtcptools = g_env.SharedLibrary('bin/libgbtcptools.so', [
     'tools/common/subr.c',
     'tools/common/pid.c',
     'tools/common/worker.c',
@@ -242,28 +243,30 @@ libgbtcptools = env.SharedLibrary('bin/libgbtcptools.so', [
 ldflags.append('-Lbin')
 ldflags.append('-lgbtcp')
 
-env_gbtcp = Environment(CC = 'gcc',
+g_env_gbtcp = Environment(CC = 'gcc',
     CCFLAGS = flags_to_string(cflags),
     LINKFLAGS = flags_to_string(ldflags),
 )
 
-sysctl = env_gbtcp.Program('bin/gbtcp-sysctl', 'sysctl/sysctl.c')
+g_env_gbtcp.Append(CPPPATH = ['.'])
+
+sysctl = g_env_gbtcp.Program('bin/gbtcp-sysctl', 'sysctl/sysctl.c')
 Requires(sysctl, libgbtcp)
-install_program(env_gbtcp, sysctl);
+install_program(g_env_gbtcp, sysctl);
 
-netstat = env_gbtcp.Program('bin/gbtcp-netstat', 'netstat/netstat.c')
+netstat = g_env_gbtcp.Program('bin/gbtcp-netstat', 'netstat/netstat.c')
 Requires(netstat, libgbtcp)
-install_program(env_gbtcp, netstat)
+install_program(g_env_gbtcp, netstat)
 
-controller = env_gbtcp.Program('bin/gbtcp-controller', 'controller/controller.c')
+controller = g_env_gbtcp.Program('bin/gbtcp-controller', 'controller/controller.c')
 Requires(controller, libgbtcp)
 
-aio_helloworld_program(env_gbtcp)
-epoll_helloworld_program(env)
+aio_helloworld_program(g_env_gbtcp)
+epoll_helloworld_program(g_env)
 
 # Tests
 for f in Glob('test/gbtcp-test-*.c'):
-    env.Program("bin/" + f.name[0:-2], ["test/" + f.name, env.Object('test/subr.c')])
+    g_env.Program("bin/" + f.name[0:-2], ["test/" + f.name, g_env.Object('test/subr.c')])
 
 for f in Glob('test/libgbtcp-test-*.c'):
-    env_gbtcp.Program("bin/" + f.name[0:-2], ["test/" + f.name, env.Object('test/subr.c')])
+    g_env_gbtcp.Program("bin/" + f.name[0:-2], ["test/" + f.name, g_env.Object('test/subr.c')])
