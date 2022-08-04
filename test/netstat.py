@@ -1,4 +1,8 @@
+#!/usr/bin/python
 # SPDX-License-Identifier: GPL-2.0
+import getopt
+import argparse
+
 from common import *
 
 # { 'Ip': [['Forwarding', 'DefaultTTL', ... ], [2, 64, ... ]],
@@ -6,72 +10,87 @@ from common import *
 #   ...
 # }
 
-def parse_file(a, fn):
-    f = open(fn, 'r')
-    lines = f.readlines()
-    f.close()
-    ln = 0
-    for line in lines:
-        ln += 1
-        kv = line.split(':')
-        if len(kv) != 2:
-            die("%s:%d: Unepected ':'" % (fn, ln))
-        k = kv[0] # 'Ip'
-        v = kv[1] # 'Forwarding DefaultTTL' or '2 64'
-        vl = v.split()
-        if a.get(k) == None:
-            a[k] = [[],[]]
-            for vle in vl:
-                a[k][0].append(vle)
-        else:
-            for i in range(len(vl)):
-                vle = vl[i]
-                if not is_int(vle):
-                    die("%s:%d:%d: Not an integer" % (fn, ln, i))
-                a[k][1].append(int(vle))
-            k_num = len(a[k][0])
-            v_num = len(a[k][1])
-            if (k_num != v_num):
-                die("%s:%d: Number of keys (%d) not equal to number of values (%d)" % 
-                    (fn, ln, k_num, v_num))
-    return a
+class Netstat:
+    def read_file(self, path):
+        f = open(path, 'r')
+        lines = f.readlines()
+        f.close()
+        for line in lines:
+            tmp = line.split(':')
+            assert(len(tmp) == 2)
+            first = tmp[0] 
+            if self.map.get(first) == None:
+                self.map[first] = [[],[]]
+                for second in tmp[1].split():
+                    self.map[first][0].append(second)
+            else:
+                for val in tmp[1].split():
+                    self.map[first][1].append(int(val))
+                assert(len(self.map[first][0]) == len(self.map[first][1]))
 
-def read():
-    a = {}
-    a = parse_file(a, '/proc/net/snmp')
-    a = parse_file(a, '/proc/net/netstat')
-    return a
+    def read(self):
+        self.map = {}
+        self.read_file('/proc/net/snmp')
+        self.read_file('/proc/net/netstat')
 
-def diff(a, b):
-    d = {}
-    for ak, av in a.items():
-        bv = b.get(ak)
-        if bv == None:
-            print_log("netstat: key '%s' not exists" % ak)
-            continue
-        if len(bv[0]) != len(av[0]):
-            print_log("netstat: key '%s' has unexpected number of values (%d, %d)" %
-                (ak, len(bv[0]), len(av[0])))
-            continue
-        for i in range(len(av[0])):
-            dv = bv[1][i] - av[1][i]
-            if dv != 0:
-                if d.get(ak) == None:
-                    d[ak] = [[], []]
-                d[ak][0].append(av[0][i])
-                d[ak][1].append(dv)
-    return d
+    def __init__(self, empty=False):
+        self.map = {}
+        if not empty:
+            self.read()
 
-def to_string(a):
-    s = ""
-    for k, v in a.items():
-        s += "%s:\n" % k
-        for i in range(len(v[0])):
-            s += "    %s: %d\n" % (v[0][i], v[1][i])
-    return s
+    def get(self, first, second):
+        for i in range(len(self.map[first][0])):
+            if self.map[first][0][i] == second:
+                return self.map[first][1][i]
+        return None
 
-def get(a, k, kk):
-    for i in len(a[k][0]):
-        if a[k][0][i] == kk:
-            return a[k][1][i]
-    return None
+    def __sub__(self, other):
+        res = Netstat(True)
+        for first, pair in self.map.items():
+            for i in range(0, len(pair[0])):
+                second = pair[0][i]
+                other_val = other.get(first, second)
+                if other_val != None:
+                    if first not in res.map:
+                        res.map[first] = [[], []]
+                    res.map[first][0].append(second)
+                    res.map[first][1].append(pair[1][i] - other_val)
+        return res;
+
+    def to_string(self, hide_zeroes=True):
+        s = ""
+        for first, pair in self.map.items():
+            printed = False
+            for i in range(len(pair[0])):
+                val = pair[1][i]
+                if hide_zeroes and not val:
+                    continue
+                if not printed:
+                    printed = True
+                    s += "%s:\n" % first
+                s += "    %s: %d\n" % (pair[0][i], pair[1][i])
+        return s
+
+        
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--rate", help="number of secods between reports", type=int)
+    ap.add_argument("-D", metavar="mac", required=True, type=argparse_mac)
+    args = ap.parse_args()
+    print(args.mac)
+    return 0; 
+    if args.rate:
+        while True:
+            save = Netstat()
+            time.sleep(args.rate)
+            print("Netstat rate:")
+            print((Netstat() - save).to_string())
+            print("_______________")
+    else:
+        print(Netstat().to_string())
+
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

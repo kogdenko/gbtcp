@@ -13,12 +13,13 @@ import platform
 import importlib
 import multiprocessing
 import re
+
 import numpy
 
 from common import *
 import netstat
 
-g_subnet = "10.20"
+g_subnet = (10, 20, 0, 0)
 g_connect = None
 g_interface_name = None
 g_transport = []
@@ -26,8 +27,8 @@ g_concurrency = []
 g_cpus = None
 g_cpu_count = None
 g_report_count = 10
-g_skip_reports = 2
-g_sample_count = SAMPLE_COUNT_MAX
+g_delay = 2
+g_sample_count = Database.SAMPLE_COUNT_MAX
 g_cooling_time = 2
 g_stop_at_milliseconds = None
 g_dry_run = False
@@ -104,12 +105,21 @@ def configure_cpu_count():
             die("--cpu-count: Should be greater then 0")
 
 def sendto_tester(concurrency):
-    args = ("-D %s --subnet %s --reports %d --concurrency=%d --tester=con-gen" %
-        (g_runner.interface.mac, g_subnet, g_report_count, concurrency))
+    args = ("--dst-mac %s "
+        "--subnet %d.%d.0.0 "
+        "--delay %d "
+        "--duration %d "
+        "--concurrency %d "
+        "--application con-gen" % (
+        str(g_runner.interface.mac),
+        g_subnet[0], g_subnet[1],
+        g_delay,
+        g_report_count,
+        concurrency))
     try:
         tester = socket.create_connection((g_connect, 9999))
     except socket.error as e:
-        die("Cannot connect to '%s': (%s)" % (g_connect, e))
+        die("Cannot connect to '%s': %s" % (g_connect, str(e)))
     tester.send((args + "\n").encode('utf-8'))
     return tester
 
@@ -126,39 +136,32 @@ def recvfrom_tester(s):
         data += bytearray(buf)
     return data
 
+def print_invalid_tester_reply(s):
+    print_log("Invalid tester reply:\n%s" % s)
 
-def add_sample(data, reports, test_id, low):
-    s = data.decode('utf-8').strip()
+def parse_tester_reply(reply_ba, test_id, duration):
+    reply = reply_ba.decode('utf-8').strip()
 
-    rows = s.split('\n')
-    if len(rows) != reports:
-        print_log("runner: Invalid number of reports (%d, should be %d)" % (len(rows), reports))
+    rows = reply.split('\n')
+    if len(rows) != 1:
+        print_invalid_tester_reply(reply)       
         return None
+    cols = rows[0].split()
+    if len(cols) == 1:
+        return None
+    if len(cols) != Database.Sample.CONCURRENCY + 2:
+        print_invalid_tester_reply(reply)
+        return None
+
     sample = Database.Sample()
-    sample.records = [[] for i in range(CONCURRENCY + 1)]
-    for row in rows:
-        cols = row.split()
-        if len(cols) != 9:
-            print_log(("runner: Invalid number of columns (%d, should be 9)\n%s" %
-                (len(cols), row)))
-            return None
-        sample.records[CPS].append(int(cols[0]))
-        sample.records[IPPS].append(int(cols[1]))
-        sample.records[IBPS].append(int(cols[2]))
-        sample.records[OPPS].append(int(cols[3]))
-        sample.records[OBPS].append(int(cols[4]))
-        sample.records[RXMTPS].append(int(cols[7]))
-        sample.records[CONCURRENCY].append(int(cols[8]))
     sample.test_id = test_id
-    record = sample.records[CPS][g_skip_reports:]
-    sample.outliers, _ = find_outliers(record, None)
-    if sample.outliers != None:
-        sample.status = SAMPLE_STATUS_OUTLIERS
-    elif low:
-        sample.status = SAMPLE_STATUS_LOW_CPU_USAGE
-    else:
-        sample.status = SAMPLE_STATUS_OK
-    sample.id = g_db.add_sample(sample)
+    sample.duration = duration
+    sample.results = []
+    for i in range(1, len(cols)):
+        if not is_int(cols[i]):
+            print_invalid_tester_reply(reply)
+            return None
+        sample.results.append(int(cols[i]))
     return sample
 
 def set_stop_time():
@@ -171,41 +174,32 @@ def cooling():
         t = int(math.ceil((g_cooling_time * 1000 - ms) / 1000))
         time.sleep(t)
 
-def print_test(test_id, sample, app, preload, concurrency, transport, cpu_usage):
+def print_report(test_id, sample, app, preload, concurrency, transport, cpu_usage, low):
     if not preload:
         transport = "native"
 
-    s = "runner: "
-    if sample != None:
+    s = ""
+    if sample != None and not low:
         s += ("%d/%d: " % (test_id, sample.id))
 
-    s = ("%s:%s: concurrency=%d, CPU=%s" %
-        (transport, app, concurrency, list_to_str(cpu_usage)))
+    s += ("%s:%s: c=%d, CPU=%s" %
+        (transport, app, concurrency, str(cpu_usage)))
 
     if sample != None:
-        pps = []
-        rxmtps = []
-        for i in range(len(sample.records[IPPS])):
-            pps.append(sample.records[IPPS][i] + sample.records[OPPS][i])
-            rxmtps.append(sample.records[RXMTPS][i])
-        pps = numpy.mean(pps)
-        rxmtps = numpy.mean(rxmtps)
+        pps = sample.results[Database.Sample.IPPS] + sample.results[Database.Sample.OPPS]
         s += ", %.2f mpps" % (pps/1000000)
         if False:
+            rxmtps = sample.results[Database.Sample.RXMTPS]
             s += ", %.2f rxmtps" % (rxmtps/1000000)
 
     s += " ... "
 
     if sample == None:
-        s += "Failed (Bad sample)"
-    elif sample.status == SAMPLE_STATUS_OK:
-        s += "Passed"
+        s += "Error"
+    elif low:
+        s += "Failed"
     else:
-        s += "Failed "
-        if sample.status == SAMPLE_STATUS_OUTLIERS:
-            s += ("(outliers=%s)" % list_to_str(sample.outliers))
-        else:
-            s += "(Low CPU usage)"
+        s += "Passed"
 
     print_log(s, True)
 
@@ -275,7 +269,7 @@ class application:
         tester = sendto_tester(concurrency)
 
         # FIXME: Wait ARP negotiaition
-        cpu_usage = measure_cpu_usage(g_report_count, g_skip_reports, cpus)
+        cpu_usage = cpu_percent(g_report_count, g_delay, cpus)
 
         data = recvfrom_tester(tester)
 
@@ -289,9 +283,12 @@ class application:
         g_project.wait_process(proc)
         set_stop_time()
 
-        sample = add_sample(data, g_report_count, test_id, low)
+        sample = parse_tester_reply(data, test_id, g_report_count)
 
-        print_test(test_id, sample, self.get_name(), preload, concurrency, transport, cpu_usage)
+        if sample != None and not low:
+            sample.id = g_db.add_sample(sample)
+
+        print_report(test_id, sample, self.get_name(), preload, concurrency, transport, cpu_usage, low)
 
         if not preload:
             ns2 = netstat.read()
@@ -299,7 +296,7 @@ class application:
             s = netstat.to_string(ns)
             print_log("netstat:\n%s" % s)
 
-        if sample == None or sample.status != SAMPLE_STATUS_OK:
+        if sample == None or low:
             return False
         else:
             return True
@@ -440,7 +437,7 @@ try:
         "concurrency=",
         "transport=",
         "reports=",
-        "skip-reports=",
+        "delay=",
         "sample=",
         "cooling-time=",
         "reload-netmap=",
@@ -460,25 +457,28 @@ for o, a in opts:
     elif o in ("-i"):
         g_interface_name = a
     elif o in ("--cpu"):
-        g_cpus = str_to_int_list(a)
-        if g_cpus == None:
-            die("--cpu: Invalid argument: '%s'" % a)
+        try:
+            g_cpus = make_integer_list(a)
+            set_cpus_scaling_governor(g_cpus)
+        except Exception as error:
+            print("!!!!!!!!!!!!!")                
+            #invalid_argument(o, a, error)
+            #sys.exit(1)
+            #die("--cpu: Invalid argument: '%s'" % a)
     elif o in ("--connect"):
         g_connect = a
-    elif o in ("--reload-netmap"):
-        g_reload_netmap = os.path.abspath(a)
     elif o in ("--reports"):
         g_report_count = int(a)
-    elif o in ("--skip-reports"):
-        g_skip_reports = int(a)
+    elif o in ("--delay"):
+        g_delay = int(a)
     elif o in ("--sample"):
         g_sample_count = int(a)
     elif o in ("--cooling-time"):
         g_cooling_time = int(a)
     elif o in ("--cpu-count"):
-        g_cpu_count = str_to_int_list(a)
+        g_cpu_count = make_integer_list(a)
     elif o in ("--concurrency"):
-        g_concurrency = str_to_int_list(a)
+        g_concurrency = make_integer_list(a)
     elif o in ("--transport"):
         for transport in a.split(','):
             if get_dict_id(transport_dict, transport) == None:
@@ -502,14 +502,9 @@ if g_interface_name == None:
 if g_cpus == None:
     die("No cpu specified (see '--cpu'")
 
-init_cpus(g_cpus)
-
 driver = get_interface_driver(g_interface_name)
 
-if g_reload_netmap != None:
-    reload_netmap(g_reload_netmap, driver)
-
-g_runner.interface = create_interface(driver, g_interface_name);
+g_runner.interface = create_interface(g_interface_name, driver)
 
 if g_connect == None:
     die("'--connect' must be specified")
@@ -532,11 +527,12 @@ configure_cpu_count()
 system("ip a flush dev %s" % g_runner.interface.name)
 system("ip a a dev %s %s/32" % (g_runner.interface.name, get_runner_ip(g_subnet)))
 system("ip r flush dev %s" % g_runner.interface.name)
-system("ip r d %s.1.1/32" % g_subnet, True)
-system("ip r a dev %s %s.1.1/32 initcwnd 1" % (g_runner.interface.name, g_subnet))
-system("ip r d %s.0.0/15" % g_subnet, True)
-system(("ip r a dev %s %s.0.0/15 via %s.1.1 initcwnd 1" %
-    (g_runner.interface.name, g_subnet, g_subnet)))
+system("ip r d %d.%d.1.1/32" % (g_subnet[0], g_subnet[1]), True)
+system("ip r a dev %s %d.%d.1.1/32 initcwnd 1" %
+    (g_runner.interface.name, g_subnet[0], g_subnet[1]))
+system("ip r d %d.%d.0.0/15" % (g_subnet[0], g_subnet[1]), True)
+system(("ip r a dev %s %d.%d.0.0/15 via %d.%d.1.1 initcwnd 1" %
+    (g_runner.interface.name, g_subnet[0], g_subnet[1], g_subnet[0], g_subnet[1])))
 
 # Assume that last test ended at least 10 seconds ago
 g_stop_at_milliseconds = milliseconds() - 10000

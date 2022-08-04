@@ -1,3 +1,4 @@
+#!/usr/bin/python
 # SPDX-License-Identifier: GPL-2.0
 import os
 import re
@@ -5,6 +6,7 @@ import sys
 import time
 import psutil
 import platform
+import argparse
 import subprocess
 import multiprocessing
 import syslog
@@ -12,23 +14,6 @@ import sqlite3
 import mysql.connector
 import numpy
 
-CPS = 0
-IPPS = 1
-IBPS = 2
-OPPS = 3
-OBPS = 4
-RXMTPS = 5
-CONCURRENCY = 6
-PPS = 7
-BPS = 8
-
-SAMPLE_COUNT_MAX = 20
-SAMPLE_TABLE = "sample"
-TEST_TABLE = "test"
-
-SAMPLE_STATUS_OK = 0
-SAMPLE_STATUS_OUTLIERS = 1
-SAMPLE_STATUS_LOW_CPU_USAGE = 2
 
 TESTER_LOCAL_CON_GEN = 1
 TESTER_REMOTE_CON_GEN = 2
@@ -56,23 +41,122 @@ driver_dict = {
     DRIVER_IXGBE: "ixgbe",
 }
 
-g_reload_netmap = None
+TEST_DURATION_MIN=5
+TEST_DURATION_MAX=(10*60)
+
+CONCURRENCY_MAX=20000
 
 def print_log(s, to_stdout = False):
     syslog.syslog(s)
     if to_stdout:
         print(s)
 
+
 def die(s):
     print_log(s, True)
     sys.exit(1)
 
+
+class MAC_address:
+    @staticmethod
+    def argparse(s):
+        error = argparse.ArgumentTypeError("invalid MAC value '%s'" % s)
+
+        six = s.split(':')
+        if len(six) != 6:
+            raise error;
+
+        for i, x in enumerate(six):
+            if len(x) != 2:
+                raise error;
+            try:
+                six[i] = int(x, 16)
+            except:
+                raise error;
+
+        return MAC_address(*six)
+
+
+    def __init__(self, a, b, c, d, e, f):
+        self.__data = (a, b, c, d, e, f)
+
+
+    def __str__ (self):
+        return "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x" % (
+            self.__data[0], self.__data[1], self.__data[2],
+            self.__data[3], self.__data[4], self.__data[5])
+
+   
+    def __repr__(self):
+        return __str__(self)
+    
+
+def argparse_ip(s):
+    error = argparse.ArgumentTypeError("invalid IP value '%s'" % s)
+
+    ip = s.split('.')
+    if len(ip) != 4:
+        raise error;
+
+    for i, d in enumerate(ip):
+        try:
+            ip[i] = int(d)
+            if ip[i] < 0 or ip[i] > 255:
+                raise error;
+        except:
+            raise error;
+
+    return tuple(ip)
+
+
+def argparse_dir(s):
+    error = argparse.ArgumentTypeError("invalid directory '%s'" % s)
+
+    try:
+        path = os.path.abspath(s)
+        if os.path.isdir(path):
+            return path
+        else:
+            raise error;
+    except:
+        raise error;
+
+
+def argparse_cpus(s):
+    error =  argparse.ArgumentTypeError("invalid cpu list '%s'" % s)
+
+    try:
+        cpus = make_integer_list(s)
+        set_cpus_scaling_governor(cpus)
+    except Exception as exc:
+        raise error from exc
+    cpus.sort()
+    return cpus
+
+
+def argparse_interface(s):
+    error = argparse.ArgumentTypeError("invalid interface '%s'" % s)
+
+    try:
+        driver = get_interface_driver(s)
+        interface = create_interface(s, driver)
+    except Exception as exc:
+        raise error from exc
+    return interface
+
+
+def argparse_add_reload_netmap(ap):
+    ap.add_argument("--reload-netmap", metavar='path', type=argparse_dir,
+            help="Reload required netmap modules from specified directory")
+
+    
 def is_int(s):
     try:
         i = int(s)
     except:
         return False
     return True
+
 
 def upper_pow2_32(x):
     x = int(x)
@@ -85,16 +169,19 @@ def upper_pow2_32(x):
     x += 1
     return x;
 
+
 def bytes_to_str(b):
     return b.decode('utf-8').strip()
 
-def str_to_int_list(s):
+
+def make_integer_list(s):
+    error = ValueError("Bad integer list: '%s'" % s)
     res = set()
     for item in s.split(','):
         if '-' in item:
             x, y = item.split('-')
             if not x.isdigit() or not y.isdigit():
-                return None
+                raise error
             x = int(x)
             y = int(y)
             if x > y:
@@ -103,22 +190,16 @@ def str_to_int_list(s):
                 res.add(i)
         else:
             if not item.isdigit():
-                return None;
+                raise error
             res.add(int(item))
     res = list(res)
     res.sort()
     return res
 
-def list_to_str(l):
-    n = 0
-    s = "["
-    for i in l:
-        if n > 0:
-            s += ", "
-        n += 1
-        s += str(i)
-    s += "]"
-    return s
+
+def make_ip(t):
+#    return "{a}.{b}.{c}.{d}".format(a=t[0], b=t[1], c=t[2], d=t[3])
+    return "%d.%d.%d.%d" % (t[0], t[1], t[2], t[3])
 
 def get_dict_id(d, name):
     for key, value in d.items():
@@ -126,14 +207,16 @@ def get_dict_id(d, name):
             return key
     return None
 
+
 def system(cmd, fault_tollerance = False, env = None):
     proc = subprocess.Popen(cmd.split(), env = env,
         stdout = subprocess.PIPE, stderr = subprocess.PIPE)
     try:
         out, err = proc.communicate(timeout = 5)
-    except:
+    except Exception as exc:
         proc.kill();
-        die("Command '%s' failed, exception: '%s'" % (cmd, sys.exc_info()[0]))
+        print_log("Command '%s' failed, exception: '%s'" % (cmd, sys.exc_info()[0]))
+        raise exc
 
     out = bytes_to_str(out)
     err = bytes_to_str(err)
@@ -142,9 +225,10 @@ def system(cmd, fault_tollerance = False, env = None):
     print_log("$ %s # $? = %d\n%s\n%s" % (cmd, rc, out, err))
 
     if rc != 0 and not fault_tollerance:
-        die("Command '%s' failed with code '%d'" % (cmd, rc))
+        raise RuntimeError("Command '%s' failed with code '%d'" % (cmd, rc))
         
     return rc, out, err
+
 
 def rmmod(netmap_path, module):
     rc, _, err = system("rmmod %s" % module, True)
@@ -162,7 +246,8 @@ def rmmod(netmap_path, module):
         if m != None and rmmod(msg[len(p):]):
             rmmod(module)
             return True
-    die("Cannot remove module '%s" % module)
+    raise RuntimeError("Cannot remove module '%s" % module)
+
 
 def insmod(netmap_path, module_name):
     if module_name == "ixgbe":
@@ -172,6 +257,7 @@ def insmod(netmap_path, module_name):
     path = netmap_path + "/" + module_dir + "/" + module_name + ".ko"
     system("insmod %s" % path)
 
+
 def reload_netmap(netmap_path, driver):
     rmmod(driver)
     rmmod("netmap")
@@ -180,31 +266,9 @@ def reload_netmap(netmap_path, driver):
     # Wait interfaces after inserting module
     time.sleep(1)
 
-# FIXME: to dict
-def get_record_name(i):
-    if i == CPS:
-        return "cps"
-    elif i == IPPS:
-        return "ipps"
-    elif i == IBPS:
-        return "ibps"
-    elif i == OPPS:
-        return "opps"
-    elif i == OBPS:
-        return "obps"
-    elif i == CONCURRENCY:
-        return "concurrency"
-    elif i == RXMTPS:
-        return "rxmtps"
-    elif i == PPS:
-        return "pps"
-    elif i == BPS:
-        return "bps"
-    else:
-        return None
 
-def get_sample_record(sample, i):
-    assert(len(sample.records) == 7)
+def get_sample_result(sample, i):
+    assert(len(sample.results) == 7)
     assert(i <= BPS)
     if i == PPS:
         a = IPPS
@@ -213,12 +277,9 @@ def get_sample_record(sample, i):
         a = IBPS
         b = OBPS
     else:
-        return sample.records[i]
-    assert(len(sample.records[a]) == len(sample.records[b]))
-    record = []
-    for i in range(len(sample.records[a])):
-        record.append(sample.records[a][i] + sample.records[b][i])
-    return record
+        return sample.results[i]
+    return sample.results[a] + sample.results[b]
+
 
 def round_std(std):
     assert(type(std) == int)
@@ -234,6 +295,7 @@ def round_std(std):
     r = s[0:z] + '0' * (l - z)
     return (int(r), l - z)
 
+
 def round_val(val, std):
     assert(type(val) == int)
     assert(val >= 0)
@@ -241,11 +303,13 @@ def round_val(val, std):
     val_rounded = round(val, -n)
     return val_rounded, std_rounded
 
+
 def int_list_to_bytearray(il, sizeof):
     ba = bytearray()
     for i in il:
         ba += bytearray(i.to_bytes(sizeof, "big"))
     return ba
+
 
 def bytearray_to_int_list(ba, sizeof):
     il = []
@@ -253,10 +317,15 @@ def bytearray_to_int_list(ba, sizeof):
         il.append(int.from_bytes(ba[i:i + sizeof], "big"))
     return il
 
-def get_runner_ip(subnet):
-    return subnet + ".255.1"
 
-def measure_cpu_usage(t, delay, cpus):
+SERVER_IP_C = 255
+SERVER_IP_D = 1
+
+def get_runner_ip(subnet):
+    return "%d.%d.%d.%d" % (subnet[0], subnet[1], SERVER_IP_C, SERVER_IP_D)
+
+
+def cpu_percent(t, delay, cpus):
     # Skip last second
     assert(t > delay)
     time.sleep(delay)
@@ -266,7 +335,8 @@ def measure_cpu_usage(t, delay, cpus):
         cpu_usage.append(percent[cpu])
     return cpu_usage
 
-def set_irqs(interface, cpus):
+
+def set_irq_affinity(interface, cpus):
     f = open("/proc/interrupts", 'r')
     lines = f.readlines()
     f.close()
@@ -274,60 +344,70 @@ def set_irqs(interface, cpus):
     irqs = []
 
     p = re.compile("^%s-TxRx-[0-9]*$" % interface)
-    for i in range (1, len(lines)):       
+    for i in range(1, len(lines)):       
         columns = lines[i].split()
         for col in columns:
             m = re.match(p, col.strip())
             if m != None:
                 irq = columns[0].strip(" :")
                 if not irq.isdigit():
-                    die("Bad irq at /proc/interrupts:%d" % i + 1)
+                    exc = SyntaxError("Invalid irq value")
+                    exc.filename = "/proc/interrupts"
+                    exc.lineno = i + 1
+                    raise exc
                 irqs.append(int(irq))
 
     if len(cpus) != len(irqs):
-        die("Unexpected number of irqs (%d), shoud be %d" % (len(irqs), len(cpus)))
+        exc = SyntaxError("Unexpected number of irqs (%d), shoud be %d" % (len(irqs), len(cpus)))
+        exc.filename = "/proc/interrupts"
+        exc.lineno = len(lines)
+        raise exc
 
     for i in range(0, len(irqs)):
-        f = open("/proc/irq/%d/smp_affinity" % irqs[i], 'w')
-        f.write("%x" % (1 << cpus[i]))
-        f.close()
+        with open("/proc/irq/%d/smp_affinity" % irqs[i], 'w') as f:
+            f.write("%x" % (1 << cpus[i]))
 
-def init_cpus(cpus):
+
+def set_cpu_scaling_governor(cpu):
+    path = "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_governor" % cpu
+    with open(path, 'w') as f:
+        f.write("performance")
+
+
+def set_cpus_scaling_governor(cpus):
     cpu_count = multiprocessing.cpu_count()
 
     for cpu in cpus:
         if cpu >= cpu_count:
-            die("CPU %d exceeds number of CPUs %d" % (cpu, cpu_count))
+            raise ValueError("CPU %d exceeds number of CPUs %d" % (cpu, cpu_count))
+        set_cpu_scaling_governor(cpu)
 
-    for cpu in cpus:
-        path = "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_governor" % cpu
-        f = open(path, 'w')
-        f.write("performance")
-        f.close()
 
 def get_interface_driver(name):
     cmd = "ethtool -i %s" % name
-    rc, out, _ = system(cmd, True)
-    if rc != 0:
-        die("Unknown interface '%s'" % name)
+    rc, out, _ = system(cmd)
     for line in out.splitlines():
         if line.startswith("driver: "):
             return line[8:].strip()
-    die("Cannot get interface '%s' driver" % name)
+    raise RuntimeError("'%s': No driver" % cmd)
 
-def create_interface(driver, name):
+
+def create_interface(name, driver):
     driver_id = get_dict_id(driver_dict, driver)
     if driver_id == None:
-        die("Unsupported driver '%s'", driver)        
+        raise NotImplementedError("Driver '%s' not supported" % driver)
     instance = globals().get(driver)
     assert(instance != None)
     interface = instance(name)
+    interface.driver = driver
     interface.driver_id = driver_id
     system("ip l s dev %s up" % interface.name)
     return interface
 
+
 def milliseconds():
     return int(time.monotonic_ns() / 1000000)
+
 
 def get_cpu_name():
     if platform.system() == "Windows":
@@ -344,11 +424,13 @@ def get_cpu_name():
                 return re.sub( ".*model name.*:", "", line, 1).strip()
     die("Couldn't get CPU model name")
 
+
 def git_rev_parse(rev):
     commit = system("git rev-parse %s" % rev)[1].strip()
     if len(commit) != 40:
         die("Invalid git revision '%s'" % rev)
     return commit
+
 
 def find_outliers(sample, std):
     if std == None:
@@ -359,29 +441,9 @@ def find_outliers(sample, std):
     for i in range(0, len(sample)):
         if abs(mean - sample[i]) > 3 * std[i]:
             outliers.append(i)
-    # Aproximate with line and watch on the angle
-    x = numpy.arange(0, len(sample))
-    y = numpy.array(sample)
-    kb = numpy.polyfit(x, y, 1)
-    k = kb[0]
-    b = kb[1]
-    x0 = 0
-    x1 = len(sample) - 1
-    y0 = k * x0 + b
-    y1 = k * x1 + b
-    angle = abs(y1 - y0)/((y1 + y0) / 2) * 100
-    # angle < 3 to be sure there is no throttling
-    # Many valid samples got bad status due big angles.
-    # Need mor investigation
-    if True or angle < 3:
-        return None, angle
-    else:
-        return range(0, len(sample)), angle
+    return outliers
 
 
-
-
-###############################
 class interface:
     def __init__(self, name):
         self.name = name
@@ -389,10 +451,8 @@ class interface:
         self.mac = f.read().strip()
         f.close()
 
-class ixgbe(interface):
-    def get_driver(self):
-        return "ixgbe"
 
+class ixgbe(interface):
     def __init__(self, name):
         interface.__init__(self, name)
         system("ethtool -K %s rx off tx off" % name)
@@ -404,15 +464,10 @@ class ixgbe(interface):
 
     def set_channels(self, cpus):
         system("ethtool -L %s combined %d" % (self.name, len(cpus)))
-        set_irqs(self.name, cpus)
+        set_irq_affinity(self.name, cpus)
+
 
 class veth(interface):
-    def get_driver(self):
-        return "veth"
-
-    def set_channels_max(self):
-        return 1;
-
     def __init__(self, name):
         interface.__init__(self, name)
         system("ethtool -K %s rx off tx off" % name)
@@ -423,6 +478,7 @@ class veth(interface):
     def set_channels(self, cpus):
         if len(cpus) != 1:
             die("veth interface doesn't support multiqueue mode. Please, use single cpu")
+
 
 class Project:
     def system(self, cmd, fault_tollerance = False):
@@ -456,6 +512,7 @@ class Project:
         if self.commit == None or self.have_xdp == None or self.have_netmap == None:
             die("%s: Parse error"  % cmd)
 
+
     def write_gbtcp_conf(self, transport, ifname):
         gbtcp_conf = (
             "dev.transport=%s\n"
@@ -465,6 +522,7 @@ class Project:
         f = open(self.gbtcp_conf_path, 'w')
         f.write(gbtcp_conf)
         f.close()
+
 
     def start_process(self, cmd, preload):
         e = os.environ.copy()
@@ -486,8 +544,11 @@ class Project:
             proc.wait(timeout = 5)
         except Exception as e:
             t1 = milliseconds()
-            print("dt = %d milliseconds" % (t1 - t0))
-            raise e
+            dt = t1 - t0
+            assert(dt * 1000 > 4.5)
+            print_log("%s:%d: Timeouted, terminate process", (proc.args[0], proc.pid))
+            proc.terminate()
+
         lines = []
         for pipe in [proc.stdout, proc.stderr]:
             while True:
@@ -495,16 +556,44 @@ class Project:
                 if not line:
                     break
                 lines.append(line.decode('utf-8').strip())
+
         print_log("$ [%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
         return proc.returncode, lines
 
+
 class Database:
+    TEST_TABLE = "test"
+    SAMPLE_TABLE = "sample"
+    SAMPLE_COUNT_MAX = 20
+
     class Cpu_model:
         pass
 
     class Sample:
+        CPS = 0
+        IPPS = 1
+        IBPS = 2
+        OPPS = 3
+        OBPS = 4
+        RXMTPS = 5
+        CONCURRENCY = 6
+        PPS = 7
+        BPS = 8
+
+        result_dict = {
+            CPS: "cps",
+            IPPS: "ipps",
+            IBPS: "ibps",
+            OPPS: "opps",
+            OBPS: "obps",
+            CONCURRENCY: "concurrency",
+            RXMTPS: "rxmtps",
+            PPS: "pps",
+            BPS: "bps",
+        }
+
         def __init__(self):
-            self.records = []
+            self.results = []
 
     class Test:
         attrs = [
@@ -521,9 +610,11 @@ class Database:
         def __init__(self):
             self.samples = []
 
+
     def log_invalid_test_field(test, field):
         print_log("Invalid field '%s' in table '%s' where 'test_id=%d'" %
-            (field, TEST_TABLE, test.id), True)
+            (field, Database.TEST_TABLE, test.id), True)
+
 
     def __init__(self, address):
         #self.sql_conn = sqlite3.connect(address)
@@ -531,10 +622,12 @@ class Database:
         self.os_id = self.get_os_id(platform.system(), platform.release())
         self.cpu_model_id = self.get_cpu_model_id(get_cpu_name())
 
+
     def execute(self, cmd, *args):
         sql_cursor = self.sql_conn.cursor(buffered = True)
         sql_cursor.execute(cmd, *args);
         return sql_cursor
+
 
     def fetchid(self, sql_cursor):
         row = sql_cursor.fetchone()
@@ -543,8 +636,9 @@ class Database:
         assert(type(row[0]) == int)
         return int(row[0])
 
+
     def add_test(self, commit, tester_id, app_id,
-            transport_id, driver_id, concurrency, cpu_count, report_count):
+            transport_id, driver_id, concurrency, cpu_count, duration):
         assert(commit != None)
         assert(tester_id != None)
         assert(app_id != None)
@@ -552,7 +646,8 @@ class Database:
         assert(driver_id != None)
         assert(concurrency != None)
         assert(cpu_count != None)
-        assert(report_count != None)
+        assert(duration != None)
+
         where = ("gbtcp_commit=\"%s\" and tester_id=%d and os_id=%d and app_id=%d and "
             "transport_id=%d and driver_id=%d and concurrency=%d and cpu_model_id=%d and "
             "cpu_count=%d" %
@@ -565,12 +660,12 @@ class Database:
             "transport_id, driver_id, concurrency, cpu_model_id, cpu_count) "
             "select \"%s\", %d, %d, %d, %d, %d, %d, %d, %d where not exists "
             "(select 1 from %s where %s)" % (
-            TEST_TABLE, commit, tester_id, self.os_id, app_id,
+            Database.TEST_TABLE, commit, tester_id, self.os_id, app_id,
             transport_id, driver_id, concurrency, self.cpu_model_id, cpu_count,
-            TEST_TABLE, where))
+            Database.TEST_TABLE, where))
         self.execute(cmd)
 
-        cmd = "select id from %s where %s" % (TEST_TABLE, where)
+        cmd = "select id from %s where %s" % (Database.TEST_TABLE, where)
         sql_cursor = self.execute(cmd)
         self.sql_conn.commit()
         test_id = self.fetchid(sql_cursor)
@@ -579,15 +674,17 @@ class Database:
         samples = self.get_samples(test_id)
 
         for sample in samples:
-            if (sample.status == SAMPLE_STATUS_OK and len(sample.records[CPS]) >= report_count):
+            if sample.duration >= duration:
                 sample_count += 1
 
         return test_id, sample_count
 
+
     def del_sample(self, sample_id):
-        cmd = "delete from %s where id = %d" % (SAMPLE_TABLE, sample_id)
+        cmd = "delete from %s where id = %d" % (Database.SAMPLE_TABLE, sample_id)
         self.execute(cmd)
         self.sql_conn.commit()
+
 
     def add_sample(self, sample):
         sample.id = None
@@ -595,35 +692,28 @@ class Database:
             # dry-run
             return -1
         samples = self.get_samples(sample.test_id)
-        while len(samples) > SAMPLE_COUNT_MAX:
+        while len(samples) > Database.SAMPLE_COUNT_MAX:
             candidate = sample
             for i in range(len(samples)):
-                if samples[i].status != SAMPLE_STATUS_OK:
-                    candidate = samples[i]
-                    break
-                if len(samples[i].records) < len(candidate.records):
+                if samples[i].duration < candidate.duration:
                     candidate = samples[i]
             if candidate == sample:
-                print_log("%d: Don't add sample due existing samples are better then this one"
-                    % sample.test_id)
                 return 0
             self.del_sample(candidate.id)
             samples.remove(candidate)
 
-        # Use '?' instead of '%%s' for sqlite3
         cmd = ("insert into %s "
-            "(test_id,status,cps,ipps,ibps,opps,obps,rxmtps,concurrency) "
-            "values (%d,%d,%%s,%%s,%%s,%%s,%%s,%%s,%%s)" %
-            (SAMPLE_TABLE, sample.test_id, sample.status))
-        sql_cursor = self.execute(cmd, (
-            int_list_to_bytearray(sample.records[CPS], 4),
-            int_list_to_bytearray(sample.records[IPPS], 4),
-            int_list_to_bytearray(sample.records[IBPS], 6),
-            int_list_to_bytearray(sample.records[OPPS], 4),
-            int_list_to_bytearray(sample.records[OBPS], 6),
-            int_list_to_bytearray(sample.records[RXMTPS], 4),
-            int_list_to_bytearray(sample.records[CONCURRENCY], 4)
-            ))
+            "(test_id, duration, cps, ipps, ibps, opps, obps, rxmtps, concurrency) "
+            "values (%d, %d, %d, %d, %d, %d, %d, %d, %d)" %
+            (Database.SAMPLE_TABLE, sample.test_id, sample.duration,
+            sample.results[Database.Sample.CPS],
+            sample.results[Database.Sample.IPPS],
+            sample.results[Database.Sample.IBPS],
+            sample.results[Database.Sample.OPPS],
+            sample.results[Database.Sample.OBPS],
+            sample.results[Database.Sample.RXMTPS],
+            sample.results[Database.Sample.CONCURRENCY]))
+        sql_cursor = self.execute(cmd)
         self.sql_conn.commit()
         return sql_cursor.lastrowid
 
@@ -635,14 +725,9 @@ class Database:
         sample = Database.Sample()
         sample.id = int(row[0])
         sample.test_id = int(row[1])
-        sample.status = int(row[2])
-        sample.records.append(bytearray_to_int_list(row[3], 4))
-        sample.records.append(bytearray_to_int_list(row[4], 4))
-        sample.records.append(bytearray_to_int_list(row[5], 6))
-        sample.records.append(bytearray_to_int_list(row[6], 4))
-        sample.records.append(bytearray_to_int_list(row[7], 6))
-        sample.records.append(bytearray_to_int_list(row[8], 4))
-        sample.records.append(bytearray_to_int_list(row[9], 4))
+        sample.duration = int(row[2])
+        for i in range(3, 10):
+            sample.results.append(int(row[i]))
         return sample
 
     def fetch_test(self, sql_cursor):
@@ -703,12 +788,12 @@ class Database:
         return test;
 
     def get_sample(self, sample_id):
-        cmd = "select * from %s where id=%d" % (SAMPLE_TABLE, sample_id)
+        cmd = "select * from %s where id=%d" % (Database.SAMPLE_TABLE, sample_id)
         sql_cursor = self.execute(cmd)
         return self.fetch_sample(sql_cursor)
 
     def get_samples(self, test_id):
-        cmd = "select * from %s where test_id=%d" % (SAMPLE_TABLE, test_id)
+        cmd = "select * from %s where test_id=%d" % (Database.SAMPLE_TABLE, test_id)
         sql_cursor = self.execute(cmd)
         samples = []
         while True:
@@ -717,10 +802,6 @@ class Database:
                 return samples
             samples.append(sample)
 
-    def clean_samples(self, test_id):
-        cmd = "delete from %s where test_id=%d and status != 0" % (SAMPLE_TABLE, test_id)
-        self.execute(cmd)
-        self.sql_conn.commit() 
 
     def get_table_id(self, table, name, ver):
         cmd = ("insert into %s(name, ver) select \"%s\", \"%s\" "
@@ -731,6 +812,7 @@ class Database:
         sql_cursor = self.execute(cmd)
         self.sql_conn.commit()
         return self.fetchid(sql_cursor)
+
 
     def get_cpu_model_id(self, cpu_model_name, cpu_model_alias=None):
         assert(cpu_model_alias == None)
@@ -743,20 +825,24 @@ class Database:
         self.sql_conn.commit()
         return self.fetchid(sql_cursor)
 
+
     def set_cpu_model_alias(self, cpu_model_id, cpu_model_alias):
         cmd = "update cpu_model set alias = '%s' where id = %d" % (cpu_model_alias, cpu_model_id)
         self.execute(cmd)
         self.sql_conn.commit();
 
+
     def get_app_id(self, name, ver):
         return self.get_table_id("app", name, ver)
+
 
     def get_os_id(self, name, ver):
         return self.get_table_id("os", name, ver)
 
+
     def get_tests(self, commit):
         tests = []
-        cmd = "select * from %s where gbtcp_commit='%s'" % (TEST_TABLE, commit)
+        cmd = "select * from %s where gbtcp_commit='%s'" % (Database.TEST_TABLE, commit)
         sql_cursor = self.execute(cmd)
         while True:
             test = self.fetch_test(sql_cursor)
@@ -764,6 +850,7 @@ class Database:
                 return tests
             tests.append(test)
         return tests
+
 
     def get_os(self, os_id):
         cmd = "select name, ver from os where id=%d" % os_id
@@ -774,6 +861,7 @@ class Database:
         assert(len(row) == 2)
         return row[0], row[1]
 
+
     def get_app(self, app_id):
         cmd = "select name, ver from app where id=%d" % app_id
         sql_cursor = self.execute(cmd)
@@ -782,6 +870,7 @@ class Database:
             return None, None
         assert(len(row) == 2)
         return row[0], row[1]
+
    
     def get_cpu_model(self, cpu_model_id = None):
         cpu_models = []
