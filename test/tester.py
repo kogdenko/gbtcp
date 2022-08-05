@@ -5,10 +5,6 @@ import socket
 import numpy
 from common import *
 
-g_reload_netmap = None
-g_interface_name = None
-g_cpus = None
-
 g_project = Project()
 
 def run_epoll(interface, subnet, reports, concurrency):
@@ -35,7 +31,7 @@ def run_epoll(interface, subnet, reports, concurrency):
 
 
 def add_request_arguments(ap):
-    ap.add_argument("--dst-mac", metavar="mac", type=MAC_address.argparse,
+    ap.add_argument("--dst-mac", metavar="mac", type=MacAddress.argparse,
             required=True,
             help="Destination MAC address in colon notation (e.g., aa:bb:cc:dd:ee:00)")
 
@@ -48,20 +44,14 @@ def add_request_arguments(ap):
             help=("Private /16 subnet for testing, server acquired x.x.%d.%d" %
                 (SERVER_IP_C, SERVER_IP_D)))
 
-    ap.add_argument("--delay", metavar="seconds", type=int, choices=range(0, 5),
-            help="Number of seconds before measurment")
-
-    ap.add_argument("--duration", metavar="seconds", type=int,
-            choices=range(TEST_DURATION_MIN, TEST_DURATION_MAX),
-            required=True,
-            help="Test duration in seconds")
+    argparse_add_delay(ap)
+    argparse_add_duration(ap)
 
     ap.add_argument("--concurrency", metavar="num", type=int,
             choices=range(1, CONCURRENCY_MAX),
+            required=True,
             help="Number of parallel connections")
  
-
-
 
 def parse_output(lines, delay, duration):
     if len(lines) != duration:
@@ -86,9 +76,6 @@ def parse_output(lines, delay, duration):
     results = []
     for record in records:
         results.append(int(numpy.mean(record)))
-
-    print("IPPS=", records[Database.Sample.IPPS])
-    print("IPPS_result=", results[Database.Sample.IPPS])
 
     return results
 
@@ -148,7 +135,7 @@ class Tester:
                         ap = ArgumentParser()
                         add_request_arguments(ap)
                         return sock, ap.parse_args(req.strip().split())
-            except Exception as e:
+            except (socket.error, RuntimeError) as e:
                 print_log("Error while reading request: '%s'" % str(e))
 
 
@@ -159,8 +146,12 @@ class Tester:
 
     def loop(self):
         if self.__args.listen == None:
-            listen_sock = socket.socket(socket.AF_LOCAL, socket.SOCKET_STREAM)
-            listen_sock.bind("/var/run/gbtcp-tester.sock")
+            listen_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                os.unlink(SUN_PATH)
+            except:
+                pass
+            listen_sock.bind(SUN_PATH)
         else:
             listen_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             listen_sock.bind((make_ip(self.__args.listen), 9999))
@@ -171,6 +162,7 @@ class Tester:
         while True:
             try:
                 sock, req = Tester.get_request(listen_sock)
+                
                 proc = self.run(req)
 
                 top = cpu_percent(req.duration, req.delay, self.cpus)
@@ -187,7 +179,6 @@ class Tester:
                     reply = "Ok"
                     for result in results:
                         reply += " " + str(result)
-                    print("reply:", reply)
                 else:
                     reply = "Failed"
                 sock.send(reply.encode('utf-8'))
@@ -200,11 +191,9 @@ class Tester:
         ap = argparse.ArgumentParser()
 
         argparse_add_reload_netmap(ap)
+        argparse_add_cpu(ap)
 
         ap.add_argument("--listen", metavar="ip", type=argparse_ip,
-                help="")
-
-        ap.add_argument("--cpus", metavar="cpu-list", required=True, type=argparse_cpus,
                 help="")
 
         ap.add_argument("-i", metavar="interface", required=True, type=argparse_interface,
@@ -212,12 +201,15 @@ class Tester:
 
         self.__args = ap.parse_args()
         self.interface = self.__args.i
-        self.cpus = self.__args.cpus
+        self.cpus = self.__args.cpu
+
+        for cpu in self.cpus:
+            set_cpu_scaling_governor(cpu)
 
         if self.__args.reload_netmap:
             reload_netmap(self.__args.reload_netmap, self.interface.driver)
 
-        self.interface.set_channels(self.__args.cpus)
+        self.interface.set_channels(self.cpus)
 
 
 def main():
@@ -226,4 +218,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

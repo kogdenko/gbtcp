@@ -15,6 +15,13 @@ import mysql.connector
 import numpy
 
 
+SUN_PATH = "/var/run/gbtcp-tester.sock"
+
+TEST_SAMPLE_MIN = 1
+TEST_SAMPLE_MAX = 20
+TEST_SAMPLE_DEFAULT = 5
+
+
 TESTER_LOCAL_CON_GEN = 1
 TESTER_REMOTE_CON_GEN = 2
 
@@ -41,9 +48,15 @@ driver_dict = {
     DRIVER_IXGBE: "ixgbe",
 }
 
-TEST_DURATION_MIN=5
-TEST_DURATION_MAX=(10*60)
+TEST_DURATION_MIN = 10
+TEST_DURATION_MAX = 10*60
+TEST_DURATION_DEFAULT = 60
 
+TEST_DELAY_MIN = 0
+TEST_DELAY_MAX = TEST_DURATION_MIN - 1
+TEST_DELAY_DEFAULT = 2
+
+CONCURRENCY_DEFAULT=1000
 CONCURRENCY_MAX=20000
 
 def print_log(s, to_stdout = False):
@@ -57,7 +70,14 @@ def die(s):
     sys.exit(1)
 
 
-class MAC_address:
+class UniqueAppendAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        unique_values = list(set(values))
+        unique_values.sort()
+        setattr(namespace, self.dest, unique_values)
+
+
+class MacAddress:
     @staticmethod
     def argparse(s):
         error = argparse.ArgumentTypeError("invalid MAC value '%s'" % s)
@@ -74,7 +94,7 @@ class MAC_address:
             except:
                 raise error;
 
-        return MAC_address(*six)
+        return MacAddress(*six)
 
 
     def __init__(self, a, b, c, d, e, f):
@@ -122,18 +142,6 @@ def argparse_dir(s):
         raise error;
 
 
-def argparse_cpus(s):
-    error =  argparse.ArgumentTypeError("invalid cpu list '%s'" % s)
-
-    try:
-        cpus = make_integer_list(s)
-        set_cpus_scaling_governor(cpus)
-    except Exception as exc:
-        raise error from exc
-    cpus.sort()
-    return cpus
-
-
 def argparse_interface(s):
     error = argparse.ArgumentTypeError("invalid interface '%s'" % s)
 
@@ -149,7 +157,37 @@ def argparse_add_reload_netmap(ap):
     ap.add_argument("--reload-netmap", metavar='path', type=argparse_dir,
             help="Reload required netmap modules from specified directory")
 
-    
+
+def argparse_add_cpu(ap):
+    ap.add_argument("--cpu", metavar="cpu-id", type=int, nargs='+',
+            action=UniqueAppendAction,
+            required=True,
+            choices=range(0, multiprocessing.cpu_count() - 1),
+            help="")
+
+
+def argparse_add_duration(ap, default=None):
+    if default:
+        required = False
+    else:
+        required = True
+    ap.add_argument("--duration", metavar="seconds", type=int,
+            choices=range(TEST_DURATION_MIN, TEST_DURATION_MAX),
+            required=required, default=default,
+            help="Test duration in seconds")
+
+
+def argparse_add_delay(ap, default=None):
+    if default:
+        required = False
+    else:
+        required = True
+    ap.add_argument("--delay", metavar="seconds", type=int,
+            choices=range(TEST_DELAY_MIN, TEST_DELAY_MAX),
+            required=required, default=default,
+            help="Number of seconds before measurment")
+
+
 def is_int(s):
     try:
         i = int(s)
@@ -174,8 +212,9 @@ def bytes_to_str(b):
     return b.decode('utf-8').strip()
 
 
-def make_integer_list(s):
+def make_int_list(s):
     error = ValueError("Bad integer list: '%s'" % s)
+
     res = set()
     for item in s.split(','):
         if '-' in item:
@@ -374,15 +413,6 @@ def set_cpu_scaling_governor(cpu):
         f.write("performance")
 
 
-def set_cpus_scaling_governor(cpus):
-    cpu_count = multiprocessing.cpu_count()
-
-    for cpu in cpus:
-        if cpu >= cpu_count:
-            raise ValueError("CPU %d exceeds number of CPUs %d" % (cpu, cpu_count))
-        set_cpu_scaling_governor(cpu)
-
-
 def get_interface_driver(name):
     cmd = "ethtool -i %s" % name
     rc, out, _ = system(cmd)
@@ -491,8 +521,7 @@ class Project:
         self.gbtcp_conf_path = self.path + "/test/gbtcp.conf"
 
         self.commit = None
-        self.have_xdp = None
-        self.have_netmap = None
+        self.transports = []
 
         cmd = self.path + "/bin/gbtcp-aio-helloworld -v"
         _, out, _ = self.system(cmd)
@@ -501,16 +530,12 @@ class Project:
                 self.commit = git_rev_parse(line[7:])
             elif line.startswith("config: "):
                 if re.search("HAVE_XDP", line) != None:
-                    self.have_xdp = True
-                else:
-                    self.have_xdp = False
+                    self.transports.append(transport_dict[TRANSPORT_XDP])    
                 if re.search("HAVE_NETMAP", line) != None:
-                    self.have_netmap = True
-                else:
-                    self.have_netmap = False
+                    self.transports.append(transport_dict[TRANSPORT_NETMAP])
 
-        if self.commit == None or self.have_xdp == None or self.have_netmap == None:
-            die("%s: Parse error"  % cmd)
+        if self.commit == None:
+            raise RuntimeError("Command '%s' returns unexpected output" % cmd)
 
 
     def write_gbtcp_conf(self, transport, ifname):
@@ -519,9 +544,8 @@ class Project:
             "route.if.add=%s\n"
             % (transport, ifname))
 
-        f = open(self.gbtcp_conf_path, 'w')
-        f.write(gbtcp_conf)
-        f.close()
+        with open(self.gbtcp_conf_path, 'w') as f:
+            f.write(gbtcp_conf)
 
 
     def start_process(self, cmd, preload):
@@ -564,7 +588,6 @@ class Project:
 class Database:
     TEST_TABLE = "test"
     SAMPLE_TABLE = "sample"
-    SAMPLE_COUNT_MAX = 20
 
     class Cpu_model:
         pass
@@ -692,7 +715,7 @@ class Database:
             # dry-run
             return -1
         samples = self.get_samples(sample.test_id)
-        while len(samples) > Database.SAMPLE_COUNT_MAX:
+        while len(samples) > TEST_SAMPLE_MAX:
             candidate = sample
             for i in range(len(samples)):
                 if samples[i].duration < candidate.duration:
