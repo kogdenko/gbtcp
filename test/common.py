@@ -8,6 +8,7 @@ import psutil
 import platform
 import argparse
 import subprocess
+import traceback
 import multiprocessing
 import syslog
 import sqlite3
@@ -63,6 +64,11 @@ def print_log(s, to_stdout = False):
     syslog.syslog(s)
     if to_stdout:
         print(s)
+
+
+def dbg(s):
+    traceback.print_stack(limit=2)
+    print(s)
 
 
 def die(s):
@@ -149,7 +155,8 @@ def argparse_interface(s):
         driver = get_interface_driver(s)
         interface = create_interface(s, driver)
     except Exception as exc:
-        raise error from exc
+        traceback.print_exception(exc)
+        raise error
     return interface
 
 
@@ -419,7 +426,7 @@ def get_interface_driver(name):
     for line in out.splitlines():
         if line.startswith("driver: "):
             return line[8:].strip()
-    raise RuntimeError("'%s': No driver" % cmd)
+    raise RuntimeError("'%s': No 'driver'" % cmd)
 
 
 def create_interface(name, driver):
@@ -483,6 +490,19 @@ class interface:
 
 
 class ixgbe(interface):
+    def get_channels(self):
+        cmd = "ethtool -l %s" % self.name
+        out = system(cmd)[1]
+        current_hardware_settings = False
+        Combined = "Combined:"
+        for line in out.splitlines():
+            if line.startswith("Current hardware settings:"):
+                current_hardware_settings = True
+            if line.startswith(Combined) and current_hardware_settings:
+                return int(line[len(Combined):])
+        raise RuntimeError("'%s': No current hardware setting for 'Combined' ring" % cmd)
+
+
     def __init__(self, name):
         interface.__init__(self, name)
         system("ethtool -K %s rx off tx off" % name)
@@ -491,9 +511,12 @@ class ixgbe(interface):
         system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)
         system("ethtool -N %s rx-flow-hash udp4 sdfn" % name)
         system("ethtool -G %s rx 2048 tx 2048" % name)
+        self.channels = self.get_channels()
+
 
     def set_channels(self, cpus):
-        system("ethtool -L %s combined %d" % (self.name, len(cpus)))
+        if self.channels != len(cpus):
+            system("ethtool -L %s combined %d" % (self.name, len(cpus)))
         set_irq_affinity(self.name, cpus)
 
 

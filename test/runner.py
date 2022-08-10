@@ -28,20 +28,37 @@ g_subnet = (10, 20, 0, 0)
 g_project = Project()
 g_db = Database("")
 
-class Tcpkt:
-    def __init__(self, name):
-        self.name = name
-
-    def get_name(self):
-        return self.name
+#class Tcpkt:
+#    def __init__(self, name):
+#        self.name = name
+#
+#    def get_name(self):
+#        return self.name
 
 
 class Simple:
     def __init__(self, name):
         self.name = name
 
+
     def get_name(self):
         return self.name
+
+
+    def is_support_transport(self, transport_id):
+        if transport_id == TRANSPORT_NATIVE:
+            return False
+        else:
+            return True
+
+
+    def is_transport_sensitive(self):
+        return False
+
+
+    def is_cpu_sensitive(self):
+        return False
+   
 
     def run(self):
         g_runner.ts_planned += 1
@@ -60,8 +77,25 @@ class Application:
         self.id = g_db.get_app_id(self.get_name(), self.get_version())
 
 
-    def support_native(self):
+    def is_support_transport(self, transport_id):
         return True
+
+
+    def is_transport_sensitive(self):
+        return True
+
+
+    def is_cpu_sensitive(self):
+        return True
+
+
+    def start_process(self, transport, cmd):
+        transport_id = get_dict_id(transport_dict, transport)
+        if transport_id == TRANSPORT_NATIVE:
+            preload = False
+        else:
+            preload = True
+        return g_project.start_process(cmd, preload)
 
 
     def parse_version(self, s):
@@ -71,13 +105,10 @@ class Application:
         return m.group(0)
 
 
-    def start_test(self, test_id, transport, concurrency, cpus, preload):
+    def run_sample(self, test_id, transport, concurrency, cpus):
         self.stop()
 
-        if not preload:
-            ns = netstat.read()
-
-        proc = self.start(concurrency, cpus, preload)
+        proc = self.start(transport, concurrency, cpus)
 
         # Wait netmap interface goes up
         time.sleep(2)
@@ -103,18 +134,34 @@ class Application:
         if sample != None and not low:
             sample.id = g_db.add_sample(sample)
 
-        print_report(test_id, sample, self.get_name(), preload, concurrency, transport, top, low)
-
-        if not preload:
-            ns2 = netstat.read()
-            ns = netstat.diff(ns, ns2)
-            s = netstat.to_string(ns)
-            print_log("netstat:\n%s" % s)
+        print_report(test_id, sample, self.get_name(), concurrency, transport, top, low)
 
         if sample == None or low:
-            return False
+            g_runner.ts_failed += 1
         else:
-            return True
+            g_runner.ts_pass += 1
+
+
+    def run(self, cpus, transport, concurrency):
+        if g_runner.dry_run:
+            test_id = -1
+            sample_count = 0
+        else:
+            transport_id = get_dict_id(transport_dict, transport)
+            assert(transport_id != None)
+            if transport_id == TRANSPORT_NATIVE:
+                commit = ""
+            else:
+                commit = g_project.commit
+
+            test_id, sample_count = g_db.add_test(commit, TESTER_LOCAL_CON_GEN, self.id,
+                transport_id, g_runner.interface.driver_id, concurrency, len(cpus), g_runner.duration)
+
+        g_runner.ts_planned += g_runner.sample
+
+        for j in range (0, g_runner.sample - sample_count):
+            g_runner.interface.set_channels(cpus)
+            self.run_sample(test_id, transport, concurrency, cpus)
 
 
 class nginx(Application):
@@ -131,7 +178,7 @@ class nginx(Application):
         system("nginx -s quit", True)
 
 
-    def start(self, concurrency, cpus, preload):
+    def start(self, transport, concurrency, cpus):
         worker_cpu_affinity = ""
 
         n = len(cpus)
@@ -193,7 +240,7 @@ class nginx(Application):
         with open(nginx_conf_path, 'w') as f:
             f.write(nginx_conf)
 
-        return g_project.start_process("nginx -c %s" % nginx_conf_path, preload)
+        return self.start_process(transport, "nginx -c %s" % nginx_conf_path)
 
 
     def __init__(self):
@@ -214,13 +261,13 @@ class gbtcp_base_helloworld(Application):
         g_project.system("%s -S" % self.path, True)
 
 
-    def start(self, concurrency, cpus, preload):
+    def start(self, transport, concurrency, cpus):
         cmd = "%s -l -a " % self.path
         for i in range(len(cpus)):
             if i != 0:
                 cmd += ","
             cmd += str(cpus[i])
-        return g_project.start_process(cmd, preload)
+        return self.start_process(transport, cmd)
 
 
     def __init__(self):
@@ -238,8 +285,11 @@ class gbtcp_aio_helloworld(gbtcp_base_helloworld):
         return "gbtcp-aio-helloworld"
 
 
-    def support_native(self):
-        return False
+    def is_support_transport(self, transport_id):
+        if transport_id == TRANSPORT_NATIVE:
+            return False
+        else:
+            return True
 
 
 
@@ -265,7 +315,8 @@ class Runner:
         for f in os.listdir(g_project.path + '/bin'):
             if f[:10] == "gbtcp-test":
                 if os.path.isfile(g_project.path + '/test/' + f + '.pkt'):
-                    Runner.add_test(tests, Tcpkt(f))
+                    #Runner.add_test(tests, Tcpkt(f))
+                    pass
                 else:
                     Runner.add_test(tests, Simple(f))
         Runner.add_test(tests, nginx())
@@ -283,9 +334,6 @@ class Runner:
         argparse_add_delay(ap, TEST_DELAY_DEFAULT)
 
         ap.add_argument("-i", metavar="interface", required=True, type=argparse_interface,
-                help="")
-
-        ap.add_argument("--preload", action='store_true',
                 help="")
 
         ap.add_argument("--dry-run", action='store_true',
@@ -325,7 +373,6 @@ class Runner:
 
         self.__args = ap.parse_args()
         self.concurrency = self.__args.concurrency
-        self.preload = self.__args.preload
         self.dry_run = self.__args.dry_run
         self.duration = self.__args.duration
         self.delay = self.__args.delay
@@ -351,13 +398,7 @@ class Runner:
 
         self.tests = []
         for test in self.__args.test:
-            if issubclass(type(tests[test]), Simple):
-                self.tests.append(tests[test])
-
-        # FIXME:            
-        for test in self.__args.test:
-            if issubclass(type(tests[test]), Application):
-                self.tests.append(tests[test])
+            self.tests.append(tests[test])
 
 
     def stop(self):
@@ -438,10 +479,7 @@ def parse_tester_reply(reply_ba, test_id, duration):
     return sample
 
 
-def print_report(test_id, sample, app, preload, concurrency, transport, cpu_usage, low):
-    if not preload:
-        transport = "native"
-
+def print_report(test_id, sample, app, concurrency, transport, cpu_usage, low):
     s = ""
     if sample != None and not low:
         s += ("%d/%d: " % (test_id, sample.id))
@@ -467,42 +505,6 @@ def print_report(test_id, sample, app, preload, concurrency, transport, cpu_usag
 
     print_log(s, True)
 
-last_used_cpus = None
-
-def do_test(app, cpus, preload, transport, concurrency):
-    global last_used_cpus
-
-    if g_runner.dry_run:
-        test_id = -1
-        sample_count = 0
-    else:
-        if preload:
-            commit = g_project.commit
-            transport_id = get_dict_id(transport_dict, transport)
-            assert(transport_id != None)
-        else:
-            if not app.support_native():
-                return
-            commit = ""
-            transport_id = TRANSPORT_NATIVE
-
-        test_id, sample_count = g_db.add_test(commit, TESTER_LOCAL_CON_GEN, app.id,
-            transport_id, g_runner.interface.driver_id, concurrency, len(cpus), g_runner.duration)
-
-    g_runner.ts_planned += g_runner.sample
-
-    for j in range (0, g_runner.sample - sample_count):
-        if last_used_cpus != cpus:
-            last_used_cpus = cpus
-            # Wait interface become available
-            time.sleep(2)
-            g_runner.interface.set_channels(cpus)
-
-        rc = app.start_test(test_id, transport, concurrency, cpus, preload)
-        if rc:
-            g_runner.ts_pass += 1
-        else:
-            g_runner.ts_failed += 1
 
 
 ################ MAIN ####################
@@ -532,4 +534,4 @@ for test in g_runner.tests:
             for transport in g_runner.transport:
                 g_project.write_gbtcp_conf(transport, g_runner.interface.name)
                 for concurrency in g_runner.concurrency:
-                    do_test(test, cpus, g_runner.preload, transport, concurrency)
+                    test.run(cpus, transport, concurrency)
