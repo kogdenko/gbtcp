@@ -66,9 +66,9 @@ def print_log(s, to_stdout = False):
         print(s)
 
 
-def dbg(s):
+def dbg(*args):
     traceback.print_stack(limit=2)
-    print(s)
+    print(args)
 
 
 def die(s):
@@ -219,28 +219,14 @@ def bytes_to_str(b):
     return b.decode('utf-8').strip()
 
 
-def make_int_list(s):
-    error = ValueError("Bad integer list: '%s'" % s)
-
-    res = set()
-    for item in s.split(','):
-        if '-' in item:
-            x, y = item.split('-')
-            if not x.isdigit() or not y.isdigit():
-                raise error
-            x = int(x)
-            y = int(y)
-            if x > y:
-                return None
-            for i in range(x, y + 1):
-                res.add(i)
+def make_cpu_mask(cpus):
+    cpu_mask = ""
+    for i in range(0, multiprocessing.cpu_count()):
+        if i in cpus:
+            cpu_mask += "1"
         else:
-            if not item.isdigit():
-                raise error
-            res.add(int(item))
-    res = list(res)
-    res.sort()
-    return res
+            cpu_mask += "0"
+    return cpu_mask
 
 
 def make_ip(t):
@@ -427,6 +413,18 @@ def get_interface_driver(name):
         if line.startswith("driver: "):
             return line[8:].strip()
     raise RuntimeError("'%s': No 'driver'" % cmd)
+
+
+def recv_line(sock):
+    line = ""
+    while True:
+        b = sock.recv(1024)
+        if b == None:
+            return None
+        s = b.decode('utf-8')
+        line += s
+        if '\n' in s:
+            return line.strip()
 
 
 def create_interface(name, driver):
@@ -684,30 +682,30 @@ class Database:
 
 
     def add_test(self, commit, tester_id, app_id,
-            transport_id, driver_id, concurrency, cpu_count, duration):
+            transport_id, driver_id, concurrency, cpu_mask, duration):
         assert(commit != None)
         assert(tester_id != None)
         assert(app_id != None)
         assert(transport_id != None)
         assert(driver_id != None)
         assert(concurrency != None)
-        assert(cpu_count != None)
+        assert(cpu_mask != None)
         assert(duration != None)
 
         where = ("gbtcp_commit=\"%s\" and tester_id=%d and os_id=%d and app_id=%d and "
             "transport_id=%d and driver_id=%d and concurrency=%d and cpu_model_id=%d and "
-            "cpu_count=%d" %
+            "cpu_mask=\"%s\"" %
             (commit, tester_id, self.os_id, app_id,
             transport_id, driver_id, concurrency, self.cpu_model_id,
-            cpu_count))
+            cpu_mask))
 
         cmd = ("insert into %s "
             "(gbtcp_commit, tester_id, os_id, app_id, "
-            "transport_id, driver_id, concurrency, cpu_model_id, cpu_count) "
-            "select \"%s\", %d, %d, %d, %d, %d, %d, %d, %d where not exists "
+            "transport_id, driver_id, concurrency, cpu_model_id, cpu_mask) "
+            "select \"%s\", %d, %d, %d, %d, %d, %d, %d, \"%s\" where not exists "
             "(select 1 from %s where %s)" % (
             Database.TEST_TABLE, commit, tester_id, self.os_id, app_id,
-            transport_id, driver_id, concurrency, self.cpu_model_id, cpu_count,
+            transport_id, driver_id, concurrency, self.cpu_model_id, cpu_mask,
             Database.TEST_TABLE, where))
         self.execute(cmd)
 
@@ -791,7 +789,7 @@ class Database:
         test.driver_id = int(row[6])
         test.concurrency = int(row[7])
         test.cpu_model_id = int(row[8])
-        test.cpu_count = int(row[9])
+        test.cpu_mask = int(row[9])
 
         test.tester = tester_dict.get(test.tester_id)
         if test.tester == None:

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0
 import getopt
 import socket
+import traceback
 import numpy
 from common import *
 
@@ -119,29 +120,39 @@ class Tester:
             return g_project.start_process(cmd, False)
 
 
-    @staticmethod
-    def get_request(listen_sock):
+    def process_Hello(self):
+        return "Hello"
+
+
+    def process_Run(self, args):
         class ArgumentParser(argparse.ArgumentParser):
             def error(self, message):
                 raise RuntimeError(message)
 
-        while True:
-            try:
-                sock, _ = listen_sock.accept()
-                req = ""
-                while True:
-                    req += sock.recv(1024).decode('utf-8')
-                    if '\n' in req:
-                        ap = ArgumentParser()
-                        add_request_arguments(ap)
-                        return sock, ap.parse_args(req.strip().split())
-            except (socket.error, RuntimeError) as e:
-                print_log("Error while reading request: '%s'" % str(e))
+        ap = ArgumentParser()
+        add_request_arguments(ap)
+        req = ap.parse_args(args)
 
-
-    def run(self, req):
         app = Tester.con_gen(self)
-        return app.run(req)
+        proc = app.run(req)
+        top = cpu_percent(req.duration, req.delay, self.cpus)
+
+        rc, lines = g_project.wait_process(proc)
+        if rc == 0:
+            results = parse_output(lines, req.delay, req.duration)
+        else:
+            results = None
+
+        print_report(proc, top, rc)
+
+        if rc == 0 and results != None:
+            reply = "Ok"
+            for result in results:
+                reply += " " + str(result)
+        else:
+            reply = "Failed"
+
+        return reply
 
 
     def loop(self):
@@ -161,28 +172,29 @@ class Tester:
 
         while True:
             try:
-                sock, req = Tester.get_request(listen_sock)
+                sock, _ = listen_sock.accept()
+                while True:
+                    req = recv_line(sock)
+                    if req == None:
+                        break
+                    dbg(req)
+                    args = req.strip().split()
+                    reply = None
+                    if len(args) > 0:
+                        if args[0] == "Hello":
+                            reply = self.process_Hello(args[1:])
+                        elif args[0] == "Run":
+                            reply = self.process_Run(args[1:])
+                        else:
+                            print_log("Incorrect request type: '%s'" % args[0])
+                    if reply == None:
+                        print_log("Incorrect request: '%s'" % req)
+                        sock.close()
+                        break
+
+                    reply += "\n"
+                    sock.send(reply.encode('utf-8'))
                 
-                proc = self.run(req)
-
-                top = cpu_percent(req.duration, req.delay, self.cpus)
-
-                rc, lines = g_project.wait_process(proc)
-                if rc == 0:
-                    results = parse_output(lines, req.delay, req.duration)
-                else:
-                    results = None
-
-                print_report(proc, top, rc)
-
-                if rc == 0 and results != None:
-                    reply = "Ok"
-                    for result in results:
-                        reply += " " + str(result)
-                else:
-                    reply = "Failed"
-                sock.send(reply.encode('utf-8'))
-                sock.close()
             except socket.error as e:
                 print_log("Connection failed: '%s'" % str(e))
 
@@ -220,5 +232,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as exc:
+        traceback.print_exception(exc)
         pass

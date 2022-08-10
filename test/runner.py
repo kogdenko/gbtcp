@@ -28,14 +28,6 @@ g_subnet = (10, 20, 0, 0)
 g_project = Project()
 g_db = Database("")
 
-#class Tcpkt:
-#    def __init__(self, name):
-#        self.name = name
-#
-#    def get_name(self):
-#        return self.name
-
-
 class Simple:
     def __init__(self, name):
         self.name = name
@@ -113,7 +105,7 @@ class Application:
         # Wait netmap interface goes up
         time.sleep(2)
         g_runner.cooling()
-        tester = sendto_tester(concurrency)
+        g_runner.send_Run(concurrency)
 
         top = cpu_percent(g_runner.duration, g_runner.delay, cpus)
 
@@ -123,13 +115,13 @@ class Application:
                 low = True
                 break
 
-        data = recvfrom_tester(tester)
+        rpl = g_runner.recv_rpl()
 
         self.stop()
         g_runner.stop()
         g_project.wait_process(proc)
 
-        sample = parse_tester_reply(data, test_id, g_runner.duration)
+        sample = parse_tester_reply(rpl, test_id, g_runner.duration)
 
         if sample != None and not low:
             sample.id = g_db.add_sample(sample)
@@ -154,8 +146,10 @@ class Application:
             else:
                 commit = g_project.commit
 
+            cpu_mask = make_cpu_mask(cpus)
+            dbg(cpus, cpu_mask)
             test_id, sample_count = g_db.add_test(commit, TESTER_LOCAL_CON_GEN, self.id,
-                transport_id, g_runner.interface.driver_id, concurrency, len(cpus), g_runner.duration)
+                transport_id, g_runner.interface.driver_id, concurrency, cpu_mask, g_runner.duration)
 
         g_runner.ts_planned += g_runner.sample
 
@@ -185,9 +179,7 @@ class nginx(Application):
         assert(n > 0)
 
         cpu_count = multiprocessing.cpu_count()
-        templ = list()
-        for i in range(0, cpu_count):
-            templ.append('0')
+        templ = [ '0' for i in range(0, cpu_count) ]
         for i in cpus:
             templ[cpu_count - 1 - i] = '1'
             worker_cpu_affinity += " " + "".join(templ)
@@ -292,8 +284,6 @@ class gbtcp_aio_helloworld(gbtcp_base_helloworld):
             return True
 
 
-
-
 class Runner:
     @staticmethod
     def add_test(d, test):
@@ -379,7 +369,6 @@ class Runner:
         self.sample = self.__args.sample
         self.interface = self.__args.i
         self.cpus = self.__args.cpu
-        self.connect = self.__args.connect
         self.transport = self.__args.transport
         self.cpu_count = self.__args.cpu_count
 
@@ -400,6 +389,13 @@ class Runner:
         for test in self.__args.test:
             self.tests.append(tests[test])
 
+        if self.__args.connect:
+            self.sock = socket.create_connection((make_ip(self.__args.connect), 9999))
+        else:
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.connect(SUN_PATH)
+        self.sock.settimeout(10)
+
 
     def stop(self):
         self.stop_mss = milliseconds()
@@ -411,56 +407,35 @@ class Runner:
             t = int(math.ceil((self.__args.cooling * 1000 - ms) / 1000))
             time.sleep(t)
 
+    def send_Run(self, concurrency):
+        req = ("Run --dst-mac %s "
+            "--subnet %d.%d.0.0 "
+            "--delay %d "
+            "--duration %d "
+            "--concurrency %d "
+            "--application con-gen\n" % (
+            str(self.interface.mac),
+            g_subnet[0], g_subnet[1],
+            self.delay,
+            self.duration,
+            concurrency))
+        
+        self.sock.send(req.encode('utf-8'))
+
+
+    def recv_rpl(self):
+        return recv_line(self.sock)
 
 g_runner = Runner()
 
 
 
-def sendto_tester(concurrency):
-    args = ("--dst-mac %s "
-        "--subnet %d.%d.0.0 "
-        "--delay %d "
-        "--duration %d "
-        "--concurrency %d "
-        "--application con-gen" % (
-        str(g_runner.interface.mac),
-        g_subnet[0], g_subnet[1],
-        g_runner.delay,
-        g_runner.duration,
-        concurrency))
-    
-    if g_runner.connect:
-        sock = socket.create_connection((make_ip(g_runner.connect), 9999))
-    else:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect(SUN_PATH)
-    sock.send((args + "\n").encode('utf-8'))
-    return sock
-
-def recvfrom_tester(s):
-    # We should get bytes from recv() without any delay,
-    # because time passed in measure_cpu_usage() called before
-    s.settimeout(10)
-    data = bytearray()
-    while True:
-        buf = s.recv(1024)
-        if not buf:
-            s.close()
-            return data
-        data += bytearray(buf)
-    return data
 
 def print_invalid_tester_reply(s):
     print_log("Invalid tester reply:\n%s" % s)
 
-def parse_tester_reply(reply_ba, test_id, duration):
-    reply = reply_ba.decode('utf-8').strip()
-
-    rows = reply.split('\n')
-    if len(rows) != 1:
-        print_invalid_tester_reply(reply)       
-        return None
-    cols = rows[0].split()
+def parse_tester_reply(reply, test_id, duration):
+    cols = reply.split()
     if len(cols) == 1:
         return None
     if len(cols) != Database.Sample.CONCURRENCY + 2:
