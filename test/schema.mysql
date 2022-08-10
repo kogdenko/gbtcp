@@ -28,7 +28,7 @@ CREATE TABLE `app` (
   `ver` varchar(16) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`,`ver`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -45,7 +45,7 @@ CREATE TABLE `cpu_model` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`),
   UNIQUE KEY `alias` (`alias`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -61,7 +61,7 @@ CREATE TABLE `os` (
   `ver` varchar(16) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`,`ver`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -74,18 +74,18 @@ DROP TABLE IF EXISTS `sample`;
 CREATE TABLE `sample` (
   `id` int NOT NULL AUTO_INCREMENT,
   `test_id` int DEFAULT NULL,
-  `status` int DEFAULT NULL,
-  `cps` blob,
-  `ipps` blob,
-  `ibps` blob,
-  `opps` blob,
-  `obps` blob,
-  `rxmtps` blob,
-  `concurrency` blob,
+  `duration` int DEFAULT NULL,
+  `cps` int DEFAULT NULL,
+  `ipps` int DEFAULT NULL,
+  `ibps` bigint DEFAULT NULL,
+  `opps` int DEFAULT NULL,
+  `obps` bigint DEFAULT NULL,
+  `rxmtps` bigint DEFAULT NULL,
+  `concurrency` int DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `test_id` (`test_id`),
   CONSTRAINT `sample_ibfk_1` FOREIGN KEY (`test_id`) REFERENCES `test` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=51 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=75 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -105,9 +105,9 @@ CREATE TABLE `test` (
   `driver_id` int DEFAULT NULL,
   `concurrency` int DEFAULT NULL,
   `cpu_model_id` int DEFAULT NULL,
-  `cpu_count` int DEFAULT NULL,
+  `cpu_mask` varchar(128) DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `gbtcp_commit` (`gbtcp_commit`,`tester_id`,`os_id`,`app_id`,`transport_id`,`driver_id`,`concurrency`,`cpu_model_id`,`cpu_count`),
+  UNIQUE KEY `gbtcp_commit` (`gbtcp_commit`,`tester_id`,`os_id`,`app_id`,`transport_id`,`driver_id`,`concurrency`,`cpu_model_id`),
   KEY `os_id` (`os_id`),
   KEY `app_id` (`app_id`),
   KEY `cpu_model_id` (`cpu_model_id`),
@@ -115,7 +115,7 @@ CREATE TABLE `test` (
   CONSTRAINT `test_ibfk_2` FOREIGN KEY (`os_id`) REFERENCES `os` (`id`),
   CONSTRAINT `test_ibfk_3` FOREIGN KEY (`app_id`) REFERENCES `app` (`id`),
   CONSTRAINT `test_ibfk_4` FOREIGN KEY (`cpu_model_id`) REFERENCES `cpu_model` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=30 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
@@ -127,4 +127,4 @@ CREATE TABLE `test` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2022-07-12 11:05:01
+-- Dump completed on 2022-08-10 18:17:45

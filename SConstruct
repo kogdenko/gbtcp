@@ -127,19 +127,19 @@ ldflags = [
     '-lm',
 ]
 
-AddOption('--debug-build', action = 'store_true',
-    help = 'Debug build', default = False)
+AddOption('--debug-build', action='store_true',
+    help='Debug build', default=False)
 
-AddOption('--without-netmap', action = 'store_true',
-    help = "Don't use netmap transport", default = False)
+AddOption('--without-netmap', action='store_true',
+    help="Don't use netmap transport", default=False)
 
-AddOption('--without-vale', action = 'store_true',
-    help = "Don't use netmap vale switch", default = False)
+AddOption('--without-vale', action='store_true',
+    help="Don't use netmap vale switch", default=False)
 
-AddOption('--without-xdp', action = 'store_true',
-    help = "Don't use XDP transport", default = False)
+AddOption('--without-xdp', action='store_true',
+    help="Don't use XDP transport", default=False)
 
-shutil.copyfile('./tools/pre-commit', '.git/hooks/pre-commit')
+shutil.copy('./tools/pre-commit', '.git/hooks/')
 
 PLATFORM = platform.system()
 
