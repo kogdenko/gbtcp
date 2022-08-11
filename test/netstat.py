@@ -1,94 +1,169 @@
 #!/usr/bin/python
 # SPDX-License-Identifier: GPL-2.0
+import math
 import getopt
 import argparse
 
 from common import *
 
-# { 'Ip': [['Forwarding', 'DefaultTTL', ... ], [2, 64, ... ]],
-#   'Icmp': [['InMsgs', 'InErrors', ...], [59610, 25, ... ]]
-#   ...
-# }
-
 class Netstat:
+    @staticmethod
+    def rate(a, b, dt):
+        rate = Netstat()
+        for table_a in a.tables:
+            table_b = b.get(table_a.name)
+            assert(table_b != None)
+            table_rate = Netstat.Table.rate(rate, table_a, table_b, dt)
+            rate.tables.append(table_rate)
+        return rate
+
+
+    class Table:
+        @staticmethod
+        def rate(netstat, a, b, dt):
+            rate = Netstat.Table(netstat, a.name)
+            for entry_a in a.entries:
+                entry_b = b.get(entry_a.name)
+                assert(entry_b != None)
+                entry_rate = Netstat.Table.Entry(entry_a.name)
+                entry_rate.value = math.ceil((entry_b.value - entry_a.value) / dt)
+                rate.entries.append(entry_rate)
+            return rate
+
+
+        class Entry:
+            def __init__(self, name):
+                self.name = name
+                self.value = None
+
+
+        def __init__(self, netstat, name):
+            self.netstat = netstat
+            self.name = name
+            self.entries = []
+
+
+        def get(self, entry_name):
+            for entry in self.entries:
+                if entry.name == entry_name:
+                    return entry
+            return None
+
+
+        def write(self, db, sample_id, role):
+            table = "netstat_" + self.netstat.name + "_" + self.name
+            new_columns = []
+            if not db.is_table_exists(table):
+                for entry in self.entries:
+                    new_columns.append(entry.name)
+                db.create_netstat_table(table, new_columns)
+            else:
+                old_columns = db.get_columns(table)
+                for entry in self.entries:
+                    if entry.name not in old_columns:
+                        new_columns.append(entry.name)
+                db.add_netstat_columns(table, new_columns)
+
+            db.insert_into_netstat(table, sample_id, role, self.entries)
+
+
+        def __str__(self):
+            s = ""
+            for e in self.entries:
+                if e.value != 0 or not self.netstat.hide_zeroes:
+                    s += "    %s: %d\n" % (e.name, e.value)
+            return s
+
+
+        def __repr__(self):
+            return __str__(self)
+
+
+    def get(self, table_name):
+        for table in self.tables:
+            if table.name == table_name:
+                return table
+        return None
+
+
     def read_file(self, path):
-        f = open(path, 'r')
-        lines = f.readlines()
-        f.close()
+        with open(path, 'r') as f:
+            lines = f.readlines()
+
         for line in lines:
             tmp = line.split(':')
             assert(len(tmp) == 2)
-            first = tmp[0] 
-            if self.map.get(first) == None:
-                self.map[first] = [[],[]]
-                for second in tmp[1].split():
-                    self.map[first][0].append(second)
+            table = self.get(tmp[0])
+            if table == None:
+                table = Netstat.Table(self, tmp[0])
+                keys = tmp[1].split()
+                for key in keys:
+                    table.entries.append(Netstat.Table.Entry(key))
+                self.tables.append(table)
             else:
-                for val in tmp[1].split():
-                    self.map[first][1].append(int(val))
-                assert(len(self.map[first][0]) == len(self.map[first][1]))
+                values = tmp[1].split()
+                assert(len(table.entries) == len(values))
+                for i, value in enumerate(values):
+                    table.entries[i].value = int(value)
+
+
+    def write(self, db, sample_id, role):
+        for table in self.tables:
+            table.write(db, sample_id, role)
+
 
     def read(self):
-        self.map = {}
+        self.tables = []
         self.read_file('/proc/net/snmp')
         self.read_file('/proc/net/netstat')
 
-    def __init__(self, empty=False):
-        self.map = {}
-        if not empty:
-            self.read()
 
-    def get(self, first, second):
-        for i in range(len(self.map[first][0])):
-            if self.map[first][0][i] == second:
-                return self.map[first][1][i]
-        return None
+    def __init__(self):
+        self.name = "linux"
+        self.hide_zeroes = False
+        self.tables = []
 
-    def __sub__(self, other):
-        res = Netstat(True)
-        for first, pair in self.map.items():
-            for i in range(0, len(pair[0])):
-                second = pair[0][i]
-                other_val = other.get(first, second)
-                if other_val != None:
-                    if first not in res.map:
-                        res.map[first] = [[], []]
-                    res.map[first][0].append(second)
-                    res.map[first][1].append(pair[1][i] - other_val)
-        return res;
 
-    def to_string(self, hide_zeroes=True):
+    def __str__(self):
         s = ""
-        for first, pair in self.map.items():
-            printed = False
-            for i in range(len(pair[0])):
-                val = pair[1][i]
-                if hide_zeroes and not val:
-                    continue
-                if not printed:
-                    printed = True
-                    s += "%s:\n" % first
-                s += "    %s: %d\n" % (pair[0][i], pair[1][i])
+        for table in self.tables:
+            tmp = str(table)
+            if len(tmp):
+                s += table.name + "\n" + tmp
         return s
 
-        
+
+    def __repr__(self):
+        return self.__str__()
+
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--rate", help="number of secods between reports", type=int)
-    ap.add_argument("-D", metavar="mac", required=True, type=argparse_mac)
+    ap.add_argument("--rate", metavar="seconds", type=int,
+            help="Number of seconds between reports")
+    ap.add_argument("--database", action='store_true',
+            help="Write netstat to database")
     args = ap.parse_args()
-    print(args.mac)
-    return 0; 
+
     if args.rate:
         while True:
-            save = Netstat()
+            ns0 = Netstat()
+            ns0.read()
             time.sleep(args.rate)
             print("Netstat rate:")
-            print((Netstat() - save).to_string())
+            ns1 = Netstat()
+            ns1.read()
+            rate = Netstat.rate(ns0, ns1, args.rate)
+            rate.hide_zeroes = True
+            print(rate)
             print("_______________")
     else:
-        print(Netstat().to_string())
+        ns = Netstat()
+        ns.read()
+        if args.database:
+            db = Database("")
+            ns.write(db, 1, 0)
+        print(ns)
 
     return 0
 

@@ -17,7 +17,7 @@ import re
 import numpy
 
 from common import *
-import netstat
+from netstat import *
 
 COOLING_MIN = 0
 COOLING_MAX = 30*60
@@ -81,9 +81,22 @@ class Application:
         return True
 
 
-    def start_process(self, transport, cmd):
-        transport_id = get_dict_id(transport_dict, transport)
-        if transport_id == TRANSPORT_NATIVE:
+    def read_netstat(self):
+        netstat = None
+        if self.transport_id == TRANSPORT_NATIVE:
+            if platform.system() == 'Linux':
+                netstat = Netstat()
+            else:
+                assert(0)
+        else:
+            assert(0)
+        netstat.read()
+        return netstat
+
+
+    def start_process(self, transport_id, cmd):
+        self.transport_id = transport_id
+        if self.transport_id == TRANSPORT_NATIVE:
             preload = False
         else:
             preload = True
@@ -93,21 +106,24 @@ class Application:
     def parse_version(self, s):
         m = re.search(r'[0-9]+\.[0-9]+\.[0-9]+', s.strip())
         if m == None:
-            die("%s: Cannot get version" % s)
+            raise RuntimeError("%s: Cannot extract version" % s)
         return m.group(0)
 
 
-    def run_sample(self, test_id, transport, concurrency, cpus):
+    def run_sample(self, test_id, transport_id, concurrency, cpus):
         self.stop()
 
-        proc = self.start(transport, concurrency, cpus)
+        proc = self.start(transport_id, concurrency, cpus)
 
         # Wait netmap interface goes up
         time.sleep(2)
         g_runner.cooling()
         g_runner.send_Run(concurrency)
 
-        top = cpu_percent(g_runner.duration, g_runner.delay, cpus)
+        time.sleep(g_runner.delay)
+        netstat_begin = self.read_netstat()
+        dt = g_runner.duration - g_runner.delay
+        top = cpu_percent(dt, cpus)
 
         low = False
         for j in top:
@@ -115,7 +131,7 @@ class Application:
                 low = True
                 break
 
-        rpl = g_runner.recv_rpl()
+        rpl = g_runner.recv_msg()
 
         self.stop()
         g_runner.stop()
@@ -125,8 +141,11 @@ class Application:
 
         if sample != None and not low:
             sample.id = g_db.add_sample(sample)
+            netstat_end = self.read_netstat()
+            netstat_rate = Netstat.rate(netstat_begin, netstat_end, dt)
+            netstat_rate.write(g_db, sample.id, Database.ROLE_RUNNER)
 
-        print_report(test_id, sample, self.get_name(), concurrency, transport, top, low)
+        print_report(test_id, sample, self.get_name(), concurrency, transport_id, top, low)
 
         if sample == None or low:
             g_runner.ts_failed += 1
@@ -147,7 +166,6 @@ class Application:
                 commit = g_project.commit
 
             cpu_mask = make_cpu_mask(cpus)
-            dbg(cpus, cpu_mask)
             test_id, sample_count = g_db.add_test(commit, TESTER_LOCAL_CON_GEN, self.id,
                 transport_id, g_runner.interface.driver_id, concurrency, cpu_mask, g_runner.duration)
 
@@ -155,7 +173,7 @@ class Application:
 
         for j in range (0, g_runner.sample - sample_count):
             g_runner.interface.set_channels(cpus)
-            self.run_sample(test_id, transport, concurrency, cpus)
+            self.run_sample(test_id, transport_id, concurrency, cpus)
 
 
 class nginx(Application):
@@ -172,7 +190,7 @@ class nginx(Application):
         system("nginx -s quit", True)
 
 
-    def start(self, transport, concurrency, cpus):
+    def start(self, transport_id, concurrency, cpus):
         worker_cpu_affinity = ""
 
         n = len(cpus)
@@ -232,7 +250,7 @@ class nginx(Application):
         with open(nginx_conf_path, 'w') as f:
             f.write(nginx_conf)
 
-        return self.start_process(transport, "nginx -c %s" % nginx_conf_path)
+        return self.start_process(transport_id, "nginx -c %s" % nginx_conf_path)
 
 
     def __init__(self):
@@ -246,20 +264,20 @@ class gbtcp_base_helloworld(Application):
         for line in s.splitlines():
             if line.startswith("version: "):
                 return self.parse_version(line)
-        die("%s: Invalid output" % cmd)
+        raise RuntimeError("%s: Cannot extract version" % cmd)
 
 
     def stop(self):
         g_project.system("%s -S" % self.path, True)
 
 
-    def start(self, transport, concurrency, cpus):
+    def start(self, transport_id, concurrency, cpus):
         cmd = "%s -l -a " % self.path
         for i in range(len(cpus)):
             if i != 0:
                 cmd += ","
             cmd += str(cpus[i])
-        return self.start_process(transport, cmd)
+        return self.start_process(transport_id, cmd)
 
 
     def __init__(self):
@@ -390,11 +408,11 @@ class Runner:
             self.tests.append(tests[test])
 
         if self.__args.connect:
-            self.sock = socket.create_connection((make_ip(self.__args.connect), 9999))
+            self.__sock = socket.create_connection((make_ip(self.__args.connect), 9999))
         else:
-            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.sock.connect(SUN_PATH)
-        self.sock.settimeout(10)
+            self.__sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.__sock.connect(SUN_PATH)
+        self.__sock.settimeout(10)
 
 
     def stop(self):
@@ -407,24 +425,29 @@ class Runner:
             t = int(math.ceil((self.__args.cooling * 1000 - ms) / 1000))
             time.sleep(t)
 
+
+    def send_msg(self, msg):
+        self.__sock.send((msg + "\n").encode('utf-8'))
+
+
     def send_Run(self, concurrency):
         req = ("Run --dst-mac %s "
             "--subnet %d.%d.0.0 "
             "--delay %d "
             "--duration %d "
             "--concurrency %d "
-            "--application con-gen\n" % (
+            "--application con-gen" % (
             str(self.interface.mac),
             g_subnet[0], g_subnet[1],
             self.delay,
             self.duration,
             concurrency))
         
-        self.sock.send(req.encode('utf-8'))
+        self.send_msg(req)
 
 
-    def recv_rpl(self):
-        return recv_line(self.sock)
+    def recv_msg(self):
+        return recv_line(self.__sock)
 
 g_runner = Runner()
 
@@ -447,20 +470,17 @@ def parse_tester_reply(reply, test_id, duration):
     sample.duration = duration
     sample.results = []
     for i in range(1, len(cols)):
-        if not is_int(cols[i]):
-            print_invalid_tester_reply(reply)
-            return None
         sample.results.append(int(cols[i]))
     return sample
 
 
-def print_report(test_id, sample, app, concurrency, transport, cpu_usage, low):
+def print_report(test_id, sample, app, concurrency, transport_id, cpu_usage, low):
     s = ""
     if sample != None and not low:
         s += ("%d/%d: " % (test_id, sample.id))
 
     s += ("%s:%s: c=%d, CPU=%s" %
-        (transport, app, concurrency, str(cpu_usage)))
+        (transport_dict[transport_id], app, concurrency, str(cpu_usage)))
 
     if sample != None:
         pps = sample.results[Database.Sample.IPPS] + sample.results[Database.Sample.OPPS]

@@ -71,11 +71,6 @@ def dbg(*args):
     print(args)
 
 
-def die(s):
-    print_log(s, True)
-    sys.exit(1)
-
-
 class UniqueAppendAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         unique_values = list(set(values))
@@ -193,14 +188,6 @@ def argparse_add_delay(ap, default=None):
             choices=range(TEST_DELAY_MIN, TEST_DELAY_MAX),
             required=required, default=default,
             help="Number of seconds before measurment")
-
-
-def is_int(s):
-    try:
-        i = int(s)
-    except:
-        return False
-    return True
 
 
 def upper_pow2_32(x):
@@ -357,11 +344,10 @@ def get_runner_ip(subnet):
     return "%d.%d.%d.%d" % (subnet[0], subnet[1], SERVER_IP_C, SERVER_IP_D)
 
 
-def cpu_percent(t, delay, cpus):
+def cpu_percent(t, cpus):
     # Skip last second
-    assert(t > delay)
-    time.sleep(delay)
-    percent = psutil.cpu_percent(t - delay - 1, True)
+    assert(t > 2)
+    percent = psutil.cpu_percent(t - 1, True)
     cpu_usage = []
     for cpu in cpus:
         cpu_usage.append(percent[cpu])
@@ -418,10 +404,9 @@ def get_interface_driver(name):
 def recv_line(sock):
     line = ""
     while True:
-        b = sock.recv(1024)
-        if b == None:
+        s = sock.recv(1024).decode('utf-8')
+        if not s:
             return None
-        s = b.decode('utf-8')
         line += s
         if '\n' in s:
             return line.strip()
@@ -457,13 +442,14 @@ def get_cpu_name():
         for line in lines:
             if "model name" in line:
                 return re.sub( ".*model name.*:", "", line, 1).strip()
-    die("Couldn't get CPU model name")
+    raise RuntimeError("Cannot determine CPU model")
 
 
 def git_rev_parse(rev):
-    commit = system("git rev-parse %s" % rev)[1].strip()
+    cmd = "git rev-parse %s" % rev
+    commit = system(cmd)[1].strip()
     if len(commit) != 40:
-        die("Invalid git revision '%s'" % rev)
+        raise RuntimeError("%s: Cannot extract git commit " % cmd)
     return commit
 
 
@@ -528,7 +514,7 @@ class veth(interface):
 
     def set_channels(self, cpus):
         if len(cpus) != 1:
-            die("veth interface doesn't support multiqueue mode. Please, use single cpu")
+            raise RuntimeError("veth interface doesn't support multiqueue mode")
 
 
 class Project:
@@ -542,7 +528,7 @@ class Project:
         self.gbtcp_conf_path = self.path + "/test/gbtcp.conf"
 
         self.commit = None
-        self.transports = []
+        self.transports = [transport_dict[TRANSPORT_NATIVE]]
 
         cmd = self.path + "/bin/gbtcp-aio-helloworld -v"
         _, out, _ = self.system(cmd)
@@ -584,6 +570,7 @@ class Project:
         return proc
 
     def wait_process(self, proc):
+        lines = []
         t0 = milliseconds()
         try:
             proc.wait(timeout = 5)
@@ -591,10 +578,10 @@ class Project:
             t1 = milliseconds()
             dt = t1 - t0
             assert(dt * 1000 > 4.5)
-            print_log("%s:%d: Timeouted, terminate process", (proc.args[0], proc.pid))
+            print_log("$ [%d] Timeouted" % proc.pid)
             proc.terminate()
+            return 256, lines    
 
-        lines = []
         for pipe in [proc.stdout, proc.stderr]:
             while True:
                 line = pipe.readline()
@@ -609,6 +596,9 @@ class Project:
 class Database:
     TEST_TABLE = "test"
     SAMPLE_TABLE = "sample"
+
+    ROLE_RUNNER = 0
+    ROLE_TESTER = 1
 
     class Cpu_model:
         pass
@@ -668,8 +658,11 @@ class Database:
 
 
     def execute(self, cmd, *args):
-        sql_cursor = self.sql_conn.cursor(buffered = True)
-        sql_cursor.execute(cmd, *args);
+        try:
+            sql_cursor = self.sql_conn.cursor(buffered = True)
+            sql_cursor.execute(cmd, *args);
+        except mysql.connector.errors.ProgrammingError as exc:
+            raise RuntimeError("mysql query '%s' failed" % cmd) from exc
         return sql_cursor
 
 
@@ -934,3 +927,60 @@ class Database:
             cpu_model.alias = row[2]
             cpu_models.append(cpu_model)
         return cpu_models
+
+
+    def get_columns(self, table):
+        cmd = "show columns from %s" % table
+
+        columns = []
+        sql_cursor = self.execute(cmd)
+        while True:
+            row = sql_cursor.fetchone()
+            if row == None:
+                break
+            columns.append(row[0])
+        return columns
+
+
+    def is_table_exists(self, table):
+        cmd = "show tables like '%s'" % table
+        sql_cursor = self.execute(cmd)
+        row = sql_cursor.fetchone()
+        if row == None:
+            return False
+        else:
+            return True
+
+
+    def create_netstat_table(self, table, columns):
+        cmd = "create table %s (sample_id int, role int" % table 
+        for column in columns:
+            cmd += ", %s bigint" % column
+        cmd += ", primary key(sample_id, role))"
+        self.execute(cmd)
+
+
+    def add_netstat_column(self, table, column):
+        cmd = "alter table %s add column %s bigint" % (table, column)
+        self.execute(cmd)
+
+
+    def add_netstat_columns(self, table, columns):
+        if not columns:
+            return
+        cmd = "alter table %s add column %s" % (table, columns[0])
+        for column in columns[1:]:
+            cmd += ", add column %s bigint" % column
+        self.execute(cmd)
+
+
+    def insert_into_netstat(self, table, sample_id, role, entries):
+        assert(entries)
+        cmd = "insert into %s (sample_id, role" % table
+        for entry in entries:
+            cmd += ", %s" % entry.name
+        cmd += ") values (%d, %d" % (sample_id, role)
+        for entry in entries:
+            cmd += ", %d" % entry.value
+        cmd += ")"
+        self.execute(cmd)

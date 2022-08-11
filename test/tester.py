@@ -6,13 +6,12 @@ import traceback
 import numpy
 from common import *
 
+g_debug = True
 g_project = Project()
 
 def run_epoll(interface, subnet, reports, concurrency):
     ifname = interface.name
 
-    system("ip a flush dev %s" % ifname)
-    system("ip r flush dev %s" % ifname)
     for i in range(1, 255):
         system("ip a a dev %s %d.%d.1.%d " % (ifname, subnet[0], subnet[1], i))
     system("ip r a dev %s %d.%d.0.0/16" % (ifname, subnet[0], subnet[1]))
@@ -120,8 +119,18 @@ class Tester:
             return g_project.start_process(cmd, False)
 
 
-    def process_Hello(self):
-        return "Hello"
+#    def process_Hello(self):
+#        return (
+#            "--os-system=\"%s\" "
+#            "--os-release=\"%s\" "
+#            "--app-name=\"%s\" "
+#            "--app-version=\"%s\" "
+#            "--transport-id=\"%d\" "
+#            "--driver-id=\"%d\" "
+#            "--cpu-model=\"%s\" "
+#            "--cpu-mask=\"%s\"" % (
+#          
+#            ))
 
 
     def process_Run(self, args):
@@ -135,7 +144,8 @@ class Tester:
 
         app = Tester.con_gen(self)
         proc = app.run(req)
-        top = cpu_percent(req.duration, req.delay, self.cpus)
+        time.sleep(req.delay)
+        top = cpu_percent(req.duration - req.delay, self.cpus)
 
         rc, lines = g_project.wait_process(proc)
         if rc == 0:
@@ -192,8 +202,7 @@ class Tester:
                         sock.close()
                         break
 
-                    reply += "\n"
-                    sock.send(reply.encode('utf-8'))
+                    sock.send((reply + "\n").encode('utf-8'))
                 
             except socket.error as e:
                 print_log("Connection failed: '%s'" % str(e))
@@ -223,6 +232,9 @@ class Tester:
 
         self.interface.set_channels(self.cpus)
 
+        system("ip a flush dev %s" % self.interface.name)
+        system("ip r flush dev %s" % self.interface.name)
+
 
 def main():
     tester = Tester()
@@ -233,5 +245,6 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt as exc:
-        traceback.print_exception(exc)
+        if g_debug:
+            traceback.print_exception(exc)
         pass
