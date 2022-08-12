@@ -9,7 +9,8 @@ from common import *
 class Netstat:
     @staticmethod
     def rate(a, b, dt):
-        rate = Netstat()
+        assert(type(a) == type(b))
+        rate = type(a)()
         for table_a in a.tables:
             table_b = b.get(table_a.name)
             assert(table_b != None)
@@ -86,6 +87,35 @@ class Netstat:
         return None
 
 
+    def write(self, db, sample_id, role):
+        for table in self.tables:
+            table.write(db, sample_id, role)
+
+
+    def __init__(self, name):
+        self.name = name
+        self.hide_zeroes = False
+        self.tables = []
+
+
+    def __str__(self):
+        s = ""
+        for table in self.tables:
+            tmp = str(table)
+            if len(tmp):
+                s += table.name + "\n" + tmp
+        return s
+
+
+    def __repr__(self):
+        return self.__str__()
+
+
+class LinuxNetstat(Netstat):
+    def __init__(self):
+        Netstat.__init__(self, "linux")
+
+
     def read_file(self, path):
         with open(path, 'r') as f:
             lines = f.readlines()
@@ -106,39 +136,174 @@ class Netstat:
                 for i, value in enumerate(values):
                     table.entries[i].value = int(value)
 
-
-    def write(self, db, sample_id, role):
-        for table in self.tables:
-            table.write(db, sample_id, role)
-
-
     def read(self):
         self.tables = []
         self.read_file('/proc/net/snmp')
         self.read_file('/proc/net/netstat')
 
 
+class BsdNetstat(Netstat):
+    @staticmethod
+    def search(table, line, pattern, args):
+        assert(args)
+        result = re.search(pattern, line)
+        if result != None and len(result.groups()) == len(args):
+            for i in range(0, len(args)):
+                entry = table.get(args[i])
+                if entry == None:
+                    entry = Netstat.Table.Entry(args[i])
+                    table.entries.append(entry)
+                entry.value = int(result.groups()[i])
+            return True
+        else:
+            return False
+
+
+    @staticmethod
+    def __init__(self, name):
+        Netstat.__init__(self, name)
+        self.protocols = {
+            'arp': [
+                [r"(\d+) ARP requests sent", "txrequests"],
+                [r"(\d+) ARP replies sent", "txreplies"],
+                [r"(\d+) ARP replies tx dropped", "txrepliesdropped"],
+                [r"(\d+) ARP requests received", "rxrequests"],
+                [r"(\d+) ARP replies received", "rxreplies"],
+                [r"(\d+) ARP packets received", "received"],
+                [r"(\d+) ARP packets bypassed", "bypassed"],
+                [r"(\d+) ARP packets filtered", "filtered"],
+                [r"(\d+) total packets dropped due to no ARP entry", "dropped"],
+                [r"(\d+) ARP entries timed out", "timeouts"],
+            ],
+            'ip': [
+                [r"(\d+) total packets received", "total"],
+                [r"(\d+) bad header checksums", "badsum"],
+                [r"(\d+) with size smaller than minimum", "toosmall"],
+                [r"(\d+) with data size < data length", "tooshort"],
+                [r"(\d+) with ip length > max ip packet size", "toolong"],
+                [r"(\d+) with header length < data size", "badhlen"],
+                [r"(\d+) with data length < header length", "badlen"],
+                [r"(\d+) with incorrect version number", "badvers"],
+                [r"(\d+) fragments received", "fragments"],
+                [r"(\d+) fragments dropped (dup or out of space)", "fragdropped"],
+                [r"(\d+) packets for this host", "delivered"],
+                [r"(\d+) packets for unknown/unsupported protocol", "noproto"],
+                [r"(\d+) packets sent from this host", "localout"],
+                [r"(\d+) output packets discarded due to no route", "noroute"],
+                [r"(\d+) output datagrams fragmented", "fragmented"],
+                [r"(\d+) datagrams that can't be fragmented", "cantfrag"],
+            ],
+            'tcp': [
+                [r"(\d+) packets sent", "sndtotal"],
+                [r"(\d+) data packets \((\d+) bytes\)", "sndpack", "sndbyte"],
+                [r"(\d+) data packets \((\d+) bytes\) retransmitted",
+                    "sndrexmitpack", "sndrexmitbyte"],
+                [r"(\d+) ack-only packets \((\d+) delayed\)", "sndacks" , "delack"],
+                [r"(\d+) URG only packets", "sndurg"],
+                [r"(\d+) window probe packets", "sndprobe"],
+                [r"(\d+) window update packets", "sndwinup"],
+                [r"(\d+) control packets", "sndctrl"],
+                [r"(\d+) packets received", "rcvtotal"],
+                [r"(\d+) acks \(for (\d+) bytes\)", "rcvackpack", "rcvackbyte"],
+                [r"(\d+) duplicate acks", "rcvdupack"],
+                [r"(\d+) acks for unsent data", "rcvacktoomuch"],
+                [r"(\d+) packets \((\d+) bytes\) received in-sequence", "rcvpack", "rcvbyte"],
+                [r"(\d+) completely duplicate packets \((\d+) bytes\)",
+                    "rcvduppack", "rcvdupbyte"],
+                [r"(\d+) old duplicate packets", "pawsdrop"],
+                [r"(\d+) packets with some dup. data \((\d+) bytes duped\)",
+                    "rcvpartduppack", "rcvpartdupbyte"],
+                [r"(\d+) out-of-order packets \((\d+) bytes\)", "rcvoopack", "rcvoobyte"],
+                [r"(\d+) packets \((\d+) bytes\) of data after window",
+                    "rcvpackafterwin", "rcvbyteafterwin"],
+                [r"(\d+) window probes", "rcvwinprobe"],
+                [r"(\d+) window update packets", "rcvwinupd"],
+                [r"(\d+) packets received after close", "rcvafterclose"],
+                [r"(\d+) discarded for bad checksums", "rcvbadsum"],
+                [r"(\d+) discarded for bad header offset fields", "rcvbadoff"],
+                [r"(\d+) discarded because packet too short", "rcvshort"],
+                [r"(\d+) discarded due to memory problems", "rcvmemdrop"],
+                [r"(\d+) connection requests", "connattempt"],
+                [r"(\d+) connection accepts", "accepts"],
+                [r"(\d+) bad connection attempts", "badsyn"],
+                [r"(\d+) listen queue overflows", "listendrop"],
+                [r"(\d+) connections established \(including accepts\)", "connects"],
+                [r"(\d+) connections closed \(including (\d+) drops\)", "closed", "drops"],
+                [r"(\d+) embryonic connections dropped", "conndrops"],
+                [r"(\d+) segments updated rtt \(of (\d+) attempts\)", "rttupdated", "segstimed"],
+                [r"(\d+) retransmit timeouts", "rexmttimeo"],
+                [r"(\d+) connections dropped by rexmit timeout", "timeoutdrop"],
+                [r"(\d+) persist timeouts", "persisttimeo"],
+                [r"(\d+) keepalive timeouts", "keeptimeo"],
+                [r"(\d+) keepalive probes sent", "keepprobe"],
+                [r"(\d+) connections dropped by keepalive", "keepdrops"],
+                [r"(\d+) correct ACK header predictions", "predack"],
+                [r"(\d+) correct data packet header predictions", "preddat"],
+            ],
+            'udp': [
+                [r"(\d+) datagrams received", "ipackets"],
+                [r"(\d+) with incomplete header", "hdrops"],
+                [r"(\d+) with bad data length field", "badlen"],
+                [r"(\d+) with bad checksum", "badsum"],
+                [r"(\d+) with no checksum", "nosum"],
+                [r"(\d+) dropped due to no socket", "noport"],
+                [r"(\d+) dropped due to full socket buffers", "fullsock"],
+                [r"(\d+) delivered", "delivered"],
+                [r"(\d+) datagrams output", "opackets"],
+            ],
+        }
+
+
+    def parse(self, text):
+        lines = text.split('\n')
+        table = None
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            if line[-1] == ':':
+                table = None
+                for proto, patterns in self.protocols.items():
+                    if proto == line[:-1]:
+                        table = self.get(proto)
+                        if table == None:
+                            table = Netstat.Table(self, proto)
+                            table.patterns = patterns
+                            self.tables.append(table)
+                        break
+            elif table != None:
+                found = False
+                for pattern in patterns:
+                    if BsdNetstat.search(table, line, pattern[0], pattern[1:]):
+                        found = True
+                        break
+                if not found:
+                    print_log("Unknown BSD '%s' stat: '%s'" % (table.name, line))
+
+
+class GbtcpNetstat(BsdNetstat):
     def __init__(self):
-        self.name = "linux"
-        self.hide_zeroes = False
-        self.tables = []
+        BsdNetstat.__init__(self, "gbtcp")
+        self.project = Project()
 
 
-    def __str__(self):
-        s = ""
-        for table in self.tables:
-            tmp = str(table)
-            if len(tmp):
-                s += table.name + "\n" + tmp
-        return s
+    def read(self):
+        cmd = self.project.path + "/bin/gbtcp-netstat -nss"
+        self.parse(self.project.system(cmd)[1])
 
 
-    def __repr__(self):
-        return self.__str__()
+def create_netstat(t):
+    if t == "linux":
+        return LinuxNetstat()
+    elif t == "gbtcp":
+        return GbtcpNetstat()
+    else:
+        assert(0)
 
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--type", type=str, choices=["linux", "gbtcp"], default="linux")
     ap.add_argument("--rate", metavar="seconds", type=int,
             help="Number of seconds between reports")
     ap.add_argument("--database", action='store_true',
@@ -147,18 +312,18 @@ def main():
 
     if args.rate:
         while True:
-            ns0 = Netstat()
+            ns0 = create_netstat(args.type)
             ns0.read()
             time.sleep(args.rate)
             print("Netstat rate:")
-            ns1 = Netstat()
+            ns1 = create_netstat(args.type)
             ns1.read()
             rate = Netstat.rate(ns0, ns1, args.rate)
             rate.hide_zeroes = True
             print(rate)
             print("_______________")
     else:
-        ns = Netstat()
+        ns = create_netstat(args.type)
         ns.read()
         if args.database:
             db = Database("")

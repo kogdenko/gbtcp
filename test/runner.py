@@ -55,7 +55,7 @@ class Simple:
     def run(self):
         g_runner.ts_planned += 1
         proc = g_project.start_process(g_project.path + '/bin/' + self.name, False)
-        if g_project.wait_process(proc)[0] == 0:
+        if wait_process(proc)[0] == 0:
             g_runner.ts_pass += 1
             status = "Pass"
         else:
@@ -85,11 +85,11 @@ class Application:
         netstat = None
         if self.transport_id == TRANSPORT_NATIVE:
             if platform.system() == 'Linux':
-                netstat = Netstat()
+                netstat = LinuxNetstat()
             else:
                 assert(0)
         else:
-            assert(0)
+            netstat = GbtcpNetstat()
         netstat.read()
         return netstat
 
@@ -125,29 +125,27 @@ class Application:
         dt = g_runner.duration - g_runner.delay
         top = cpu_percent(dt, cpus)
 
-        low = False
-        for j in top:
-            if j < 98:
-                low = True
-                break
-
         rpl = g_runner.recv_msg()
+
+        netstat_end = self.read_netstat()
 
         self.stop()
         g_runner.stop()
-        g_project.wait_process(proc)
+        wait_process(proc)
 
         sample = parse_tester_reply(rpl, test_id, g_runner.duration)
 
-        if sample != None and not low:
+        sample.runner_cpu_percent = int(numpy.mean(top))
+        sample.tester_cpu_percent = 0
+
+        if sample != None:
             sample.id = g_db.add_sample(sample)
-            netstat_end = self.read_netstat()
             netstat_rate = Netstat.rate(netstat_begin, netstat_end, dt)
             netstat_rate.write(g_db, sample.id, Database.ROLE_RUNNER)
 
-        print_report(test_id, sample, self.get_name(), concurrency, transport_id, top, low)
+        print_report(test_id, sample, self.get_name(), concurrency, transport_id, top)
 
-        if sample == None or low:
+        if sample == None and sample.runner_cpu_percent < 98:
             g_runner.ts_failed += 1
         else:
             g_runner.ts_pass += 1
@@ -474,9 +472,9 @@ def parse_tester_reply(reply, test_id, duration):
     return sample
 
 
-def print_report(test_id, sample, app, concurrency, transport_id, cpu_usage, low):
+def print_report(test_id, sample, app, concurrency, transport_id, cpu_usage):
     s = ""
-    if sample != None and not low:
+    if sample != None:
         s += ("%d/%d: " % (test_id, sample.id))
 
     s += ("%s:%s: c=%d, CPU=%s" %
@@ -493,7 +491,7 @@ def print_report(test_id, sample, app, concurrency, transport_id, cpu_usage, low
 
     if sample == None:
         s += "Error"
-    elif low:
+    elif sample.runner_cpu_percent < 98:
         s += "Failed"
     else:
         s += "Passed"

@@ -147,7 +147,7 @@ class Tester:
         time.sleep(req.delay)
         top = cpu_percent(req.duration - req.delay, self.cpus)
 
-        rc, lines = g_project.wait_process(proc)
+        rc, lines = wait_process(proc)
         if rc == 0:
             results = parse_output(lines, req.delay, req.duration)
         else:
@@ -187,7 +187,6 @@ class Tester:
                     req = recv_line(sock)
                     if req == None:
                         break
-                    dbg(req)
                     args = req.strip().split()
                     reply = None
                     if len(args) > 0:

@@ -49,395 +49,144 @@ CREATE TABLE `cpu_model` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `netstat_linux_Icmp`
+-- Table structure for table `netstat_gbtcp_arp`
 --
 
-DROP TABLE IF EXISTS `netstat_linux_Icmp`;
+DROP TABLE IF EXISTS `netstat_gbtcp_arp`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `netstat_linux_Icmp` (
+CREATE TABLE `netstat_gbtcp_arp` (
   `sample_id` int NOT NULL,
   `role` int NOT NULL,
-  `InMsgs` bigint DEFAULT NULL,
-  `InErrors` bigint DEFAULT NULL,
-  `InCsumErrors` bigint DEFAULT NULL,
-  `InDestUnreachs` bigint DEFAULT NULL,
-  `InTimeExcds` bigint DEFAULT NULL,
-  `InParmProbs` bigint DEFAULT NULL,
-  `InSrcQuenchs` bigint DEFAULT NULL,
-  `InRedirects` bigint DEFAULT NULL,
-  `InEchos` bigint DEFAULT NULL,
-  `InEchoReps` bigint DEFAULT NULL,
-  `InTimestamps` bigint DEFAULT NULL,
-  `InTimestampReps` bigint DEFAULT NULL,
-  `InAddrMasks` bigint DEFAULT NULL,
-  `InAddrMaskReps` bigint DEFAULT NULL,
-  `OutMsgs` bigint DEFAULT NULL,
-  `OutErrors` bigint DEFAULT NULL,
-  `OutDestUnreachs` bigint DEFAULT NULL,
-  `OutTimeExcds` bigint DEFAULT NULL,
-  `OutParmProbs` bigint DEFAULT NULL,
-  `OutSrcQuenchs` bigint DEFAULT NULL,
-  `OutRedirects` bigint DEFAULT NULL,
-  `OutEchos` bigint DEFAULT NULL,
-  `OutEchoReps` bigint DEFAULT NULL,
-  `OutTimestamps` bigint DEFAULT NULL,
-  `OutTimestampReps` bigint DEFAULT NULL,
-  `OutAddrMasks` bigint DEFAULT NULL,
-  `OutAddrMaskReps` bigint DEFAULT NULL,
-  PRIMARY KEY (`sample_id`,`role`)
+  `txrequests` bigint DEFAULT NULL,
+  `txreplies` bigint DEFAULT NULL,
+  `txrepliesdropped` bigint DEFAULT NULL,
+  `rxrequests` bigint DEFAULT NULL,
+  `rxreplies` bigint DEFAULT NULL,
+  `received` bigint DEFAULT NULL,
+  `bypassed` bigint DEFAULT NULL,
+  `filtered` bigint DEFAULT NULL,
+  `dropped` bigint DEFAULT NULL,
+  `timeouts` bigint DEFAULT NULL,
+  PRIMARY KEY (`sample_id`,`role`),
+  CONSTRAINT `netstat_gbtcp_arp_ibfk_1` FOREIGN KEY (`sample_id`) REFERENCES `sample` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `netstat_linux_IcmpMsg`
+-- Table structure for table `netstat_gbtcp_ip`
 --
 
-DROP TABLE IF EXISTS `netstat_linux_IcmpMsg`;
+DROP TABLE IF EXISTS `netstat_gbtcp_ip`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `netstat_linux_IcmpMsg` (
+CREATE TABLE `netstat_gbtcp_ip` (
   `sample_id` int NOT NULL,
   `role` int NOT NULL,
-  `InType3` bigint DEFAULT NULL,
-  `InType11` bigint DEFAULT NULL,
-  `OutType3` bigint DEFAULT NULL,
-  PRIMARY KEY (`sample_id`,`role`)
+  `total` bigint DEFAULT NULL,
+  `badsum` bigint DEFAULT NULL,
+  `toosmall` bigint DEFAULT NULL,
+  `tooshort` bigint DEFAULT NULL,
+  `toolong` bigint DEFAULT NULL,
+  `badhlen` bigint DEFAULT NULL,
+  `badlen` bigint DEFAULT NULL,
+  `badvers` bigint DEFAULT NULL,
+  `fragments` bigint DEFAULT NULL,
+  `delivered` bigint DEFAULT NULL,
+  `noproto` bigint DEFAULT NULL,
+  `localout` bigint DEFAULT NULL,
+  `noroute` bigint DEFAULT NULL,
+  `fragmented` bigint DEFAULT NULL,
+  `cantfrag` bigint DEFAULT NULL,
+  PRIMARY KEY (`sample_id`,`role`),
+  CONSTRAINT `netstat_gbtcp_ip_ibfk_1` FOREIGN KEY (`sample_id`) REFERENCES `sample` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `netstat_linux_Ip`
+-- Table structure for table `netstat_gbtcp_tcp`
 --
 
-DROP TABLE IF EXISTS `netstat_linux_Ip`;
+DROP TABLE IF EXISTS `netstat_gbtcp_tcp`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `netstat_linux_Ip` (
+CREATE TABLE `netstat_gbtcp_tcp` (
   `sample_id` int NOT NULL,
   `role` int NOT NULL,
-  `Forwarding` bigint DEFAULT NULL,
-  `DefaultTTL` bigint DEFAULT NULL,
-  `InReceives` bigint DEFAULT NULL,
-  `InHdrErrors` bigint DEFAULT NULL,
-  `InAddrErrors` bigint DEFAULT NULL,
-  `ForwDatagrams` bigint DEFAULT NULL,
-  `InUnknownProtos` bigint DEFAULT NULL,
-  `InDiscards` bigint DEFAULT NULL,
-  `InDelivers` bigint DEFAULT NULL,
-  `OutRequests` bigint DEFAULT NULL,
-  `OutDiscards` bigint DEFAULT NULL,
-  `OutNoRoutes` bigint DEFAULT NULL,
-  `ReasmTimeout` bigint DEFAULT NULL,
-  `ReasmReqds` bigint DEFAULT NULL,
-  `ReasmOKs` bigint DEFAULT NULL,
-  `ReasmFails` bigint DEFAULT NULL,
-  `FragOKs` bigint DEFAULT NULL,
-  `FragFails` bigint DEFAULT NULL,
-  `FragCreates` bigint DEFAULT NULL,
-  PRIMARY KEY (`sample_id`,`role`)
+  `sndtotal` bigint DEFAULT NULL,
+  `sndpack` bigint DEFAULT NULL,
+  `sndbyte` bigint DEFAULT NULL,
+  `sndacks` bigint DEFAULT NULL,
+  `delack` bigint DEFAULT NULL,
+  `sndurg` bigint DEFAULT NULL,
+  `sndprobe` bigint DEFAULT NULL,
+  `sndwinup` bigint DEFAULT NULL,
+  `sndctrl` bigint DEFAULT NULL,
+  `rcvtotal` bigint DEFAULT NULL,
+  `rcvackpack` bigint DEFAULT NULL,
+  `rcvackbyte` bigint DEFAULT NULL,
+  `rcvdupack` bigint DEFAULT NULL,
+  `rcvacktoomuch` bigint DEFAULT NULL,
+  `rcvpack` bigint DEFAULT NULL,
+  `rcvbyte` bigint DEFAULT NULL,
+  `rcvduppack` bigint DEFAULT NULL,
+  `rcvdupbyte` bigint DEFAULT NULL,
+  `pawsdrop` bigint DEFAULT NULL,
+  `rcvpartduppack` bigint DEFAULT NULL,
+  `rcvpartdupbyte` bigint DEFAULT NULL,
+  `rcvoopack` bigint DEFAULT NULL,
+  `rcvoobyte` bigint DEFAULT NULL,
+  `rcvpackafterwin` bigint DEFAULT NULL,
+  `rcvbyteafterwin` bigint DEFAULT NULL,
+  `rcvwinprobe` bigint DEFAULT NULL,
+  `rcvbadsum` bigint DEFAULT NULL,
+  `rcvbadoff` bigint DEFAULT NULL,
+  `rcvshort` bigint DEFAULT NULL,
+  `rcvmemdrop` bigint DEFAULT NULL,
+  `connattempt` bigint DEFAULT NULL,
+  `accepts` bigint DEFAULT NULL,
+  `badsyn` bigint DEFAULT NULL,
+  `listendrop` bigint DEFAULT NULL,
+  `connects` bigint DEFAULT NULL,
+  `closed` bigint DEFAULT NULL,
+  `drops` bigint DEFAULT NULL,
+  `conndrops` bigint DEFAULT NULL,
+  `rttupdated` bigint DEFAULT NULL,
+  `segstimed` bigint DEFAULT NULL,
+  `rexmttimeo` bigint DEFAULT NULL,
+  `timeoutdrop` bigint DEFAULT NULL,
+  `persisttimeo` bigint DEFAULT NULL,
+  `keeptimeo` bigint DEFAULT NULL,
+  `keepprobe` bigint DEFAULT NULL,
+  `keepdrops` bigint DEFAULT NULL,
+  `predack` bigint DEFAULT NULL,
+  `preddat` bigint DEFAULT NULL,
+  PRIMARY KEY (`sample_id`,`role`),
+  CONSTRAINT `netstat_gbtcp_tcp_ibfk_1` FOREIGN KEY (`sample_id`) REFERENCES `sample` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `netstat_linux_IpExt`
+-- Table structure for table `netstat_gbtcp_udp`
 --
 
-DROP TABLE IF EXISTS `netstat_linux_IpExt`;
+DROP TABLE IF EXISTS `netstat_gbtcp_udp`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `netstat_linux_IpExt` (
+CREATE TABLE `netstat_gbtcp_udp` (
   `sample_id` int NOT NULL,
   `role` int NOT NULL,
-  `InNoRoutes` bigint DEFAULT NULL,
-  `InTruncatedPkts` bigint DEFAULT NULL,
-  `InMcastPkts` bigint DEFAULT NULL,
-  `OutMcastPkts` bigint DEFAULT NULL,
-  `InBcastPkts` bigint DEFAULT NULL,
-  `OutBcastPkts` bigint DEFAULT NULL,
-  `InOctets` bigint DEFAULT NULL,
-  `OutOctets` bigint DEFAULT NULL,
-  `InMcastOctets` bigint DEFAULT NULL,
-  `OutMcastOctets` bigint DEFAULT NULL,
-  `InBcastOctets` bigint DEFAULT NULL,
-  `OutBcastOctets` bigint DEFAULT NULL,
-  `InCsumErrors` bigint DEFAULT NULL,
-  `InNoECTPkts` bigint DEFAULT NULL,
-  `InECT1Pkts` bigint DEFAULT NULL,
-  `InECT0Pkts` bigint DEFAULT NULL,
-  `InCEPkts` bigint DEFAULT NULL,
-  `ReasmOverlaps` bigint DEFAULT NULL,
-  PRIMARY KEY (`sample_id`,`role`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `netstat_linux_MPTcpExt`
---
-
-DROP TABLE IF EXISTS `netstat_linux_MPTcpExt`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `netstat_linux_MPTcpExt` (
-  `sample_id` int NOT NULL,
-  `role` int NOT NULL,
-  `MPCapableSYNRX` bigint DEFAULT NULL,
-  `MPCapableSYNTX` bigint DEFAULT NULL,
-  `MPCapableSYNACKRX` bigint DEFAULT NULL,
-  `MPCapableACKRX` bigint DEFAULT NULL,
-  `MPCapableFallbackACK` bigint DEFAULT NULL,
-  `MPCapableFallbackSYNACK` bigint DEFAULT NULL,
-  `MPFallbackTokenInit` bigint DEFAULT NULL,
-  `MPTCPRetrans` bigint DEFAULT NULL,
-  `MPJoinNoTokenFound` bigint DEFAULT NULL,
-  `MPJoinSynRx` bigint DEFAULT NULL,
-  `MPJoinSynAckRx` bigint DEFAULT NULL,
-  `MPJoinSynAckHMacFailure` bigint DEFAULT NULL,
-  `MPJoinAckRx` bigint DEFAULT NULL,
-  `MPJoinAckHMacFailure` bigint DEFAULT NULL,
-  `DSSNotMatching` bigint DEFAULT NULL,
-  `InfiniteMapRx` bigint DEFAULT NULL,
-  `DSSNoMatchTCP` bigint DEFAULT NULL,
-  `DataCsumErr` bigint DEFAULT NULL,
-  `OFOQueueTail` bigint DEFAULT NULL,
-  `OFOQueue` bigint DEFAULT NULL,
-  `OFOMerge` bigint DEFAULT NULL,
-  `NoDSSInWindow` bigint DEFAULT NULL,
-  `DuplicateData` bigint DEFAULT NULL,
-  `AddAddr` bigint DEFAULT NULL,
-  `EchoAdd` bigint DEFAULT NULL,
-  `PortAdd` bigint DEFAULT NULL,
-  `AddAddrDrop` bigint DEFAULT NULL,
-  `MPJoinPortSynRx` bigint DEFAULT NULL,
-  `MPJoinPortSynAckRx` bigint DEFAULT NULL,
-  `MPJoinPortAckRx` bigint DEFAULT NULL,
-  `MismatchPortSynRx` bigint DEFAULT NULL,
-  `MismatchPortAckRx` bigint DEFAULT NULL,
-  `RmAddr` bigint DEFAULT NULL,
-  `RmAddrDrop` bigint DEFAULT NULL,
-  `RmSubflow` bigint DEFAULT NULL,
-  `MPPrioTx` bigint DEFAULT NULL,
-  `MPPrioRx` bigint DEFAULT NULL,
-  `MPFailTx` bigint DEFAULT NULL,
-  `MPFailRx` bigint DEFAULT NULL,
-  `RcvPruned` bigint DEFAULT NULL,
-  `SubflowStale` bigint DEFAULT NULL,
-  `SubflowRecover` bigint DEFAULT NULL,
-  PRIMARY KEY (`sample_id`,`role`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `netstat_linux_Tcp`
---
-
-DROP TABLE IF EXISTS `netstat_linux_Tcp`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `netstat_linux_Tcp` (
-  `sample_id` int NOT NULL,
-  `role` int NOT NULL,
-  `RtoAlgorithm` bigint DEFAULT NULL,
-  `RtoMin` bigint DEFAULT NULL,
-  `RtoMax` bigint DEFAULT NULL,
-  `MaxConn` bigint DEFAULT NULL,
-  `ActiveOpens` bigint DEFAULT NULL,
-  `PassiveOpens` bigint DEFAULT NULL,
-  `AttemptFails` bigint DEFAULT NULL,
-  `EstabResets` bigint DEFAULT NULL,
-  `CurrEstab` bigint DEFAULT NULL,
-  `InSegs` bigint DEFAULT NULL,
-  `OutSegs` bigint DEFAULT NULL,
-  `RetransSegs` bigint DEFAULT NULL,
-  `InErrs` bigint DEFAULT NULL,
-  `OutRsts` bigint DEFAULT NULL,
-  `InCsumErrors` bigint DEFAULT NULL,
-  PRIMARY KEY (`sample_id`,`role`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `netstat_linux_TcpExt`
---
-
-DROP TABLE IF EXISTS `netstat_linux_TcpExt`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `netstat_linux_TcpExt` (
-  `sample_id` int NOT NULL,
-  `role` int NOT NULL,
-  `SyncookiesSent` bigint DEFAULT NULL,
-  `SyncookiesRecv` bigint DEFAULT NULL,
-  `SyncookiesFailed` bigint DEFAULT NULL,
-  `EmbryonicRsts` bigint DEFAULT NULL,
-  `PruneCalled` bigint DEFAULT NULL,
-  `RcvPruned` bigint DEFAULT NULL,
-  `OfoPruned` bigint DEFAULT NULL,
-  `OutOfWindowIcmps` bigint DEFAULT NULL,
-  `LockDroppedIcmps` bigint DEFAULT NULL,
-  `ArpFilter` bigint DEFAULT NULL,
-  `TW` bigint DEFAULT NULL,
-  `TWRecycled` bigint DEFAULT NULL,
-  `TWKilled` bigint DEFAULT NULL,
-  `PAWSActive` bigint DEFAULT NULL,
-  `PAWSEstab` bigint DEFAULT NULL,
-  `DelayedACKs` bigint DEFAULT NULL,
-  `DelayedACKLocked` bigint DEFAULT NULL,
-  `DelayedACKLost` bigint DEFAULT NULL,
-  `ListenOverflows` bigint DEFAULT NULL,
-  `ListenDrops` bigint DEFAULT NULL,
-  `TCPHPHits` bigint DEFAULT NULL,
-  `TCPPureAcks` bigint DEFAULT NULL,
-  `TCPHPAcks` bigint DEFAULT NULL,
-  `TCPRenoRecovery` bigint DEFAULT NULL,
-  `TCPSackRecovery` bigint DEFAULT NULL,
-  `TCPSACKReneging` bigint DEFAULT NULL,
-  `TCPSACKReorder` bigint DEFAULT NULL,
-  `TCPRenoReorder` bigint DEFAULT NULL,
-  `TCPTSReorder` bigint DEFAULT NULL,
-  `TCPFullUndo` bigint DEFAULT NULL,
-  `TCPPartialUndo` bigint DEFAULT NULL,
-  `TCPDSACKUndo` bigint DEFAULT NULL,
-  `TCPLossUndo` bigint DEFAULT NULL,
-  `TCPLostRetransmit` bigint DEFAULT NULL,
-  `TCPRenoFailures` bigint DEFAULT NULL,
-  `TCPSackFailures` bigint DEFAULT NULL,
-  `TCPLossFailures` bigint DEFAULT NULL,
-  `TCPFastRetrans` bigint DEFAULT NULL,
-  `TCPSlowStartRetrans` bigint DEFAULT NULL,
-  `TCPTimeouts` bigint DEFAULT NULL,
-  `TCPLossProbes` bigint DEFAULT NULL,
-  `TCPLossProbeRecovery` bigint DEFAULT NULL,
-  `TCPRenoRecoveryFail` bigint DEFAULT NULL,
-  `TCPSackRecoveryFail` bigint DEFAULT NULL,
-  `TCPRcvCollapsed` bigint DEFAULT NULL,
-  `TCPBacklogCoalesce` bigint DEFAULT NULL,
-  `TCPDSACKOldSent` bigint DEFAULT NULL,
-  `TCPDSACKOfoSent` bigint DEFAULT NULL,
-  `TCPDSACKRecv` bigint DEFAULT NULL,
-  `TCPDSACKOfoRecv` bigint DEFAULT NULL,
-  `TCPAbortOnData` bigint DEFAULT NULL,
-  `TCPAbortOnClose` bigint DEFAULT NULL,
-  `TCPAbortOnMemory` bigint DEFAULT NULL,
-  `TCPAbortOnTimeout` bigint DEFAULT NULL,
-  `TCPAbortOnLinger` bigint DEFAULT NULL,
-  `TCPAbortFailed` bigint DEFAULT NULL,
-  `TCPMemoryPressures` bigint DEFAULT NULL,
-  `TCPMemoryPressuresChrono` bigint DEFAULT NULL,
-  `TCPSACKDiscard` bigint DEFAULT NULL,
-  `TCPDSACKIgnoredOld` bigint DEFAULT NULL,
-  `TCPDSACKIgnoredNoUndo` bigint DEFAULT NULL,
-  `TCPSpuriousRTOs` bigint DEFAULT NULL,
-  `TCPMD5NotFound` bigint DEFAULT NULL,
-  `TCPMD5Unexpected` bigint DEFAULT NULL,
-  `TCPMD5Failure` bigint DEFAULT NULL,
-  `TCPSackShifted` bigint DEFAULT NULL,
-  `TCPSackMerged` bigint DEFAULT NULL,
-  `TCPSackShiftFallback` bigint DEFAULT NULL,
-  `TCPBacklogDrop` bigint DEFAULT NULL,
-  `PFMemallocDrop` bigint DEFAULT NULL,
-  `TCPMinTTLDrop` bigint DEFAULT NULL,
-  `TCPDeferAcceptDrop` bigint DEFAULT NULL,
-  `IPReversePathFilter` bigint DEFAULT NULL,
-  `TCPTimeWaitOverflow` bigint DEFAULT NULL,
-  `TCPReqQFullDoCookies` bigint DEFAULT NULL,
-  `TCPReqQFullDrop` bigint DEFAULT NULL,
-  `TCPRetransFail` bigint DEFAULT NULL,
-  `TCPRcvCoalesce` bigint DEFAULT NULL,
-  `TCPOFOQueue` bigint DEFAULT NULL,
-  `TCPOFODrop` bigint DEFAULT NULL,
-  `TCPOFOMerge` bigint DEFAULT NULL,
-  `TCPChallengeACK` bigint DEFAULT NULL,
-  `TCPSYNChallenge` bigint DEFAULT NULL,
-  `TCPFastOpenActive` bigint DEFAULT NULL,
-  `TCPFastOpenActiveFail` bigint DEFAULT NULL,
-  `TCPFastOpenPassive` bigint DEFAULT NULL,
-  `TCPFastOpenPassiveFail` bigint DEFAULT NULL,
-  `TCPFastOpenListenOverflow` bigint DEFAULT NULL,
-  `TCPFastOpenCookieReqd` bigint DEFAULT NULL,
-  `TCPFastOpenBlackhole` bigint DEFAULT NULL,
-  `TCPSpuriousRtxHostQueues` bigint DEFAULT NULL,
-  `BusyPollRxPackets` bigint DEFAULT NULL,
-  `TCPAutoCorking` bigint DEFAULT NULL,
-  `TCPFromZeroWindowAdv` bigint DEFAULT NULL,
-  `TCPToZeroWindowAdv` bigint DEFAULT NULL,
-  `TCPWantZeroWindowAdv` bigint DEFAULT NULL,
-  `TCPSynRetrans` bigint DEFAULT NULL,
-  `TCPOrigDataSent` bigint DEFAULT NULL,
-  `TCPHystartTrainDetect` bigint DEFAULT NULL,
-  `TCPHystartTrainCwnd` bigint DEFAULT NULL,
-  `TCPHystartDelayDetect` bigint DEFAULT NULL,
-  `TCPHystartDelayCwnd` bigint DEFAULT NULL,
-  `TCPACKSkippedSynRecv` bigint DEFAULT NULL,
-  `TCPACKSkippedPAWS` bigint DEFAULT NULL,
-  `TCPACKSkippedSeq` bigint DEFAULT NULL,
-  `TCPACKSkippedFinWait2` bigint DEFAULT NULL,
-  `TCPACKSkippedTimeWait` bigint DEFAULT NULL,
-  `TCPACKSkippedChallenge` bigint DEFAULT NULL,
-  `TCPWinProbe` bigint DEFAULT NULL,
-  `TCPKeepAlive` bigint DEFAULT NULL,
-  `TCPMTUPFail` bigint DEFAULT NULL,
-  `TCPMTUPSuccess` bigint DEFAULT NULL,
-  `TCPDelivered` bigint DEFAULT NULL,
-  `TCPDeliveredCE` bigint DEFAULT NULL,
-  `TCPAckCompressed` bigint DEFAULT NULL,
-  `TCPZeroWindowDrop` bigint DEFAULT NULL,
-  `TCPRcvQDrop` bigint DEFAULT NULL,
-  `TCPWqueueTooBig` bigint DEFAULT NULL,
-  `TCPFastOpenPassiveAltKey` bigint DEFAULT NULL,
-  `TcpTimeoutRehash` bigint DEFAULT NULL,
-  `TcpDuplicateDataRehash` bigint DEFAULT NULL,
-  `TCPDSACKRecvSegs` bigint DEFAULT NULL,
-  `TCPDSACKIgnoredDubious` bigint DEFAULT NULL,
-  `TCPMigrateReqSuccess` bigint DEFAULT NULL,
-  `TCPMigrateReqFailure` bigint DEFAULT NULL,
-  PRIMARY KEY (`sample_id`,`role`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `netstat_linux_Udp`
---
-
-DROP TABLE IF EXISTS `netstat_linux_Udp`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `netstat_linux_Udp` (
-  `sample_id` int NOT NULL,
-  `role` int NOT NULL,
-  `InDatagrams` bigint DEFAULT NULL,
-  `NoPorts` bigint DEFAULT NULL,
-  `InErrors` bigint DEFAULT NULL,
-  `OutDatagrams` bigint DEFAULT NULL,
-  `RcvbufErrors` bigint DEFAULT NULL,
-  `SndbufErrors` bigint DEFAULT NULL,
-  `InCsumErrors` bigint DEFAULT NULL,
-  `IgnoredMulti` bigint DEFAULT NULL,
-  `MemErrors` bigint DEFAULT NULL,
-  PRIMARY KEY (`sample_id`,`role`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `netstat_linux_UdpLite`
---
-
-DROP TABLE IF EXISTS `netstat_linux_UdpLite`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `netstat_linux_UdpLite` (
-  `sample_id` int NOT NULL,
-  `role` int NOT NULL,
-  `InDatagrams` bigint DEFAULT NULL,
-  `NoPorts` bigint DEFAULT NULL,
-  `InErrors` bigint DEFAULT NULL,
-  `OutDatagrams` bigint DEFAULT NULL,
-  `RcvbufErrors` bigint DEFAULT NULL,
-  `SndbufErrors` bigint DEFAULT NULL,
-  `InCsumErrors` bigint DEFAULT NULL,
-  `IgnoredMulti` bigint DEFAULT NULL,
-  `MemErrors` bigint DEFAULT NULL,
-  PRIMARY KEY (`sample_id`,`role`)
+  `ipackets` bigint DEFAULT NULL,
+  `hdrops` bigint DEFAULT NULL,
+  `badlen` bigint DEFAULT NULL,
+  `badsum` bigint DEFAULT NULL,
+  `nosum` bigint DEFAULT NULL,
+  `noport` bigint DEFAULT NULL,
+  `fullsock` bigint DEFAULT NULL,
+  `delivered` bigint DEFAULT NULL,
+  `opackets` bigint DEFAULT NULL,
+  PRIMARY KEY (`sample_id`,`role`),
+  CONSTRAINT `netstat_gbtcp_udp_ibfk_1` FOREIGN KEY (`sample_id`) REFERENCES `sample` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -458,34 +207,6 @@ CREATE TABLE `os` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `run`
---
-
-DROP TABLE IF EXISTS `run`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `run` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `git` varchar(40) DEFAULT NULL,
-  `mode` int DEFAULT NULL,
-  `os_id` int DEFAULT NULL,
-  `app_id` int DEFAULT NULL,
-  `transport_id` int DEFAULT NULL,
-  `driver_id` int DEFAULT NULL,
-  `cpu_model_id` int DEFAULT NULL,
-  `cpu_mask` varchar(128) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `git` (`git`,`mode`,`os_id`,`app_id`,`transport_id`,`driver_id`,`cpu_model_id`,`cpu_mask`),
-  KEY `os_id` (`os_id`),
-  KEY `app_id` (`app_id`),
-  KEY `cpu_model_id` (`cpu_model_id`),
-  CONSTRAINT `run_ibfk_1` FOREIGN KEY (`os_id`) REFERENCES `os` (`id`),
-  CONSTRAINT `run_ibfk_2` FOREIGN KEY (`app_id`) REFERENCES `app` (`id`),
-  CONSTRAINT `run_ibfk_3` FOREIGN KEY (`cpu_model_id`) REFERENCES `cpu_model` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
 -- Table structure for table `sample`
 --
 
@@ -496,17 +217,12 @@ CREATE TABLE `sample` (
   `id` int NOT NULL AUTO_INCREMENT,
   `test_id` int DEFAULT NULL,
   `duration` int DEFAULT NULL,
-  `cps` int DEFAULT NULL,
-  `ipps` int DEFAULT NULL,
-  `ibps` bigint DEFAULT NULL,
-  `opps` int DEFAULT NULL,
-  `obps` bigint DEFAULT NULL,
-  `rxmtps` bigint DEFAULT NULL,
-  `concurrency` int DEFAULT NULL,
+  `runner_cpu_percent` int DEFAULT NULL,
+  `tester_cpu_percent` int DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `test_id` (`test_id`),
-  CONSTRAINT `sample_ibfk_1` FOREIGN KEY (`test_id`) REFERENCES `test` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=75 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT `sample_ibfk_1` FOREIGN KEY (`test_id`) REFERENCES `test` (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -536,7 +252,7 @@ CREATE TABLE `test` (
   CONSTRAINT `test_ibfk_2` FOREIGN KEY (`os_id`) REFERENCES `os` (`id`),
   CONSTRAINT `test_ibfk_3` FOREIGN KEY (`app_id`) REFERENCES `app` (`id`),
   CONSTRAINT `test_ibfk_4` FOREIGN KEY (`cpu_model_id`) REFERENCES `cpu_model` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=32 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=35 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
@@ -548,4 +264,4 @@ CREATE TABLE `test` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2022-08-11 16:37:06
+-- Dump completed on 2022-08-12 20:32:00

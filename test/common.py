@@ -465,6 +465,30 @@ def find_outliers(sample, std):
     return outliers
 
 
+def wait_process(proc):
+    lines = []
+    t0 = milliseconds()
+    try:
+        proc.wait(timeout = 5)
+    except Exception as e:
+        t1 = milliseconds()
+        dt = t1 - t0
+        assert(dt * 1000 > 4.5)
+        print_log("$ [%d] Timeouted" % proc.pid)
+        proc.terminate()
+        return 256, lines    
+
+    for pipe in [proc.stdout, proc.stderr]:
+        while True:
+            line = pipe.readline()
+            if not line:
+                break
+            lines.append(line.decode('utf-8').strip())
+
+    print_log("$ [%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
+    return proc.returncode, lines
+
+
 class interface:
     def __init__(self, name):
         self.name = name
@@ -569,33 +593,10 @@ class Project:
 
         return proc
 
-    def wait_process(self, proc):
-        lines = []
-        t0 = milliseconds()
-        try:
-            proc.wait(timeout = 5)
-        except Exception as e:
-            t1 = milliseconds()
-            dt = t1 - t0
-            assert(dt * 1000 > 4.5)
-            print_log("$ [%d] Timeouted" % proc.pid)
-            proc.terminate()
-            return 256, lines    
-
-        for pipe in [proc.stdout, proc.stderr]:
-            while True:
-                line = pipe.readline()
-                if not line:
-                    break
-                lines.append(line.decode('utf-8').strip())
-
-        print_log("$ [%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
-        return proc.returncode, lines
-
 
 class Database:
-    TEST_TABLE = "test"
-    SAMPLE_TABLE = "sample"
+    TABLE_TEST = "test"
+    TABLE_SAMPLE = "sample"
 
     ROLE_RUNNER = 0
     ROLE_TESTER = 1
@@ -604,6 +605,7 @@ class Database:
         pass
 
     class Sample:
+
         CPS = 0
         IPPS = 1
         IBPS = 2
@@ -613,18 +615,6 @@ class Database:
         CONCURRENCY = 6
         PPS = 7
         BPS = 8
-
-        result_dict = {
-            CPS: "cps",
-            IPPS: "ipps",
-            IBPS: "ibps",
-            OPPS: "opps",
-            OBPS: "obps",
-            CONCURRENCY: "concurrency",
-            RXMTPS: "rxmtps",
-            PPS: "pps",
-            BPS: "bps",
-        }
 
         def __init__(self):
             self.results = []
@@ -644,10 +634,16 @@ class Database:
         def __init__(self):
             self.samples = []
 
-
-    def log_invalid_test_field(test, field):
-        print_log("Invalid field '%s' in table '%s' where 'test_id=%d'" %
-            (field, Database.TEST_TABLE, test.id), True)
+    def create_core_tables(self):
+        self.execute("create table if not exists %s ("
+                "id int auto_increment,"
+                "test_id int,"
+                "duration int,"
+                "runner_cpu_percent int,"
+                "tester_cpu_percent int,"
+                "primary key(id),"
+                "foreign key(test_id) references test(id)"
+                ")" % Database.TABLE_SAMPLE)
 
 
     def __init__(self, address):
@@ -655,6 +651,8 @@ class Database:
         self.sql_conn = mysql.connector.connect(user = 'root', database='gbtcp')
         self.os_id = self.get_os_id(platform.system(), platform.release())
         self.cpu_model_id = self.get_cpu_model_id(get_cpu_name())
+
+        self.create_core_tables()
 
 
     def execute(self, cmd, *args):
@@ -676,14 +674,6 @@ class Database:
 
     def add_test(self, commit, tester_id, app_id,
             transport_id, driver_id, concurrency, cpu_mask, duration):
-        assert(commit != None)
-        assert(tester_id != None)
-        assert(app_id != None)
-        assert(transport_id != None)
-        assert(driver_id != None)
-        assert(concurrency != None)
-        assert(cpu_mask != None)
-        assert(duration != None)
 
         where = ("gbtcp_commit=\"%s\" and tester_id=%d and os_id=%d and app_id=%d and "
             "transport_id=%d and driver_id=%d and concurrency=%d and cpu_model_id=%d and "
@@ -697,12 +687,12 @@ class Database:
             "transport_id, driver_id, concurrency, cpu_model_id, cpu_mask) "
             "select \"%s\", %d, %d, %d, %d, %d, %d, %d, \"%s\" where not exists "
             "(select 1 from %s where %s)" % (
-            Database.TEST_TABLE, commit, tester_id, self.os_id, app_id,
+            Database.TABLE_TEST, commit, tester_id, self.os_id, app_id,
             transport_id, driver_id, concurrency, self.cpu_model_id, cpu_mask,
-            Database.TEST_TABLE, where))
+            Database.TABLE_TEST, where))
         self.execute(cmd)
 
-        cmd = "select id from %s where %s" % (Database.TEST_TABLE, where)
+        cmd = "select id from %s where %s" % (Database.TABLE_TEST, where)
         sql_cursor = self.execute(cmd)
         self.sql_conn.commit()
         test_id = self.fetchid(sql_cursor)
@@ -718,7 +708,7 @@ class Database:
 
 
     def del_sample(self, sample_id):
-        cmd = "delete from %s where id = %d" % (Database.SAMPLE_TABLE, sample_id)
+        cmd = "delete from %s where id = %d" % (Database.TABLE_SAMPLE, sample_id)
         self.execute(cmd)
         self.sql_conn.commit()
 
@@ -740,32 +730,31 @@ class Database:
             samples.remove(candidate)
 
         cmd = ("insert into %s "
-            "(test_id, duration, cps, ipps, ibps, opps, obps, rxmtps, concurrency) "
-            "values (%d, %d, %d, %d, %d, %d, %d, %d, %d)" %
-            (Database.SAMPLE_TABLE, sample.test_id, sample.duration,
-            sample.results[Database.Sample.CPS],
-            sample.results[Database.Sample.IPPS],
-            sample.results[Database.Sample.IBPS],
-            sample.results[Database.Sample.OPPS],
-            sample.results[Database.Sample.OBPS],
-            sample.results[Database.Sample.RXMTPS],
-            sample.results[Database.Sample.CONCURRENCY]))
+            "(test_id, duration, runner_cpu_percent, tester_cpu_percent) "
+            "values (%d, %d, %d, %d)" %
+            (Database.TABLE_SAMPLE,
+            sample.test_id,
+            sample.duration,
+            sample.runner_cpu_percent,
+            sample.tester_cpu_percent))
         sql_cursor = self.execute(cmd)
         self.sql_conn.commit()
         return sql_cursor.lastrowid
+
 
     def fetch_sample(self, sql_cursor):
         row = sql_cursor.fetchone()
         if row == None:
             return None
-        assert(len(row) == 10)
+        assert(len(row) == 5)
         sample = Database.Sample()
         sample.id = int(row[0])
         sample.test_id = int(row[1])
         sample.duration = int(row[2])
-        for i in range(3, 10):
-            sample.results.append(int(row[i]))
+        sample.runner_cpu_percent = int(row[3])
+        sample.tester_cpu_percent = int(row[4])
         return sample
+
 
     def fetch_test(self, sql_cursor):
         row = sql_cursor.fetchone()
@@ -782,55 +771,44 @@ class Database:
         test.driver_id = int(row[6])
         test.concurrency = int(row[7])
         test.cpu_model_id = int(row[8])
-        test.cpu_mask = int(row[9])
+        test.cpu_mask = row[9]
 
         test.tester = tester_dict.get(test.tester_id)
-        if test.tester == None:
-            log_invalid_test_field(test, 'tester_id')
-            return None
+        assert(test.tester)
 
         name, ver = self.get_os(test.os_id)
-        if name == None:
-            log_invalid_test_field(test, 'os_id')
-            return None
+        assert(name)
         test.os = name + "-" + ver
 
         name, ver = self.get_app(test.app_id)
-        if name == None:
-            log_invalid_test_field(test, 'app_id')
-            return None
+        assert(name)
         test.app = name + "-" + ver
 
         test.transport = transport_dict.get(test.transport_id)
-        if test.transport == None:
-            log_invalid_test_field(test, 'transport_id')
+        assert(test.transport)
 
         test.driver = driver_dict.get(test.driver_id)
-        if test.driver == None:
-            log_invalid_test_field(test, 'driver_id')
-            return None
+        assert(test.driver)
 
         cpu_models = self.get_cpu_model(test.cpu_model_id)
-        if len(cpu_models) == 0:
-            log_invalid_test_field(test, 'cpu_model_id')
-            return None
+        assert(cpu_models)
+        alias = cpu_models[0].alias
+        name = cpu_models[0].name
+        if alias == None or len(alias) == 0:
+            test.cpu_model = name
         else:
-            alias = cpu_models[0].alias
-            name = cpu_models[0].name
-            if alias == None or len(alias) == 0:
-                test.cpu_model = name
-            else:
-                test.cpu_model = alias
+            test.cpu_model = alias
 
         return test;
 
+
     def get_sample(self, sample_id):
-        cmd = "select * from %s where id=%d" % (Database.SAMPLE_TABLE, sample_id)
+        cmd = "select * from %s where id=%d" % (Database.TABLE_SAMPLE, sample_id)
         sql_cursor = self.execute(cmd)
         return self.fetch_sample(sql_cursor)
 
     def get_samples(self, test_id):
-        cmd = "select * from %s where test_id=%d" % (Database.SAMPLE_TABLE, test_id)
+        cmd = "select * from %s where test_id=%d" % (Database.TABLE_SAMPLE, test_id)
         sql_cursor = self.execute(cmd)
         samples = []
         while True:
@@ -879,7 +857,7 @@ class Database:
 
     def get_tests(self, commit):
         tests = []
-        cmd = "select * from %s where gbtcp_commit='%s'" % (Database.TEST_TABLE, commit)
+        cmd = "select * from %s where gbtcp_commit='%s'" % (Database.TABLE_TEST, commit)
         sql_cursor = self.execute(cmd)
         while True:
             test = self.fetch_test(sql_cursor)
@@ -953,10 +931,10 @@ class Database:
 
 
     def create_netstat_table(self, table, columns):
-        cmd = "create table %s (sample_id int, role int" % table 
+        cmd = "create table if not exists %s (sample_id int, role int" % table 
         for column in columns:
             cmd += ", %s bigint" % column
-        cmd += ", primary key(sample_id, role))"
+        cmd += ", primary key(sample_id, role), foreign key(sample_id) references sample(id))"
         self.execute(cmd)
 
 
