@@ -44,7 +44,6 @@ def add_request_arguments(ap):
             help=("Private /16 subnet for testing, server acquired x.x.%d.%d" %
                 (SERVER_IP_C, SERVER_IP_D)))
 
-    argparse_add_delay(ap)
     argparse_add_duration(ap)
 
     ap.add_argument("--concurrency", metavar="num", type=int,
@@ -53,7 +52,7 @@ def add_request_arguments(ap):
             help="Number of parallel connections")
  
 
-def parse_output(lines, delay, duration):
+def parse_output(lines, duration):
     if len(lines) != duration:
         print_log("Invalid number of reports (%d, should be %d)" % (len(lines), duration))
         return None
@@ -70,7 +69,7 @@ def parse_output(lines, delay, duration):
         records[Database.Sample.OBPS].append(int(cols[4]))
         records[Database.Sample.RXMTPS].append(int(cols[7]))
         records[Database.Sample.CONCURRENCY].append(int(cols[8]))
-    record = records[Database.Sample.CPS][delay:]
+    record = records[Database.Sample.CPS]
     outliers = find_outliers(record, None)
 
     results = []
@@ -144,12 +143,11 @@ class Tester:
 
         app = Tester.con_gen(self)
         proc = app.run(req)
-        time.sleep(req.delay)
-        top = cpu_percent(req.duration - req.delay, self.cpus)
+        top = cpu_percent(req.duration, self.cpus)
 
         rc, lines = wait_process(proc)
         if rc == 0:
-            results = parse_output(lines, req.delay, req.duration)
+            results = parse_output(lines, req.duration)
         else:
             results = None
 

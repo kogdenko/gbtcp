@@ -120,10 +120,8 @@ class Application:
         g_runner.cooling()
         g_runner.send_Run(concurrency)
 
-        time.sleep(g_runner.delay)
         netstat_begin = self.read_netstat()
-        dt = g_runner.duration - g_runner.delay
-        top = cpu_percent(dt, cpus)
+        top = cpu_percent(g_runner.duration, cpus)
 
         rpl = g_runner.recv_msg()
 
@@ -140,7 +138,7 @@ class Application:
 
         if sample != None:
             sample.id = g_db.add_sample(sample)
-            netstat_rate = Netstat.rate(netstat_begin, netstat_end, dt)
+            netstat_rate = Netstat.rate(netstat_begin, netstat_end, g_runner.duration)
             netstat_rate.write(g_db, sample.id, Database.ROLE_RUNNER)
 
         print_report(test_id, sample, self.get_name(), concurrency, transport_id, top)
@@ -337,7 +335,6 @@ class Runner:
         argparse_add_reload_netmap(ap)
         argparse_add_cpu(ap);
         argparse_add_duration(ap, TEST_DURATION_DEFAULT)
-        argparse_add_delay(ap, TEST_DELAY_DEFAULT)
 
         ap.add_argument("-i", metavar="interface", required=True, type=argparse_interface,
                 help="")
@@ -381,7 +378,6 @@ class Runner:
         self.concurrency = self.__args.concurrency
         self.dry_run = self.__args.dry_run
         self.duration = self.__args.duration
-        self.delay = self.__args.delay
         self.sample = self.__args.sample
         self.interface = self.__args.i
         self.cpus = self.__args.cpu
@@ -431,13 +427,11 @@ class Runner:
     def send_Run(self, concurrency):
         req = ("Run --dst-mac %s "
             "--subnet %d.%d.0.0 "
-            "--delay %d "
             "--duration %d "
             "--concurrency %d "
             "--application con-gen" % (
             str(self.interface.mac),
             g_subnet[0], g_subnet[1],
-            self.delay,
             self.duration,
             concurrency))
         

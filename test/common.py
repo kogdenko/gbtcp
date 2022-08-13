@@ -179,17 +179,6 @@ def argparse_add_duration(ap, default=None):
             help="Test duration in seconds")
 
 
-def argparse_add_delay(ap, default=None):
-    if default:
-        required = False
-    else:
-        required = True
-    ap.add_argument("--delay", metavar="seconds", type=int,
-            choices=range(TEST_DELAY_MIN, TEST_DELAY_MAX),
-            required=required, default=default,
-            help="Number of seconds before measurment")
-
-
 def upper_pow2_32(x):
     x = int(x)
     x -= 1
@@ -573,6 +562,7 @@ class Project:
         gbtcp_conf = (
             "dev.transport=%s\n"
             "route.if.add=%s\n"
+            "arp.add=10.20.1.1,00:1b:21:95:69:65\n" # FIXME
             % (transport, ifname))
 
         with open(self.gbtcp_conf_path, 'w') as f:
