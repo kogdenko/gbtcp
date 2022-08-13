@@ -936,9 +936,13 @@ class Database:
     def add_netstat_columns(self, table, columns):
         if not columns:
             return
-        cmd = "alter table %s add column %s" % (table, columns[0])
-        for column in columns[1:]:
-            cmd += ", add column %s bigint" % column
+        cmd = "alter table %s" % table
+        for i, column in enumerate(columns):
+            if i:
+                cmd += ", "
+            else:
+                cmd += " "
+            cmd += "add column %s bigint" % column
         self.execute(cmd)
 
 
