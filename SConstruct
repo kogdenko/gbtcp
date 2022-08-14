@@ -200,8 +200,7 @@ elif PLATFORM == 'FreeBSD':
     ldflags.append('-lexecinfo')
     ldflags.append('-lutil')
 else:
-    print("Unsupported platform: %s" % PLATFORM)
-    Exit(1)
+    die("Unsupported platform: %s" % PLATFORM)
 
 cflags.append('-Wno-format-truncation')
 
@@ -217,6 +216,9 @@ if not GetOption('without_netmap'):
         HAVE_NETMAP = True
         if not GetOption('without_vale'):
             HAVE_VALE = True
+
+if not HAVE_XDP and not HAVE_NETMAP:
+    die("No transport supported")
 
 conf.Finish()
 

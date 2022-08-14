@@ -225,7 +225,7 @@ class Tester:
             set_cpu_scaling_governor(cpu)
 
         if self.__args.reload_netmap:
-            reload_netmap(self.__args.reload_netmap, self.interface.driver)
+            reload_netmap(self.__args.reload_netmap, self.interface)
 
         self.interface.set_channels(self.cpus)
 

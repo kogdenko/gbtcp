@@ -556,7 +556,6 @@ int
 service_attach()
 {
 	int rc, pid;
-	struct sockaddr_un a;
 	char buf[GT_SYSCTL_BUFSIZ];
 	sigset_t sigprocmask_block;
 	struct service *s;
@@ -569,8 +568,7 @@ service_attach()
 	}
 	pid = getpid();
 	gt_init();
-	sysctl_make_sockaddr_un(&a, pid);
-	rc = sysctl_bind(&a);
+	rc = sys_socket(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0);
 	if (rc < 0) {
 		goto err;
 	}
@@ -592,14 +590,14 @@ service_attach()
 	}
 	if (service_signal_guard) {
 		sigfillset(&sigprocmask_block);
-		rc = sys_sigprocmask(SIG_BLOCK, &sigprocmask_block,
-			&current_sigprocmask);
+		rc = sys_sigprocmask(SIG_BLOCK, &sigprocmask_block, &current_sigprocmask);
 		if (rc) {
 			goto err;
 		}
 		current_sigprocmask_set = 1;
 	}
-	rc = sysctl_req(service_sysctl_fd, SYSCTL_CONTROLLER_ADD, buf, "~");
+	snprintf(buf, sizeof(buf), "%d", pid);
+	rc = sysctl_req(service_sysctl_fd, SYSCTL_CONTROLLER_ADD, buf, buf);
 	if (rc) {
 		if (rc > 0) {
 			rc = -rc;

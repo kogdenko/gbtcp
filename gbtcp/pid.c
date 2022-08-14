@@ -13,14 +13,14 @@ int
 pid_file_open(const char *path)
 {
 	int fd, rc;
-	struct stat buf;
+	//struct stat buf;
 
 	rc = sys_open(path, O_CREAT|O_RDWR, 0666);
 	if (rc < 0) {
 		return rc;
 	}
 	fd = rc;
-	fchgrp(fd, &buf, GT_GROUP_NAME);
+	//fchgrp(fd, &buf, GT_GROUP_NAME);
 	return fd;
 }
 

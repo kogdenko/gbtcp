@@ -19,7 +19,7 @@ struct sysctl_conn {
 	void (*scc_close_fn)(struct sysctl_conn *);
 	struct fd_event *scc_event;
 	int scc_accept_conn;
-	int scc_peer_pid;
+	void *scc_udata;
 };
 
 typedef int (*sysctl_f)(struct sysctl_conn *, void *, const char *, struct strbuf *);

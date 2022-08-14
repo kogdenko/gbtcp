@@ -148,8 +148,8 @@ def argparse_interface(s):
 
     try:
         driver = get_interface_driver(s)
-        interface = create_interface(s, driver)
-    except Exception as exc:
+        interface = Interface.create(s, driver)
+    except RuntimeError as exc:
         traceback.print_exception(exc)
         raise error
     return interface
@@ -238,7 +238,7 @@ def system(cmd, fault_tollerance = False, env = None):
     return rc, out, err
 
 
-def rmmod(netmap_path, module):
+def rmmod(module):
     rc, _, err = system("rmmod %s" % module, True)
     if rc == 0:
         return True
@@ -266,13 +266,14 @@ def insmod(netmap_path, module_name):
     system("insmod %s" % path)
 
 
-def reload_netmap(netmap_path, driver):
-    rmmod(driver)
+def reload_netmap(netmap_path, interface):
+    rmmod(interface.driver)
     rmmod("netmap")
     insmod(netmap_path, "netmap")
-    insmod(netmap_path, driver)
+    insmod(netmap_path, interface.driver)
     # Wait interfaces after inserting module
     time.sleep(1)
+    interface.up()
 
 
 def get_sample_result(sample, i):
@@ -353,22 +354,16 @@ def set_irq_affinity(interface, cpus):
     p = re.compile("^%s-TxRx-[0-9]*$" % interface)
     for i in range(1, len(lines)):       
         columns = lines[i].split()
-        for col in columns:
-            m = re.match(p, col.strip())
+        for column in columns:
+            m = re.match(p, column.strip())
             if m != None:
                 irq = columns[0].strip(" :")
                 if not irq.isdigit():
-                    exc = SyntaxError("Invalid irq value")
-                    exc.filename = "/proc/interrupts"
-                    exc.lineno = i + 1
-                    raise exc
+                    raise RuntimeError("/proc/interrupts:%d: Invalid irq id" % i + 1)
                 irqs.append(int(irq))
 
     if len(cpus) != len(irqs):
-        exc = SyntaxError("Unexpected number of irqs (%d), shoud be %d" % (len(irqs), len(cpus)))
-        exc.filename = "/proc/interrupts"
-        exc.lineno = len(lines)
-        raise exc
+        raise RuntimeError("Unexpected number of irqs (%d), shoud be %d" % (len(irqs), len(cpus)))
 
     for i in range(0, len(irqs)):
         with open("/proc/irq/%d/smp_affinity" % irqs[i], 'w') as f:
@@ -399,19 +394,6 @@ def recv_line(sock):
         line += s
         if '\n' in s:
             return line.strip()
-
-
-def create_interface(name, driver):
-    driver_id = get_dict_id(driver_dict, driver)
-    if driver_id == None:
-        raise NotImplementedError("Driver '%s' not supported" % driver)
-    instance = globals().get(driver)
-    assert(instance != None)
-    interface = instance(name)
-    interface.driver = driver
-    interface.driver_id = driver_id
-    system("ip l s dev %s up" % interface.name)
-    return interface
 
 
 def milliseconds():
@@ -478,15 +460,32 @@ def wait_process(proc):
     return proc.returncode, lines
 
 
-class interface:
+class Interface:
+    @staticmethod
+    def create(name, driver):
+        driver_id = get_dict_id(driver_dict, driver)
+        if driver_id == None:
+            raise NotImplementedError("Driver '%s' not supported" % driver)
+        instance = globals().get(driver)
+        assert(instance != None)
+        interface = instance(name)
+        interface.driver = driver
+        interface.driver_id = driver_id
+        return interface
+
+
     def __init__(self, name):
         self.name = name
-        f = open("/sys/class/net/%s/address" % name)
-        self.mac = f.read().strip()
-        f.close()
+        with open("/sys/class/net/%s/address" % name) as f:
+            self.mac = f.read().strip()
+        self.up()
 
 
-class ixgbe(interface):
+    def up(self):
+        system("ip l s dev %s up" % self.name)
+
+
+class ixgbe(Interface):
     def get_channels(self):
         cmd = "ethtool -l %s" % self.name
         out = system(cmd)[1]
@@ -501,25 +500,23 @@ class ixgbe(interface):
 
 
     def __init__(self, name):
-        interface.__init__(self, name)
+        Interface.__init__(self, name)
         system("ethtool -K %s rx off tx off" % name)
         system("ethtool -K %s gso off" % name)
         system("ethtool -K %s ntuple on" % name)
         system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)
         system("ethtool -N %s rx-flow-hash udp4 sdfn" % name)
         system("ethtool -G %s rx 2048 tx 2048" % name)
-        self.channels = self.get_channels()
 
 
     def set_channels(self, cpus):
-        if self.channels != len(cpus):
-            system("ethtool -L %s combined %d" % (self.name, len(cpus)))
+        system("ethtool -L %s combined %d" % (self.name, len(cpus)))
         set_irq_affinity(self.name, cpus)
 
 
-class veth(interface):
+class veth(Interface):
     def __init__(self, name):
-        interface.__init__(self, name)
+        Interface.__init__(self, name)
         system("ethtool -K %s rx off tx off" % name)
         system("ethtool -K %s gso off" % name)
         system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)

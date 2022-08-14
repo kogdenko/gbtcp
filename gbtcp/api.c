@@ -452,7 +452,7 @@ gt_send(int fd, const void *buf, size_t cnt, int flags)
 
 ssize_t
 gt_sendto(int fd, const void *buf, size_t len, int flags,
-	const struct sockaddr *addr, socklen_t addrlen)
+		const struct sockaddr *addr, socklen_t addrlen)
 {
 	ssize_t rc;
 	struct iovec iov;
@@ -465,7 +465,7 @@ gt_sendto(int fd, const void *buf, size_t len, int flags,
 	if (rc < 0) {
 		INFO(-rc, "gt_sendto(fd=%d, %zu) failed", fd, len);
 	} else {
-		INFO(0, "gt_sendto(fd=%d, %zu) return %zd", rc);
+		INFO(0, "gt_sendto(fd=%d, %zu) return %zd", fd, len, rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -491,7 +491,7 @@ gt_sendmsg(int fd, const struct msghdr *msg, int flags)
 	if (rc < 0) {
 		INFO(-rc, "gt_sendmsg(fd=%d, %d) failed", fd, iovec_accum_len(iov, iovcnt));
 	} else {
-		INFO(0, "gt_sendmsg(fd=%d, %d) return %zd", fd, iovec_accum_len(iov, iovcnt));
+		INFO(0, "gt_sendmsg(fd=%d, %d) returns %zd", fd, iovec_accum_len(iov, iovcnt), rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -766,7 +766,7 @@ gt_aio_recvfrom(int fd, struct iovec *iov, int flags, struct sockaddr *addr, soc
 		rc = so_aio_recvfrom(so, iov, flags, addr, addrlen);
 	}
 	if (rc < 0) {
-		INFO(-rc, "gt_aio_recvfrom(fd=%d) failed");
+		INFO(-rc, "gt_aio_recvfrom(fd=%d) failed", fd);
 	} else {
 		INFO(0, "gt_aio_recvfrom(fd=%d) return %zd", fd, rc);
 	}
@@ -787,9 +787,9 @@ gt_recvdrain(int fd, size_t cnt)
 		rc = so_recvdrain(so, cnt);
 	}
 	if (rc < 0) {
-		INFO(-rc, "gt_aio_recvdrain(fd=%d) failed");
+		INFO(-rc, "gt_aio_recvdrain(fd=%d) failed", fd);
 	} else {
-		INFO(0, "gt_aio_recvdrain(fd=%d) return %zd", fd, rc);
+		INFO(0, "gt_aio_recvdrain(fd=%d) returns %zd", fd, rc);
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);
@@ -863,7 +863,7 @@ gt_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 
 int
 gt_epoll_pwait(int ep_fd, struct epoll_event *events, int maxevents,
-	int timeout_ms, const sigset_t *sigmask)
+		int timeout_ms, const sigset_t *sigmask)
 {
 	int rc;
 	uint64_t to;

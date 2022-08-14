@@ -177,6 +177,7 @@ epoll_get(int fd, struct epoll **ep)
 {
 	int rc;
 	struct file *fp;
+
 	rc = file_get(fd, &fp);
 	if (rc < 0) {
 		return rc;

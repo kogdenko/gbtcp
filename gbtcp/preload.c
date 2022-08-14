@@ -572,7 +572,7 @@ gt_preload_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 
 int
 gt_preload_epoll_pwait(int ep_fd, struct epoll_event *events, int maxevents, int timeout,
-	const sigset_t *sigmask)
+		const sigset_t *sigmask)
 {
 	int rc;
 

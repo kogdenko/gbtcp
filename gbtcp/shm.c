@@ -186,7 +186,7 @@ shm_init(void)
 {
 	int i, rc, n_pages, sb_size;
 	size_t size;
-	struct stat buf;
+	//struct stat buf;
 
 	assert(shm_early);
 	size = ROUND_UP(SHM_SIZE, PAGE_SIZE);
@@ -196,13 +196,13 @@ shm_init(void)
 		goto err;
 	}
 	shm_fd = rc;
-	fchgrp(shm_fd, &buf, GT_GROUP_NAME);
+	//fchgrp(shm_fd, &buf, GT_GROUP_NAME);
 	rc = sys_ftruncate(shm_fd, size);
 	if (rc) {
 		goto err;
 	}
-	rc = sys_mmap((void **)&shared, SHM_HINT,
-		size, PROT_READ|PROT_WRITE, MAP_SHARED, shm_fd, 0);
+	rc = sys_mmap((void **)&shared, SHM_HINT, size, PROT_READ|PROT_WRITE, MAP_SHARED,
+			shm_fd, 0);
 	if (rc) {
 		goto err;
 	}
@@ -267,16 +267,17 @@ shm_attach(void)
 	tmp = shared;
 	shared = NULL;
 	sys_munmap(tmp, sizeof(*shared));
-	rc = sys_mmap((void **)&shared, addr, size, PROT_READ|PROT_WRITE,
-		MAP_SHARED|MAP_FIXED, shm_fd, 0);
+	rc = sys_mmap((void **)&shared, addr, size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_FIXED,
+			shm_fd, 0);
 	if (rc) {
 		goto err;
 	}
+	assert(shared == addr);
 	shm_early = 0;
-	NOTICE(0, "Shared memory attached at %p", (void *)shared->shm_base_addr);
+	NOTICE(0, "Shared memory mapped to address: %p", shared);
 	return 0;
 err:
-	ERR(-rc, "Failed to attach shared memory");
+	ERR(-rc, "Failed to map shared memory");
 	shm_detach();
 	return rc;
 }

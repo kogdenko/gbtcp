@@ -391,15 +391,18 @@ static int
 sysctl_controller_add(struct sysctl_conn *cp, void *udata, const char *new, struct strbuf *old)
 {
 	int i, pid;
+	char *endptr;
 	struct service *s;
 
 	if (new == NULL) {
 		return 0;
 	}
-	if (cp == NULL || cp->scc_peer_pid == 0) {
+	if (cp == NULL) {
 		return -EPERM;
 	}
-	pid = cp->scc_peer_pid;
+	pid = strtoul(new, &endptr, 10);
+	if (pid == 0 || *endptr != '\0')
+		return -EINVAL;
 	s = service_get_by_pid(pid);
 	if (s != NULL) {
 		return -EEXIST;
@@ -408,6 +411,7 @@ sysctl_controller_add(struct sysctl_conn *cp, void *udata, const char *new, stru
 		s = shared->shm_services + i;
 		if (s->p_pid == 0) {
 			controller_add_service(s, pid, cp);
+			cp->scc_udata = s;
 			return 0;
 		}
 	}
@@ -415,8 +419,7 @@ sysctl_controller_add(struct sysctl_conn *cp, void *udata, const char *new, stru
 }
 
 static int
-sysctl_controller_service_list_next(void *udata, const char *ident,
-	struct strbuf *out)
+sysctl_controller_service_list_next(void *udata, const char *ident, struct strbuf *out)
 {
 	int i;
 
@@ -463,14 +466,9 @@ sysctl_controller_service_list(void *udata, const char *ident,
 static void
 service_conn_close(struct sysctl_conn *cp)
 {
-	int pid;
 	struct service *s;
 
-	pid = cp->scc_peer_pid;
-	if (pid == 0) {
-		return;
-	}
-	s = service_get_by_pid(pid);
+	s = cp->scc_udata;
 	if (s != NULL) {
 		controller_del_service(s);
 	}

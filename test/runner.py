@@ -395,7 +395,7 @@ class Runner:
                     self.cpu_count.remove(count)
  
         if self.__args.reload_netmap:
-            reload_netmap(self.__args.reload_netmap, self.interface.driver)
+            reload_netmap(self.__args.reload_netmap, self.interface)
 
         self.tests = []
         for test in self.__args.test:

@@ -544,8 +544,7 @@ sysctl_handler(struct sysctl_conn *cp, struct sysctl_node *node,
 }
 
 static int
-sysctl_node_in_int(struct sysctl_conn *cp, void *udata,
-	const char *new, struct strbuf *out)
+sysctl_node_in_int(struct sysctl_conn *cp, void *udata,	const char *new, struct strbuf *out)
 {
 	int rc;
 	long long x, old;
@@ -627,30 +626,15 @@ sysctl_conn_open(struct sysctl_conn **cpp, int fd)
 static int
 sysctl_conn_accept(struct sysctl_conn *cp)
 {
-	int rc, fd, peer_pid, new_fd;
-	char *endptr;
-	const char *filename;
-	socklen_t sa_len;
-	struct sockaddr_un a;
+	int rc, fd, new_fd;
 	struct sysctl_conn *new_cp;
 
-	sa_len = sizeof(a);
 	fd = sysctl_conn_fd(cp);
-	rc = sys_accept4(fd, (struct sockaddr *)&a, &sa_len,
-		SOCK_NONBLOCK|SOCK_CLOEXEC);
+	rc = sys_accept4(fd, NULL, NULL, SOCK_NONBLOCK|SOCK_CLOEXEC);
 	if (rc < 0) {
 		return rc;
 	}
 	new_fd = rc;
-	peer_pid = 0;
-	a.sun_path[sizeof(a.sun_path) - 1] = '\0';
-	filename = basename(a.sun_path);
-	if (filename != NULL) {
-		rc = strtoul(filename, &endptr, 10);
-		if (!strcmp(endptr, ".sock")) {
-			peer_pid = rc;
-		}
-	}
 	rc = sysctl_setsockopt(new_fd);
 	if (rc) {
 		goto err;
@@ -660,11 +644,10 @@ sysctl_conn_accept(struct sysctl_conn *cp)
 		goto err;
 	}
 	new_cp->scc_accept_conn = 0;
-	new_cp->scc_peer_pid = peer_pid;
 	new_cp->scc_close_fn = cp->scc_close_fn;
 	return 0;
 err:
-	sys_close( fd);
+	sys_close(fd);
 	return rc;
 }
 
@@ -704,6 +687,7 @@ sysctl_conn_close(struct sysctl_conn *cp)
 	if (cp == NULL) {
 		return;
 	}
+	NOTICE(0, "conn close %p", cp);
 	if (cp->scc_close_fn != NULL) {
 		(*cp->scc_close_fn)(cp);
 	}
@@ -750,7 +734,7 @@ sysctl_process_events(void *udata, short revents)
 
 static int
 sysctl_process(struct sysctl_conn *cp, const char *path, int loader,
-	const char *new, struct strbuf *out)
+		const char *new, struct strbuf *out)
 {
 	int rc;
 	char *tail;
@@ -780,7 +764,7 @@ sysctl_in_req(struct sysctl_conn *cp, struct iovec *t)
 	}
 	strbuf_add_ch(&out, '\n');
 	if (strbuf_space(&out) == 0) {
-		ERR(0, "too long msg; path='%s'", path);
+		ERR(0, "%s: Too long message", path);
 		return -ENOBUFS;
 	}
 	rc = sysctl_conn_send(cp, &out);
@@ -810,14 +794,13 @@ sysctl_add(const char *path, int mode, void *udata, void (*free_fn)(void *), sys
 
 static void
 sysctl_add_int_union(const char *path, int mode, void *ptr,
-	int int_sizeof, int64_t min, int64_t max)
+		int int_sizeof, int64_t min, int64_t max)
 {
 	struct sysctl_int_data *data;
 	struct sysctl_node *node;
 	
 	assert(min <= max);
-	sysctl_add6(path, mode, NULL, NULL,
-	            sysctl_node_in_int, &node);
+	sysctl_add6(path, mode, NULL, NULL, sysctl_node_in_int, &node);
 	data = &node->scn_int_udata;
 	node->scn_udata = data;
 	data->i_ptr = ptr;
@@ -829,7 +812,7 @@ sysctl_add_int_union(const char *path, int mode, void *ptr,
 
 void
 sysctl_add_intfn(const char *path, int mode,
-	int (*intfn)(const long long *, long long *), int min, int max)
+		int (*intfn)(const long long *, long long *), int min, int max)
 {
 	sysctl_add_int_union(path, mode, intfn, 0, min, max);
 }
@@ -841,22 +824,20 @@ sysctl_add_int(const char *path, int mode, int *ptr, int min, int max)
 }
 
 void
-sysctl_add_int64(const char *path, int mode, int64_t *ptr,
-	int64_t min, int64_t max)
+sysctl_add_int64(const char *path, int mode, int64_t *ptr, int64_t min, int64_t max)
 {
 	sysctl_add_int_union(path, mode, ptr, sizeof(*ptr), min, max);
 }
 
 void
-sysctl_add_uint64(const char *path, int mode, uint64_t *ptr,
-	int64_t min, int64_t max)
+sysctl_add_uint64(const char *path, int mode, uint64_t *ptr, int64_t min, int64_t max)
 {
 	sysctl_add_int_union(path, mode, ptr, sizeof(*ptr), min, max);
 }
 
 void
 sysctl_add_list(const char *path, int mode,
-	void *udata, sysctl_list_next_f next_fn, sysctl_list_f fn)
+		void *udata, sysctl_list_next_f next_fn, sysctl_list_f fn)
 {
 	struct sysctl_node *node;
 	struct sysctl_list_udata *list_udata;
@@ -914,7 +895,7 @@ int
 sysctl_bind(const struct sockaddr_un *a)
 {
 	int rc, fd;
-	struct stat buf;
+	//struct stat buf;
 
 	rc = sys_socket(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0);
 	if (rc < 0) {
@@ -926,10 +907,10 @@ sysctl_bind(const struct sockaddr_un *a)
 	if (rc < 0) {
 		goto err;
 	}
-	rc = fchgrp(fd, &buf, GT_GROUP_NAME);
-	if (rc == 0) {
-		sys_fchmod(fd, buf.st_mode|S_IRGRP|S_IWGRP|S_IXGRP);
-	}
+//	rc = fchgrp(fd, &buf, GT_GROUP_NAME);
+//	if (rc == 0) {
+//		sys_fchmod(fd, buf.st_mode|S_IRGRP|S_IWGRP|S_IXGRP);
+//	}
 	rc = sysctl_setsockopt(fd);
 	if (rc) {
 		goto err;
