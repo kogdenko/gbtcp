@@ -18,6 +18,7 @@ import numpy
 
 from common import *
 from netstat import *
+from database import Database
 
 COOLING_MIN = 0
 COOLING_MAX = 3*60
@@ -39,7 +40,7 @@ class Simple:
 
     def run(self):
         g_runner.ts_planned += 1
-        proc = g_project.start_process(g_project.path + '/bin/' + self.name, False)
+        proc = g_project.start_process(g_project.path + '/bin/' + self.name)
         if wait_process(proc)[0] == 0:
             g_runner.ts_pass += 1
             status = "Pass"
@@ -49,64 +50,43 @@ class Simple:
         print_log("%s ... %s" % (self.name, status), True)
 
 class Application:
-    MODE_CLIENT = 0
-    MODE_SERVER = 1
+    class Mode(Enum):
+        CLIENT = "client"
+        SERVER = "server"
     
-    '''@staticmethod
-    # Application can be represented in 4 forms:
-    # netmap:con-gen:client
-    # con-gen
-    # con-gen:client
-    # netmap:con-gen
-    def create(s):
-        transport_id = None
-        error = RuntimeError("")
-        parts = s.split(':')
-        if len(parts) == 1:
-            Application.create1(parts[0])
-        elif len(parts) == 2:
-        elif len(parts) == 3:
-            transport_id = get_dict_id(transport_dict, parts[0])
-            if transport_id == None:
-                raise error
-            
-        else
-            raise error'''        
+
+    @staticmethod
+    def create(name, transport, mode):
+        for cls in Application.__subclasses__():
+            if name == cls.get_name():
+                return cls(transport, mode)
+        return None
 
 
-    def __init__(self):
+    def __init__(self, transport, mode):
         self.id = g_db.get_app_id(self.get_name(), self.get_version())
-
-    def __str__(self):
-        pass
-
-    def __repr__(self):
-        return self.__str__(self)
+        self.transport = transport
+        self.mode = mode
 
 
-    def read_netstat(self):
-        netstat = None
+    def create_netstat(self):
         if self.transport == Transport.NATIVE:
             if platform.system() == 'Linux':
-                netstat = LinuxNetstat()
+                return LinuxNetstat()
             else:
                 assert(0)
         else:
-            netstat = GbtcpNetstat()
+            return GbtcpNetstat(g_project)
+
+
+    def read_netstat(self):
+        netstat = self.create_netstat()
         netstat.read()
         return netstat
 
 
-    def start_process(self, transport, cmd):
-        self.transport = transport
-        if self.transport == Transport.NATIVE:
-            preload = False
-        else:
-            preload = True
-        return g_project.start_process(cmd, preload)
-
-
-    def parse_version(self, s):
+    @staticmethod
+    def parse_version(s):
         m = re.search(r'[0-9]+\.[0-9]+\.[0-9]+', s.strip())
         if m == None:
             raise RuntimeError("%s: Cannot extract version" % s)
@@ -114,20 +94,24 @@ class Application:
 
 
 class nginx(Application):
-    def get_name(self):
+    @staticmethod
+    def get_name():
         return "nginx"
 
 
-    def get_version(self):
+    @staticmethod
+    def get_version():
         s = system("nginx -v")[2]
-        return self.parse_version(s)
+        return Application.parse_version(s)
 
 
     def stop(self):
+        self.netstat = super().read_netstat() - self.__netstat
         system("nginx -s quit", True)
+        wait_process(self.__proc)
 
 
-    def start(self, transport, concurrency, cpus):
+    def start(self, concurrency, cpus):
         worker_cpu_affinity = ""
 
         n = len(cpus)
@@ -187,14 +171,18 @@ class nginx(Application):
         with open(nginx_conf_path, 'w') as f:
             f.write(nginx_conf)
 
-        return self.start_process(transport, "nginx -c %s" % nginx_conf_path)
+        self.__proc = g_project.start_process("nginx -c %s" % nginx_conf_path, self.transport)
+        self.__netstat = super().read_netstat()
 
 
-    def __init__(self):
-        Application.__init__(self)
+    def __init__(self, transport, mode):
+        if transport == None:
+            transport = Transport.NETMAP
+        Application.__init__(self, transport, Application.Mode.SERVER)
 
 
-class gbtcp_base_helloworld(Application):
+'''class gbtcp_base_helloworld:
+    @staticmethod
     def get_version(self):
         cmd = "%s -v" % self.path
         s = g_project.system(cmd)[1]
@@ -208,29 +196,34 @@ class gbtcp_base_helloworld(Application):
         g_project.system("%s -S" % self.path, True)
 
 
-    def start(self, transport, concurrency, cpus):
+    def start(self, concurrency, cpus):
         cmd = "%s -l -a " % self.path
         for i in range(len(cpus)):
             if i != 0:
                 cmd += ","
             cmd += str(cpus[i])
-        return self.start_process(transport, cmd)
+        return self.start_process(cmd)
 
 
-    def __init__(self):
-        self.path = g_project.path + "/bin/" + self.get_name()
-        Application.__init__(self)
+    def __init__(self, name):
+        self.path = g_project.path + "/bin/" + name
 
 
-class gbtcp_epoll_helloworld(gbtcp_base_helloworld):
-    def get_name(self):
+class gbtcp_epoll_helloworld(Application):
+    @staticmethod
+    def get_name():
         return "gbtcp-epoll-helloworld"
 
 
-class gbtcp_aio_helloworld(gbtcp_base_helloworld):
-    def get_name(self):
+class gbtcp_aio_helloworld(Application):
+    @staticmethod
+    def get_name():
         return "gbtcp-aio-helloworld"
 
+
+    def __init__(self, transport=Transport.NETMAP, mode=Application.Mode.Server):
+        super().__init__(transport, mode)
+'''
 
 class Runner:
     @staticmethod
@@ -257,9 +250,6 @@ class Runner:
                     pass
                 else:
                     Runner.add_test(tests, Simple(f))
-        Runner.add_test(tests, nginx())
-        Runner.add_test(tests, gbtcp_epoll_helloworld())
-        Runner.add_test(tests, gbtcp_aio_helloworld())
 
         # Assume that last test ended at least 10 seconds ago
         self.stop_ms = milliseconds() - 10000
@@ -274,11 +264,6 @@ class Runner:
                 help="")
 
         ap.add_argument("--dry-run", action='store_true',
-                help="")
-
-        ap.add_argument("--cpu-count", metavar="num", type=int, nargs='+',
-                action=UniqueAppendAction,
-                choices=range(1, multiprocessing.cpu_count()),
                 help="")
 
         ap.add_argument("--connect", metavar="ip", type=argparse_ip,
@@ -299,13 +284,16 @@ class Runner:
                 default=[CONCURRENCY_DEFAULT],
                 help="Number of parallel connections")
 
-        ap.add_argument("--transport", metavar="name", type=Transport, nargs='+',
-                choices=g_project.transports,
-                default=[g_project.transports[-1]],
+        ap.add_argument("--transport", metavar="name", type=Transport,
                 help="")
 
         ap.add_argument("--test", metavar="name", type=str, nargs='+',
                 choices = [ k for (k, v) in tests.items() ],
+                help="")
+
+        application_choices = [ a.get_name() for a in Application.__subclasses__() ]
+        ap.add_argument("--application", metavar="name", type=str,
+                choices = application_choices,
                 help="")
 
         self.__args = ap.parse_args()
@@ -315,25 +303,23 @@ class Runner:
         self.sample = self.__args.sample
         self.interface = self.__args.i
         self.cpus = self.__args.cpu
-        self.transport = self.__args.transport
-        self.cpu_count = self.__args.cpu_count
+
+        self.applications = []
+        if self.__args.application:
+            app = Application.create(self.__args.application, self.__args.transport,
+                    Application.Mode.SERVER)
+            self.applications.append(app)
 
         for cpu in self.cpus:
             set_cpu_scaling_governor(cpu)
 
-        if not self.cpu_count:
-            self.cpu_count = [ * range(1, len(self.cpus) + 1) ]
-        else:
-            for count in self.__args.cpu_count:
-                if count < 0 and count >= len(self.cpus):
-                    self.cpu_count.remove(count)
- 
         if self.__args.reload_netmap:
             reload_netmap(self.__args.reload_netmap, self.interface)
 
         self.tests = []
-        for test in self.__args.test:
-            self.tests.append(tests[test])
+        if self.__args.test:
+            for test in self.__args.test:
+                self.tests.append(tests[test])
 
         if self.__args.connect:
             self.__sock = socket.create_connection((make_ip(self.__args.connect), 9999))
@@ -385,13 +371,13 @@ def parse_reply(reply, test_id, duration):
     return sample
 
 
-def print_report(test_id, sample, app, concurrency, transport, cpu_usage):
+def print_report(test_id, sample, app, concurrency, cpu_usage):
     s = ""
     if sample != None:
         s += ("%d/%d: " % (test_id, sample.id))
 
     s += ("%s:%s: c=%d, CPU=%s" %
-        (transport.value, app, concurrency, str(cpu_usage)))
+        (app.transport.value, app.get_name(), concurrency, str(cpu_usage)))
 
 #    if sample != None:
 #        pps = sample.results[Database.Sample.IPPS] + sample.results[Database.Sample.OPPS]
@@ -412,28 +398,22 @@ def print_report(test_id, sample, app, concurrency, transport, cpu_usage):
     print_log(s, True)
 
 
-def run_sample(app, test_id, transport, concurrency, cpus):
-    app.stop()
-
-    proc = app.start(transport, concurrency, cpus)
+def run_sample(app, test_id, concurrency, cpus):
+    app.start(concurrency, cpus)
 
     # Wait netmap interface goes up
     time.sleep(2)
     g_runner.cooling()
     g_runner.send_req(concurrency)
 
-    netstat_begin = app.read_netstat()
     top = cpu_percent(g_runner.duration, cpus)
 
     reply = g_runner.recv_msg()
     if not reply:
         raise RuntimeError("Lost connection to tester")
 
-    netstat_end = app.read_netstat()
-
     app.stop()
     g_runner.stop()
-    wait_process(proc)
 
     sample = parse_reply(reply, test_id, g_runner.duration)
 
@@ -442,10 +422,10 @@ def run_sample(app, test_id, transport, concurrency, cpus):
 
     if sample != None:
         sample.id = g_db.add_sample(sample)
-        netstat_rate = Netstat.rate(netstat_begin, netstat_end, g_runner.duration)
-        netstat_rate.write(g_db, sample.id, Database.ROLE_RUNNER)
+        rate = app.netstat / g_runner.duration
+        rate.write(g_db, sample.id, Database.ROLE_RUNNER)
 
-    print_report(test_id, sample, app.get_name(), concurrency, transport, top)
+    print_report(test_id, sample, app, concurrency, top)
 
     if sample == None and sample.runner_cpu_percent < 98:
         g_runner.ts_failed += 1
@@ -453,25 +433,25 @@ def run_sample(app, test_id, transport, concurrency, cpus):
         g_runner.ts_pass += 1
 
 
-def run_application(app, cpus, transport, concurrency):
+def run_application(app, cpus, concurrency):
     if g_runner.dry_run:
         test_id = -1
         sample_count = 0
     else:
-        if transport == Transport.NATIVE:
+        if app.transport == Transport.NATIVE:
             commit = ""
         else:
             commit = g_project.commit
 
         cpu_mask = make_cpu_mask(cpus)
         test_id, sample_count = g_db.add_test(commit, TESTER_LOCAL_CON_GEN, app.id,
-            transport, g_runner.interface.driver_id, concurrency, cpu_mask, g_runner.duration)
+            app.transport, g_runner.interface.driver_id, concurrency, cpu_mask, g_runner.duration)
 
     g_runner.ts_planned += g_runner.sample
 
     for j in range (0, g_runner.sample - sample_count):
         g_runner.interface.set_channels(cpus)
-        run_sample(app, test_id, transport, concurrency, cpus)
+        run_sample(app, test_id, concurrency, cpus)
 
 
 
@@ -489,17 +469,14 @@ system(("ip r a dev %s %d.%d.0.0/15 via %d.%d.1.1 initcwnd 1" %
     (g_runner.interface.name, g_subnet[0], g_subnet[1], g_subnet[0], g_subnet[1])))
 
 
-g_project.write_gbtcp_conf(g_runner.transport[0], g_runner.interface.name)
+
+
+g_project.set_interface(g_runner.interface)
 
 for test in g_runner.tests:
-    if issubclass(type(test), Simple):
-        test.run()
+    test.run()
 
-for test in g_runner.tests:
-    if issubclass(type(test), Application):
-        for i in g_runner.cpu_count:
-            cpus = g_runner.cpus[:i]
-            for transport in g_runner.transport:
-                g_project.write_gbtcp_conf(transport, g_runner.interface.name)
-                for concurrency in g_runner.concurrency:
-                    run_application(test, cpus, transport, concurrency)
+for app in g_runner.applications:
+    cpus = g_runner.cpus
+    for concurrency in g_runner.concurrency:
+        run_application(app, cpus, concurrency)

@@ -86,7 +86,7 @@ class Tester:
                 cmd += " -s %d.%d.%d.1-%d.%d.%d.255" % (
                         req.subnet[0], req.subnet[1], i + 1,
                         req.subnet[0], req.subnet[1], i + 1)
-            return g_project.start_process(cmd, False)
+            return start_process(cmd)
 
 
 

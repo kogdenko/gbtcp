@@ -7,39 +7,15 @@ import argparse
 from common import *
 
 class Netstat:
-    @staticmethod
-    def rate(a, b, dt):
-        assert(type(a) == type(b))
-        rate = type(a)()
-        for table_a in a.tables:
-            table_b = b.get(table_a.name)
-            assert(table_b != None)
-            table_rate = Netstat.Table.rate(rate, table_a, table_b, dt)
-            rate.tables.append(table_rate)
-        return rate
-
-
     class Table:
-        @staticmethod
-        def rate(netstat, a, b, dt):
-            rate = Netstat.Table(netstat, a.name)
-            for entry_a in a.entries:
-                entry_b = b.get(entry_a.name)
-                assert(entry_b != None)
-                entry_rate = Netstat.Table.Entry(entry_a.name)
-                entry_rate.value = math.ceil((entry_b.value - entry_a.value) / dt)
-                rate.entries.append(entry_rate)
-            return rate
-
-
         class Entry:
-            def __init__(self, name):
+            def __init__(self, name, value=None):
                 self.name = name
-                self.value = None
+                self.value = value
 
 
-        def __init__(self, netstat, name):
-            self.netstat = netstat
+        def __init__(self, name):
+            self.hide_zeroes = False
             self.name = name
             self.entries = []
 
@@ -51,27 +27,46 @@ class Netstat:
             return None
 
 
-        def write(self, db, sample_id, role):
-            table = "netstat_" + self.netstat.name + "_" + self.name
+        def __sub__(self, right):
+            res = Netstat.Table(self.name)
+            for entry in self.entries:
+                value = entry.value
+                if right:
+                    right_entry = right.get(entry.name)
+                    if right_entry:
+                        value -= right_entry.value
+                res.entries.append(Netstat.Table.Entry(entry.name, value))
+            return res
+
+
+        def __truediv__(self, dt):
+            res = Netstat.Table(self.name)
+            for entry in self.entries:
+                value = math.ceil(entry.value / dt)
+                res.entries.append(Netstat.Table.Entry(entry.name, value))
+            return res
+
+
+        def write(self, db, db_table_name, sample_id, role):
             new_columns = []
-            if not db.is_table_exists(table):
+            if not db.is_table_exists(db_table_name):
                 for entry in self.entries:
                     new_columns.append(entry.name)
-                db.create_netstat_table(table, new_columns)
+                db.create_netstat_table(db_table_name, new_columns)
             else:
-                old_columns = db.get_columns(table)
+                old_columns = db.get_columns(db_table_name)
                 for entry in self.entries:
                     if entry.name not in old_columns:
                         new_columns.append(entry.name)
-                db.add_netstat_columns(table, new_columns)
+                db.add_netstat_columns(db_table_name, new_columns)
 
-            db.insert_into_netstat(table, sample_id, role, self.entries)
+            db.insert_into_netstat(db_table_name, sample_id, role, self.entries)
 
 
         def __str__(self):
             s = ""
             for e in self.entries:
-                if e.value != 0 or not self.netstat.hide_zeroes:
+                if e.value != 0 or not self.hide_zeroes:
                     s += "    %s: %d\n" % (e.name, e.value)
             return s
 
@@ -87,15 +82,34 @@ class Netstat:
         return None
 
 
+    def set_hide_zeroes(self, hide_zeroes):
+        for table in self.tables:
+            table.hide_zeroes = hide_zeroes
+
+
     def write(self, db, sample_id, role):
         for table in self.tables:
-            table.write(db, sample_id, role)
+            table_name = "netstat_" + self.name + "_" + table.name
+            table.write(db, table_name, sample_id, role)
 
 
     def __init__(self, name):
         self.name = name
-        self.hide_zeroes = False
         self.tables = []
+
+
+    def __sub__(self, right):
+        res = Netstat(self.name)
+        for table in self.tables:
+            res.tables.append(table - right.get(table.name))
+        return res
+
+
+    def __truediv__(self, dt):
+        res = Netstat(self.name)
+        for table in self.tables:
+            res.tables.append(table / dt)
+        return res
 
 
     def __str__(self):
@@ -125,7 +139,7 @@ class LinuxNetstat(Netstat):
             assert(len(tmp) == 2)
             table = self.get(tmp[0])
             if table == None:
-                table = Netstat.Table(self, tmp[0])
+                table = Netstat.Table(tmp[0])
                 keys = tmp[1].split()
                 for key in keys:
                     table.entries.append(Netstat.Table.Entry(key))
@@ -267,7 +281,7 @@ class BsdNetstat(Netstat):
                     if proto == line[:-1]:
                         table = self.get(proto)
                         if table == None:
-                            table = Netstat.Table(self, proto)
+                            table = Netstat.Table(proto)
                             table.patterns = patterns
                             self.tables.append(table)
                         break
@@ -282,14 +296,14 @@ class BsdNetstat(Netstat):
 
 
 class GbtcpNetstat(BsdNetstat):
-    def __init__(self):
+    def __init__(self, gbtcp):
         BsdNetstat.__init__(self, "gbtcp")
-        self.project = Project()
+        self.gbtcp = gbtcp
 
 
     def read(self):
-        cmd = self.project.path + "/bin/gbtcp-netstat -nss"
-        self.parse(self.project.system(cmd)[1])
+        cmd = self.gbtcp.path + "/bin/gbtcp-netstat -nss"
+        self.parse(self.gbtcp.system(cmd)[1])
 
 
 class ConGenNetstat(BsdNetstat):
@@ -323,8 +337,8 @@ def main():
             print("Netstat rate:")
             ns1 = create_netstat(args.type)
             ns1.read()
-            rate = Netstat.rate(ns0, ns1, args.rate)
-            rate.hide_zeroes = True
+            rate = (ns1 - ns0) / args.rate
+            rate.set_hide_zeroes(True)
             print(rate)
             print("_______________")
     else:

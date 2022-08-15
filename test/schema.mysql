@@ -222,7 +222,7 @@ CREATE TABLE `sample` (
   PRIMARY KEY (`id`),
   KEY `test_id` (`test_id`),
   CONSTRAINT `sample_ibfk_1` FOREIGN KEY (`test_id`) REFERENCES `test` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -251,7 +251,7 @@ CREATE TABLE `test` (
   CONSTRAINT `test_ibfk_1` FOREIGN KEY (`os_id`) REFERENCES `os` (`id`),
   CONSTRAINT `test_ibfk_2` FOREIGN KEY (`app_id`) REFERENCES `app` (`id`),
   CONSTRAINT `test_ibfk_3` FOREIGN KEY (`cpu_model_id`) REFERENCES `cpu_model` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
@@ -263,4 +263,4 @@ CREATE TABLE `test` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2022-08-15 12:48:25
+-- Dump completed on 2022-08-15 18:58:53
