@@ -255,7 +255,7 @@ class BsdNetstat(Netstat):
 
 
     def parse(self, text):
-        lines = text.split('\n')
+        lines = text.splitlines()
         table = None
         for line in lines:
             line = line.strip()
@@ -290,6 +290,11 @@ class GbtcpNetstat(BsdNetstat):
     def read(self):
         cmd = self.project.path + "/bin/gbtcp-netstat -nss"
         self.parse(self.project.system(cmd)[1])
+
+
+class ConGenNetstat(BsdNetstat):
+    def __init__(self):
+        BsdNetstat.__init__(self, "congen")
 
 
 def create_netstat(t):

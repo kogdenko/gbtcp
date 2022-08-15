@@ -14,6 +14,7 @@ import syslog
 import sqlite3
 import mysql.connector
 import numpy
+from enum import Enum
 
 
 SUN_PATH = "/var/run/gbtcp-tester.sock"
@@ -35,11 +36,11 @@ TRANSPORT_NATIVE = 0
 TRANSPORT_NETMAP = 1
 TRANSPORT_XDP = 2
 
-transport_dict = {
-    TRANSPORT_NATIVE: "native",
-    TRANSPORT_NETMAP: "netmap",
-    TRANSPORT_XDP: "xdp",
-}
+class Transport(Enum):
+    NATIVE = "native"
+    NETMAP = "netmap"
+    XDP = "xdp"
+
 
 DRIVER_VETH = 1
 DRIVER_IXGBE = 2
@@ -60,7 +61,8 @@ TEST_DELAY_DEFAULT = 2
 CONCURRENCY_DEFAULT=1000
 CONCURRENCY_MAX=20000
 
-def print_log(s, to_stdout = False):
+
+def print_log(s, to_stdout=False):
     syslog.syslog(s)
     if to_stdout:
         print(s)
@@ -216,14 +218,13 @@ def get_dict_id(d, name):
     return None
 
 
-def system(cmd, fault_tollerance = False, env = None):
-    proc = subprocess.Popen(cmd.split(), env = env,
-        stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+def system(cmd, fault_tollerance=False, env=None):
+    proc = subprocess.Popen(cmd.split(), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         out, err = proc.communicate(timeout = 5)
     except Exception as exc:
         proc.kill();
-        print_log("Command '%s' failed, exception: '%s'" % (cmd, sys.exc_info()[0]))
+        print_log("Command '%s' failed: '%s'" % (cmd, sys.exc_info()[0]))
         raise exc
 
     out = bytes_to_str(out)
@@ -274,20 +275,6 @@ def reload_netmap(netmap_path, interface):
     # Wait interfaces after inserting module
     time.sleep(1)
     interface.up()
-
-
-def get_sample_result(sample, i):
-    assert(len(sample.results) == 7)
-    assert(i <= BPS)
-    if i == PPS:
-        a = IPPS
-        b = OPPS
-    elif i == BPS:
-        a = IBPS
-        b = OBPS
-    else:
-        return sample.results[i]
-    return sample.results[a] + sample.results[b]
 
 
 def round_std(std):
@@ -385,15 +372,15 @@ def get_interface_driver(name):
     raise RuntimeError("'%s': No 'driver'" % cmd)
 
 
-def recv_line(sock):
-    line = ""
+def recv_lines(sock):
+    lines = ""
     while True:
         s = sock.recv(1024).decode('utf-8')
         if not s:
             return None
-        line += s
-        if '\n' in s:
-            return line.strip()
+        lines += s
+        if '\n\n' in s:
+            return lines
 
 
 def milliseconds():
@@ -440,14 +427,14 @@ def wait_process(proc):
     lines = []
     t0 = milliseconds()
     try:
-        proc.wait(timeout = 5)
+        proc.wait(timeout=5)
     except Exception as e:
         t1 = milliseconds()
         dt = t1 - t0
         assert(dt * 1000 > 4.5)
         print_log("$ [%d] Timeouted" % proc.pid)
         proc.terminate()
-        return 256, lines    
+        proc.wait(timeout=5)
 
     for pipe in [proc.stdout, proc.stderr]:
         while True:
@@ -466,12 +453,12 @@ class Interface:
         driver_id = get_dict_id(driver_dict, driver)
         if driver_id == None:
             raise NotImplementedError("Driver '%s' not supported" % driver)
-        instance = globals().get(driver)
-        assert(instance != None)
-        interface = instance(name)
-        interface.driver = driver
-        interface.driver_id = driver_id
-        return interface
+        for instance in Interface.__subclasses__():
+            if instance.__name__ == driver:
+                interface = instance(name)
+                interface.driver = driver
+                interface.driver_id = driver_id
+                return interface
 
 
     def __init__(self, name):
@@ -538,7 +525,7 @@ class Project:
         self.gbtcp_conf_path = self.path + "/test/gbtcp.conf"
 
         self.commit = None
-        self.transports = [transport_dict[TRANSPORT_NATIVE]]
+        self.transports = [Transport.NATIVE]
 
         cmd = self.path + "/bin/gbtcp-aio-helloworld -v"
         _, out, _ = self.system(cmd)
@@ -547,9 +534,9 @@ class Project:
                 self.commit = git_rev_parse(line[7:])
             elif line.startswith("config: "):
                 if re.search("HAVE_XDP", line) != None:
-                    self.transports.append(transport_dict[TRANSPORT_XDP])    
+                    self.transports.append(Transport.XDP)    
                 if re.search("HAVE_NETMAP", line) != None:
-                    self.transports.append(transport_dict[TRANSPORT_NETMAP])
+                    self.transports.append(Transport.NETMAP)
 
         if self.commit == None:
             raise RuntimeError("Command '%s' returns unexpected output" % cmd)
@@ -624,6 +611,25 @@ class Database:
     def create_core_tables(self):
         self.execute("create table if not exists %s ("
                 "id int auto_increment,"
+                "gbtcp_commit varchar(40),"
+                "tester_id int,"
+                "os_id int,"
+                "app_id int,"
+                "transport varchar(32),"
+                "driver_id int,"
+                "concurrency int,"
+                "cpu_model_id int,"
+                "cpu_mask varchar(128),"
+                "primary key(id),"
+                "unique key(gbtcp_commit, tester_id, os_id, app_id, transport, "
+                        "driver_id, concurrency, cpu_model_id, cpu_mask),"
+                "foreign key(os_id) references os(id),"
+                "foreign key(app_id) references app(id),"
+                "foreign key(cpu_model_id) references cpu_model(id)"
+                ")" % Database.TABLE_TEST)
+
+        self.execute("create table if not exists %s ("
+                "id int auto_increment,"
                 "test_id int,"
                 "duration int,"
                 "runner_cpu_percent int,"
@@ -631,6 +637,8 @@ class Database:
                 "primary key(id),"
                 "foreign key(test_id) references test(id)"
                 ")" % Database.TABLE_SAMPLE)
+
+        
 
 
     def __init__(self, address):
@@ -660,22 +668,22 @@ class Database:
 
 
     def add_test(self, commit, tester_id, app_id,
-            transport_id, driver_id, concurrency, cpu_mask, duration):
+            transport, driver_id, concurrency, cpu_mask, duration):
 
         where = ("gbtcp_commit=\"%s\" and tester_id=%d and os_id=%d and app_id=%d and "
-            "transport_id=%d and driver_id=%d and concurrency=%d and cpu_model_id=%d and "
+            "transport=\"%s\" and driver_id=%d and concurrency=%d and cpu_model_id=%d and "
             "cpu_mask=\"%s\"" %
             (commit, tester_id, self.os_id, app_id,
-            transport_id, driver_id, concurrency, self.cpu_model_id,
+            transport.value, driver_id, concurrency, self.cpu_model_id,
             cpu_mask))
 
         cmd = ("insert into %s "
             "(gbtcp_commit, tester_id, os_id, app_id, "
-            "transport_id, driver_id, concurrency, cpu_model_id, cpu_mask) "
-            "select \"%s\", %d, %d, %d, %d, %d, %d, %d, \"%s\" where not exists "
+            "transport, driver_id, concurrency, cpu_model_id, cpu_mask) "
+            "select \"%s\", %d, %d, %d, \"%s\", %d, %d, %d, \"%s\" where not exists "
             "(select 1 from %s where %s)" % (
             Database.TABLE_TEST, commit, tester_id, self.os_id, app_id,
-            transport_id, driver_id, concurrency, self.cpu_model_id, cpu_mask,
+            transport.value, driver_id, concurrency, self.cpu_model_id, cpu_mask,
             Database.TABLE_TEST, where))
         self.execute(cmd)
 
@@ -754,7 +762,7 @@ class Database:
         test.tester_id = int(row[2])
         test.os_id = int(row[3])
         test.app_id = int(row[4])
-        test.transport_id = int(row[5])
+        test.transport = Transport(row[5])
         test.driver_id = int(row[6])
         test.concurrency = int(row[7])
         test.cpu_model_id = int(row[8])
@@ -770,9 +778,6 @@ class Database:
         name, ver = self.get_app(test.app_id)
         assert(name)
         test.app = name + "-" + ver
-
-        test.transport = transport_dict.get(test.transport_id)
-        assert(test.transport)
 
         test.driver = driver_dict.get(test.driver_id)
         assert(test.driver)

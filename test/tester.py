@@ -52,33 +52,6 @@ def add_request_arguments(ap):
             help="Number of parallel connections")
  
 
-def parse_output(lines, duration):
-    if len(lines) != duration:
-        print_log("Invalid number of reports (%d, should be %d)" % (len(lines), duration))
-        return None
-    records = [[] for i in range(Database.Sample.CONCURRENCY + 1)]
-    for line in lines:
-        cols = line.split()
-        if len(cols) != 9:
-            print_log(("Invalid number of columns (%d, should be 9)\n%s" % (len(cols), line)))
-            return None
-        records[Database.Sample.CPS].append(int(cols[0]))
-        records[Database.Sample.IPPS].append(int(cols[1]))
-        records[Database.Sample.IBPS].append(int(cols[2]))
-        records[Database.Sample.OPPS].append(int(cols[3]))
-        records[Database.Sample.OBPS].append(int(cols[4]))
-        records[Database.Sample.RXMTPS].append(int(cols[7]))
-        records[Database.Sample.CONCURRENCY].append(int(cols[8]))
-    record = records[Database.Sample.CPS]
-    outliers = find_outliers(record, None)
-
-    results = []
-    for record in records:
-        results.append(int(numpy.mean(record)))
-
-    return results
-
-
 def print_report(proc, top, rc):
     report = "%s: CPU=%s ... " % (proc.args[0], str(top))
     if rc == 0:
@@ -96,10 +69,8 @@ class Tester:
 
         def run(self, req):
             dst_ip = get_runner_ip(req.subnet)
-            cmd = "con-gen "
-        #    cmd += "--toy "
-            cmd += "--print-banner 0 --print-statistics 0 --report-bytes 1 "
-            cmd += ("-S %s -D %s --reports %d -N -p 80 -d %s" %
+            cmd = "con-gen"
+            cmd += (" --print-report 0 -v -S %s -D %s --reports %d -N -p 80 -d %s" %
                 (self.tester.interface.mac, str(req.dst_mac), req.duration, dst_ip))
 
             n = len(self.tester.cpus)
@@ -118,21 +89,8 @@ class Tester:
             return g_project.start_process(cmd, False)
 
 
-#    def process_Hello(self):
-#        return (
-#            "--os-system=\"%s\" "
-#            "--os-release=\"%s\" "
-#            "--app-name=\"%s\" "
-#            "--app-version=\"%s\" "
-#            "--transport-id=\"%d\" "
-#            "--driver-id=\"%d\" "
-#            "--cpu-model=\"%s\" "
-#            "--cpu-mask=\"%s\"" % (
-#          
-#            ))
 
-
-    def process_Run(self, args):
+    def process_req(self, args):
         class ArgumentParser(argparse.ArgumentParser):
             def error(self, message):
                 raise RuntimeError(message)
@@ -146,21 +104,11 @@ class Tester:
         top = cpu_percent(req.duration, self.cpus)
 
         rc, lines = wait_process(proc)
-        if rc == 0:
-            results = parse_output(lines, req.duration)
-        else:
-            results = None
-
         print_report(proc, top, rc)
-
-        if rc == 0 and results != None:
-            reply = "Ok"
-            for result in results:
-                reply += " " + str(result)
+        if rc == 0:
+            return "\n".join(lines) + "\n"
         else:
-            reply = "Failed"
-
-        return reply
+            return None
 
 
     def loop(self):
@@ -181,24 +129,19 @@ class Tester:
         while True:
             try:
                 sock, _ = listen_sock.accept()
+                
                 while True:
-                    req = recv_line(sock)
+                    req = recv_lines(sock)
                     if req == None:
                         break
-                    args = req.strip().split()
-                    reply = None
-                    if len(args) > 0:
-                        if args[0] == "Hello":
-                            reply = self.process_Hello(args[1:])
-                        elif args[0] == "Run":
-                            reply = self.process_Run(args[1:])
-                        else:
-                            print_log("Incorrect request type: '%s'" % args[0])
+                    args = req.strip().split()                    
+                    reply = self.process_req(args)
                     if reply == None:
-                        print_log("Incorrect request: '%s'" % req)
                         sock.close()
                         break
-
+                    print("reply-----")
+                    print(reply)
+                    print("__________")
                     sock.send((reply + "\n").encode('utf-8'))
                 
             except socket.error as e:

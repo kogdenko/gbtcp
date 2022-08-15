@@ -20,7 +20,7 @@ from common import *
 from netstat import *
 
 COOLING_MIN = 0
-COOLING_MAX = 30*60
+COOLING_MAX = 3*60
 COOLING_DEFAULT = 20
 
 g_subnet = (10, 20, 0, 0)
@@ -37,21 +37,6 @@ class Simple:
         return self.name
 
 
-    def is_support_transport(self, transport_id):
-        if transport_id == TRANSPORT_NATIVE:
-            return False
-        else:
-            return True
-
-
-    def is_transport_sensitive(self):
-        return False
-
-
-    def is_cpu_sensitive(self):
-        return False
-   
-
     def run(self):
         g_runner.ts_planned += 1
         proc = g_project.start_process(g_project.path + '/bin/' + self.name, False)
@@ -63,27 +48,45 @@ class Simple:
             status = "Failed"
         print_log("%s ... %s" % (self.name, status), True)
 
-
 class Application:
+    MODE_CLIENT = 0
+    MODE_SERVER = 1
+    
+    '''@staticmethod
+    # Application can be represented in 4 forms:
+    # netmap:con-gen:client
+    # con-gen
+    # con-gen:client
+    # netmap:con-gen
+    def create(s):
+        transport_id = None
+        error = RuntimeError("")
+        parts = s.split(':')
+        if len(parts) == 1:
+            Application.create1(parts[0])
+        elif len(parts) == 2:
+        elif len(parts) == 3:
+            transport_id = get_dict_id(transport_dict, parts[0])
+            if transport_id == None:
+                raise error
+            
+        else
+            raise error'''        
+
+
     def __init__(self):
         self.id = g_db.get_app_id(self.get_name(), self.get_version())
 
+    def __str__(self):
+        pass
 
-    def is_support_transport(self, transport_id):
-        return True
-
-
-    def is_transport_sensitive(self):
-        return True
-
-
-    def is_cpu_sensitive(self):
-        return True
+    def __repr__(self):
+        return self.__str__(self)
 
 
     def read_netstat(self):
         netstat = None
-        if self.transport_id == TRANSPORT_NATIVE:
+        if self.transport == Transport.NATIVE:
             if platform.system() == 'Linux':
                 netstat = LinuxNetstat()
             else:
@@ -94,9 +97,9 @@ class Application:
         return netstat
 
 
-    def start_process(self, transport_id, cmd):
-        self.transport_id = transport_id
-        if self.transport_id == TRANSPORT_NATIVE:
+    def start_process(self, transport, cmd):
+        self.transport = transport
+        if self.transport == Transport.NATIVE:
             preload = False
         else:
             preload = True
@@ -108,68 +111,6 @@ class Application:
         if m == None:
             raise RuntimeError("%s: Cannot extract version" % s)
         return m.group(0)
-
-
-    def run_sample(self, test_id, transport_id, concurrency, cpus):
-        self.stop()
-
-        proc = self.start(transport_id, concurrency, cpus)
-
-        # Wait netmap interface goes up
-        time.sleep(2)
-        g_runner.cooling()
-        g_runner.send_Run(concurrency)
-
-        netstat_begin = self.read_netstat()
-        top = cpu_percent(g_runner.duration, cpus)
-
-        rpl = g_runner.recv_msg()
-
-        netstat_end = self.read_netstat()
-
-        self.stop()
-        g_runner.stop()
-        wait_process(proc)
-
-        sample = parse_tester_reply(rpl, test_id, g_runner.duration)
-
-        sample.runner_cpu_percent = int(numpy.mean(top))
-        sample.tester_cpu_percent = 0
-
-        if sample != None:
-            sample.id = g_db.add_sample(sample)
-            netstat_rate = Netstat.rate(netstat_begin, netstat_end, g_runner.duration)
-            netstat_rate.write(g_db, sample.id, Database.ROLE_RUNNER)
-
-        print_report(test_id, sample, self.get_name(), concurrency, transport_id, top)
-
-        if sample == None and sample.runner_cpu_percent < 98:
-            g_runner.ts_failed += 1
-        else:
-            g_runner.ts_pass += 1
-
-
-    def run(self, cpus, transport, concurrency):
-        if g_runner.dry_run:
-            test_id = -1
-            sample_count = 0
-        else:
-            transport_id = get_dict_id(transport_dict, transport)
-            assert(transport_id != None)
-            if transport_id == TRANSPORT_NATIVE:
-                commit = ""
-            else:
-                commit = g_project.commit
-
-            cpu_mask = make_cpu_mask(cpus)
-            test_id, sample_count = g_db.add_test(commit, TESTER_LOCAL_CON_GEN, self.id,
-                transport_id, g_runner.interface.driver_id, concurrency, cpu_mask, g_runner.duration)
-
-        g_runner.ts_planned += g_runner.sample
-
-        for j in range (0, g_runner.sample - sample_count):
-            g_runner.interface.set_channels(cpus)
-            self.run_sample(test_id, transport_id, concurrency, cpus)
 
 
 class nginx(Application):
@@ -186,7 +127,7 @@ class nginx(Application):
         system("nginx -s quit", True)
 
 
-    def start(self, transport_id, concurrency, cpus):
+    def start(self, transport, concurrency, cpus):
         worker_cpu_affinity = ""
 
         n = len(cpus)
@@ -246,7 +187,7 @@ class nginx(Application):
         with open(nginx_conf_path, 'w') as f:
             f.write(nginx_conf)
 
-        return self.start_process(transport_id, "nginx -c %s" % nginx_conf_path)
+        return self.start_process(transport, "nginx -c %s" % nginx_conf_path)
 
 
     def __init__(self):
@@ -267,13 +208,13 @@ class gbtcp_base_helloworld(Application):
         g_project.system("%s -S" % self.path, True)
 
 
-    def start(self, transport_id, concurrency, cpus):
+    def start(self, transport, concurrency, cpus):
         cmd = "%s -l -a " % self.path
         for i in range(len(cpus)):
             if i != 0:
                 cmd += ","
             cmd += str(cpus[i])
-        return self.start_process(transport_id, cmd)
+        return self.start_process(transport, cmd)
 
 
     def __init__(self):
@@ -289,13 +230,6 @@ class gbtcp_epoll_helloworld(gbtcp_base_helloworld):
 class gbtcp_aio_helloworld(gbtcp_base_helloworld):
     def get_name(self):
         return "gbtcp-aio-helloworld"
-
-
-    def is_support_transport(self, transport_id):
-        if transport_id == TRANSPORT_NATIVE:
-            return False
-        else:
-            return True
 
 
 class Runner:
@@ -365,7 +299,7 @@ class Runner:
                 default=[CONCURRENCY_DEFAULT],
                 help="Number of parallel connections")
 
-        ap.add_argument("--transport", metavar="name", type=str, nargs='+',
+        ap.add_argument("--transport", metavar="name", type=Transport, nargs='+',
                 choices=g_project.transports,
                 default=[g_project.transports[-1]],
                 help="")
@@ -420,66 +354,51 @@ class Runner:
             time.sleep(t)
 
 
-    def send_msg(self, msg):
-        self.__sock.send((msg + "\n").encode('utf-8'))
-
-
-    def send_Run(self, concurrency):
-        req = ("Run --dst-mac %s "
-            "--subnet %d.%d.0.0 "
-            "--duration %d "
-            "--concurrency %d "
-            "--application con-gen" % (
-            str(self.interface.mac),
-            g_subnet[0], g_subnet[1],
-            self.duration,
-            concurrency))
-        
-        self.send_msg(req)
+    def send_req(self, concurrency):
+        req = ("--dst-mac %s "
+                "--subnet %d.%d.0.0 "
+                "--duration %d "
+                "--concurrency %d "
+                "--application con-gen\n\n" % (
+                str(self.interface.mac),
+                g_subnet[0], g_subnet[1],
+                self.duration,
+                concurrency))
+        self.__sock.send(req.encode('utf-8'))
 
 
     def recv_msg(self):
-        return recv_line(self.__sock)
+        return recv_lines(self.__sock)
 
 g_runner = Runner()
 
 
 
 
-def print_invalid_tester_reply(s):
-    print_log("Invalid tester reply:\n%s" % s)
-
-def parse_tester_reply(reply, test_id, duration):
-    cols = reply.split()
-    if len(cols) == 1:
-        return None
-    if len(cols) != Database.Sample.CONCURRENCY + 2:
-        print_invalid_tester_reply(reply)
-        return None
-
+def parse_reply(reply, test_id, duration):
+    print(">>>>>>>>>> reply")
+    print(reply)
+    print("<<<<<<<<<<<<")
     sample = Database.Sample()
     sample.test_id = test_id
     sample.duration = duration
-    sample.results = []
-    for i in range(1, len(cols)):
-        sample.results.append(int(cols[i]))
     return sample
 
 
-def print_report(test_id, sample, app, concurrency, transport_id, cpu_usage):
+def print_report(test_id, sample, app, concurrency, transport, cpu_usage):
     s = ""
     if sample != None:
         s += ("%d/%d: " % (test_id, sample.id))
 
     s += ("%s:%s: c=%d, CPU=%s" %
-        (transport_dict[transport_id], app, concurrency, str(cpu_usage)))
+        (transport.value, app, concurrency, str(cpu_usage)))
 
-    if sample != None:
-        pps = sample.results[Database.Sample.IPPS] + sample.results[Database.Sample.OPPS]
-        s += ", %.2f mpps" % (pps/1000000)
-        if False:
-            rxmtps = sample.results[Database.Sample.RXMTPS]
-            s += ", %.2f rxmtps" % (rxmtps/1000000)
+#    if sample != None:
+#        pps = sample.results[Database.Sample.IPPS] + sample.results[Database.Sample.OPPS]
+#        s += ", %.2f mpps" % (pps/1000000)
+#        if False:
+#            rxmtps = sample.results[Database.Sample.RXMTPS]
+#            s += ", %.2f rxmtps" % (rxmtps/1000000)
 
     s += " ... "
 
@@ -491,6 +410,68 @@ def print_report(test_id, sample, app, concurrency, transport_id, cpu_usage):
         s += "Passed"
 
     print_log(s, True)
+
+
+def run_sample(app, test_id, transport, concurrency, cpus):
+    app.stop()
+
+    proc = app.start(transport, concurrency, cpus)
+
+    # Wait netmap interface goes up
+    time.sleep(2)
+    g_runner.cooling()
+    g_runner.send_req(concurrency)
+
+    netstat_begin = app.read_netstat()
+    top = cpu_percent(g_runner.duration, cpus)
+
+    reply = g_runner.recv_msg()
+    if not reply:
+        raise RuntimeError("Lost connection to tester")
+
+    netstat_end = app.read_netstat()
+
+    app.stop()
+    g_runner.stop()
+    wait_process(proc)
+
+    sample = parse_reply(reply, test_id, g_runner.duration)
+
+    sample.runner_cpu_percent = int(numpy.mean(top))
+    sample.tester_cpu_percent = 0
+
+    if sample != None:
+        sample.id = g_db.add_sample(sample)
+        netstat_rate = Netstat.rate(netstat_begin, netstat_end, g_runner.duration)
+        netstat_rate.write(g_db, sample.id, Database.ROLE_RUNNER)
+
+    print_report(test_id, sample, app.get_name(), concurrency, transport, top)
+
+    if sample == None and sample.runner_cpu_percent < 98:
+        g_runner.ts_failed += 1
+    else:
+        g_runner.ts_pass += 1
+
+
+def run_application(app, cpus, transport, concurrency):
+    if g_runner.dry_run:
+        test_id = -1
+        sample_count = 0
+    else:
+        if transport == Transport.NATIVE:
+            commit = ""
+        else:
+            commit = g_project.commit
+
+        cpu_mask = make_cpu_mask(cpus)
+        test_id, sample_count = g_db.add_test(commit, TESTER_LOCAL_CON_GEN, app.id,
+            transport, g_runner.interface.driver_id, concurrency, cpu_mask, g_runner.duration)
+
+    g_runner.ts_planned += g_runner.sample
+
+    for j in range (0, g_runner.sample - sample_count):
+        g_runner.interface.set_channels(cpus)
+        run_sample(app, test_id, transport, concurrency, cpus)
 
 
 
@@ -521,4 +502,4 @@ for test in g_runner.tests:
             for transport in g_runner.transport:
                 g_project.write_gbtcp_conf(transport, g_runner.interface.name)
                 for concurrency in g_runner.concurrency:
-                    test.run(cpus, transport, concurrency)
+                    run_application(test, cpus, transport, concurrency)
