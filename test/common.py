@@ -12,6 +12,7 @@ import traceback
 import multiprocessing
 import syslog
 import sqlite3
+import ipaddress
 import numpy
 from enum import Enum
 
@@ -76,8 +77,8 @@ class UniqueAppendAction(argparse.Action):
 
 class MacAddress:
     @staticmethod
-    def argparse(s):
-        error = argparse.ArgumentTypeError("invalid MAC value '%s'" % s)
+    def create(s):
+        error = ValueError("invalid literal for MacAddress(): '%s'" % s)
 
         six = s.split(':')
         if len(six) != 6:
@@ -88,10 +89,18 @@ class MacAddress:
                 raise error;
             try:
                 six[i] = int(x, 16)
-            except:
+            except ValueError:
                 raise error;
 
         return MacAddress(*six)
+       
+
+    @staticmethod
+    def argparse(s):
+        try:
+            return MacAddress.create(s)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError("invalid MAC value '%s'" % s)
 
 
     def __init__(self, a, b, c, d, e, f):
@@ -109,21 +118,10 @@ class MacAddress:
     
 
 def argparse_ip(s):
-    error = argparse.ArgumentTypeError("invalid IP value '%s'" % s)
-
-    ip = s.split('.')
-    if len(ip) != 4:
-        raise error;
-
-    for i, d in enumerate(ip):
-        try:
-            ip[i] = int(d)
-            if ip[i] < 0 or ip[i] > 255:
-                raise error;
-        except:
-            raise error;
-
-    return tuple(ip)
+    try:
+        return ipaddress.ip_address(s)
+    except Exception as exc:
+        raise argparse.ArgumentTypeError(str(exc))
 
 
 def argparse_dir(s):
@@ -201,17 +199,6 @@ def make_cpu_mask(cpus):
     return cpu_mask
 
 
-def make_ip(t):
-#    return "{a}.{b}.{c}.{d}".format(a=t[0], b=t[1], c=t[2], d=t[3])
-    return "%d.%d.%d.%d" % (t[0], t[1], t[2], t[3])
-
-def get_dict_id(d, name):
-    for key, value in d.items():
-        if value == name:
-            return key
-    return None
-
-
 def system(cmd, fault_tollerance=False, env=None):
     proc = subprocess.Popen(cmd.split(), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
@@ -262,10 +249,10 @@ def insmod(netmap_path, module_name):
 
 
 def reload_netmap(netmap_path, interface):
-    rmmod(interface.driver)
+    rmmod(interface.driver.value)
     rmmod("netmap")
     insmod(netmap_path, "netmap")
-    insmod(netmap_path, interface.driver)
+    insmod(netmap_path, interface.driver.value)
     # Wait interfaces after inserting module
     time.sleep(1)
     interface.up()
@@ -294,20 +281,6 @@ def round_val(val, std):
     return val_rounded, std_rounded
 
 
-def int_list_to_bytearray(il, sizeof):
-    ba = bytearray()
-    for i in il:
-        ba += bytearray(i.to_bytes(sizeof, "big"))
-    return ba
-
-
-def bytearray_to_int_list(ba, sizeof):
-    il = []
-    for i in range(0, len(ba), sizeof):
-        il.append(int.from_bytes(ba[i:i + sizeof], "big"))
-    return il
-
-
 SERVER_IP_C = 255
 SERVER_IP_D = 1
 
@@ -326,9 +299,8 @@ def cpu_percent(t, cpus):
 
 
 def set_irq_affinity(interface, cpus):
-    f = open("/proc/interrupts", 'r')
-    lines = f.readlines()
-    f.close()
+    with open("/proc/interrupts", 'r') as f:
+        lines = f.readlines()
 
     irqs = []
 
@@ -340,11 +312,11 @@ def set_irq_affinity(interface, cpus):
             if m != None:
                 irq = columns[0].strip(" :")
                 if not irq.isdigit():
-                    raise RuntimeError("/proc/interrupts:%d: Invalid irq id" % i + 1)
+                    raise RuntimeError("invalid irq: /proc/interrupts:%s" % i + 1)
                 irqs.append(int(irq))
 
     if len(cpus) != len(irqs):
-        raise RuntimeError("Unexpected number of irqs (%d), shoud be %d" % (len(irqs), len(cpus)))
+        raise RuntimeError("invalid number of irqs: %d" % len(irqs))
 
     for i in range(0, len(irqs)):
         with open("/proc/irq/%d/smp_affinity" % irqs[i], 'w') as f:
@@ -367,14 +339,22 @@ def get_interface_driver(name):
 
 
 def recv_lines(sock):
-    lines = ""
+    message = ""
     while True:
         s = sock.recv(1024).decode('utf-8')
         if not s:
             return None
-        lines += s
-        if '\n\n' in s:
+        message += s
+        if '\n\n' in message:
+            lines = message.splitlines()
+            lines.remove('')
             return lines
+
+
+def send_string(sock, s):
+    while s[-1] == '\n':
+        s = s[:-1]
+    sock.send((s + "\n\n").encode('utf-8'))
 
 
 def milliseconds():

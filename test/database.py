@@ -1,4 +1,5 @@
-import platform # FIXME
+#!/usr/bin/python
+# SPDX-License-Identifier: GPL-2.0
 from enum import Enum
 import mysql.connector
 

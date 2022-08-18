@@ -9,6 +9,8 @@ from common import *
 g_debug = True
 g_project = Project()
 
+g_runner_mac_address = None
+
 def run_epoll(interface, subnet, reports, concurrency):
     ifname = interface.name
 
@@ -89,7 +91,6 @@ class Tester:
             return start_process(cmd)
 
 
-
     def process_req(self, args):
         class ArgumentParser(argparse.ArgumentParser):
             def error(self, message):
@@ -121,7 +122,7 @@ class Tester:
             listen_sock.bind(SUN_PATH)
         else:
             listen_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            listen_sock.bind((make_ip(self.__args.listen), 9999))
+            listen_sock.bind(str(self.__args.listen), 9999)
         listen_sock.listen()
         listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
@@ -129,20 +130,30 @@ class Tester:
         while True:
             try:
                 sock, _ = listen_sock.accept()
-                
                 while True:
-                    req = recv_lines(sock)
-                    if req == None:
+                    lines = recv_lines(sock)
+                    if not lines:
                         break
-                    args = req.strip().split()                    
-                    reply = self.process_req(args)
-                    if reply == None:
-                        sock.close()
+                    reply = ""
+                    header = lines[0].lower()
+                    if header == 'hello' and len(lines) > 1:
+                        g_runner_mac_address = MacAddress.create(lines[1])
+                        reply += "hello\n"
+                        reply += str(self.interface.mac) + "\n"
+                    elif header == 'run' and len(lines) > 1:
+                        args = lines[1].strip().split()
+                        reply = self.process_req(args)
+                        if reply == None:
+                            sock.close()
+                            break
+                        print("reply-----")
+                        print(reply)
+                        print("__________")
+                    else:
                         break
-                    print("reply-----")
-                    print(reply)
-                    print("__________")
-                    sock.send((reply + "\n").encode('utf-8'))
+                    send_string(sock, reply)
+
+                sock.close()
                 
             except socket.error as e:
                 print_log("Connection failed: '%s'" % str(e))

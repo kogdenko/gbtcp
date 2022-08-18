@@ -21,7 +21,7 @@ from database import Database
 from application import Application
 
 #FIXME:
-from netstat import BsdNetstat
+from netstat import BSDNetstat
 
 
 COOLING_MIN = 0
@@ -31,7 +31,7 @@ COOLING_DEFAULT = 20
 g_subnet = (10, 20, 0, 0)
 
 g_project = Project()
-g_db = Database("")
+g_database = Database("")
 
 class Simple:
     def __init__(self, name):
@@ -155,15 +155,26 @@ class Runner:
                 self.tests.append(tests[test])
 
         if self.__args.connect:
-            self.__sock = socket.create_connection((make_ip(self.__args.connect), 9999))
+            self.__sock = socket.create_connection(str(self.__args.connect), 9999)
         else:
             self.__sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.__sock.connect(SUN_PATH)
         self.__sock.settimeout(10)
 
+        self.say_hello()
+
+
+    def say_hello(self):
+        hello = "hello\n"
+        hello += self.interface.mac
+        send_string(self.__sock, hello)
+        hello = recv_lines(self.__sock)
+        assert(hello and len(hello) > 1)
+        mac = MacAddress.create(hello[1])
+
 
     def stop(self):
-        self.stop_mss = milliseconds()
+        self.stop_ms = milliseconds()
 
 
     def cooling(self):
@@ -174,16 +185,17 @@ class Runner:
 
 
     def send_req(self, concurrency):
-        req = ("--dst-mac %s "
+        req = ("Run\n"
+                "--dst-mac %s "
                 "--subnet %d.%d.0.0 "
                 "--duration %d "
                 "--concurrency %d "
-                "--application con-gen\n\n" % (
+                "--application con-gen" % (
                 str(self.interface.mac),
                 g_subnet[0], g_subnet[1],
                 self.duration,
                 concurrency))
-        self.__sock.send(req.encode('utf-8'))
+        send_string(self.__sock, req)
 
 
     def recv_msg(self):
@@ -243,11 +255,11 @@ def run_sample(app, test_id, concurrency, cpus):
     sample.tester_cpu_percent = 0
 
     if sample != None:
-        g_db.insert_into_sample(sample)
-        app.netstat.write(g_db, sample.id, Database.Role.RUNNER)
-        netstat = BsdNetstat()
+        g_database.insert_into_sample(sample)
+        app.netstat.save_to_databse(g_database, sample.id, Database.Role.RUNNER)
+        netstat = BSDNetstat()
         netstat.parse(reply)
-        app.netstat.write(g_db, sample.id, Database.Role.TESTER)
+        app.netstat.save_to_database(g_database, sample.id, Database.Role.TESTER)
        
 
     print_report(test_id, sample, app, concurrency, top)
@@ -269,7 +281,7 @@ def run_application(app, cpus, concurrency):
             commit = g_project.commit
 
         cpu_mask = make_cpu_mask(cpus)
-        test_id, sample_count = g_db.insert_into_test(
+        test_id, sample_count = g_database.insert_into_test(
                 g_runner.duration, 
                 commit,
                 g_runner.os,
@@ -300,12 +312,11 @@ def run_application(app, cpus, concurrency):
 
 
 system("ip a flush dev %s" % g_runner.interface.name)
-system("ip a a dev %s %s/32" % (g_runner.interface.name, get_runner_ip(g_subnet)))
 system("ip r flush dev %s" % g_runner.interface.name)
-system("ip r d %d.%d.1.1/32" % (g_subnet[0], g_subnet[1]), True)
+
+system("ip a a dev %s %s/32" % (g_runner.interface.name, get_runner_ip(g_subnet)))
 system("ip r a dev %s %d.%d.1.1/32 initcwnd 1" %
     (g_runner.interface.name, g_subnet[0], g_subnet[1]))
-system("ip r d %d.%d.0.0/15" % (g_subnet[0], g_subnet[1]), True)
 system(("ip r a dev %s %d.%d.0.0/15 via %d.%d.1.1 initcwnd 1" %
     (g_runner.interface.name, g_subnet[0], g_subnet[1], g_subnet[0], g_subnet[1])))
 

@@ -7,6 +7,7 @@ import argparse
 from common import *
 from database import Database
 
+
 class Netstat:
     class Table:
         class Entry:
@@ -88,10 +89,10 @@ class Netstat:
             table.hide_zeroes = hide_zeroes
 
 
-    def write(self, db, sample_id, role):
+    def save_to_datatbase(self, db, sample_id, role):
         for table in self.tables:
             table_name = "netstat_" + self.name + "_" + table.name
-            table.write(db, table_name, sample_id, role)
+            table.save_to_database(db, table_name, sample_id, role)
 
 
     def __init__(self, name):
@@ -160,7 +161,7 @@ class LinuxNetstat(Netstat):
         self.read_file('/proc/net/netstat')
 
 
-class BsdNetstat(Netstat):
+class BSDNetstat(Netstat):
     @staticmethod
     def search(table, line, pattern, args):
         assert(args)
@@ -271,8 +272,7 @@ class BsdNetstat(Netstat):
         }
 
 
-    def parse(self, text):
-        lines = text.splitlines()
+    def parse(self, lines):
         table = None
         for line in lines:
             line = line.strip()
@@ -291,27 +291,27 @@ class BsdNetstat(Netstat):
             elif table != None:
                 found = False
                 for pattern in patterns:
-                    if BsdNetstat.search(table, line, pattern[0], pattern[1:]):
+                    if BSDNetstat.search(table, line, pattern[0], pattern[1:]):
                         found = True
                         break
                 if not found:
-                    print_log("Unknown BSD '%s' stat: '%s'" % (table.name, line))
+                    print_log("unknown bsd statistic variable: '%s:%s'" % (table.name, line))
 
 
-class GbtcpNetstat(BsdNetstat):
+class GbtcpNetstat(BSDNetstat):
     def __init__(self, gbtcp):
-        BsdNetstat.__init__(self)
+        BSDNetstat.__init__(self)
         self.gbtcp = gbtcp
 
 
     def read(self):
         cmd = self.gbtcp.path + "/bin/gbtcp-netstat -nss"
-        self.parse(self.gbtcp.system(cmd)[1])
+        self.parse(self.gbtcp.system(cmd)[1].splitlines())
 
 
-class ConGenNetstat(BsdNetstat):
+class ConGenNetstat(BSDNetstat):
     def __init__(self):
-        BsdNetstat.__init__(self)
+        BSDNetstat.__init__(self)
 
 
 def create_netstat(t):
@@ -355,7 +355,7 @@ def main():
             sample.tester_cpu_percent = 0
             sample.runner_cpu_percent = 0
             db.add_sample(sample)
-            ns.write(db, sample.id, Database.Role.TESTER)
+            ns.save_to_database(db, sample.id, Database.Role.TESTER)
         print(ns)
 
     return 0

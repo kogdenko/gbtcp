@@ -189,3 +189,38 @@ class gbtcp_aio_helloworld(gbtcp_base_helloworld, Application.Registered):
     @staticmethod
     def get_name():
         return "gbtcp-aio-helloworld"
+
+
+#class con_gen(Application):
+#    @staticmethod
+#    def get_name():
+#        return "con-gen"
+#
+#
+#    # TODO: Get real version
+#    @staticmethod
+#    def system_get_version():
+#        return "1.0.2"
+#
+#
+#    def start(self, concurrency, cpus):
+#        assert(self.mode == Mode.CLIENT)
+#        dst_ip = get_runner_ip(req.subnet)
+#        cmd = self.get_name()
+#        cmd += (" --print-report 0 -v -S %s -D %s --reports %d -N -p 80 -d %s" %
+#            (self.interface.mac, str(req.dst_mac), req.duration, dst_ip))
+#
+#        n = len(self.tester.cpus)
+#        for i in range(n):
+#            concurrency_per_cpu = req.concurrency / n
+#            if i == 0:
+#                concurrency_per_cpu += req.concurrency % n
+#            else:
+#                cmd += " --"
+#            cmd += " -i %s-%d" % (self.tester.interface.name, i)
+#            cmd += " -c %d" % concurrency_per_cpu
+#            cmd += " -a %d" % self.tester.cpus[i]
+#            cmd += " -s %d.%d.%d.1-%d.%d.%d.255" % (
+#                    req.subnet[0], req.subnet[1], i + 1,
+#                    req.subnet[0], req.subnet[1], i + 1)
+#        return start_process(cmd)
