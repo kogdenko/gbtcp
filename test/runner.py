@@ -17,8 +17,12 @@ import re
 import numpy
 
 from common import *
-from netstat import *
 from database import Database
+from application import Application
+
+#FIXME:
+from netstat import BsdNetstat
+
 
 COOLING_MIN = 0
 COOLING_MAX = 3*60
@@ -49,181 +53,7 @@ class Simple:
             status = "Failed"
         print_log("%s ... %s" % (self.name, status), True)
 
-class Application:
-    class Mode(Enum):
-        CLIENT = "client"
-        SERVER = "server"
-    
 
-    @staticmethod
-    def create(name, transport, mode):
-        for cls in Application.__subclasses__():
-            if name == cls.get_name():
-                return cls(transport, mode)
-        return None
-
-
-    def __init__(self, transport, mode):
-        self.id = g_db.get_app_id(self.get_name(), self.get_version())
-        self.transport = transport
-        self.mode = mode
-
-
-    def create_netstat(self):
-        if self.transport == Transport.NATIVE:
-            if platform.system() == 'Linux':
-                return LinuxNetstat()
-            else:
-                assert(0)
-        else:
-            return GbtcpNetstat(g_project)
-
-
-    def read_netstat(self):
-        netstat = self.create_netstat()
-        netstat.read()
-        return netstat
-
-
-    @staticmethod
-    def parse_version(s):
-        m = re.search(r'[0-9]+\.[0-9]+\.[0-9]+', s.strip())
-        if m == None:
-            raise RuntimeError("%s: Cannot extract version" % s)
-        return m.group(0)
-
-
-class nginx(Application):
-    @staticmethod
-    def get_name():
-        return "nginx"
-
-
-    @staticmethod
-    def get_version():
-        s = system("nginx -v")[2]
-        return Application.parse_version(s)
-
-
-    def stop(self):
-        self.netstat = super().read_netstat() - self.__netstat
-        system("nginx -s quit", True)
-        wait_process(self.__proc)
-
-
-    def start(self, concurrency, cpus):
-        worker_cpu_affinity = ""
-
-        n = len(cpus)
-        assert(n > 0)
-
-        cpu_count = multiprocessing.cpu_count()
-        templ = [ '0' for i in range(0, cpu_count) ]
-        for i in cpus:
-            templ[cpu_count - 1 - i] = '1'
-            worker_cpu_affinity += " " + "".join(templ)
-            templ[cpu_count - 1 - i] = '0'
-
-        worker_connections = upper_pow2_32(concurrency)
-        if worker_connections < 1024:
-            worker_connections = 1024
-
-        nginx_conf = (
-            "user root;\n"
-            "daemon off;\n"
-            "master_process on;\n"
-            "\n"
-            "worker_processes %d;\n"
-            "worker_cpu_affinity %s;\n"
-            "worker_rlimit_nofile %d;\n"
-            "events {\n"
-            "    use epoll;\n"
-            "    multi_accept on;\n"
-            "    worker_connections %d;\n"
-            "}\n"
-            "\n"
-            "http {\n"
-            "    access_log off;\n"
-            "    tcp_nopush on;\n"
-            "    tcp_nodelay on;\n"
-            "    keepalive_timeout 65;\n"
-            "    types_hash_max_size 2048;\n"
-            "    reset_timedout_connection on;\n"
-            "    send_timeout 2;\n"
-            "    client_body_timeout 10;\n"
-            "    include /etc/nginx/conf.d/*.conf;\n"
-            "    server {\n"
-            "        listen %s:80 reuseport;\n"
-            "        server_name  _;\n"
-            "        location / {\n"
-            "            return 200 'Hello world!!!';\n"
-            "        }\n"
-            "    }\n"
-            "}\n"
-            % (n,
-                worker_cpu_affinity,
-                worker_connections,
-                worker_connections,
-                get_runner_ip(g_subnet)))
-
-        nginx_conf_path = g_project.path + "/test/nginx.conf"
-
-        with open(nginx_conf_path, 'w') as f:
-            f.write(nginx_conf)
-
-        self.__proc = g_project.start_process("nginx -c %s" % nginx_conf_path, self.transport)
-        self.__netstat = super().read_netstat()
-
-
-    def __init__(self, transport, mode):
-        if transport == None:
-            transport = Transport.NETMAP
-        Application.__init__(self, transport, Application.Mode.SERVER)
-
-
-'''class gbtcp_base_helloworld:
-    @staticmethod
-    def get_version(self):
-        cmd = "%s -v" % self.path
-        s = g_project.system(cmd)[1]
-        for line in s.splitlines():
-            if line.startswith("version: "):
-                return self.parse_version(line)
-        raise RuntimeError("%s: Cannot extract version" % cmd)
-
-
-    def stop(self):
-        g_project.system("%s -S" % self.path, True)
-
-
-    def start(self, concurrency, cpus):
-        cmd = "%s -l -a " % self.path
-        for i in range(len(cpus)):
-            if i != 0:
-                cmd += ","
-            cmd += str(cpus[i])
-        return self.start_process(cmd)
-
-
-    def __init__(self, name):
-        self.path = g_project.path + "/bin/" + name
-
-
-class gbtcp_epoll_helloworld(Application):
-    @staticmethod
-    def get_name():
-        return "gbtcp-epoll-helloworld"
-
-
-class gbtcp_aio_helloworld(Application):
-    @staticmethod
-    def get_name():
-        return "gbtcp-aio-helloworld"
-
-
-    def __init__(self, transport=Transport.NETMAP, mode=Application.Mode.Server):
-        super().__init__(transport, mode)
-'''
 
 class Runner:
     @staticmethod
@@ -241,6 +71,9 @@ class Runner:
         self.ts_planned = 0
         self.ts_pass = 0
         self.ts_failed = 0
+
+        self.os= platform.system() + "-" + platform.release()
+        self.cpu_model = get_cpu_model()
 
         tests = {}
         for f in os.listdir(g_project.path + '/bin'):
@@ -291,7 +124,7 @@ class Runner:
                 choices = [ k for (k, v) in tests.items() ],
                 help="")
 
-        application_choices = [ a.get_name() for a in Application.__subclasses__() ]
+        application_choices = [ a.get_name() for a in Application.registered() ]
         ap.add_argument("--application", metavar="name", type=str,
                 choices = application_choices,
                 help="")
@@ -306,8 +139,8 @@ class Runner:
 
         self.applications = []
         if self.__args.application:
-            app = Application.create(self.__args.application, self.__args.transport,
-                    Application.Mode.SERVER)
+            app = Application.create(self.__args.application, g_project,
+                    self.__args.transport, Mode.SERVER)
             self.applications.append(app)
 
         for cpu in self.cpus:
@@ -359,18 +192,6 @@ class Runner:
 g_runner = Runner()
 
 
-
-
-def parse_reply(reply, test_id, duration):
-    print(">>>>>>>>>> reply")
-    print(reply)
-    print("<<<<<<<<<<<<")
-    sample = Database.Sample()
-    sample.test_id = test_id
-    sample.duration = duration
-    return sample
-
-
 def print_report(test_id, sample, app, concurrency, cpu_usage):
     s = ""
     if sample != None:
@@ -415,15 +236,19 @@ def run_sample(app, test_id, concurrency, cpus):
     app.stop()
     g_runner.stop()
 
-    sample = parse_reply(reply, test_id, g_runner.duration)
-
+    sample = Database.Sample()
+    sample.test_id = test_id
+    sample.duration = g_runner.duration
     sample.runner_cpu_percent = int(numpy.mean(top))
     sample.tester_cpu_percent = 0
 
     if sample != None:
-        sample.id = g_db.add_sample(sample)
-        rate = app.netstat / g_runner.duration
-        rate.write(g_db, sample.id, Database.ROLE_RUNNER)
+        g_db.insert_into_sample(sample)
+        app.netstat.write(g_db, sample.id, Database.Role.RUNNER)
+        netstat = BsdNetstat()
+        netstat.parse(reply)
+        app.netstat.write(g_db, sample.id, Database.Role.TESTER)
+       
 
     print_report(test_id, sample, app, concurrency, top)
 
@@ -435,7 +260,7 @@ def run_sample(app, test_id, concurrency, cpus):
 
 def run_application(app, cpus, concurrency):
     if g_runner.dry_run:
-        test_id = -1
+        test_id = None
         sample_count = 0
     else:
         if app.transport == Transport.NATIVE:
@@ -444,8 +269,24 @@ def run_application(app, cpus, concurrency):
             commit = g_project.commit
 
         cpu_mask = make_cpu_mask(cpus)
-        test_id, sample_count = g_db.add_test(commit, TESTER_LOCAL_CON_GEN, app.id,
-            app.transport, g_runner.interface.driver_id, concurrency, cpu_mask, g_runner.duration)
+        test_id, sample_count = g_db.insert_into_test(
+                g_runner.duration, 
+                commit,
+                g_runner.os,
+                str(app),
+                app.mode.value,
+                app.transport.value,
+                g_runner.interface.driver.value,
+                g_runner.cpu_model,
+                cpu_mask,
+                "Osxxx",
+                "con-genxxx",
+                Transport.NETMAP.value,
+                Driver.IXGBE.value,
+                "ryzenxxxx",
+                "000010000xxxx",
+                concurrency,
+                Connectivity.LOCAL.value)
 
     g_runner.ts_planned += g_runner.sample
 

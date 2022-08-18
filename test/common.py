@@ -23,17 +23,10 @@ TEST_SAMPLE_MAX = 20
 TEST_SAMPLE_DEFAULT = 5
 
 
-TESTER_LOCAL_CON_GEN = 1
-TESTER_REMOTE_CON_GEN = 2
+class Mode(Enum):
+    CLIENT = "client"
+    SERVER = "server"
 
-tester_dict = {
-    TESTER_LOCAL_CON_GEN: "local:con-gen",
-    TESTER_REMOTE_CON_GEN: "con-gen",
-}
-
-TRANSPORT_NATIVE = 0
-TRANSPORT_NETMAP = 1
-TRANSPORT_XDP = 2
 
 class Transport(Enum):
     NATIVE = "native"
@@ -41,13 +34,15 @@ class Transport(Enum):
     XDP = "xdp"
 
 
-DRIVER_VETH = 1
-DRIVER_IXGBE = 2
+class Driver(Enum):
+    VETH = "veth"
+    IXGBE = "ixgbe"
 
-driver_dict = {
-    DRIVER_VETH: "veth",
-    DRIVER_IXGBE: "ixgbe",
-}
+
+class Connectivity(Enum):
+    LOCAL = "local"
+    DIRECT = "direct"
+
 
 TEST_DURATION_MIN = 10
 TEST_DURATION_MAX = 10*60
@@ -386,7 +381,7 @@ def milliseconds():
     return int(time.monotonic_ns() / 1000000)
 
 
-def get_cpu_name():
+def get_cpu_model():
     if platform.system() == "Windows":
         return platform.processor()
     elif platform.system() == "Darwin":
@@ -455,16 +450,13 @@ def wait_process(proc):
 
 class Interface:
     @staticmethod
-    def create(name, driver):
-        driver_id = get_dict_id(driver_dict, driver)
-        if driver_id == None:
-            raise NotImplementedError("Driver '%s' not supported" % driver)
+    def create(name, driver_value):
+        driver = Driver(driver_value)
         for instance in Interface.__subclasses__():
-            if instance.__name__ == driver:
+            if instance.driver == driver:
                 interface = instance(name)
-                interface.driver = driver
-                interface.driver_id = driver_id
                 return interface
+        assert(0)
 
 
     def __init__(self, name):
@@ -479,6 +471,8 @@ class Interface:
 
 
 class ixgbe(Interface):
+    driver = Driver.IXGBE
+
     def get_channels(self):
         cmd = "ethtool -l %s" % self.name
         out = system(cmd)[1]
@@ -508,6 +502,8 @@ class ixgbe(Interface):
 
 
 class veth(Interface):
+    driver = Driver.VETH
+
     def __init__(self, name):
         Interface.__init__(self, name)
         system("ethtool -K %s rx off tx off" % name)
@@ -575,6 +571,3 @@ class Project:
             e["LD_PRELOAD"] = os.path.normpath(self.path + "/bin/libgbtcp.so")
             e["GBTCP_CONF"] = self.config_path
         return start_process(cmd, e)
-
-
-

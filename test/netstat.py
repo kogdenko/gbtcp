@@ -5,6 +5,7 @@ import getopt
 import argparse
 
 from common import *
+from database import Database
 
 class Netstat:
     class Table:
@@ -58,7 +59,7 @@ class Netstat:
                 for entry in self.entries:
                     if entry.name not in old_columns:
                         new_columns.append(entry.name)
-                db.add_netstat_columns(db_table_name, new_columns)
+                db.alter_netstat_add_columns(db_table_name, new_columns)
 
             db.insert_into_netstat(db_table_name, sample_id, role, self.entries)
 
@@ -135,8 +136,11 @@ class LinuxNetstat(Netstat):
             lines = f.readlines()
 
         for line in lines:
+            if not line:
+                continue
             tmp = line.split(':')
-            assert(len(tmp) == 2)
+            if len(tmp) != 2:
+                continue
             table = self.get(tmp[0])
             if table == None:
                 table = Netstat.Table(tmp[0])
@@ -173,9 +177,8 @@ class BsdNetstat(Netstat):
             return False
 
 
-    @staticmethod
-    def __init__(self, name):
-        Netstat.__init__(self, name)
+    def __init__(self):
+        Netstat.__init__(self, "bsd")
         self.protocols = {
             'arp': [
                 [r"(\d+) ARP requests sent", "txrequests"],
@@ -297,7 +300,7 @@ class BsdNetstat(Netstat):
 
 class GbtcpNetstat(BsdNetstat):
     def __init__(self, gbtcp):
-        BsdNetstat.__init__(self, "gbtcp")
+        BsdNetstat.__init__(self)
         self.gbtcp = gbtcp
 
 
@@ -308,7 +311,7 @@ class GbtcpNetstat(BsdNetstat):
 
 class ConGenNetstat(BsdNetstat):
     def __init__(self):
-        BsdNetstat.__init__(self, "congen")
+        BsdNetstat.__init__(self)
 
 
 def create_netstat(t):
@@ -346,7 +349,13 @@ def main():
         ns.read()
         if args.database:
             db = Database("")
-            ns.write(db, 1, 0)
+            sample = Database.Sample()
+            sample.test_id = 4
+            sample.duration = 10
+            sample.tester_cpu_percent = 0
+            sample.runner_cpu_percent = 0
+            db.add_sample(sample)
+            ns.write(db, sample.id, Database.Role.TESTER)
         print(ns)
 
     return 0

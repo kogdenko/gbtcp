@@ -687,7 +687,6 @@ sysctl_conn_close(struct sysctl_conn *cp)
 	if (cp == NULL) {
 		return;
 	}
-	NOTICE(0, "conn close %p", cp);
 	if (cp->scc_close_fn != NULL) {
 		(*cp->scc_close_fn)(cp);
 	}
