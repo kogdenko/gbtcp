@@ -1,7 +1,8 @@
 #!/usr/bin/python
 # SPDX-License-Identifier: GPL-2.0
+import os
 import math
-import getopt
+import socket
 import argparse
 
 from common import *
@@ -49,7 +50,7 @@ class Netstat:
             return res
 
 
-        def write(self, db, db_table_name, sample_id, role):
+        def insert_into_database(self, db, db_table_name, sample_id, role):
             new_columns = []
             if not db.is_table_exists(db_table_name):
                 for entry in self.entries:
@@ -89,10 +90,10 @@ class Netstat:
             table.hide_zeroes = hide_zeroes
 
 
-    def save_to_datatbase(self, db, sample_id, role):
+    def insert_into_database(self, db, sample_id, role):
         for table in self.tables:
             table_name = "netstat_" + self.name + "_" + table.name
-            table.save_to_database(db, table_name, sample_id, role)
+            table.insert_into_database(db, table_name, sample_id, role)
 
 
     def __init__(self, name):
@@ -309,43 +310,60 @@ class GbtcpNetstat(BSDNetstat):
         self.parse(self.gbtcp.system(cmd)[1].splitlines())
 
 
-class ConGenNetstat(BSDNetstat):
-    def __init__(self):
+class CongenNetstat(BSDNetstat):
+    def __init__(self, pid):
         BSDNetstat.__init__(self)
+        self.pid = pid
 
 
-def create_netstat(t):
+    def read(self):
+        assert(self.pid)
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect("/var/run/con-gen.%d.sock" % self.pid)
+        #send_string(sock, "s")
+        sock.send(("s\n").encode('utf-8'))
+
+        self.parse(recv_lines(sock))
+
+
+def create_netstat(t, gbtcp, pid):
     if t == "linux":
         return LinuxNetstat()
     elif t == "gbtcp":
-        return GbtcpNetstat()
+        return GbtcpNetstat(gbtcp)
+    elif t == "con-gen":
+        return CongenNetstat(pid)
     else:
         assert(0)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--type", type=str, choices=["linux", "gbtcp"], default="linux")
+    ap.add_argument("--type", type=str, choices=["linux", "gbtcp", "con-gen"],
+            required=True)
+    ap.add_argument("--pid", metavar="num", type=int, default=None)
     ap.add_argument("--rate", metavar="seconds", type=int,
             help="Number of seconds between reports")
     ap.add_argument("--database", action='store_true',
             help="Write netstat to database")
     args = ap.parse_args()
 
+    gbtcp = Project() 
+
     if args.rate:
         while True:
-            ns0 = create_netstat(args.type)
+            ns0 = create_netstat(args.type, gbtcp, args.pid)
             ns0.read()
             time.sleep(args.rate)
             print("Netstat rate:")
-            ns1 = create_netstat(args.type)
+            ns1 = create_netstat(args.type, gbtcp, args.pid)
             ns1.read()
             rate = (ns1 - ns0) / args.rate
             rate.set_hide_zeroes(True)
             print(rate)
             print("_______________")
     else:
-        ns = create_netstat(args.type)
+        ns = create_netstat(args.type, gbtcp, args.pid)
         ns.read()
         if args.database:
             db = Database("")
@@ -355,7 +373,7 @@ def main():
             sample.tester_cpu_percent = 0
             sample.runner_cpu_percent = 0
             db.add_sample(sample)
-            ns.save_to_database(db, sample.id, Database.Role.TESTER)
+            ns.insert_into_database(db, sample.id, Database.Role.TESTER)
         print(ns)
 
     return 0

@@ -1053,7 +1053,7 @@ main(int argc, char **argv)
 	gt_init();
 	gt_preload_passthru = 1;
 	while ((opt = getopt_long(argc, argv, "hvalnszI:iHbw:",
-	                          long_opts, &long_opt)) != -1) {
+			long_opts, &long_opt)) != -1) {
 		switch(opt) {
 		case 0:
 			long_opt_name = long_opts[long_opt].name;

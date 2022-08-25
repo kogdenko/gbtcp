@@ -19,6 +19,7 @@ import numpy
 from common import *
 from database import Database
 from application import Application
+from network import Network
 
 #FIXME:
 from netstat import BSDNetstat
@@ -99,7 +100,11 @@ class Runner:
         ap.add_argument("--dry-run", action='store_true',
                 help="")
 
-        ap.add_argument("--connect", metavar="ip", type=argparse_ip,
+        ap.add_argument("--connect", metavar="ip", type=argparse_ip_address,
+                help="")
+
+        ap.add_argument("--network", metavar="ip/mask", type=argparse_ip_network,
+                default="20.30.0.0/16",
                 help="")
 
         ap.add_argument("--sample", metavar="count", type=int,
@@ -136,10 +141,13 @@ class Runner:
         self.sample = self.__args.sample
         self.interface = self.__args.i
         self.cpus = self.__args.cpu
+        self.network = Network()
+        self.network.set_interface(self.interface)
+        self.network.set_ip_network(self.__args.network)
 
         self.applications = []
         if self.__args.application:
-            app = Application.create(self.__args.application, g_project,
+            app = Application.create(self.__args.application, g_project, self.network,
                     self.__args.transport, Mode.SERVER)
             self.applications.append(app)
 
@@ -170,7 +178,7 @@ class Runner:
         send_string(self.__sock, hello)
         hello = recv_lines(self.__sock)
         assert(hello and len(hello) > 1)
-        mac = MacAddress.create(hello[1])
+        self.network.next_hop = mac_address.create(hello[1])
 
 
     def stop(self):
@@ -187,12 +195,12 @@ class Runner:
     def send_req(self, concurrency):
         req = ("Run\n"
                 "--dst-mac %s "
-                "--subnet %d.%d.0.0 "
+                "--network %s "
                 "--duration %d "
                 "--concurrency %d "
                 "--application con-gen" % (
                 str(self.interface.mac),
-                g_subnet[0], g_subnet[1],
+                self.network.ip_network,
                 self.duration,
                 concurrency))
         send_string(self.__sock, req)
@@ -256,10 +264,10 @@ def run_sample(app, test_id, concurrency, cpus):
 
     if sample != None:
         g_database.insert_into_sample(sample)
-        app.netstat.save_to_databse(g_database, sample.id, Database.Role.RUNNER)
+        app.netstat.insert_into_database(g_database, sample.id, Database.Role.RUNNER)
         netstat = BSDNetstat()
         netstat.parse(reply)
-        app.netstat.save_to_database(g_database, sample.id, Database.Role.TESTER)
+        app.netstat.insert_into_database(g_database, sample.id, Database.Role.TESTER)
        
 
     print_report(test_id, sample, app, concurrency, top)
@@ -311,17 +319,6 @@ def run_application(app, cpus, concurrency):
 ################ MAIN ####################
 
 
-system("ip a flush dev %s" % g_runner.interface.name)
-system("ip r flush dev %s" % g_runner.interface.name)
-
-system("ip a a dev %s %s/32" % (g_runner.interface.name, get_runner_ip(g_subnet)))
-system("ip r a dev %s %d.%d.1.1/32 initcwnd 1" %
-    (g_runner.interface.name, g_subnet[0], g_subnet[1]))
-system(("ip r a dev %s %d.%d.0.0/15 via %d.%d.1.1 initcwnd 1" %
-    (g_runner.interface.name, g_subnet[0], g_subnet[1], g_subnet[0], g_subnet[1])))
-
-
-
 
 g_project.set_interface(g_runner.interface)
 
@@ -331,4 +328,5 @@ for test in g_runner.tests:
 for app in g_runner.applications:
     cpus = g_runner.cpus
     for concurrency in g_runner.concurrency:
+        g_runner.network.configure(Mode.SERVER, concurrency, len(cpus))
         run_application(app, cpus, concurrency)

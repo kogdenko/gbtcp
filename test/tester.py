@@ -4,36 +4,17 @@ import getopt
 import socket
 import traceback
 import numpy
+
 from common import *
+from network import Network
+
 
 g_debug = True
 g_project = Project()
 
-g_runner_mac_address = None
-
-def run_epoll(interface, subnet, reports, concurrency):
-    ifname = interface.name
-
-    for i in range(1, 255):
-        system("ip a a dev %s %d.%d.1.%d " % (ifname, subnet[0], subnet[1], i))
-    system("ip r a dev %s %d.%d.0.0/16" % (ifname, subnet[0], subnet[1]))
-
-    n = len(g_cpus)
-    concurrency_per_cpu = concurrency / n
-    if concurrency_per_cpu == 0:
-        concurrency_per_cpu = 1
-
-    cmd = g_project.path + "/bin/gbtcp-epoll-helloworld "
-    cmd += "-c %d -n %d -a " % (concurrency_per_cpu, reports)
-    for cpu in g_cpus:
-        cmd += ",%d" % cpu
-    cmd += " %s" % get_runner_ip(subnet)
-
-    return g_project.start_process(cmd, False)
-
 
 def add_request_arguments(ap):
-    ap.add_argument("--dst-mac", metavar="mac", type=MacAddress.argparse,
+    ap.add_argument("--dst-mac", metavar="mac", type=mac_address.argparse,
             required=True,
             help="Destination MAC address in colon notation (e.g., aa:bb:cc:dd:ee:00)")
 
@@ -41,10 +22,9 @@ def add_request_arguments(ap):
             required=True,
             help = "The application to be executed by tester")
 
-    ap.add_argument("--subnet", metavar="ip", type=argparse_ip,
+    ap.add_argument("--network", metavar="ip", type=argparse_ip_network,
             required=True,
-            help=("Private /16 subnet for testing, server acquired x.x.%d.%d" %
-                (SERVER_IP_C, SERVER_IP_D)))
+            help=("Private network for testing"))
 
     argparse_add_duration(ap)
 
@@ -70,7 +50,7 @@ class Tester:
 
 
         def run(self, req):
-            dst_ip = get_runner_ip(req.subnet)
+            dst_ip = self.tester.network.server
             cmd = "con-gen"
             cmd += (" --print-report 0 -v -S %s -D %s --reports %d -N -p 80 -d %s" %
                 (self.tester.interface.mac, str(req.dst_mac), req.duration, dst_ip))
@@ -85,10 +65,13 @@ class Tester:
                 cmd += " -i %s-%d" % (self.tester.interface.name, i)
                 cmd += " -c %d" % concurrency_per_cpu
                 cmd += " -a %d" % self.tester.cpus[i]
-                cmd += " -s %d.%d.%d.1-%d.%d.%d.255" % (
-                        req.subnet[0], req.subnet[1], i + 1,
-                        req.subnet[0], req.subnet[1], i + 1)
+                cmd += " -s %s-%s" % (
+                        self.tester.network.clients[i][0],
+                        self.tester.network.clients[i][1])
+
+                        
             return start_process(cmd)
+
 
 
     def process_req(self, args):
@@ -99,6 +82,10 @@ class Tester:
         ap = ArgumentParser()
         add_request_arguments(ap)
         req = ap.parse_args(args)
+
+        self.network.set_ip_network(req.network) 
+        self.network.set_routing(False)
+        self.network.configure(Mode.CLIENT, req.concurrency, len(self.cpus))
 
         app = Tester.con_gen(self)
         proc = app.run(req)
@@ -137,12 +124,13 @@ class Tester:
                     reply = ""
                     header = lines[0].lower()
                     if header == 'hello' and len(lines) > 1:
-                        g_runner_mac_address = MacAddress.create(lines[1])
+                        self.network.next_hop = mac_address.create(lines[1])
                         reply += "hello\n"
                         reply += str(self.interface.mac) + "\n"
                     elif header == 'run' and len(lines) > 1:
                         args = lines[1].strip().split()
                         reply = self.process_req(args)
+                        
                         if reply == None:
                             sock.close()
                             break
@@ -165,7 +153,7 @@ class Tester:
         argparse_add_reload_netmap(ap)
         argparse_add_cpu(ap)
 
-        ap.add_argument("--listen", metavar="ip", type=argparse_ip,
+        ap.add_argument("--listen", metavar="ip", type=argparse_ip_address,
                 help="")
 
         ap.add_argument("-i", metavar="interface", required=True, type=argparse_interface,
@@ -174,6 +162,8 @@ class Tester:
         self.__args = ap.parse_args()
         self.interface = self.__args.i
         self.cpus = self.__args.cpu
+        self.network = Network()
+        self.network.set_interface(self.interface)
 
         for cpu in self.cpus:
             set_cpu_scaling_governor(cpu)

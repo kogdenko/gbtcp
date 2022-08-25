@@ -75,10 +75,10 @@ class UniqueAppendAction(argparse.Action):
         setattr(namespace, self.dest, unique_values)
 
 
-class MacAddress:
+class mac_address:
     @staticmethod
     def create(s):
-        error = ValueError("invalid literal for MacAddress(): '%s'" % s)
+        error = ValueError("invalid literal for mac_address(): '%s'" % s)
 
         six = s.split(':')
         if len(six) != 6:
@@ -92,13 +92,13 @@ class MacAddress:
             except ValueError:
                 raise error;
 
-        return MacAddress(*six)
+        return mac_address(*six)
        
 
     @staticmethod
     def argparse(s):
         try:
-            return MacAddress.create(s)
+            return mac_address.create(s)
         except ValueError as exc:
             raise argparse.ArgumentTypeError("invalid MAC value '%s'" % s)
 
@@ -117,9 +117,16 @@ class MacAddress:
         return __str__(self)
     
 
-def argparse_ip(s):
+def argparse_ip_address(s):
     try:
         return ipaddress.ip_address(s)
+    except Exception as exc:
+        raise argparse.ArgumentTypeError(str(exc))
+
+
+def argparse_ip_network(s):
+    try:
+        return ipaddress.ip_network(s, strict=False)
     except Exception as exc:
         raise argparse.ArgumentTypeError(str(exc))
 
@@ -312,7 +319,7 @@ def set_irq_affinity(interface, cpus):
             if m != None:
                 irq = columns[0].strip(" :")
                 if not irq.isdigit():
-                    raise RuntimeError("invalid irq: /proc/interrupts:%s" % i + 1)
+                    raise RuntimeError("invalid irq: /proc/interrupts:%d" % i + 1)
                 irqs.append(int(irq))
 
     if len(cpus) != len(irqs):
@@ -335,20 +342,28 @@ def get_interface_driver(name):
     for line in out.splitlines():
         if line.startswith("driver: "):
             return line[8:].strip()
-    raise RuntimeError("'%s': No 'driver'" % cmd)
+    raise RuntimeError("invalid ethtool driver: '%s'" % name )
 
 
 def recv_lines(sock):
-    message = ""
+    message = None
     while True:
         s = sock.recv(1024).decode('utf-8')
         if not s:
-            return None
-        message += s
+            if not message:
+                return None
+            break
+        if not message:
+            message = s
+        else:
+            message += s
         if '\n\n' in message:
-            lines = message.splitlines()
-            lines.remove('')
-            return lines
+            break
+
+    lines = message.splitlines()
+    if '' in lines:
+        lines.remove('')
+    return lines
 
 
 def send_string(sock, s):
@@ -523,7 +538,7 @@ class Project:
                     self.transports.append(Transport.NETMAP)
 
         if self.commit == None:
-            raise RuntimeError("Command '%s' returns unexpected output" % cmd)
+            raise RuntimeError("invalid command output: '%s'" % cmd)
 
 
     def set_interface(self, interface):

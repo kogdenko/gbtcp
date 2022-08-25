@@ -20,8 +20,9 @@ class Application:
         pass
 
 
-    def __init__(self, gbtcp, transport, mode):
+    def __init__(self, gbtcp, network, transport, mode):
         self.gbtcp = gbtcp
+        self.network = network
         self.transport = transport
         self.mode = mode
         self.version = None
@@ -53,10 +54,10 @@ class Application:
 
 
     @staticmethod
-    def create(name, gbtcp, transport, mode):
+    def create(name, gbtcp, network, transport, mode):
         for cls in Application.registered():
             if name == cls.get_name():
-                return cls(gbtcp, transport, mode)
+                return cls(gbtcp, network, transport, mode)
         return None
 
 
@@ -129,11 +130,8 @@ class nginx(Application, Application.Registered):
             "        }\n"
             "    }\n"
             "}\n"
-            % (n,
-                worker_cpu_affinity,
-                worker_connections,
-                worker_connections,
-                get_runner_ip(g_subnet)))
+            % (n, worker_cpu_affinity, worker_connections, worker_connections,
+                self.network.server))
 
         nginx_conf_path = self.gbtcp.path + "/test/nginx.conf"
 
