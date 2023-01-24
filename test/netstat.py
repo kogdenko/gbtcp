@@ -1,7 +1,6 @@
 #!/usr/bin/python
 # SPDX-License-Identifier: GPL-2.0
 import os
-import math
 import socket
 import argparse
 
@@ -45,7 +44,7 @@ class Netstat:
         def __truediv__(self, dt):
             res = Netstat.Table(self.name)
             for entry in self.entries:
-                value = math.ceil(entry.value / dt)
+                value = int(entry.value / dt)
                 res.entries.append(Netstat.Table.Entry(entry.name, value))
             return res
 

@@ -4,12 +4,10 @@ import platform
 import re
 
 from common import *
-from netstat import Netstat
-from netstat import LinuxNetstat
-from netstat import GbtcpNetstat
+import netstat
 
 
-def parse_application_version(s):
+def parse_version(s):
     m = re.search(r'[0-9]+\.[0-9]+\.[0-9]+', s.strip())
     assert(m != None)
     return m.group(0)
@@ -18,6 +16,11 @@ def parse_application_version(s):
 class Application:
     class Registered:
         pass
+
+
+    @property
+    def pid(self):
+        return self.__proc.pid
 
 
     def __init__(self, gbtcp, network, transport, mode):
@@ -41,11 +44,11 @@ class Application:
     def create_netstat(self):
         if self.transport == Transport.NATIVE:
             if platform.system() == 'Linux':
-                return LinuxNetstat()
+                return netstat.LinuxNetstat()
             else:
                 assert(0)
         else:
-            return GbtcpNetstat(self.gbtcp)
+            return netstat.GbtcpNetstat(self.gbtcp)
 
 
     @staticmethod
@@ -70,7 +73,7 @@ class nginx(Application, Application.Registered):
     @staticmethod
     def system_get_version():
         s = system("nginx -v")[2]
-        return parse_application_version(s)
+        return parse_version(s)
 
 
     def stop(self):
@@ -153,7 +156,7 @@ class gbtcp_base_helloworld(Application):
         s = self.gbtcp.system(cmd)[1]
         for line in s.splitlines():
             if line.startswith("version: "):
-                return parse_application_version(line)
+                return parse_version(line)
         assert(0)
 
 
@@ -189,20 +192,19 @@ class gbtcp_aio_helloworld(gbtcp_base_helloworld, Application.Registered):
         return "gbtcp-aio-helloworld"
 
 
-#class con_gen(Application):
-#    @staticmethod
-#    def get_name():
-#        return "con-gen"
-#
-#
-#    # TODO: Get real version
-#    @staticmethod
-#    def system_get_version():
-#        return "1.0.2"
-#
-#
+class con_gen(Application):
+    @staticmethod
+    def get_name():
+        return "con-gen"
+
+
+    # TODO: Get real version
+    @staticmethod
+    def system_get_version():
+        return "1.0.2"
+
+
 #    def start(self, concurrency, cpus):
-#        assert(self.mode == Mode.CLIENT)
 #        dst_ip = get_runner_ip(req.subnet)
 #        cmd = self.get_name()
 #        cmd += (" --print-report 0 -v -S %s -D %s --reports %d -N -p 80 -d %s" %

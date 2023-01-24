@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # SPDX-License-Identifier: GPL-2.0
 import sys
+import math
 import socket
 import argparse
 import enum
@@ -46,16 +47,16 @@ class Ifstat:
 
 
     def __sub__(self, right):
-        res = type(self)(self.interface)
+        res = Ifstat(self.interface)
         for i in Ifstat.Counter:
-            res.counters[i] = self.counters[i.value] - right.counters[i.value]
+            res.counters[i.value] = self.counters[i.value] - right.counters[i.value]
         return res
 
 
     def __truediv__(self, dt):
-        res = type(self)(self.interface)
-        for i in range(0, len(self.counters)):
-            res.counters[i] = math.ceil(self.counters[i]/dt)
+        res = Ifstat(self.interface)
+        for i in Ifstat.Counter:
+            res.counters[i.value] = int(self.counters[i.value]/dt)
         return res
 
 
@@ -123,14 +124,18 @@ class CongenIfstat(Ifstat):
 
 
     def parse(self, lines):
+        found = False
         for line in lines[1:]:
             columns = line.split()
             assert(len(columns) == 7)
             # TODO: check interface name
+            found = True
             self.counters[Ifstat.Counter.IBYTES.value] += int(columns[3])
             self.counters[Ifstat.Counter.IPACKETS.value] += int(columns[1])
             self.counters[Ifstat.Counter.OBYTES.value] += int(columns[6])
             self.counters[Ifstat.Counter.OPACKETS.value] += int(columns[4])
+        if not found:
+            raise RuntimeError("con-gen: invalid interfacs: '%s'" % self.interface.name)
 
 
     def read(self):

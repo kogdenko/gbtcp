@@ -13,6 +13,7 @@ import multiprocessing
 import syslog
 import sqlite3
 import ipaddress
+import threading
 import numpy
 from enum import Enum
 
@@ -93,7 +94,7 @@ class mac_address:
                 raise error;
 
         return mac_address(*six)
-       
+
 
     @staticmethod
     def argparse(s):
@@ -115,7 +116,7 @@ class mac_address:
    
     def __repr__(self):
         return __str__(self)
-    
+
 
 def argparse_ip_address(s):
     try:
@@ -286,23 +287,6 @@ def round_val(val, std):
     std_rounded, n = round_std(std)
     val_rounded = round(val, -n)
     return val_rounded, std_rounded
-
-
-SERVER_IP_C = 255
-SERVER_IP_D = 1
-
-def get_runner_ip(subnet):
-    return "%d.%d.%d.%d" % (subnet[0], subnet[1], SERVER_IP_C, SERVER_IP_D)
-
-
-def cpu_percent(t, cpus):
-    # Skip last second
-    assert(t > 2)
-    percent = psutil.cpu_percent(t - 1, True)
-    cpu_usage = []
-    for cpu in cpus:
-        cpu_usage.append(percent[cpu])
-    return cpu_usage
 
 
 def set_irq_affinity(interface, cpus):
@@ -509,6 +493,26 @@ class veth(Interface):
     def set_channels(self, cpus):
         if len(cpus) != 1:
             raise RuntimeError("veth interface doesn't support multiqueue mode")
+
+class Top:
+    def __init__(self, cpus, duration):
+        self.cpus = cpus
+        self.duration = duration
+        assert(self.duration > 4)
+        self.thread = threading.Thread(name="top", target=self.measure)
+        self.thread.start()
+
+    def measure(self):
+        # Skip first two seconds
+        time.sleep(2)
+        percent = psutil.cpu_percent(self.duration - 3, True)
+        self.usage = []
+        for cpu in self.cpus:
+            self.usage.append(percent[cpu])
+
+
+    def join(self):
+        self.thread.join()
 
 
 class Project:

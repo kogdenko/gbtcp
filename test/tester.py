@@ -5,6 +5,7 @@ import socket
 import traceback
 import numpy
 
+import ifstat
 from common import *
 from network import Network
 
@@ -89,10 +90,28 @@ class Tester:
 
         app = Tester.con_gen(self)
         proc = app.run(req)
-        top = cpu_percent(req.duration, self.cpus)
+        top = Top(self.cpus, req.duration)
+
+        time.sleep(1)
+        ifstat_old = None
+        
+        pps = []
+                
+        for _ in range(2, req.duration - 1):
+            time.sleep(1)
+            ms_new = milliseconds()
+            ifstat_new = ifstat.CongenIfstat(self.interface, proc.pid)
+            ifstat_new.read()
+            if ifstat_old:
+                ifstat_rate = (ifstat_new - ifstat_old) / ((ms_new - ms_old) / 1000)
+                pps.append(ifstat_rate.ipackets + ifstat_rate.opackets)
+            ms_old = ms_new
+            ifstat_old = ifstat_new
+
+        top.join()
 
         rc, lines = wait_process(proc)
-        print_report(proc, top, rc)
+        print_report(proc, top.usage, rc)
         if rc == 0:
             return "\n".join(lines) + "\n"
         else:

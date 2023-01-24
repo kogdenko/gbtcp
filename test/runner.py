@@ -247,7 +247,8 @@ def run_sample(app, test_id, concurrency, cpus):
     g_runner.cooling()
     g_runner.send_req(concurrency)
 
-    top = cpu_percent(g_runner.duration, cpus)
+    top = Top(cpus, g_runner.duration)
+    top.join()
 
     reply = g_runner.recv_msg()
     if not reply:
@@ -259,7 +260,7 @@ def run_sample(app, test_id, concurrency, cpus):
     sample = Database.Sample()
     sample.test_id = test_id
     sample.duration = g_runner.duration
-    sample.runner_cpu_percent = int(numpy.mean(top))
+    sample.runner_cpu_percent = int(numpy.mean(top.usage))
     sample.tester_cpu_percent = 0
 
     if sample != None:
@@ -270,7 +271,7 @@ def run_sample(app, test_id, concurrency, cpus):
         app.netstat.insert_into_database(g_database, sample.id, Database.Role.TESTER)
        
 
-    print_report(test_id, sample, app, concurrency, top)
+    print_report(test_id, sample, app, concurrency, top.usage)
 
     if sample == None and sample.runner_cpu_percent < 98:
         g_runner.ts_failed += 1
