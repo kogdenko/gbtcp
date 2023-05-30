@@ -26,7 +26,7 @@ file_aio_call(struct file_aio *aio, int fd, short revents)
 }
 
 int
-file_mod_init()
+file_mod_init(void)
 {
 	int rc;
 

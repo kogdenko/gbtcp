@@ -47,7 +47,7 @@ route_foreach_set_srcs(struct route_if *ifp)
 }
 
 struct dlist *
-route_if_head()
+route_if_head(void)
 {
 	return &curmod->route_if_head;
 }

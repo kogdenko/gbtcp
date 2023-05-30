@@ -17,7 +17,7 @@ static struct fd_event *fd_event_used[FD_SETSIZE];
 static struct fd_event fd_event_buf[FD_SETSIZE];
 
 void
-clean_fd_events()
+clean_fd_events(void)
 {
 	fd_event_n_used = 0;
 	memset(fd_event_buf, 0, sizeof(fd_event_buf));

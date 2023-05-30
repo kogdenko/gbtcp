@@ -235,7 +235,7 @@ dev_transmit(struct dev_pkt *pkt)
 }
 
 void
-dev_tx_flush()
+dev_tx_flush(void)
 {
 	struct dev *dev;
 

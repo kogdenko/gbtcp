@@ -152,13 +152,13 @@ log_hexdump_ascii(uint8_t *data, int count)
 }
 
 void
-log_buf_init()
+log_buf_init(void)
 {
 	strbuf_init(&log_sb, log_buf, sizeof(log_buf));
 }
 
 struct strbuf *
-log_buf_alloc_space()
+log_buf_alloc_space(void)
 {
 	int len, cap;
 

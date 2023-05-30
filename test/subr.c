@@ -91,7 +91,7 @@ sig_handler(int sig_num)
 }
 
 void
-wait_SIGUSR1()
+wait_SIGUSR1(void)
 {
 	while (1) {
 		if (fired_SIGUSR1) {

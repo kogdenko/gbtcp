@@ -1,4 +1,4 @@
-// gpl2
+// SPDX-License-Identifier: GPL-2.0
 #include "internals.h"
 
 #define CURMOD timer
@@ -102,7 +102,7 @@ run_ring_timers(struct timer_ring *ring, uint64_t t, struct dlist *queue)
 }
 
 void
-run_timers()
+run_timers(void)
 {
 	int i;
 	uint64_t t;

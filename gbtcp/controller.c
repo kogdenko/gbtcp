@@ -1,4 +1,4 @@
-// gpl2
+// SPDX-License-Identifier: GPL-2.0
 #include "internals.h"
 
 #define CURMOD controller
@@ -357,7 +357,7 @@ rss_table_expand(int rss_table_size)
 }
 
 void
-update_rss_table()
+update_rss_table(void)
 {
 	int i, rss_table_size;
 	struct route_if *ifp;
@@ -595,7 +595,7 @@ err:
 }
 
 void
-gtl_controller_deinit()
+gtl_controller_deinit(void)
 {
 	int pid;
 

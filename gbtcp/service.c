@@ -534,7 +534,7 @@ service_deinit_shared(struct service *s, int full)
 }
 
 int
-service_init_private()
+service_init_private(void)
 {
 	int rc;
 
@@ -547,13 +547,13 @@ service_init_private()
 }
 
 void
-service_deinit_private()
+service_deinit_private(void)
 {
 	dev_deinit(&service_redirect_dev, false);
 }
 
 int
-service_attach()
+service_attach(void)
 {
 	int rc, pid;
 	char buf[GT_SYSCTL_BUFSIZ];
@@ -639,7 +639,7 @@ err:
 }
 
 static void
-service_detach()
+service_detach(void)
 {
 	service_deinit_private();
 	sys_close(service_sysctl_fd);

@@ -266,7 +266,7 @@ sysctl_route_if(const char *path, void *udata, const char *buf)
 	struct interface_head *head;
 
 	head = udata;
-	rc = sscanf(buf, "%64[^,],%d,%x,%32[^,],%llu,%llu,%llu,%llu,%llu,%llu",
+	rc = sscanf(buf, "%63[^,],%d,%x,%31[^,],%llu,%llu,%llu,%llu,%llu,%llu",
 	            ifname, &tmpd, &tmpx, tmp32,
 	            &ipackets, &idrops, &ibytes, &opackets, &odrops, &obytes);
 	if (rc != 10) {

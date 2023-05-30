@@ -7,6 +7,8 @@ HAVE_NETMAP = False
 HAVE_XDP = False
 HAVE_VALE = False
 
+COMPILER = 'gcc'
+
 def install_program(env, prog):
     env.Install('/usr/bin', prog)
     env.Alias('install', '/usr/bin')
@@ -143,7 +145,7 @@ shutil.copy('./tools/pre-commit', '.git/hooks/')
 
 PLATFORM = platform.system()
 
-g_env = Environment(CC = 'gcc')
+g_env = Environment(CC = COMPILER)
 g_env.Append(CPPPATH = ['.'])
 
 bld = Builder(action = configure)#, emitter = add_target)
@@ -190,8 +192,8 @@ if PLATFORM == "Linux":
     ldflags.append("-ldl")
     ldflags.append('-lrt')
     if not GetOption('without_xdp'):
-        print("XDP disabled due cleanup bug, see libgbtcp-test-xdp.c")
-        if (False and conf.CheckHeader('linux/bpf.h') and conf.CheckLib('bpf')):
+#        print("XDP disabled due cleanup bug, see libgbtcp-test-xdp.c")
+        if (conf.CheckHeader('linux/bpf.h') and conf.CheckLib('bpf')):
             srcs.append('gbtcp/Linux/xdp.c')
             HAVE_XDP = True
             ldflags.append('-lbpf')
@@ -202,7 +204,8 @@ elif PLATFORM == 'FreeBSD':
 else:
     die("Unsupported platform: %s" % PLATFORM)
 
-cflags.append('-Wno-format-truncation')
+if COMPILER == 'gcc':
+    cflags.append('-Wno-format-truncation')
 
 if GetOption('debug_build'):
     cflags.append('-O0')
@@ -245,7 +248,7 @@ libgbtcptools = g_env.SharedLibrary('bin/libgbtcptools.so', [
 ldflags.append('-Lbin')
 ldflags.append('-lgbtcp')
 
-g_env_gbtcp = Environment(CC = 'gcc',
+g_env_gbtcp = Environment(CC = COMPILER,
     CCFLAGS = flags_to_string(cflags),
     LINKFLAGS = flags_to_string(ldflags),
 )
@@ -271,4 +274,6 @@ for f in Glob('test/gbtcp-test-*.c'):
     g_env.Program("bin/" + f.name[0:-2], ["test/" + f.name, g_env.Object('test/subr.c')])
 
 for f in Glob('test/libgbtcp-test-*.c'):
-    g_env_gbtcp.Program("bin/" + f.name[0:-2], ["test/" + f.name, g_env.Object('test/subr.c')])
+    prog = g_env_gbtcp.Program("bin/" + f.name[0:-2],
+            ["test/" + f.name, g_env.Object('test/subr.c')])
+    Requires(prog, libgbtcp)

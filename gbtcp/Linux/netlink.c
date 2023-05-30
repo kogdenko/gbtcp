@@ -434,7 +434,7 @@ rtnl_recvmsg(int fd, int (*handler)(struct nlmsghdr *, void *), void *udata)
 }
 
 int
-route_open()
+route_open(void)
 {
 	int rc, g;
 

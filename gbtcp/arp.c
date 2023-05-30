@@ -210,7 +210,7 @@ arp_calc_reachable_time(void)
 	min = ARP_REACHABLE_TIME * ARP_MIN_RANDOM_FACTOR;
 	max = ARP_REACHABLE_TIME * ARP_MAX_RANDOM_FACTOR;
 	x = rand64();
-	x = min + (max - min) * x / UINT64_MAX;
+	x = min + (max - min) * x / (double)(UINT64_MAX);
 	assert(x >= min);
 	assert(x <= max);
 	return x;
@@ -228,7 +228,7 @@ sysctl_arp_add(struct sysctl_conn *cp, void *udata, const char *new, struct strb
 	if (new == NULL) {
 		return 0;
 	}
-	rc = sscanf(new, "%64[^,],%64[^,]", next_hop_buf, addr_buf);
+	rc = sscanf(new, "%63[^,],%63[^,]", next_hop_buf, addr_buf);
 	if (rc != 2) {
 		return -EINVAL;
 	}

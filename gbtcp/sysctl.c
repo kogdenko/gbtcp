@@ -99,7 +99,7 @@ sysctl_verify(const char *s)
 }
 
 int
-sysctl_root_init()
+sysctl_root_init(void)
 {
 	sysctl_root = sysctl_node_alloc(NULL, NULL, 0);
 	if (sysctl_root == NULL) {
@@ -111,7 +111,7 @@ sysctl_root_init()
 }
 
 void
-sysctl_root_deinit()
+sysctl_root_deinit(void)
 {
 	sysctl_node_del(sysctl_root);
 	sysctl_root = NULL;

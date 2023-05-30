@@ -248,7 +248,7 @@ sysctl_socket_binded(void *udata, const char *new, struct strbuf *out)
 }
 
 int
-tcp_mod_init()
+tcp_mod_init(void)
 {
 	int rc;
 
@@ -281,7 +281,7 @@ tcp_mod_init()
 }
 
 void
-tcp_mod_deinit()
+tcp_mod_deinit(void)
 {
 	sysctl_del(GT_SYSCTL_SOCKET);
 	sysctl_del(GT_SYSCTL_TCP);
@@ -1992,7 +1992,7 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcp_fill_info *tcb,
 }
 
 void
-sock_tx_flush()
+sock_tx_flush(void)
 {
 	int rc;
 	struct dev_pkt pkt;

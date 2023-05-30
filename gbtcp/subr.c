@@ -679,7 +679,7 @@ err:
 }
 
 pid_t
-gtl_gettid()
+gtl_gettid(void)
 {
 	pid_t tid;
 
@@ -788,7 +788,7 @@ gt_qsort_r(void *base, size_t nmemb, size_t size,
 #endif // __linux__
 
 uint64_t
-rdtsc()
+rdtsc(void)
 {
 	union tsc tsc;
 
@@ -799,7 +799,7 @@ rdtsc()
 }
 
 uint64_t
-sleep_compute_hz()
+sleep_compute_hz(void)
 {
 	int rc;
 	uint64_t t0, t1, hz;
@@ -839,7 +839,7 @@ gtl_set_affinity(int cpu_id)
 }
 
 uint64_t
-rand64()
+rand64(void)
 {
 	uint64_t x, y;
 
@@ -850,7 +850,7 @@ rand64()
 }
 
 uint32_t
-rand32()
+rand32(void)
 {
 	return lrand48();
 }
@@ -1051,7 +1051,7 @@ set_hz(uint64_t hz)
 }
 
 void
-rd_nanoseconds()
+rd_nanoseconds(void)
 {
 	uint64_t ticks2, dt;
 
