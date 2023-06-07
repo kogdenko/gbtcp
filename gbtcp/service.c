@@ -327,7 +327,7 @@ service_redirect_dev_init(struct service *s)
 	char ifname[IFNAMSIZ];
 
 	snprintf(ifname, sizeof(ifname), "vale_gt:%d", s->p_pid);
-	rc = dev_init(&service_redirect_dev, DEV_TRANSPORT_NETMAP, ifname,
+	rc = gt_dev_init(&service_redirect_dev, DEV_TRANSPORT_NETMAP, ifname,
 		DEV_QUEUE_NONE, service_redirect_dev_rx);
 	return rc;
 }
@@ -408,7 +408,7 @@ service_init_shared_redirect_dev(struct service *s)
 		}
 	}
 	dev_transport = dev_transport_get();
-	rc = dev_init(&s->p_veth_peer, dev_transport, ifname[1], 0, service_peer_rx);
+	rc = gt_dev_init_locked(&s->p_veth_peer, dev_transport, ifname[1], 0, service_peer_rx);
 	if (rc < 0) {
 		goto err;
 	}
@@ -426,7 +426,7 @@ service_deinit_shared_redirect_dev(struct service *s)
 {
 	char peer[IFNAMSIZ];
 
-	dev_deinit(&s->p_veth_peer, false);
+	gt_dev_deinit_locked(&s->p_veth_peer, false);
 	snprintf(peer, sizeof(peer), SERVICE_VETHF, 'c', s->p_pid);
 	netlink_link_del(peer);
 }
@@ -439,7 +439,8 @@ service_redirect_dev_init(struct service *s)
 
 	dev_transport = dev_transport_get();
 	snprintf(ifname, sizeof(ifname), SERVICE_VETHF, 's', s->p_pid);
-	rc = dev_init(&service_redirect_dev, dev_transport, ifname, 0, service_redirect_dev_rx);
+	rc = gt_dev_init_locked(&service_redirect_dev, dev_transport, ifname, 0,
+			service_redirect_dev_rx);
 	return rc;
 }
 #endif // GT_HAVE_VALE
@@ -549,7 +550,7 @@ service_init_private(void)
 void
 service_deinit_private(void)
 {
-	dev_deinit(&service_redirect_dev, false);
+	gt_dev_deinit_locked(&service_redirect_dev, false);
 }
 
 int
@@ -734,12 +735,14 @@ service_unlock(void)
 	u_int epoch;
 
 	epoch = current->p_epoch;
-	epoch++;
-	if (epoch == 0) {
-		epoch = 1;
-	}
+	do {
+		epoch++;
+	} while (epoch == 0);
+
 	service_store_epoch(current, epoch);
+
 	service_rcu_check();
+
 	spinlock_unlock(&current->p_lock);
 }
 
@@ -774,12 +777,13 @@ service_update_rss_binding(struct route_if *ifp, int queue_id)
 	if ((ifflags & IFF_UP) && id == current->p_sid) {
 		if (!dev_is_inited(dev)) {
 			dev_transport = dev_transport_get();
-			dev_init(dev, dev_transport, ifp->rif_name, queue_id, service_rssq_rx);
+			gt_dev_init_locked(dev, dev_transport, ifp->rif_name, queue_id,
+					service_rssq_rx);
 			dev->dev_ifp = ifp;
 		}
 	} else {
 		// Other service occupy this queue or interface down
-		dev_deinit(dev, false);
+		gt_dev_deinit_locked(dev, false);
 	}
 }
 
@@ -945,7 +949,7 @@ service_in_child0(void)
 	struct sock *so;
 
 	DLIST_FOREACH(dev, &current->p_dev_head, dev_list) {
-		dev_deinit(dev, true);
+		gt_dev_deinit_locked(dev, true);
 	}
 	dlist_init(&current->p_dev_head);
 	flag = 0;

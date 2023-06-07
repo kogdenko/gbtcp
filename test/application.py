@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: GPL-2.0
 import platform
 import re
+import signal
 
 from common import *
 import netstat
+import ifstat
 
 
 def parse_version(s):
@@ -20,15 +22,19 @@ class Application:
 
     @property
     def pid(self):
-        return self.__proc.pid
+        return self.proc.pid
 
 
-    def __init__(self, gbtcp, network, transport, mode):
-        self.gbtcp = gbtcp
+    def __init__(self, repo, network, mode, transport=None):
+        self.repo = repo
         self.network = network
         self.transport = transport
         self.mode = mode
         self.version = None
+
+
+    def __del__(self):
+        self.stop()
 
 
     def get_version(self):
@@ -48,7 +54,28 @@ class Application:
             else:
                 assert(0)
         else:
-            return netstat.GbtcpNetstat(self.gbtcp)
+            return netstat.GbtcpNetstat(self.repo)
+
+
+    def create_ifstat(self):
+        if self.transport == Transport.NATIVE:
+            if platform.system() == 'Linux':
+                return ifstat.LinuxIfstat(self.network.interface)
+            else:
+                assert(0)
+        else:
+            return ifstat.GbtcpIfstat(self.network.interface)
+
+
+    def configure_network(self, onoff_configure_routing, concurrency, cpus):
+        self.network.set_onoff_configure_routing(onoff_configure_routing)
+        self.network.configure(self.mode, concurrency, len(cpus))
+
+
+    def before_stop(self):
+        current = self.create_netstat()
+        current.read()
+        self.netstat = current - self.netstat
 
 
     @staticmethod
@@ -57,10 +84,10 @@ class Application:
 
 
     @staticmethod
-    def create(name, gbtcp, network, transport, mode):
+    def create(name, repo, network, mode, transport=None):
         for cls in Application.registered():
             if name == cls.get_name():
-                return cls(gbtcp, network, transport, mode)
+                return cls(repo, network, mode, transport)
         return None
 
 
@@ -77,11 +104,9 @@ class nginx(Application, Application.Registered):
 
 
     def stop(self):
-        self.netstat = self.create_netstat()
-        self.netstat.read()
-        self.netstat = self.netstat - self.__netstat
+        self.before_stop()
         system("nginx -s quit", True)
-        wait_process(self.__proc)
+        return wait_process(self.proc)
 
 
     def start(self, concurrency, cpus):
@@ -89,6 +114,8 @@ class nginx(Application, Application.Registered):
 
         n = len(cpus)
         assert(n > 0)
+
+        self.configure_network(True, concurrency, cpus)
 
         cpu_count = multiprocessing.cpu_count()
         templ = [ '0' for i in range(0, cpu_count) ]
@@ -136,24 +163,23 @@ class nginx(Application, Application.Registered):
             % (n, worker_cpu_affinity, worker_connections, worker_connections,
                 self.network.server))
 
-        nginx_conf_path = self.gbtcp.path + "/test/nginx.conf"
+        nginx_conf_path = self.repo.path + "/test/nginx.conf"
 
         with open(nginx_conf_path, 'w') as f:
             f.write(nginx_conf)
 
-        self.__proc = self.gbtcp.start_process("nginx -c %s" % nginx_conf_path, self.transport)
-        self.__netstat = self.create_netstat()
-        self.__netstat.read()
+        cmd = "nginx -c %s" % nginx_conf_path
+        self.proc = self.repo.start_process(cmd, self.network, self.mode, self.transport)
 
 
 class gbtcp_base_helloworld(Application):
     def get_path(self):
-        return self.gbtcp.path + "/bin/" + self.get_name()
+        return self.repo.path + "/bin/" + self.get_name()
 
 
     def system_get_version(self):
         cmd = "%s -v" % self.get_path()
-        s = self.gbtcp.system(cmd)[1]
+        s = self.repo.system(cmd)[1]
         for line in s.splitlines():
             if line.startswith("version: "):
                 return parse_version(line)
@@ -161,23 +187,22 @@ class gbtcp_base_helloworld(Application):
 
 
     def stop(self):
-        self.netstat = self.create_netstat()
-        self.netstat.read()
-        self.netstat = self.netstat - self.__netstat
-        self.gbtcp.system("%s -S" % self.get_path(), True)
-        wait_process(self.__proc)
+        self.before_stop()
+        self.repo.system("%s -S" % self.get_path(), True)
+        return wait_process(self.proc)
 
 
     def start(self, concurrency, cpus):
         assert(self.mode == Mode.SERVER)
+
+        self.configure_network(True, concurrency, cpus)
+
         cmd = "%s -l -a " % self.get_path()
         for i in range(len(cpus)):
             if i != 0:
                 cmd += ","
             cmd += str(cpus[i])
-        self.__proc = self.gbtcp.start_process(cmd, self.transport)
-        self.__netstat = self.create_netstat()
-        self.__netstat.read()
+        self.proc = self.repo.start_process(cmd, self.network, self.mode, self.transport)
 
 
 class gbtcp_epoll_helloworld(gbtcp_base_helloworld, Application.Registered):
@@ -192,7 +217,7 @@ class gbtcp_aio_helloworld(gbtcp_base_helloworld, Application.Registered):
         return "gbtcp-aio-helloworld"
 
 
-class con_gen(Application):
+class con_gen(Application, Application.Registered):
     @staticmethod
     def get_name():
         return "con-gen"
@@ -204,23 +229,41 @@ class con_gen(Application):
         return "1.0.2"
 
 
-#    def start(self, concurrency, cpus):
-#        dst_ip = get_runner_ip(req.subnet)
-#        cmd = self.get_name()
-#        cmd += (" --print-report 0 -v -S %s -D %s --reports %d -N -p 80 -d %s" %
-#            (self.interface.mac, str(req.dst_mac), req.duration, dst_ip))
-#
-#        n = len(self.tester.cpus)
-#        for i in range(n):
-#            concurrency_per_cpu = req.concurrency / n
-#            if i == 0:
-#                concurrency_per_cpu += req.concurrency % n
-#            else:
-#                cmd += " --"
-#            cmd += " -i %s-%d" % (self.tester.interface.name, i)
-#            cmd += " -c %d" % concurrency_per_cpu
-#            cmd += " -a %d" % self.tester.cpus[i]
-#            cmd += " -s %d.%d.%d.1-%d.%d.%d.255" % (
-#                    req.subnet[0], req.subnet[1], i + 1,
-#                    req.subnet[0], req.subnet[1], i + 1)
-#        return start_process(cmd)
+    def create_ifstat(self):
+        return ifstat.CongenIfstat(self.network.interface, self.proc.pid)
+
+
+    def start(self, concurrency, cpus):
+
+        self.configure_network(False, concurrency, cpus)
+
+        cmd = self.get_name()
+        cmd += (" --print-report 0 -v -S %s -D %s -N -p 80" %
+            (self.network.interface.mac, str(self.network.gw_mac)))
+
+        if self.mode == Mode.CLIENT:
+            cmd += " -d %s" % self.network.server
+
+            n_cpus = len(cpus)
+            for i in range(n_cpus):
+                concurrency_per_cpu = concurrency / n_cpus
+                if i == 0:
+                    concurrency_per_cpu += concurrency % n_cpus
+                else:
+                    cmd += " --"
+                cmd += " -i %s-%d" % (self.network.interface.name, i)
+                cmd += " -c %d" % concurrency_per_cpu
+                cmd += " -a %d" % cpus[i]
+                cmd += " -s %s-%s" % (
+                        self.network.clients[i][0],
+                        self.network.clients[i][1])
+        else:
+            assert(0)
+
+        self.proc = start_process(cmd)
+
+
+    def stop(self):
+        self.before_stop()
+        self.proc.send_signal(signal.SIGINT)
+        return wait_process(self.proc)

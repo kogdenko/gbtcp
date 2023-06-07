@@ -119,13 +119,13 @@ dev_mod_init(void)
 }
 
 int
-dev_init(struct dev *dev, int transport, const char *ifname, int queue_id, dev_f dev_fn)
+gt_dev_init_locked(struct dev *dev, int transport, const char *ifname, int queue_id, dev_f dev_fn)
 {
 	int rc, fd;
 
 	assert(!dev_is_inited(dev));
 	memset(dev, 0, sizeof(*dev));
-	strzcpy(dev->dev_ifname, ifname, sizeof(dev->dev_ifname));
+	gt_strzcpy(dev->dev_ifname, ifname, sizeof(dev->dev_ifname));
 	rc = sys_if_nametoindex(dev->dev_ifname);
 	dev->dev_ifindex = rc; // TODO: ifindex to XDP
 	dev->dev_queue_id = queue_id;
@@ -150,7 +150,20 @@ dev_init(struct dev *dev, int transport, const char *ifname, int queue_id, dev_f
 }
 
 int
-dev_deinit(struct dev *dev, bool cloexec)
+gt_dev_init(struct dev *dev, int transport, const char *ifname, int queue_id, dev_f dev_fn)
+{
+	int rc;
+
+	rc = api_lock();
+	if (rc == 0) {
+		rc = gt_dev_init_locked(dev, transport, ifname, queue_id, dev_fn);
+		api_unlock();
+	}
+	return rc;
+}
+
+int
+gt_dev_deinit_locked(struct dev *dev, bool cloexec)
 {
 	if (dev_is_inited(dev)) {
 		if (!cloexec) {
@@ -165,6 +178,19 @@ dev_deinit(struct dev *dev, bool cloexec)
 	} else {
 		return -EINVAL;
 	}
+}
+
+int
+gt_dev_deinit(struct dev *dev, bool cloexec)
+{
+	int rc;
+
+	rc = api_lock();
+	if (rc == 0) {
+		rc = gt_dev_deinit_locked(dev, cloexec);
+		api_unlock();
+	}
+	return rc;
 }
 
 void

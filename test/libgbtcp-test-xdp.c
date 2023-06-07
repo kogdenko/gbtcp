@@ -29,8 +29,8 @@ main(int argc, char **argv)
 	gt_socket(AF_INET, SOCK_STREAM, 0);
 	memset(&dev, 0, sizeof(dev));
 	for (i = 0; i < 2; ++i) {
-		TRACE_API(dev_init(&dev, DEV_TRANSPORT_XDP, ifname, 0, rx_drop), == 0);
-		TRACE_API(dev_deinit(&dev, false), == 0);
+		TRACE_API(gt_dev_init(&dev, DEV_TRANSPORT_XDP, ifname, 0, rx_drop), == 0);
+		TRACE_API(gt_dev_deinit(&dev, false), == 0);
 	}
 	return EXIT_SUCCESS;
 }

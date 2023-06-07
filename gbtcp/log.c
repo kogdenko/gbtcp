@@ -41,7 +41,7 @@ log_scope_init(struct log_scope *scope, const char *name)
 
 	memset(scope, 0, sizeof(*scope));
 	scope->lgs_level = LOG_NOTICE;
-	strzcpy(scope->lgs_name, name, sizeof(scope->lgs_name));
+	gt_strzcpy(scope->lgs_name, name, sizeof(scope->lgs_name));
 	scope->lgs_name_len = strlen(scope->lgs_name);
 	assert(scope->lgs_name_len);
 	snprintf(path, sizeof(path), "log.scope.%s.level", name);
@@ -95,8 +95,7 @@ log_fill_errnum(struct strbuf *sb, int errnum)
 }
 
 void
-log_vprintf(int level, const char *func, int errnum,
-	const char *fmt, va_list ap)
+log_vprintf(int level, const char *func, int errnum, const char *fmt, va_list ap)
 {
 	char buf[LOG_BUFSIZ];
 	struct strbuf sb;
@@ -109,7 +108,7 @@ log_vprintf(int level, const char *func, int errnum,
 	}
 	syslog(level, "%s", strbuf_cstr(&sb));
 
-	strbuf_add_ch(&sb, '\n');
+	printf("%s\n", strbuf_cstr(&sb));
 }
 
 void

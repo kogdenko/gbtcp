@@ -280,7 +280,7 @@ char *strltrim(const char *);
 char *strtrim(char *);
 int strtrimcpy(char *, const char *, int);
 int strsplit(const char *, const char *, struct iovec *, int);
-char *strzcpy(char *, const char *, size_t);
+char *gt_strzcpy(char *, const char *, size_t) GT_EXPORT;
 
 uint32_t toeplitz_hash(const u_char *, int, const u_char *);
 uint32_t rss_hash4(be32_t, be32_t, be16_t, be16_t, u_char *);

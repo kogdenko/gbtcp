@@ -74,8 +74,13 @@ int dev_transport_get(void);
 
 int dev_mod_init(void);
 
-int dev_init(struct dev *, int, const char *, int, dev_f) GT_EXPORT;
-int dev_deinit(struct dev *, bool) GT_EXPORT;
+int gt_dev_init_locked(struct dev *dev, int transport, const char *ifname, int queue_id,
+		dev_f dev_fn);
+int gt_dev_init(struct dev *, int, const char *, int, dev_f) GT_EXPORT;
+
+int gt_dev_deinit_locked(struct dev *dev, bool cloexec);
+int gt_dev_deinit(struct dev *, bool) GT_EXPORT;
+
 void dev_rx_on(struct dev *);
 void dev_rx_off(struct dev *);
 int dev_get_tx_packet(struct dev *, struct dev_pkt *);

@@ -46,6 +46,12 @@ class Connectivity(Enum):
     DIRECT = "direct"
 
 
+class EnvVar(Enum):
+    LD_LIBRARY_PATH = "LD_LIBRARY_PATH"
+    LD_PRELOAD = "LD_PRELOAD"
+    GBTCP_CONF = "GBTCP_CONF"
+
+
 TEST_DURATION_MIN = 10
 TEST_DURATION_MAX = 10*60
 TEST_DURATION_DEFAULT = 60
@@ -60,13 +66,18 @@ CONCURRENCY_MAX=20000
 
 def print_log(s, to_stdout=False):
     syslog.syslog(s)
-    if to_stdout:
+    if True or to_stdout:
         print(s)
 
 
 def dbg(*args):
     traceback.print_stack(limit=2)
     print(args)
+
+
+class ArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        raise RuntimeError(message)
 
 
 class UniqueAppendAction(argparse.Action):
@@ -181,6 +192,34 @@ def argparse_add_duration(ap, default=None):
             help="Test duration in seconds")
 
 
+def add_hello_arguments(ap):
+    ap.add_argument("--mac", metavar="mac", type=mac_address.argparse,
+            required=True,
+            help="Destination MAC address in colon notation (e.g., aa:bb:cc:dd:ee:00)")
+
+    ap.add_argument("--network", metavar="ip", type=argparse_ip_network,
+            required=True,
+            help=("Private network for testing"))
+
+
+def make_hello(network):
+    hello = ("hello\n"
+            "--mac %s "
+            "--network %s" % ( 
+            network.interface.mac,
+            network.ip_network))
+    return hello
+ 
+
+def process_hello(network, args):
+    ap = ArgumentParser()
+    add_hello_arguments(ap)
+    hello = ap.parse_args(args)
+
+    network.set_ip_network(hello.network) 
+    network.set_gw_mac(hello.mac)
+
+
 def upper_pow2_32(x):
     x = int(x)
     x -= 1
@@ -207,20 +246,46 @@ def make_cpu_mask(cpus):
     return cpu_mask
 
 
+def env_str(env):
+    if not env:
+        return ""
+    s = ""
+    for v in EnvVar:
+        if env.get(v.value):
+            if len(s):
+                s += " "
+            s += "%s=%s" % (v.value, env.get(v.value))
+
+    return s;
+
+
 def system(cmd, fault_tollerance=False, env=None):
+    s = env_str(env)
+    if len(s):
+        cmd_with_env = "%s %s" % (s, cmd)
+    else:
+        cmd_with_env = cmd
+
     proc = subprocess.Popen(cmd.split(), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         out, err = proc.communicate(timeout = 5)
     except Exception as exc:
         proc.kill();
-        print_log("Command '%s' failed: '%s'" % (cmd, sys.exc_info()[0]))
+        print_log("Command '%s' failed: '%s'" % (cmd_with_env, sys.exc_info()[0]))
         raise exc
 
     out = bytes_to_str(out)
     err = bytes_to_str(err)
     rc = proc.returncode
-     
-    print_log("$ %s # $? = %d\n%s\n%s" % (cmd, rc, out, err))
+
+    log = "$ %s" % cmd_with_env
+    if rc != 0:
+        log += " $? = %d", rc
+    if len(out):
+        log += "\n%s" % out
+    if len(err):
+        log += "\n%s" % err
+    print_log(log)
 
     if rc != 0 and not fault_tollerance:
         raise RuntimeError("Command '%s' failed with code '%d'" % (cmd, rc))
@@ -376,14 +441,6 @@ def get_cpu_model():
     raise RuntimeError("Cannot determine CPU model")
 
 
-def git_rev_parse(rev):
-    cmd = "git rev-parse %s" % rev
-    commit = system(cmd)[1].strip()
-    if len(commit) != 40:
-        raise RuntimeError("%s: Cannot extract git commit " % cmd)
-    return commit
-
-
 def find_outliers(sample, std):
     if std == None:
         std = [numpy.std(sample)] * len(sample)
@@ -399,7 +456,12 @@ def find_outliers(sample, std):
 def start_process(cmd, env=None):
     proc = subprocess.Popen(cmd.split(), env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    print_log("$ %s &\n[%d]" % (cmd, proc.pid))
+    log = "$"
+    s = env_str(env)
+    if len(s):
+        log += " %s" % s
+    log += " %s & [pid=%d]" % (cmd, proc.pid)
+    print_log(log)
     return proc
 
 
@@ -412,7 +474,7 @@ def wait_process(proc):
         t1 = milliseconds()
         dt = t1 - t0
         assert(dt * 1000 > 4.5)
-        print_log("$ [%d] Timeouted" % proc.pid)
+        print_log("$ [pid=%d] Timeouted" % proc.pid)
         proc.terminate()
         proc.wait(timeout=5)
 
@@ -423,7 +485,7 @@ def wait_process(proc):
                 break
             lines.append(line.decode('utf-8').strip())
 
-    print_log("$ [%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
+    print_log("$ [pid=%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
     return proc.returncode, lines
 
 
@@ -515,7 +577,7 @@ class Top:
         self.thread.join()
 
 
-class Project:
+class Repository:
     def system(self, cmd, fault_tollerance=False):
         env = os.environ.copy()
         env["LD_LIBRARY_PATH"] = self.path + "/bin"
@@ -534,7 +596,7 @@ class Project:
         _, out, _ = self.system(cmd)
         for line in out.splitlines():
             if line.startswith("gbtcp: "):
-                self.commit = git_rev_parse(line[7:])
+                self.commit = line[7:]
             elif line.startswith("config: "):
                 if re.search("HAVE_XDP", line) != None:
                     self.transports.append(Transport.XDP)    
@@ -542,31 +604,33 @@ class Project:
                     self.transports.append(Transport.NETMAP)
 
         if self.commit == None:
-            raise RuntimeError("invalid command output: '%s'" % cmd)
+            raise RuntimeError("Invalid command output: '%s'" % cmd)
 
 
     def set_interface(self, interface):
         self.interface = interface
-        self.write_config()
 
 
-    def write_config(self, transport=None):
+    def write_config(self, network, mode, transport=None):
         assert(self.interface)
         config = ""
         if transport:
             config += "dev.transport=%s\n" % transport
         config += "route.if.add=%s\n" % self.interface.name
-        config += "arp.add=10.20.1.1,00:1b:21:95:69:65\n" # FIXME
+        if mode == Mode.CLIENT:
+            config += "arp.add=%s,%s\n" % (network.server, network.gw_mac)
+        else:
+            config += "arp.add=%s,%s\n" % (network.first_client, network.gw_mac)
 
         with open(self.config_path, 'w') as f:
             f.write(config)
 
 
-    def start_process(self, cmd, transport=Transport.NATIVE):
+    def start_process(self, cmd, network, mode, transport=Transport.NATIVE):
         e = os.environ.copy()
-        e["LD_LIBRARY_PATH"] = self.path + "/bin"
+        e[EnvVar.LD_LIBRARY_PATH.value] = self.path + "/bin"
         if transport != Transport.NATIVE:
-            self.write_config(transport)
-            e["LD_PRELOAD"] = os.path.normpath(self.path + "/bin/libgbtcp.so")
-            e["GBTCP_CONF"] = self.config_path
+            self.write_config(network, mode, transport)
+            e[EnvVar.LD_PRELOAD.value] = os.path.normpath(self.path + "/bin/libgbtcp.so")
+            e[EnvVar.GBTCP_CONF.value] = self.config_path
         return start_process(cmd, e)

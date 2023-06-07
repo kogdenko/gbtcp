@@ -155,6 +155,7 @@ class LinuxNetstat(Netstat):
                 for i, value in enumerate(values):
                     table.entries[i].value = int(value)
 
+
     def read(self):
         self.tables = []
         self.read_file('/proc/net/snmp')
@@ -203,7 +204,7 @@ class BSDNetstat(Netstat):
                 [r"(\d+) with data length < header length", "badlen"],
                 [r"(\d+) with incorrect version number", "badvers"],
                 [r"(\d+) fragments received", "fragments"],
-                [r"(\d+) fragments dropped (dup or out of space)", "fragdropped"],
+                [r"(\d+) fragments dropped \(dup or out of space\)", "fragdropped"],
                 [r"(\d+) packets for this host", "delivered"],
                 [r"(\d+) packets for unknown/unsupported protocol", "noproto"],
                 [r"(\d+) packets sent from this host", "localout"],
@@ -295,18 +296,18 @@ class BSDNetstat(Netstat):
                         found = True
                         break
                 if not found:
-                    print_log("unknown bsd statistic variable: '%s:%s'" % (table.name, line))
+                    print_log("Unknown bsd statistic variable: '%s:%s'" % (table.name, line))
 
 
 class GbtcpNetstat(BSDNetstat):
-    def __init__(self, gbtcp):
+    def __init__(self, repo):
         BSDNetstat.__init__(self)
-        self.gbtcp = gbtcp
+        self.repo = repo
 
 
     def read(self):
-        cmd = self.gbtcp.path + "/bin/gbtcp-netstat -nss"
-        self.parse(self.gbtcp.system(cmd)[1].splitlines())
+        cmd = self.repo.path + "/bin/gbtcp-netstat -nss"
+        self.parse(self.repo.system(cmd)[1].splitlines())
 
 
 class CongenNetstat(BSDNetstat):
@@ -325,11 +326,11 @@ class CongenNetstat(BSDNetstat):
         self.parse(recv_lines(sock))
 
 
-def create_netstat(t, gbtcp, pid):
+def create_netstat(t, repo, pid):
     if t == "linux":
         return LinuxNetstat()
     elif t == "gbtcp":
-        return GbtcpNetstat(gbtcp)
+        return GbtcpNetstat(repo)
     elif t == "con-gen":
         return CongenNetstat(pid)
     else:
@@ -347,22 +348,22 @@ def main():
             help="Write netstat to database")
     args = ap.parse_args()
 
-    gbtcp = Project() 
+    repo = Repository() 
 
     if args.rate:
         while True:
-            ns0 = create_netstat(args.type, gbtcp, args.pid)
+            ns0 = create_netstat(args.type, repo, args.pid)
             ns0.read()
             time.sleep(args.rate)
             print("Netstat rate:")
-            ns1 = create_netstat(args.type, gbtcp, args.pid)
+            ns1 = create_netstat(args.type, repo, args.pid)
             ns1.read()
             rate = (ns1 - ns0) / args.rate
             rate.set_hide_zeroes(True)
             print(rate)
             print("_______________")
     else:
-        ns = create_netstat(args.type, gbtcp, args.pid)
+        ns = create_netstat(args.type, repo, args.pid)
         ns.read()
         if args.database:
             db = Database("")

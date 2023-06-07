@@ -15,7 +15,8 @@
 #define SERVICE_MSG_TX 1
 #define SERVICE_MSG_BYPASS 2
 
-#define SERVICE_LOCK do { \
+#define SERVICE_LOCK \
+do { \
 	spinlock_lock(&current->p_lock); \
 	rd_nanoseconds(); \
 	if (current->p_need_update_rss_bindings) { \

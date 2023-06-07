@@ -100,12 +100,12 @@ route_if_add(const char *ifname, struct route_if **ifpp)
 	memset(ifp, 0, sizeof(*ifp));
 	dlist_init(&ifp->rif_routes);
 	ifp->rif_mtu = 1500;
-	strzcpy(ifp->rif_name, ifname, sizeof(ifp->rif_name));
+	gt_strzcpy(ifp->rif_name, ifname, sizeof(ifp->rif_name));
 	rc = sys_if_nametoindex(ifname);
 	ifp->rif_index = rc;
 	DLIST_INSERT_HEAD(&curmod->route_if_head, ifp, rif_list);
 	dev_transport = dev_transport_get();
-	rc = dev_init(&ifp->rif_host_dev, dev_transport,
+	rc = gt_dev_init_locked(&ifp->rif_host_dev, dev_transport,
 		ifp->rif_name, DEV_QUEUE_HOST, interface_dev_host_rx);
 	if (rc < 0 && rc != -ENOTSUP) {
 		goto err;

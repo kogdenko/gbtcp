@@ -81,28 +81,28 @@ master_loop(int report_num, unsigned int (*sleep_fn)(unsigned int))
 {
 	int i, j;
 
-	unsigned long long reqs, reqs2;
+	unsigned long long reqs, reqs_prev;
 	double rps;
 	suseconds_t usec;
 	struct timeval tv, tv2;
 
 	gettimeofday(&tv, NULL);
-	reqs = reqs2 = 1;
+	reqs_prev = 0;
 	for (j = 0; j < report_num; ++j) {
 		if (master_done) {
 			break;
 		}
 		(*sleep_fn)(1);
 		gettimeofday(&tv2, NULL);
-		reqs2 = 0;
+		reqs = 0;
 		for (i = 0; i < worker_num; ++i) {
-			reqs2 += workers[i]->wrk_reqs;
+			reqs += workers[i]->wrk_reqs;
 		}
 		usec = 1000000 * (tv2.tv_sec - tv.tv_sec) +  (tv2.tv_usec - tv.tv_usec);
-		rps = 1000000.0 * (reqs2 - reqs) / usec;
+		rps = 1000000.0 * (reqs - reqs_prev) / usec;
 		printf("%d\n", (int)rps);
 		tv = tv2;
-		reqs = reqs2;
+		reqs_prev = reqs;
 	}
 	master_done = 1;
 }

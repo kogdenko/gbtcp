@@ -8,13 +8,17 @@ static __thread int api_locked;
 __thread int gt_errno;
 
 #define API_LOCK \
-	if (api_lock()) { \
-		return -1; \
-	}
+do { \
+	int rc; \
+	rc = api_lock(); \
+	if (rc) { \
+		GT_RETURN(rc); \
+	} \
+} while (0)
 
 #define API_UNLOCK api_unlock()
 
-static inline int
+int
 api_lock(void)
 {
 	int rc;
@@ -23,7 +27,7 @@ api_lock(void)
 		if (current == NULL) {
 			rc = service_attach();
 			if (rc) {
-				GT_RETURN(-ECANCELED);
+				return -ECANCELED;
 			}
 		}
 		SERVICE_LOCK;
@@ -32,7 +36,7 @@ api_lock(void)
 	return 0;
 }
 
-static inline void
+void
 api_unlock(void)
 {
 	assert(api_locked > 0);
@@ -141,16 +145,14 @@ gt_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	int rc;
 
 	API_LOCK;
-	INFO(0, "gt_connect(fd=%d, '%s')",
-		fd, log_add_sockaddr(addr, addrlen));
+	INFO(0, "gt_connect(fd=%d, '%s')", fd, log_add_sockaddr(addr, addrlen));
 	rc = gt_connect_locked(fd, addr, addrlen);
 	if (rc < 0) {
-		INFO(-rc, "gt_connect(fd=%d, '%s') failed",
-			fd, log_add_sockaddr(addr, addrlen));
+		INFO(-rc, "gt_connect(fd=%d, '%s') failed", fd, log_add_sockaddr(addr, addrlen));
 	} else {
 		INFO(0, "gt_connect(fd=%d, '%s') return '%s'",
-			fd, log_add_sockaddr(addr, addrlen),
-			log_add_sockaddr(addr, addrlen));
+				fd, log_add_sockaddr(addr, addrlen),
+				log_add_sockaddr(addr, addrlen));
 	}
 	API_UNLOCK;
 	GT_RETURN(rc);

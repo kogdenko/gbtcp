@@ -1,4 +1,4 @@
-// GPL v2 License
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/if_xdp.h>
 #include <linux/if_link.h>
 #include <xdp/xsk.h>

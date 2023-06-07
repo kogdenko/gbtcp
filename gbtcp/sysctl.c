@@ -884,7 +884,7 @@ sysctl_connect(int fd)
 	struct sockaddr_un a;
 
 	a.sun_family = AF_UNIX;
-	strzcpy(a.sun_path, SYSCTL_CONTROLLER_PATH, sizeof(a.sun_path));
+	gt_strzcpy(a.sun_path, SYSCTL_CONTROLLER_PATH, sizeof(a.sun_path));
 	to = 2 * NSEC_SEC;
 	rc = connect_timed(fd, (struct sockaddr *)&a, sizeof(a), &to);
 	return rc;

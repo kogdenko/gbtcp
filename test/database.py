@@ -77,6 +77,9 @@ class Database:
 
     def __init__(self, address):
         #self.sql_conn = sqlite3.connect(address)
+
+        self.sql_conn = mysql.connector.connect(user='root')
+        self.execute("create database if not exists gbtcp")
         self.sql_conn = mysql.connector.connect(user='root', database='gbtcp')
 
         self.create_core_tables()

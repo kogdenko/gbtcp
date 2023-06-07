@@ -75,8 +75,17 @@ class Ifstat:
         return self.__str__()
 
 
-class LinuxIfstat(Ifstat):
     def read(self):
+        try:
+            ok = self.vread()
+        except Exception as e:
+            raise RuntimeError("Ifstat: Internal error: '%s'" % str(e))
+        if not ok:
+            raise RuntimeError("Ifstat: Invalid interface: '%s'" % self.interface.name)
+
+
+class LinuxIfstat(Ifstat):
+    def vread(self):
         self.reset_counters()
         with open('/proc/net/dev', 'r') as f:
             lines = f.readlines()
@@ -88,8 +97,8 @@ class LinuxIfstat(Ifstat):
                 self.counters[Ifstat.Counter.IPACKETS.value] = int(columns[2])
                 self.counters[Ifstat.Counter.OBYTES.value] = int(columns[9])
                 self.counters[Ifstat.Counter.OPACKETS.value] = int(columns[10])
-                return
-        raise RuntimeError("/proc/net/dev: invalid interface: '%s'" % self.interface.name)
+                return True
+        return False
 
 
 class GbtcpIfstat(Ifstat):
@@ -107,14 +116,14 @@ class GbtcpIfstat(Ifstat):
                 self.counters[Ifstat.Counter.IPACKETS.value] = int(columns[1])
                 self.counters[Ifstat.Counter.OBYTES.value] = int(columns[6])
                 self.counters[Ifstat.Counter.OPACKETS.value] = int(columns[4])
-                return
-        raise RuntimeError("gbtcp-netstat: invalid interface: '%s'" % self.interface.name)
+                return True
+        return False
 
 
-    def read(self):
+    def vread(self):
         self.reset_counters()
         cmd = self.gbtcp.path + "/bin/gbtcp-netstat -bI " + self.interface.name
-        self.parse(self.gbtcp.system(cmd)[1].splitlines())
+        return self.parse(self.gbtcp.system(cmd)[1].splitlines())
 
 
 class CongenIfstat(Ifstat):
@@ -124,27 +133,28 @@ class CongenIfstat(Ifstat):
 
 
     def parse(self, lines):
-        found = False
         for line in lines[1:]:
             columns = line.split()
-            assert(len(columns) == 7)
-            # TODO: check interface name
-            found = True
-            self.counters[Ifstat.Counter.IBYTES.value] += int(columns[3])
-            self.counters[Ifstat.Counter.IPACKETS.value] += int(columns[1])
-            self.counters[Ifstat.Counter.OBYTES.value] += int(columns[6])
-            self.counters[Ifstat.Counter.OPACKETS.value] += int(columns[4])
-        if not found:
-            raise RuntimeError("con-gen: invalid interfacs: '%s'" % self.interface.name)
+            assert(len(columns) == 4)
+            self.counters[Ifstat.Counter.IPACKETS.value] += int(columns[0])
+            self.counters[Ifstat.Counter.IBYTES.value] += int(columns[1])
+            self.counters[Ifstat.Counter.OPACKETS.value] += int(columns[2])
+            self.counters[Ifstat.Counter.OBYTES.value] += int(columns[3])
+            return True
+        return False
 
 
-    def read(self):
+    def vread(self):
         assert(self.pid)
+
         self.reset_counters()
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect("/var/run/con-gen.%d.sock" % self.pid)
+        sun_path = "/var/run/con-gen.%d.sock" % self.pid
+        sock.connect(sun_path)
         send_string(sock, "i")
-        self.parse(recv_lines(sock))
+
+        lines = recv_lines(sock)
+        return self.parse(lines)
 
 
 def main():
@@ -168,7 +178,7 @@ def main():
     ap.add_argument("--pid", metavar="num", type=int, default=None)
     ap.add_argument("-i", type=str, required=True)
 
-    gbtcp = Project()
+    gbtcp = Repository()
 
     args = ap.parse_args()
     interface = PseudoInterface(args.i)

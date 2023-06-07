@@ -1,4 +1,4 @@
-// GPL2 license
+// SPDX-License-Identifier: GPL-2.0
 #ifndef GBTCP_API_H
 #define GBTCP_API_H
 
@@ -16,5 +16,8 @@ int api_mod_init(void **);
 int api_mod_attach(void *);
 void api_mod_deinit(void);
 void api_mod_detach(void);
+
+int api_lock(void);
+void api_unlock(void);
 
 #endif // GBTCP_API_H

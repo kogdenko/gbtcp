@@ -169,8 +169,7 @@ bad_format(const char *path, const char *data)
 }
 
 int
-sysctl_list_foreach(const char *path, void *udata,
-	int (*fn)(const char *, void *, const char *))
+sysctl_list_foreach(const char *path, void *udata, int (*fn)(const char *, void *, const char *))
 {
 	int rc, len;
 	char pbuf[PATH_MAX];
@@ -310,8 +309,7 @@ alloc_interface_list(struct interface_head *head)
 	int rc;
 
 	LIST_INIT(head);
-	rc = sysctl_list_foreach(GT_SYSCTL_ROUTE_IF_LIST, head,
-		                 sysctl_route_if);
+	rc = sysctl_list_foreach(GT_SYSCTL_ROUTE_IF_LIST, head, sysctl_route_if);
 	if (rc) {
 		free_interface_list(head);
 	}
@@ -434,12 +432,12 @@ print_socket(const char *path, void *udata, const char *buf)
 	const char *proto_name;
 
 	rc = sscanf(buf,
-	            "%d,%d,%d,%d,"
-	            "%x,%hu,"
-	            "%x,%hu",
-	            &fd, &pid, &ipproto, &state,
-	            &laddr, &lport,
-	            &faddr, &fport);
+			"%d,%d,%d,%d,"
+			"%x,%hu,"
+			"%x,%hu",
+			&fd, &pid, &ipproto, &state,
+			&laddr, &lport,
+			&faddr, &fport);
 	if (rc != 8) {
 		bad_format(path, buf);
 		return -EPROTO;

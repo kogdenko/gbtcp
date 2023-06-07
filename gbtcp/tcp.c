@@ -1739,6 +1739,7 @@ tcp_into_ackq(struct sock *so)
 static void
 tcp_into_rstq(struct sock *so)
 {
+	gt_dbg("intorstq");
 	so->so_rst = 1;
 	tcp_into_sndq(so);
 }

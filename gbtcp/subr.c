@@ -276,7 +276,7 @@ strsplit(const char *str, const char *delim, struct iovec *iovec, int iovcnt)
 }
 
 char *
-strzcpy(char *dest, const char *src, size_t n)
+gt_strzcpy(char *dest, const char *src, size_t n)
 {
 	size_t i;
 
@@ -615,7 +615,7 @@ read_rss_key(const char *ifname, u_char *rss_key)
 	fd = rc;
 	memset(&ifr, 0, sizeof(ifr));
 	memset(&rss, 0, sizeof(rss));
-	strzcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
+	gt_strzcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 	rss.cmd = ETHTOOL_GRSSH;
 	ifr.ifr_data = (void *)&rss;
 	rc = sys_ioctl(fd, SIOCETHTOOL, (uintptr_t)&ifr);
@@ -663,7 +663,7 @@ read_rss_queue_num(const char *ifname)
 		goto err;
 	}
 	fd = rc;
-	strzcpy(req.ifr_name, ifname, sizeof(req.ifr_name));
+	gt_strzcpy(req.ifr_name, ifname, sizeof(req.ifr_name));
 	req.ifr_data = (void *)&cmd;
 	cmd.cmd = ETHTOOL_GCHANNELS;
 	rc = sys_ioctl(fd, SIOCETHTOOL, (uintptr_t)(&req));
