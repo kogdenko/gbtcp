@@ -51,7 +51,7 @@ static const char *
 netmap_dev_name(struct dev *dev, char *buf)
 {
 	if (dev->dev_queue_id == DEV_QUEUE_NONE) {
-		strzcpy(buf, dev->dev_ifname, NETMAP_DEV_NAMSIZ);
+		gt_strzcpy(buf, dev->dev_ifname, NETMAP_DEV_NAMSIZ);
 	} else if (dev->dev_queue_id == DEV_QUEUE_HOST) {
 		snprintf(buf, NETMAP_DEV_NAMSIZ, "%s%s^", NETMAP_PFX, dev->dev_ifname);
 	} else {

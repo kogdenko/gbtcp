@@ -776,7 +776,6 @@ eth_input(struct in_context *in)
 {
 	int rc;
 
-	gt_dbg("ethinput");
 	in->in_eh = (struct eth_hdr *)in->in_cur;
 	SHIFT(in, sizeof(struct eth_hdr));
 	switch (in->in_eh->eh_type) {
