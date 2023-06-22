@@ -7,12 +7,7 @@ from common import *
 
 
 class Database:
-	class Role(Enum):
-		RUNNER = "runner"
-		TESTER = "tester"
-
-
-	class Sample:
+	class Rep:
 		pass
 
 
@@ -29,22 +24,21 @@ class Database:
 	def create_core_tables(self):
 		columns = unique = ""		 
 		fields = [
-				["gbtcp_commit", "varchar(40)"],
-				["runner_os", "varchar(64)"],
-				["runner_app", "varchar(64)"],
-				["runner_mode", self.mysql_enum(Mode)],
-				["runner_transport", self.mysql_enum(Transport)],
-				["runner_driver", self.mysql_enum(Driver)],
-				["runner_cpu_model", "varchar(64)"],
-				["runner_cpu_mask", "varchar(128)"],
-				["tester_os", "varchar(64)"],
-				["tester_app", "varchar(64)"],
-				["tester_transport", self.mysql_enum(Transport)],
-				["tester_driver", self.mysql_enum(Driver)],
-				["tester_cpu_model", "varchar(64)"],
-				["tester_cpu_mask", "varchar(128)"],
+				["tag", "varchar(40)"],
 				["concurrency", "int"],
-				["connectivity", self.mysql_enum(Connectivity)],
+				["mode", self.mysql_enum(Mode)],
+				["local_os", "varchar(64)"],
+				["local_app", "varchar(64)"],
+				["local_transport", self.mysql_enum(Transport)],
+				["local_driver", self.mysql_enum(Driver)],
+				["local_cpu_model", "varchar(64)"],
+				["local_cpu_mask", "varchar(128)"],
+				["remote_os", "varchar(64)"],
+				["remote_app", "varchar(64)"],
+				["remote_transport", self.mysql_enum(Transport)],
+				["remote_driver", self.mysql_enum(Driver)],
+				["remote_cpu_model", "varchar(64)"],
+				["remote_cpu_mask", "varchar(128)"],
 			]
 
 		for field in fields:
@@ -61,12 +55,11 @@ class Database:
 				"unique key(%s)"
 				")" % (columns, unique))
 
-		self.execute("create table if not exists sample ("
+		self.execute("create table if not exists rep ("
 				"id int auto_increment,"
 				"test_id int,"
 				"duration int,"
-				"runner_cpu_percent int,"
-				"tester_cpu_percent int,"
+				"cpu_load int,"
 				"ipps int,"
 				"opps int,"
 				"cps int,"
@@ -133,90 +126,88 @@ class Database:
 		self.commit()
 		test_id = self.fetchid(sql_cursor)
 
-		sample_count = 0
-		samples = self.get_samples(test_id)
+		n_reps = 0
+		reps = self.get_reps(test_id)
 
-		for sample in samples:
-			if sample.duration >= duration:
-				sample_count += 1
+		for rep in reps:
+			if rep.duration >= duration:
+				n_reps += 1
 
-		return test_id, sample_count
+		return test_id, n_reps
 
 
 	def insert_into_test(self,
 			duration,
-			gbtcp_commit,
-			runner_os,
-			runner_app,
-			runner_mode,
-			runner_transport,
-			runner_driver,
-			runner_cpu_model,
-			runner_cpu_mask,
-			tester_os,
-			tester_app,
-			tester_transport,
-			tester_driver,
-			tester_cpu_model,
-			tester_cpu_mask,
+			tag,
 			concurrency,
-			connectivity):
+			mode,
+			local_os,
+			local_app,
+			local_transport,
+			local_driver,
+			local_cpu_model,
+			local_cpu_mask,
+			remote_os,
+			remote_app,
+			remote_transport,
+			remote_driver,
+			remote_cpu_model,
+			remote_cpu_mask):
 		fields = locals()
 		del fields['self']
 		del fields['duration']
 		return self.insert_into_test2(duration, fields)
 
 
-	def delete_sample(self, sample_id):
-		cmd = "delete from sample where id = %d" % sample_id
+	def delete_rep(self, rep_id):
+		cmd = "delete from rep where id = %d" % rep_id
 		self.execute(cmd)
 		self.commit()
 
 
-	def insert_into_sample(self, sample):
-		if not sample.test_id:
+	def insert_into_rep(self, rep):
+		if not rep.test_id:
 			# Dry run
-			sample.id = None
+			rep.id = None
 			return
 
-		samples = self.get_samples(sample.test_id)
-		while len(samples) > TEST_SAMPLE_MAX:
-			candidate = sample
-			for i in range(len(samples)):
-				if samples[i].duration < candidate.duration:
-					candidate = samples[i]
-			if candidate == sample:
+		reps = self.get_reps(rep.test_id)
+		while len(reps) > TEST_REPS_MAX:
+			candidate = rep
+			for i in range(len(reps)):
+				if reps[i].duration < candidate.duration:
+					candidate = reps[i]
+			if candidate == rep:
 				return 0
-			self.delete_sample(candidate.id)
-			samples.remove(candidate)
+			self.delete_rep(candidate.id)
+			reps.remove(candidate)
 
-		cmd = ("insert into sample "
-				"(test_id, duration, runner_cpu_percent, tester_cpu_percent, ipps, opps, cps) "
-				"values (%d, %d, %d, %d, 0, 0, 0)" %
-				(sample.test_id,
-				sample.duration,
-				sample.runner_cpu_percent,
-				sample.tester_cpu_percent))
+		cmd = ("insert into rep "
+				"(test_id, duration, cpu_load, ipps, opps, cps) "
+				"values (%d, %d, %d, 0, 0, 0)" %
+				(rep.test_id,
+				rep.duration,
+				rep.cpu_load,
+				))
 		sql_cursor = self.execute(cmd)
 		self.commit()
-		sample.id = sql_cursor.lastrowid
+		rep.id = sql_cursor.lastrowid
 
 
-	def fetch_sample(self, sql_cursor):
+	def fetch_rep(self, sql_cursor):
 		row = sql_cursor.fetchone()
 		if row == None:
 			return None
-		assert(len(row) == 8)
-		sample = Database.Sample()
-		sample.id = int(row[0])
-		sample.test_id = int(row[1])
-		sample.duration = int(row[2])
-		sample.runner_cpu_percent = int(row[3])
-		sample.tester_cpu_percent = int(row[4])
-		sample.ipps = int(row[5])
-		sample.opps = int(row[6])
-		sample.cps = int(row[7])
-		return sample
+		assert(len(row) == 7)
+		rep = Database.Rep()
+		rep.id = int(row[0])
+		rep.test_id = int(row[1])
+		rep.duration = int(row[2])
+		rep.cpu_load = int(row[3])
+		rep.ipps = int(row[4])
+		rep.opps = int(row[5])
+		rep.cps = int(row[6])
+		return rep
 
 
 	def fetch_test(self, sql_cursor):
@@ -226,7 +217,7 @@ class Database:
 		assert(len(row) == 10)
 		test = Database.Test()
 		test.id = int(row[0])
-		test.commit = row[1]
+		test.tag = row[1]
 		test.tester_id = int(row[2])
 		test.os_id = int(row[3])
 		test.app_id = int(row[4])
@@ -262,33 +253,21 @@ class Database:
 		return test;
 
 
-	def get_sample(self, sample_id):
-		cmd = "select * from sample where id=%d" % sample_id
+	def get_rep(self, rep_id):
+		cmd = "select * from rep where id=%d" % rep_id
 		sql_cursor = self.execute(cmd)
-		return self.fetch_sample(sql_cursor)
+		return self.fetch_rep(sql_cursor)
 
 
-	def get_samples(self, test_id):
-		cmd = "select * from sample where test_id=%d" % test_id
+	def get_reps(self, test_id):
+		cmd = "select * from rep where test_id=%d" % test_id
 		sql_cursor = self.execute(cmd)
-		samples = []
+		reps = []
 		while True:
-			sample = self.fetch_sample(sql_cursor)
-			if sample == None:
-				return samples
-			samples.append(sample)
-
-
-	# FIXME:
-	def get_table_id(self, table, name, ver):
-		cmd = ("insert into %s(name, ver) select \"%s\", \"%s\" "
-			"where not exists (select 1 from %s where name=\"%s\" and ver=\"%s\");"
-			% (table, name, ver, table, name, ver))
-		self.execute(cmd)
-		cmd = "select id from %s where name=\"%s\" and ver=\"%s\"" % (table, name, ver)
-		sql_cursor = self.execute(cmd)
-		self.sql_conn.commit()
-		return self.fetchid(sql_cursor)
+			rep = self.fetch_rep(sql_cursor)
+			if rep == None:
+				return reps
+			reps.append(rep)
 
 
 	def get_cpu_model_id(self, cpu_model_name, cpu_model_alias=None):
@@ -303,26 +282,15 @@ class Database:
 		return self.fetchid(sql_cursor)
 
 
-	# FIXME:
 	def set_cpu_model_alias(self, cpu_model_id, cpu_model_alias):
 		cmd = "update cpu_model set alias = '%s' where id = %d" % (cpu_model_alias, cpu_model_id)
 		self.execute(cmd)
 		self.sql_conn.commit();
 
 
-	# FIXME:
-	def get_app_id(self, name, ver):
-		return self.get_table_id("app", name, ver)
-
-
-	# FIXME:
-	def get_os_id(self, name, ver):
-		return self.get_table_id("os", name, ver)
-
-
 	def get_tests(self, commit):
 		tests = []
-		cmd = "select test from %s where gbtcp_commit='%s'" % commit
+		cmd = "select test from %s where tag='%s'" % commit
 		sql_cursor = self.execute(cmd)
 		while True:
 			test = self.fetch_test(sql_cursor)
@@ -332,26 +300,6 @@ class Database:
 		return tests
 
 
-	def get_os(self, os_id):
-		cmd = "select name, ver from os where id=%d" % os_id
-		sql_cursor = self.execute(cmd)
-		row = sql_cursor.fetchone()
-		if row == None:
-			return None, None
-		assert(len(row) == 2)
-		return row[0], row[1]
-
-
-	def get_app(self, app_id):
-		cmd = "select name, ver from app where id=%d" % app_id
-		sql_cursor = self.execute(cmd)
-		row = sql_cursor.fetchone()
-		if row == None:
-			return None, None
-		assert(len(row) == 2)
-		return row[0], row[1]
-
-   
 	def get_cpu_model(self, cpu_model_id = None):
 		cpu_models = []
 		if cpu_model_id == None:
@@ -396,12 +344,11 @@ class Database:
 
 
 	def create_netstat_table(self, table, columns):
-		cmd = ("create table if not exists %s (sample_id int, role %s" %
-			(table, self.mysql_enum(Database.Role)))
+		cmd = "create table if not exists %s (rep_id int, local int" %	table
 		for column in columns:
 			cmd += ", %s bigint" % column
-		cmd += (", primary key(sample_id, role),"
-			"foreign key(sample_id) references sample(id) on delete cascade")
+		cmd += (", primary key(rep_id, local),"
+			"foreign key(rep_id) references rep(id) on delete cascade")
 		cmd += ")"
 		self.execute(cmd)
 		self.commit()
@@ -427,12 +374,12 @@ class Database:
 		self.commit()
 
 
-	def insert_into_netstat(self, table, sample_id, role, entries):
+	def insert_into_netstat(self, table, rep_id, local, entries):
 		assert(entries)
-		cmd = "insert into %s (sample_id, role" % table
+		cmd = "insert into %s (rep_id, local" % table
 		for entry in entries:
 			cmd += ", %s" % entry.name
-		cmd += ") values (%d, \"%s\"" % (sample_id, role.value)
+		cmd += ") values (%d, \"%s\"" % (rep_id, local)
 		for entry in entries:
 			cmd += ", %d" % entry.value
 		cmd += ")"

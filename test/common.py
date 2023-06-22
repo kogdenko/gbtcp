@@ -21,9 +21,9 @@ from enum import Enum
  
 SUN_PATH = "/var/run/gbtcp-test.sock"
 
-TEST_SAMPLE_MIN = 1
-TEST_SAMPLE_MAX = 20
-TEST_SAMPLE_DEFAULT = 5
+TEST_REPS_MIN = 1
+TEST_REPS_MAX = 20
+TEST_REPS_DEFAULT = 5
 
 
 class Mode(Enum):
@@ -40,11 +40,6 @@ class Transport(Enum):
 class Driver(Enum):
 	VETH = "veth"
 	IXGBE = "ixgbe"
-
-
-class Connectivity(Enum):
-	LOCAL = "local"
-	DIRECT = "direct"
 
 
 class EnvVar(Enum):
@@ -452,14 +447,14 @@ def get_cpu_model():
 	raise RuntimeError("Cannot determine CPU model")
 
 
-def find_outliers(sample, std):
+def find_outliers(reps, std):
 	if std == None:
-		std = [numpy.std(sample)] * len(sample)
-	mean = numpy.mean(sample)
+		std = [numpy.std(reps)] * len(reps)
+	mean = numpy.mean(reps)
 	# 3 sigma method
 	outliers = []
-	for i in range(0, len(sample)):
-		if abs(mean - sample[i]) > 3 * std[i]:
+	for i in range(0, len(reps)):
+		if abs(mean - reps[i]) > 3 * std[i]:
 			outliers.append(i)
 	return outliers
 
@@ -598,21 +593,21 @@ class Repository:
 		self.config_path = self.path + "/test/gbtcp.conf"
 		self.interface = None
 
-		self.commit = None
+		self.tag = None
 		self.transports = [Transport.NATIVE]
 
 		cmd = self.path + "/bin/gbtcp-aio-helloworld -v"
 		_, out, _ = self.system(cmd)
 		for line in out.splitlines():
 			if line.startswith("gbtcp: "):
-				self.commit = line[7:]
+				self.tag = line[7:]
 			elif line.startswith("config: "):
 				if re.search("HAVE_XDP", line) != None:
 					self.transports.append(Transport.XDP)	 
 				if re.search("HAVE_NETMAP", line) != None:
 					self.transports.append(Transport.NETMAP)
 
-		if self.commit == None:
+		if self.tag == None:
 			raise RuntimeError("Invalid command output: '%s'" % cmd)
 
 

@@ -60,7 +60,7 @@ class Netstat:
 			return res
 
 
-		def insert_into_database(self, db, db_table_name, sample_id, role):
+		def insert_into_database(self, db, db_table_name, rep_id, local):
 			new_columns = []
 			if not db.is_table_exists(db_table_name):
 				for entry in self.entries:
@@ -73,7 +73,7 @@ class Netstat:
 						new_columns.append(entry.name)
 				db.alter_netstat_add_columns(db_table_name, new_columns)
 
-			db.insert_into_netstat(db_table_name, sample_id, role, self.entries)
+			db.insert_into_netstat(db_table_name, rep_id, local, self.entries)
 
 
 		def __str__(self):
@@ -100,10 +100,10 @@ class Netstat:
 			table.hide_zeroes = hide_zeroes
 
 
-	def insert_into_database(self, db, sample_id, role):
+	def insert_into_database(self, db, rep_id, local):
 		for table in self.tables:
 			table_name = "netstat_" + self.get_format() + "_" + table.name
-			table.insert_into_database(db, table_name, sample_id, role)
+			table.insert_into_database(db, table_name, rep_id, local)
 
 
 	def __init__(self):
@@ -407,13 +407,12 @@ def main():
 		ns.read(repo, args.pid)
 		if args.database:
 			db = Database("")
-			sample = Database.Sample()
-			sample.test_id = 4
-			sample.duration = 10
-			sample.tester_cpu_percent = 0
-			sample.runner_cpu_percent = 0
-			db.add_sample(sample)
-			ns.insert_into_database(db, sample.id, Database.Role.TESTER)
+			rep = Database.Rep()
+			rep.test_id = 4
+			rep.duration = 10
+			rep.cpu_load = 0
+			db.insert_into_rep(rep)
+			ns.insert_into_database(db, rep.id, True)
 		print(ns)
 
 	return 0

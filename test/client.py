@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: GPL-2.0
 
 # TODO:
-# 1) Client interface: Gold, Silver, Bronze
-# 2) Transport
-# 3) Database
-# 4) Analayzer
+# 1) Client interface: Gold, Silver, Bronze (2)
+# 2) Transport (1)
+# 4) Analayzer (3)
 import os
 import sys
 import time
@@ -37,6 +36,7 @@ COOLING_MIN = 0
 COOLING_MAX = 3*60
 COOLING_DEFAULT = 20
 
+
 def get_peer_mode(mode):
 	if mode == Mode.SERVER:
 		return Mode.CLIENT
@@ -60,7 +60,7 @@ def print_report(test_id, rep, app, concurrency, cpu_load):
 
 	if rep == None:
 		s += "Error"
-	elif rep.runner_cpu_percent < 98:
+	elif rep.cpu_load < 98:
 		s += "Failed"
 	else:
 		s += "Passed"
@@ -141,8 +141,8 @@ class Client:
 				help="")
 
 		ap.add_argument("--sample", metavar="count", type=int,
-				choices=range(TEST_SAMPLE_MIN, TEST_SAMPLE_MAX),
-				default=TEST_SAMPLE_DEFAULT,
+				choices=range(TEST_REPS_MIN, TEST_REPS_MAX),
+				default=TEST_REPS_DEFAULT,
 				help="")
 
 		ap.add_argument("--cooling", metavar="seconds", type=int,
@@ -260,11 +260,10 @@ class Client:
 			recv_lines(self.sock)
 			local.stop()
 
-		rep = Database.Sample()
+		rep = Database.Rep()
 		rep.test_id = test_id
 		rep.duration = self.duration
-		rep.runner_cpu_percent = int(numpy.mean(top.load))
-		rep.tester_cpu_percent = 0
+		rep.cpu_load = int(numpy.mean(top.load))
 
 		lines = self.recv_reply()
 		rep.ipps = int(lines[0])
@@ -277,13 +276,13 @@ class Client:
 		self.start_cooling()
 
 		if rep != None:
-			self.database.insert_into_sample(rep)
-			local_netstat.insert_into_database(self.database, rep.id, Database.Role.RUNNER)
-			remote_netstat.insert_into_database(self.database, rep.id, Database.Role.TESTER) 
+			self.database.insert_into_rep(rep)
+			local_netstat.insert_into_database(self.database, rep.id, True)
+			remote_netstat.insert_into_database(self.database, rep.id, False) 
 
 		print_report(test_id, rep, local, concurrency, top.load)
 
-		if rep == None and rep.runner_cpu_percent < 98:
+		if rep == None and rep.cpu_load < 98:
 			self.tests_failed += 1
 		else:
 			self.tests_passed += 1
@@ -292,34 +291,34 @@ class Client:
 	def run_application(self, mode, local, remote, cpus, concurrency):
 		if self.dry_run:
 			test_id = None
-			sample_count = 0
+			n_reps = 0
 		else:
 			if local.transport == Transport.NATIVE:
-				commit = ""
+				tag = ""
 			else:
-				commit = self.repo.commit
+				tag = self.repo.tag
 
 			cpu_mask = make_cpu_mask(cpus)
-			test_id, sample_count = self.database.insert_into_test(
+			test_id, n_reps = self.database.insert_into_test(
 					self.duration,
-					commit,
+					tag,
+					concurrency,
+					mode.value,
 					self.os,
 					local.get_name() + "-" + local.get_version(self.repo),
-					mode.value,
 					local.transport.value,
 					self.interface.driver.value,
 					self.cpu_model,
 					cpu_mask,
-					"Osxxx",
-					"con-genxxx",
+					"Osxxx", # ?????
+					remote,
 					Transport.NETMAP.value,
 					Driver.IXGBE.value,
-					"ryzenxxxx",
-					"000010000xxxx",
-					concurrency,
-					Connectivity.LOCAL.value)
+					"ryzenxxxx", # ?????
+					"000010000xxxx", # ??????
+				)
 
-		for j in range (0, self.sample - sample_count):
+		for j in range (0, self.sample - n_reps):
 			self.interface.set_channels(cpus)
 			self.do_rep(mode, local, remote, test_id, concurrency, cpus)
 
@@ -327,7 +326,6 @@ class Client:
 	def run_client_server(self, mode, local, remote, n_cpus, concurrency):
 		local = application.create(local, self.transport)
 		self.run_application(mode, local, remote, self.cpus[0:n_cpus], concurrency)
-
 
 
 this = Client()

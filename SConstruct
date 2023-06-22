@@ -39,19 +39,16 @@ def system(cmd, failure_tollerance=False):
 
 	return rc, out, err
 
-def get_gbtcp_version():
-	if True:
-		cmd = "git describe --tags --always"
-		rc, out, _ = system(cmd)
-		if rc != 0:
-			die("Cannot extract gbtcp version")
-		return out.strip()
-	else:
-		cmd = "git log -1 --format=%H"
-		commit = system(cmd)[1].strip()
-		if len(commit) != 40:
-			die("Cannot extract gbtcp version")
-		return commit
+def get_gbtcp_git_tag():
+	cmd = "git describe --tags --always"
+	rc, out, _ = system(cmd)
+	assert(rc == 0)
+	return out.strip()
+
+	#cmd = "git log -1 --format=%H"
+	#commit = system(cmd)[1].strip()
+	#assert(len(commit) == 40)
+	#return commit
 
 #def add_target(target, source, env):
 #	 env.Append(CPPPATH = ['.'])
@@ -59,14 +56,14 @@ def get_gbtcp_version():
 #	 return target, source
 
 def configure(target, source, env):
-	version = get_gbtcp_version()
+	git_tag = get_gbtcp_git_tag()
 
 	f = open(str(target[0]), 'w')
 	s = ""
 	s += "#ifndef GBTCP_CONFIG_H\n"
 	s += "#define GBTCP_CONFIG_H\n"
 	s += "\n"
-	s += ("#define GT_VERSION \"%s\"\n" % version)
+	s += ("#define GT_GIT_TAG \"%s\"\n" % git_tag)
 	if HAVE_XDP:
 		s += "#define GT_HAVE_XDP\n"
 	if HAVE_NETMAP:

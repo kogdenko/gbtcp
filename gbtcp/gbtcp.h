@@ -209,7 +209,7 @@ int gt_aio_set(int, gt_aio_f) GT_EXPORT;
 ssize_t gt_aio_recvfrom(int, struct iovec *, int, struct sockaddr *, socklen_t *) GT_EXPORT;
 ssize_t gt_recvdrain(int, size_t) GT_EXPORT;
 int gt_sysctl(const char *, char *, const char *) GT_EXPORT;
-int gt_get_build_version(char *, int) GT_EXPORT;
+int gt_get_git_tag(char *, int) GT_EXPORT;
 int gt_get_build_config(char *, int) GT_EXPORT;
 
 #ifdef __linux__
