@@ -28,10 +28,12 @@ class Network:
 	   
 
 	def set_ip_network(self, ip_network):
-		if self.ip_network != ip_network:
-			self.ip_network = ip_network
-			self.first_client, *_, self.server = self.ip_network.hosts()
-			self.dirty = True
+		if self.ip_network == ip_network:
+			return
+
+		self.ip_network = ip_network
+		self.first_client, *_, self.last_client, self.server = self.ip_network.hosts()
+		self.dirty = True
 
 
 	def set_onoff_configure_routing(self, onoff):

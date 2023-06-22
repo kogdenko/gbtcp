@@ -149,7 +149,7 @@ class CongenIfstat(Ifstat):
 		sock.connect(sun_path)
 		send_string(sock, "i")
 
-		lines = recv_lines(sock)
+		lines = recv_lines(sock)[1]
 		return self.parse(None, lines)
 
 

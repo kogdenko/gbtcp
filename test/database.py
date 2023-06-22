@@ -267,6 +267,7 @@ class Database:
 		sql_cursor = self.execute(cmd)
 		return self.fetch_sample(sql_cursor)
 
+
 	def get_samples(self, test_id):
 		cmd = "select * from sample where test_id=%d" % test_id
 		sql_cursor = self.execute(cmd)

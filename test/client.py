@@ -1,5 +1,11 @@
 #!/usr/bin/python
 # SPDX-License-Identifier: GPL-2.0
+
+# TODO:
+# 1) Client interface: Gold, Silver, Bronze
+# 2) Transport
+# 3) Database
+# 4) Analayzer
 import os
 import sys
 import time
@@ -27,32 +33,34 @@ NGINX = application.nginx.get_name()
 CON_GEN = application.con_gen.get_name()
 EPOLL_HELLOWORLD = application.gbtcp_epoll_helloworld.get_name()
 
-
 COOLING_MIN = 0
 COOLING_MAX = 3*60
 COOLING_DEFAULT = 20
 
+def get_peer_mode(mode):
+	if mode == Mode.SERVER:
+		return Mode.CLIENT
+	else:
+		return Mode.SERVER
 
-def print_report(test_id, sample, app, concurrency, cpu_usage):
+
+def print_report(test_id, rep, app, concurrency, cpu_load):
 	s = ""
-	if sample != None:
-		s += ("%d/%d: " % (test_id, sample.id))
+	if rep != None:
+		s += ("%d/%d: " % (test_id, rep.id))
 
 	s += ("%s:%s: c=%d, CPU=%s" %
-		(app.transport.value, app.get_name(), concurrency, str(cpu_usage)))
+		(app.transport.value, app.get_name(), concurrency, str(cpu_load)))
 
-#	 if sample != None:
-#		 pps = sample.results[Database.Sample.IPPS] + sample.results[Database.Sample.OPPS]
-#		 s += ", %.2f mpps" % (pps/1000000)
-#		 if False:
-#			 rxmtps = sample.results[Database.Sample.RXMTPS]
-#			 s += ", %.2f rxmtps" % (rxmtps/1000000)
+	if rep != None:
+		 pps = rep.ipps + rep.opps
+		 s += ", %.2f mpps" % (pps/1000000)
 
 	s += " ... "
 
-	if sample == None:
+	if rep == None:
 		s += "Error"
-	elif sample.runner_cpu_percent < 98:
+	elif rep.runner_cpu_percent < 98:
 		s += "Failed"
 	else:
 		s += "Passed"
@@ -60,8 +68,7 @@ def print_report(test_id, sample, app, concurrency, cpu_usage):
 	print_log(s, True)
 
 
-
-class Simple:
+class CheckTest:
 	def __init__(self, client, name):
 		self.client = client
 		self.name = name
@@ -109,10 +116,10 @@ class Client:
 					#Client.add_test(tests, Tcpkt(f))
 					pass
 				else:
-					Client.add_test(tests, Simple(self, f))
+					Client.add_test(tests, CheckTest(self, f))
 
 		# Assume that last test ended at least 10 seconds ago
-		self.stop_ms = milliseconds() - 10000
+		self.start_cooling_time = milliseconds() - 10000
 
 		ap = argparse.ArgumentParser()
 
@@ -155,11 +162,6 @@ class Client:
 				choices = [ k for (k, v) in tests.items() ],
 				help="")
 
-#		 application_choices = [ a.get_name() for a in Application.registered() ]
-#		 ap.add_argument("--application", metavar="name", type=str,
-#				 choices = application_choices,
-#				 help="")
-
 		self.args = ap.parse_args()
 		self.concurrency = self.args.concurrency
 		self.dry_run = self.args.dry_run
@@ -171,11 +173,6 @@ class Client:
 		self.network.set_interface(self.interface)
 		self.network.set_ip_network(self.args.network)
 
-#		 self.applications = []
-#		 if self.args.application:
-#			 app = Application.create(self.args.application, self.repo, self.network,
-#					 Mode.SERVER, self.args.transport)
-#			 self.applications.append(app)
 
 		for cpu in self.cpus:
 			set_cpu_scaling_governor(cpu)
@@ -201,95 +198,103 @@ class Client:
 		self.sock.settimeout(10)
 
 		self.send_hello()
+
  
+	def start_cooling(self):
+		self.start_cooling_time = milliseconds()
+
 
 	def send_hello(self):			   
 		hello = make_hello(self.network)
 		send_string(self.sock, hello)
-		lines = recv_lines(self.sock)
-		if len(lines) < 2:
-			raise RuntimeError("Bad hello message")
-
-		args = lines[1].strip().split()
-		process_hello(self.network, args)
-
-
-	def stop(self):
-		self.stop_ms = milliseconds()
+		lines = recv_lines(self.sock)[1]
+		process_hello(self.network, lines)
 
 
 	def cooling(self):
-		ms = milliseconds() - self.stop_ms
+		ms = milliseconds() - self.start_cooling_time
 		if ms < self.args.cooling * 1000:
 			t = int(math.ceil((self.args.cooling * 1000 - ms) / 1000))
 			time.sleep(t)
 
 
-	def send_req(self, concurrency):
-		req = ("run\n"
-				"--duration %d "
-				"--concurrency %d "
-				"--application con-gen" % (
-				self.duration,
-				concurrency))
+	def send_req(self, mode, remote, concurrency):
+		req = "run\n"
+		req += str(self.duration) + "\n"
+		req += str(concurrency) + "\n"
+		req += remote + "\n"
+		req += mode.value + "\n"
+		req += "\n"
 		send_string(self.sock, req)
 
 
 	def recv_reply(self):
-		return recv_lines(self.sock)
+		return recv_lines(self.sock)[1]
 
-	def run_sample(self, app, test_id, mode, concurrency, cpus):
-		app.start(self.repo, self.network, mode, concurrency, cpus)
 
-		# Wait interface goes up
-		time.sleep(2)
+	def do_rep(self, mode, local, remote, test_id, concurrency, cpus):
 		self.cooling()
-		self.send_req(concurrency)
 
-		top = Top(cpus, self.duration)
+		if mode == Mode.SERVER:
+			local.start(self.repo, self.network, mode, concurrency, cpus)
+			# Wait until client network interface is up
+			time.sleep(2)
+
+		self.send_req(get_peer_mode(mode), remote, concurrency)
+
+		if mode == Mode.CLIENT:
+			# Wait until server network interface is up
+			time.sleep(2)
+			local.start(self.repo, self.network, mode, concurrency, cpus)
+
+		time.sleep(2)
+		top = Top(cpus, self.duration - 2)
 		top.join()
 
+		if mode == Mode.CLIENT:
+			local.stop()
+			send_string(self.sock, "ok")
+			recv_lines(self.sock)
+		else:
+			send_string(self.sock, "ok")
+			recv_lines(self.sock)
+			local.stop()
+
+		rep = Database.Sample()
+		rep.test_id = test_id
+		rep.duration = self.duration
+		rep.runner_cpu_percent = int(numpy.mean(top.load))
+		rep.tester_cpu_percent = 0
+
 		lines = self.recv_reply()
-		remote_netstat = netstat.create(lines[0])
-		remote_netstat.create_from_lines(lines[1:])
+		rep.ipps = int(lines[0])
+		rep.opps = int(lines[1])
+		remote_netstat = netstat.create(lines[2])
+		remote_netstat.create_from_lines(lines[3:])
 
-#		 print(lines[1:])
-#		 print("--------------------------------------------------")
-#		 print(remote_netstat)
-#		 print("--------------------------------------------------")
+		local_netstat = local.netstat
 
+		self.start_cooling()
 
-		app.stop()
-		local_netstat = app.netstat
+		if rep != None:
+			self.database.insert_into_sample(rep)
+			local_netstat.insert_into_database(self.database, rep.id, Database.Role.RUNNER)
+			remote_netstat.insert_into_database(self.database, rep.id, Database.Role.TESTER) 
 
-		self.stop()
+		print_report(test_id, rep, local, concurrency, top.load)
 
-		sample = Database.Sample()
-		sample.test_id = test_id
-		sample.duration = self.duration
-		sample.runner_cpu_percent = int(numpy.mean(top.usage))
-		sample.tester_cpu_percent = 0
-
-		if sample != None:
-			self.database.insert_into_sample(sample)
-			local_netstat.insert_into_database(self.database, sample.id, Database.Role.RUNNER)
-			remote_netstat.insert_into_database(self.database, sample.id, Database.Role.TESTER) 
-
-		print_report(test_id, sample, app, concurrency, top.usage)
-
-		if sample == None and sample.runner_cpu_percent < 98:
+		if rep == None and rep.runner_cpu_percent < 98:
 			self.tests_failed += 1
 		else:
 			self.tests_passed += 1
 
 
-
-	def run_application(self, app, mode, cpus, concurrency):
+	def run_application(self, mode, local, remote, cpus, concurrency):
 		if self.dry_run:
 			test_id = None
 			sample_count = 0
 		else:
-			if app.transport == Transport.NATIVE:
+			if local.transport == Transport.NATIVE:
 				commit = ""
 			else:
 				commit = self.repo.commit
@@ -299,9 +304,9 @@ class Client:
 					self.duration,
 					commit,
 					self.os,
-					app.get_name() + "-" + app.get_version(self.repo),
+					local.get_name() + "-" + local.get_version(self.repo),
 					mode.value,
-					app.transport.value,
+					local.transport.value,
 					self.interface.driver.value,
 					self.cpu_model,
 					cpu_mask,
@@ -316,14 +321,15 @@ class Client:
 
 		for j in range (0, self.sample - sample_count):
 			self.interface.set_channels(cpus)
-			self.run_sample(app, test_id, mode, concurrency, cpus)
+			self.do_rep(mode, local, remote, test_id, concurrency, cpus)
 
 
 	def run_client_server(self, mode, local, remote, n_cpus, concurrency):
 		local = application.create(local, self.transport)
-		self.run_application(local, mode, self.cpus[0:n_cpus], concurrency)
+		self.run_application(mode, local, remote, self.cpus[0:n_cpus], concurrency)
 
 
 
 this = Client()
-this.run_client_server(Mode.SERVER, EPOLL_HELLOWORLD, CON_GEN, 2, 1000)
+#this.run_client_server(Mode.SERVER, EPOLL_HELLOWORLD, CON_GEN, 2, 1000)
+this.run_client_server(Mode.CLIENT, CON_GEN, CON_GEN, 2, 1000)

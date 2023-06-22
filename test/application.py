@@ -102,6 +102,8 @@ class nginx(Application, Application.Registered):
 
 
 	def start(self, repo, network, mode, concurrency, cpus):
+		assert(mode == Mode.SERVER)
+
 		worker_cpu_affinity = ""
 
 		n = len(cpus)
@@ -249,7 +251,20 @@ class con_gen(Application, Application.Registered):
 				cmd += " -a %d" % cpus[i]
 				cmd += " -s %s-%s" % (network.clients[i][0], network.clients[i][1])
 		else:
-			assert(0)
+			cmd += (" -L -s %s -d %s-%s -c %d" % (
+					network.server,
+					network.first_client, network.last_client,
+					concurrency * 2,
+				))
+
+			n_cpus = len(cpus)
+			for i in range(n_cpus):
+				concurrency_per_cpu = concurrency / n_cpus
+				if i != 0:
+					cmd += " --"
+				cmd += " -i %s-%d" % (network.interface.name, i)
+				cmd += " -a %d" % cpus[i]
+
 
 		self.proc = start_process(cmd)
 		self.after_start(repo)

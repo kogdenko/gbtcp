@@ -11,27 +11,10 @@ from network import Network
 import application
 
 
-g_debug = True
-g_repo = Repository()
-
-
 def print_err(exc, s):
 	print_log(s + " ('" + str(exc) + "')")
 	traceback.print_exception(exc)
 
-
-def add_req_arguments(ap):
-	ap.add_argument("--application", metavar="name", choices=["con-gen", "epoll"],
-			required=True,
-			help = "The application to be executed by tester")
-
-	argparse_add_duration(ap)
-
-	ap.add_argument("--concurrency", metavar="num", type=int,
-			choices=range(1, CONCURRENCY_MAX),
-			required=True,
-			help="Number of parallel connections")
- 
 
 def print_report(app, top, rc):
 	report = "%s: CPU=%s ... " % (app.get_name(), top)
@@ -42,76 +25,74 @@ def print_report(app, top, rc):
 	print_log(report)
 
 
-class Tester:
+class Server:
+	def process_req(self, lines):
+		duration = int(lines[1])
+		concurrency = int(lines[2])
+		local = lines[3]
+		mode = Mode(lines[4])
 
-	def process_req(self, args):
-		ap = ArgumentParser()
-		add_req_arguments(ap)
-		req = ap.parse_args(args)
+		app = application.create(local)
+		app.start(self.repo, self.network, mode, concurrency, self.cpus)
+	
+		time.sleep(3)	
+		top = Top(self.cpus, duration - 4)
 
-		app = application.con_gen()
-		app.start(g_repo, self.network, Mode.CLIENT, req.concurrency, self.cpus)
-
-		top = Top(self.cpus, req.duration)
-
-		time.sleep(1)
 		ifstat_old = None
-		
 		ipps = []
-		opp
+		opps = []
 				
-		for _ in range(2, req.duration - 1):
-			time.sleep(1)
+		while True:
+			timedout = recv_lines(self.sock, 1)[0]
+			if not timedout:
+				break
 			ms_new = milliseconds()
 			ifstat_new = app.create_ifstat()
 			ifstat_new.read(app)
 			if ifstat_old:
 				ifstat_rate = (ifstat_new - ifstat_old) / ((ms_new - ms_old) / 1000)
-				pps.append(ifstat_rate.ipackets + ifstat_rate.opackets)
+				ipps.append(ifstat_rate.ipackets)
+				opps.append(ifstat_rate.opackets)
 			ms_old = ms_new
 			ifstat_old = ifstat_new
 
 		top.join()
 
-		rc, _ = app.stop()
-		print_report(app, top.usage, rc)
+		rc = app.stop()[0]
+		send_string(self.sock, "ok")
+
+		print_report(app, top.load, rc)
 		if rc == 0:
-			reply = app.netstat.get_name() + "\n"
+			reply = ""
+			reply += str(int(numpy.mean(ipps))) + "\n"
+			reply += str(int(numpy.mean(opps))) + "\n" 
+			reply += app.netstat.get_name() + "\n"
 			reply += repr(app.netstat)
-			reply += "\n"
 			return reply
 		else:
 			return None
 
 	
-	def process_client(self, sock):
+	def process_client(self):
 		try:
 			while True:
-				lines = recv_lines(sock)
-				if not lines:
-					break
-
-				if len(lines) < 2:
-					break;
+				lines = recv_lines(self.sock)[1]
 
 				header = lines[0].lower()
-				args = lines[1].strip().split()
 
 				if header == 'hello':
-					process_hello(self.network, args) 
+					process_hello(self.network, lines) 
 					reply = make_hello(self.network)
-				elif header == 'run' and len(lines) > 1:
-					reply = self.process_req(args)
+				elif header == 'run':
+					reply = self.process_req(lines)
 				else:
 					break
 
 				if reply == None:
 					break
-				send_string(sock, reply)
-		except socket.error as e:
-			print_err(e, "Connection failed")
+				send_string(self.sock, reply)
 		except Exception as e:
-			print_err(e, "Internal error")
+			print_err(e, "Client message caused error")
 
 
 	def loop(self):
@@ -130,9 +111,9 @@ class Tester:
 		listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
 		while True:
-			sock, _ = listen_sock.accept()
-			self.process_client(sock)
-			sock.close()
+			self.sock, _ = listen_sock.accept()
+			self.process_client()
+			self.sock.close()
 
 
 	def __init__(self):
@@ -142,15 +123,17 @@ class Tester:
 		argparse_add_cpu(ap)
 
 		ap.add_argument("--listen", metavar="ip", type=argparse_ip_address,
-				help="")
+				help="Listen for incomming test commands")
 
 		ap.add_argument("-i", metavar="interface", required=True, type=argparse_interface,
-				help="")
+				help="Interface direct connected to test client")
 
 		self.args = ap.parse_args()
 		self.cpus = self.args.cpu
 		self.network = Network()
 		self.network.set_interface(self.args.i)
+
+		self.repo = Repository()
 
 		for cpu in self.cpus:
 			set_cpu_scaling_governor(cpu)
@@ -162,13 +145,12 @@ class Tester:
 
 
 def main():
-	tester = Tester()
-	tester.loop()
+	server = Server()
+	server.loop()
 
 
 if __name__ == "__main__":
 	try:
 		main()
 	except KeyboardInterrupt as exc:
-		print_err(exc, "Keyboard interrupt")
 		pass

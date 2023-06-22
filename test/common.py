@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import time
+import select
 import psutil
 import platform
 import argparse
@@ -18,7 +19,7 @@ import numpy
 from enum import Enum
 
  
-SUN_PATH = "/var/run/gbtcp-tester.sock"
+SUN_PATH = "/var/run/gbtcp-test.sock"
 
 TEST_SAMPLE_MIN = 1
 TEST_SAMPLE_MAX = 20
@@ -192,32 +193,16 @@ def argparse_add_duration(ap, default=None):
 			help="Test duration in seconds")
 
 
-def add_hello_arguments(ap):
-	ap.add_argument("--mac", metavar="mac", type=mac_address.argparse,
-			required=True,
-			help="Destination MAC address in colon notation (e.g., aa:bb:cc:dd:ee:00)")
-
-	ap.add_argument("--network", metavar="ip", type=argparse_ip_network,
-			required=True,
-			help=("Private network for testing"))
-
-
 def make_hello(network):
-	hello = ("hello\n"
-			"--mac %s "
-			"--network %s" % ( 
-			network.interface.mac,
-			network.ip_network))
+	hello = "hello\n"
+	hello +=  str(network.interface.mac) + "\n"
+	hello +=  str(network.ip_network) + "\n"
 	return hello
  
 
-def process_hello(network, args):
-	ap = ArgumentParser()
-	add_hello_arguments(ap)
-	hello = ap.parse_args(args)
-
-	network.set_ip_network(hello.network) 
-	network.set_gw_mac(hello.mac)
+def process_hello(network, lines):
+	network.set_gw_mac(mac_address.create(lines[1]))
+	network.set_ip_network(ipaddress.ip_network(lines[2]))
 
 
 def upper_pow2_32(x):
@@ -394,13 +379,38 @@ def get_interface_driver(name):
 	raise RuntimeError("invalid ethtool driver: '%s'" % name )
 
 
-def recv_lines(sock):
+
+def recv_timed(sock, bufsize, timeout=None):
+	if timeout == None:
+		return False, sock.recv(bufsize)
+
+	blocking = sock.getblocking()
+	sock.setblocking(0)
+
+	ready = select.select([sock], [], [], timeout)
+	if ready[0]:
+		timedout = False
+		data = sock.recv(bufsize)
+	else:
+		timedout = True
+		data = None
+
+	sock.setblocking(blocking)
+	return timedout, data
+
+
+def recv_lines(sock, timeout=None):
 	message = None
 	while True:
-		s = sock.recv(1024).decode('utf-8')
+		timedout, data = recv_timed(sock, 1024, timeout)
+		if data == None:
+			s = None
+		else:
+			s = data.decode('utf-8')
+
 		if not s:
 			if not message:
-				return None
+				return timedout, None
 			break
 		if not message:
 			message = s
@@ -412,7 +422,8 @@ def recv_lines(sock):
 	lines = message.splitlines()
 	if '' in lines:
 		lines.remove('')
-	return lines
+
+	return timedout, lines
 
 
 def send_string(sock, s):
@@ -560,17 +571,15 @@ class Top:
 	def __init__(self, cpus, duration):
 		self.cpus = cpus
 		self.duration = duration
-		assert(self.duration > 4)
 		self.thread = threading.Thread(name="top", target=self.measure)
 		self.thread.start()
 
+
 	def measure(self):
-		# Skip first two seconds
-		time.sleep(2)
-		percent = psutil.cpu_percent(self.duration - 3, True)
-		self.usage = []
+		percent = psutil.cpu_percent(self.duration, True)
+		self.load = []
 		for cpu in self.cpus:
-			self.usage.append(percent[cpu])
+			self.load.append(percent[cpu])
 
 
 	def join(self):

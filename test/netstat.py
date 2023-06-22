@@ -375,7 +375,7 @@ class CongenNetstat(BSDNetstat, Netstat.Registered):
 		#send_string(sock, "s")
 		sock.send(("s\n").encode('utf-8'))
 
-		self.parse(recv_lines(sock))
+		self.parse(recv_lines(sock)[1])
 
 
 def main():
