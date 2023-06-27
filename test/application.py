@@ -1,5 +1,6 @@
 #!/usr/bin/python
 # SPDX-License-Identifier: GPL-2.0
+# TODO: Read linux netstat right after start
 import platform
 import re
 import signal
@@ -15,7 +16,7 @@ def parse_version(s):
 	return m.group(0)
 
 
-def create(name, transport=None):
+def create(name, transport):
 	for cls in Application.registered():
 		if name == cls.get_name():
 			return cls(transport)
@@ -32,7 +33,7 @@ class Application:
 		return self.proc.pid
 
 
-	def __init__(self, transport=None):
+	def __init__(self, transport):
 		self.transport = transport
 		self.version = None
 		self.repo = None
@@ -235,6 +236,15 @@ class con_gen(Application, Application.Registered):
 		cmd = self.get_name()
 		cmd += (" --print-report 0 -v -S %s -D %s -N -p 80" %
 				(network.interface.mac, str(network.gw_mac)))
+
+		if self.transport == Transport.NETMAP:
+			cmd += " --netmap"
+		elif self.transport == Transport.XDP:
+			cmd += " --xdp"
+		elif self.transport == Transport.NATIVE:
+			cmd += " --pcap"
+		else:
+			assert(0)
 
 		if mode == Mode.CLIENT:
 			cmd += " -d %s" % network.server

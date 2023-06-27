@@ -32,6 +32,7 @@ class Mode(Enum):
 
 
 class Transport(Enum):
+	DEFAULT = "default"
 	NATIVE = "native"
 	NETMAP = "netmap"
 	XDP = "xdp"
@@ -69,6 +70,10 @@ def print_log(s, to_stdout=False):
 def dbg(*args):
 	traceback.print_stack(limit=2)
 	print(args)
+
+
+def get_os():
+	return platform.system() + "-" + platform.release()
 
 
 class ArgumentParser(argparse.ArgumentParser):
@@ -164,11 +169,6 @@ def argparse_interface(s):
 	return interface
 
 
-def argparse_add_reload_netmap(ap):
-	ap.add_argument("--reload-netmap", metavar='path', type=argparse_dir,
-			help="Reload required netmap modules from specified directory")
-
-
 def argparse_add_cpu(ap):
 	ap.add_argument("--cpu", metavar="cpu-id", type=int, nargs='+',
 			action=UniqueAppendAction,
@@ -188,16 +188,25 @@ def argparse_add_duration(ap, default=None):
 			help="Test duration in seconds")
 
 
-def make_hello(network):
+def make_hello(network, cpus):
 	hello = "hello\n"
-	hello +=  str(network.interface.mac) + "\n"
-	hello +=  str(network.ip_network) + "\n"
+	hello += str(network.interface.mac) + "\n"
+	hello += str(network.ip_network) + "\n"
+	hello += get_os() + "\n"
+	hello += network.interface.driver.value + "\n"
+	hello += get_cpu_model() + "\n"
+	hello += make_cpu_mask(cpus) + "\n"
 	return hello
  
 
 def process_hello(network, lines):
 	network.set_gw_mac(mac_address.create(lines[1]))
 	network.set_ip_network(ipaddress.ip_network(lines[2]))
+	os = lines[3]
+	driver = lines[4]
+	cpu_model = lines[5]
+	cpu_mask  = lines[6]
+	return os, driver, cpu_model, cpu_mask
 
 
 def upper_pow2_32(x):
@@ -551,6 +560,7 @@ class ixgbe(Interface):
 class veth(Interface):
 	driver = Driver.VETH
 
+
 	def __init__(self, name):
 		Interface.__init__(self, name)
 		system("ethtool -K %s rx off tx off" % name)
@@ -558,9 +568,11 @@ class veth(Interface):
 		system("ethtool -N %s rx-flow-hash tcp4 sdfn" % name)
 		system("ethtool -N %s rx-flow-hash udp4 sdfn" % name)
 
+
 	def set_channels(self, cpus):
 		if len(cpus) != 1:
 			raise RuntimeError("veth interface doesn't support multiqueue mode")
+
 
 class Top:
 	def __init__(self, cpus, duration):
@@ -594,18 +606,12 @@ class Repository:
 		self.interface = None
 
 		self.tag = None
-		self.transports = [Transport.NATIVE]
 
 		cmd = self.path + "/bin/gbtcp-aio-helloworld -v"
 		_, out, _ = self.system(cmd)
 		for line in out.splitlines():
 			if line.startswith("gbtcp: "):
 				self.tag = line[7:]
-			elif line.startswith("config: "):
-				if re.search("HAVE_XDP", line) != None:
-					self.transports.append(Transport.XDP)	 
-				if re.search("HAVE_NETMAP", line) != None:
-					self.transports.append(Transport.NETMAP)
 
 		if self.tag == None:
 			raise RuntimeError("Invalid command output: '%s'" % cmd)
@@ -615,11 +621,10 @@ class Repository:
 		self.interface = interface
 
 
-	def write_config(self, network, mode, transport=None):
+	def write_config(self, network, mode, transport):
 		assert(self.interface)
 		config = ""
-		if transport:
-			config += "dev.transport=%s\n" % transport.value
+		config += "dev.transport=%s\n" % transport.value
 		config += "route.if.add=%s\n" % self.interface.name
 		if mode == Mode.CLIENT:
 			config += "arp.add=%s,%s\n" % (network.server, network.gw_mac)

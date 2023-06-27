@@ -2,22 +2,17 @@
 # SPDX-License-Identifier: GPL-2.0
 
 # TODO:
-# 1) Client interface: Gold, Silver, Bronze (2)
-# 2) Transport (1)
-# 4) Analayzer (3)
+# - Client interface: Gold, Silver, Bronze (2)
+# - Analayzer (3)
+# - Logs
 import os
 import sys
 import time
 import math
-import atexit
 import errno
 import getopt
 import socket
 import subprocess
-import platform
-import importlib
-import multiprocessing
-import re
 
 import numpy
 
@@ -106,7 +101,7 @@ class Client:
 		self.tests_failed = 0
 		self.repo = Repository()
 
-		self.os= platform.system() + "-" + platform.release()
+		self.os = get_os()
 		self.cpu_model = get_cpu_model()
 
 		tests = {}
@@ -123,7 +118,6 @@ class Client:
 
 		ap = argparse.ArgumentParser()
 
-		argparse_add_reload_netmap(ap)
 		argparse_add_cpu(ap);
 		argparse_add_duration(ap, TEST_DURATION_DEFAULT)
 
@@ -155,14 +149,12 @@ class Client:
 				default=[CONCURRENCY_DEFAULT],
 				help="Number of parallel connections")
 
-		ap.add_argument("--transport", metavar="name", type=Transport,
-				help="")
-
 		ap.add_argument("--test", metavar="name", type=str, nargs='+',
 				choices = [ k for (k, v) in tests.items() ],
 				help="")
 
 		self.args = ap.parse_args()
+		self.remote_transport = Transport.NETMAP
 		self.concurrency = self.args.concurrency
 		self.dry_run = self.args.dry_run
 		self.duration = self.args.duration
@@ -173,19 +165,14 @@ class Client:
 		self.network.set_interface(self.interface)
 		self.network.set_ip_network(self.args.network)
 
-
 		for cpu in self.cpus:
 			set_cpu_scaling_governor(cpu)
-
-		if self.args.reload_netmap:
-			reload_netmap(self.args.reload_netmap, self.interface)
 
 		self.tests = []
 		if self.args.test:
 			for test in self.args.test:
 				self.tests.append(tests[test])
 
-		self.transport = self.args.transport
 		self.repo.set_interface(self.interface)
 
 		self.database = Database("")
@@ -205,10 +192,14 @@ class Client:
 
 
 	def send_hello(self):			   
-		hello = make_hello(self.network)
+		hello = make_hello(self.network, self.cpus)
 		send_string(self.sock, hello)
 		lines = recv_lines(self.sock)[1]
-		process_hello(self.network, lines)
+		hello = process_hello(self.network, lines)
+		self.remote_os = hello[0]
+		self.remote_driver = hello[1]
+		self.remote_cpu_model = hello[2]
+		self.remote_cpu_mask = hello[3]
 
 
 	def cooling(self):
@@ -218,10 +209,11 @@ class Client:
 			time.sleep(t)
 
 
-	def send_req(self, mode, remote, concurrency):
+	def send_req(self, mode, remote_transport, remote, concurrency):
 		req = "run\n"
 		req += str(self.duration) + "\n"
 		req += str(concurrency) + "\n"
+		req += str(remote_transport.value) + "\n"
 		req += remote + "\n"
 		req += mode.value + "\n"
 		req += "\n"
@@ -232,26 +224,27 @@ class Client:
 		return recv_lines(self.sock)[1]
 
 
-	def do_rep(self, mode, local, remote, test_id, concurrency, cpus):
+	def do_rep(self, local, test_id, cpus):
 		self.cooling()
 
-		if mode == Mode.SERVER:
-			local.start(self.repo, self.network, mode, concurrency, cpus)
+		if self.mode == Mode.SERVER:
+			local.start(self.repo, self.network, self.mode, self.concurrency, cpus)
 			# Wait until client network interface is up
 			time.sleep(2)
 
-		self.send_req(get_peer_mode(mode), remote, concurrency)
+		self.send_req(get_peer_mode(self.mode), self.remote_transport, self.remote,
+				self.concurrency)
 
-		if mode == Mode.CLIENT:
+		if self.mode == Mode.CLIENT:
 			# Wait until server network interface is up
 			time.sleep(2)
-			local.start(self.repo, self.network, mode, concurrency, cpus)
+			local.start(self.repo, self.network, self.mode, self.concurrency, cpus)
 
 		time.sleep(2)
 		top = Top(cpus, self.duration - 2)
 		top.join()
 
-		if mode == Mode.CLIENT:
+		if self.mode == Mode.CLIENT:
 			local.stop()
 			send_string(self.sock, "ok")
 			recv_lines(self.sock)
@@ -280,7 +273,7 @@ class Client:
 			local_netstat.insert_into_database(self.database, rep.id, True)
 			remote_netstat.insert_into_database(self.database, rep.id, False) 
 
-		print_report(test_id, rep, local, concurrency, top.load)
+		print_report(test_id, rep, local, self.concurrency, top.load)
 
 		if rep == None and rep.cpu_load < 98:
 			self.tests_failed += 1
@@ -288,10 +281,14 @@ class Client:
 			self.tests_passed += 1
 
 
-	def run_application(self, mode, local, remote, cpus, concurrency):
+	def do_run(self):
+		cpus = self.cpus[0:self.n_cpus]
+
+		local = application.create(self.local, self.local_transport)
+
 		if self.dry_run:
 			test_id = None
-			n_reps = 0
+			n_passed = 0
 		else:
 			if local.transport == Transport.NATIVE:
 				tag = ""
@@ -299,35 +296,40 @@ class Client:
 				tag = self.repo.tag
 
 			cpu_mask = make_cpu_mask(cpus)
-			test_id, n_reps = self.database.insert_into_test(
+			test_id, n_passed = self.database.insert_into_test(
 					self.duration,
 					tag,
-					concurrency,
-					mode.value,
+					self.concurrency,
+					self.mode.value,
 					self.os,
 					local.get_name() + "-" + local.get_version(self.repo),
 					local.transport.value,
 					self.interface.driver.value,
 					self.cpu_model,
 					cpu_mask,
-					"Osxxx", # ?????
-					remote,
-					Transport.NETMAP.value,
-					Driver.IXGBE.value,
-					"ryzenxxxx", # ?????
-					"000010000xxxx", # ??????
+					self.remote_os,
+					self.remote,
+					self.remote_transport.value,
+					self.remote_driver,
+					self.remote_cpu_model,
+					self.remote_cpu_mask,
 				)
 
-		for j in range (0, self.sample - n_reps):
+		for j in range (0, self.sample - n_passed):
 			self.interface.set_channels(cpus)
-			self.do_rep(mode, local, remote, test_id, concurrency, cpus)
+			self.do_rep(local, test_id, cpus)
 
 
-	def run_client_server(self, mode, local, remote, n_cpus, concurrency):
-		local = application.create(local, self.transport)
-		self.run_application(mode, local, remote, self.cpus[0:n_cpus], concurrency)
+def main():
+	self = Client()
+	self.local_transport = Transport.NETMAP
+	self.mode = Mode.CLIENT
+	self.local = CON_GEN
+	self.remote = CON_GEN
+	self.n_cpus = 2
+	self.concurrency = 1000
+	self.do_run()
 
 
-this = Client()
-#this.run_client_server(Mode.SERVER, EPOLL_HELLOWORLD, CON_GEN, 2, 1000)
-this.run_client_server(Mode.CLIENT, CON_GEN, CON_GEN, 2, 1000)
+if __name__ == "__main__":
+	sys.exit(main())

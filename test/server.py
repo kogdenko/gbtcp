@@ -29,10 +29,11 @@ class Server:
 	def process_req(self, lines):
 		duration = int(lines[1])
 		concurrency = int(lines[2])
-		local = lines[3]
-		mode = Mode(lines[4])
+		transport = Transport(lines[3]) 
+		application_name = lines[4]
+		mode = Mode(lines[5])
 
-		app = application.create(local)
+		app = application.create(application_name, transport)
 		app.start(self.repo, self.network, mode, concurrency, self.cpus)
 	
 		time.sleep(3)	
@@ -77,12 +78,15 @@ class Server:
 		try:
 			while True:
 				lines = recv_lines(self.sock)[1]
+				if lines == None:
+					# Disconnected
+					return
 
 				header = lines[0].lower()
 
 				if header == 'hello':
 					process_hello(self.network, lines) 
-					reply = make_hello(self.network)
+					reply = make_hello(self.network, self.cpus)
 				elif header == 'run':
 					reply = self.process_req(lines)
 				else:
@@ -119,7 +123,6 @@ class Server:
 	def __init__(self):
 		ap = argparse.ArgumentParser()
 
-		argparse_add_reload_netmap(ap)
 		argparse_add_cpu(ap)
 
 		ap.add_argument("--listen", metavar="ip", type=argparse_ip_address,
@@ -137,9 +140,6 @@ class Server:
 
 		for cpu in self.cpus:
 			set_cpu_scaling_governor(cpu)
-
-		if self.args.reload_netmap:
-			reload_netmap(self.args.reload_netmap, self.network.interface)
 
 		self.network.interface.set_channels(self.cpus)
 
