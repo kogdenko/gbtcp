@@ -4,7 +4,6 @@
 # TODO:
 # - Client interface: Gold, Silver, Bronze (2)
 # - Analayzer (3)
-# - Logs
 import os
 import sys
 import time
@@ -60,7 +59,7 @@ def print_report(test_id, rep, app, concurrency, cpu_load):
 	else:
 		s += "Passed"
 
-	print_log(s, True)
+	log_notice(s)
 
 
 class CheckTest:
@@ -82,7 +81,7 @@ class CheckTest:
 		else:
 			self.client.tests_failed += 1
 			status = "Failed"
-		print_log("%s ... %s" % (self.name, status), True)
+		log_notice("%s ... %s" % (self.name, status))
 
 
 class Client:
@@ -92,8 +91,15 @@ class Client:
 
 
 	def __del__(self):
-		print("Passed: ", self.tests_passed)
-		print("Failed: ", self.tests_failed)
+		log_notice("Passed: %d" % self.tests_passed)
+		log_notice("Failed: %d" % self.tests_failed)
+
+
+	def set_cpus(self, cpus):
+		self.cpus = cpus
+		for cpu in self.cpus:
+			assert(cpu < multiprocessing.cpu_count())
+			set_cpu_scaling_governor(cpu)	
 
 
 	def __init__(self): 
@@ -118,13 +124,9 @@ class Client:
 
 		ap = argparse.ArgumentParser()
 
-		argparse_add_cpu(ap);
 		argparse_add_duration(ap, TEST_DURATION_DEFAULT)
 
 		ap.add_argument("-i", metavar="interface", required=True, type=argparse_interface,
-				help="")
-
-		ap.add_argument("--dry-run", action='store_true',
 				help="")
 
 		ap.add_argument("--connect", metavar="ip", type=argparse_ip_address,
@@ -144,29 +146,21 @@ class Client:
 				default=COOLING_DEFAULT,
 				help="")
 
-		ap.add_argument("--concurrency", metavar="num", type=int, nargs='+',
-				action=UniqueAppendAction,
-				default=[CONCURRENCY_DEFAULT],
-				help="Number of parallel connections")
-
 		ap.add_argument("--test", metavar="name", type=str, nargs='+',
 				choices = [ k for (k, v) in tests.items() ],
 				help="")
 
 		self.args = ap.parse_args()
 		self.remote_transport = Transport.NETMAP
-		self.concurrency = self.args.concurrency
-		self.dry_run = self.args.dry_run
+		self.dry_run = False
+		self.cpus = []
 		self.duration = self.args.duration
 		self.sample = self.args.sample
 		self.interface = self.args.i
-		self.cpus = self.args.cpu
 		self.network = Network()
 		self.network.set_interface(self.interface)
 		self.network.set_ip_network(self.args.network)
 
-		for cpu in self.cpus:
-			set_cpu_scaling_governor(cpu)
 
 		self.tests = []
 		if self.args.test:
@@ -178,9 +172,9 @@ class Client:
 		self.database = Database("")
 
 		if self.args.connect:
-			self.sock = socket.create_connection(str(self.args.connect), 9999)
+			self.sock = Socket(socket.create_connection(str(self.args.connect), 9999))
 		else:
-			self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+			self.sock = Socket(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM))
 			self.sock.connect(SUN_PATH)
 		self.sock.settimeout(10)
 
@@ -193,8 +187,8 @@ class Client:
 
 	def send_hello(self):			   
 		hello = make_hello(self.network, self.cpus)
-		send_string(self.sock, hello)
-		lines = recv_lines(self.sock)[1]
+		self.sock.send_string(hello)
+		lines = self.sock.recv_lines()[1]
 		hello = process_hello(self.network, lines)
 		self.remote_os = hello[0]
 		self.remote_driver = hello[1]
@@ -217,11 +211,11 @@ class Client:
 		req += remote + "\n"
 		req += mode.value + "\n"
 		req += "\n"
-		send_string(self.sock, req)
+		self.sock.send_string(req)
 
 
 	def recv_reply(self):
-		return recv_lines(self.sock)[1]
+		return self.sock.recv_lines()[1]
 
 
 	def do_rep(self, local, test_id, cpus):
@@ -246,11 +240,11 @@ class Client:
 
 		if self.mode == Mode.CLIENT:
 			local.stop()
-			send_string(self.sock, "ok")
-			recv_lines(self.sock)
+			self.sock.send_string("ok")
+			self.sock.recv_lines()
 		else:
-			send_string(self.sock, "ok")
-			recv_lines(self.sock)
+			self.sock.send_string("ok")
+			self.sock.recv_lines()
 			local.stop()
 
 		rep = Database.Rep()
@@ -259,6 +253,7 @@ class Client:
 		rep.cpu_load = int(numpy.mean(top.load))
 
 		lines = self.recv_reply()
+		assert(len(lines) > 3)
 		rep.ipps = int(lines[0])
 		rep.opps = int(lines[1])
 		remote_netstat = netstat.create(lines[2])
@@ -322,13 +317,15 @@ class Client:
 
 def main():
 	self = Client()
+	self.set_cpus([1, 2, 3, 4])
 	self.local_transport = Transport.NETMAP
-	self.mode = Mode.CLIENT
-	self.local = CON_GEN
+	self.mode = Mode.SERVER
+	self.local = EPOLL_HELLOWORLD
 	self.remote = CON_GEN
-	self.n_cpus = 2
 	self.concurrency = 1000
-	self.do_run()
+	for i in range(1, len(self.cpus)):
+		self.n_cpus = i
+		self.do_run()
 
 
 if __name__ == "__main__":

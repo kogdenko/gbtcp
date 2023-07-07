@@ -11,18 +11,13 @@ from network import Network
 import application
 
 
-def print_err(exc, s):
-	print_log(s + " ('" + str(exc) + "')")
-	traceback.print_exception(exc)
-
-
 def print_report(app, top, rc):
 	report = "%s: CPU=%s ... " % (app.get_name(), top)
 	if rc == 0:
 		report += "Passed"
 	else:
 		report += "Failed"
-	print_log(report)
+	log_notice(report)
 
 
 class Server:
@@ -44,7 +39,7 @@ class Server:
 		opps = []
 				
 		while True:
-			timedout = recv_lines(self.sock, 1)[0]
+			timedout = self.sock.recv_lines(1)[0]
 			if not timedout:
 				break
 			ms_new = milliseconds()
@@ -60,7 +55,7 @@ class Server:
 		top.join()
 
 		rc = app.stop()[0]
-		send_string(self.sock, "ok")
+		self.sock.send_string("ok")
 
 		print_report(app, top.load, rc)
 		if rc == 0:
@@ -77,7 +72,7 @@ class Server:
 	def process_client(self):
 		try:
 			while True:
-				lines = recv_lines(self.sock)[1]
+				lines = self.sock.recv_lines()[1]
 				if lines == None:
 					# Disconnected
 					return
@@ -94,9 +89,9 @@ class Server:
 
 				if reply == None:
 					break
-				send_string(self.sock, reply)
-		except Exception as e:
-			print_err(e, "Client message caused error")
+				self.sock.send_string(reply)
+		except Exception as exc:
+			log_err(exc, "Client message caused error")
 
 
 	def loop(self):
@@ -115,9 +110,8 @@ class Server:
 		listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
 		while True:
-			self.sock, _ = listen_sock.accept()
+			self.sock = Socket(listen_sock.accept()[0])
 			self.process_client()
-			self.sock.close()
 
 
 	def __init__(self):

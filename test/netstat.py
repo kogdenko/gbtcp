@@ -341,7 +341,8 @@ class BSDNetstat(Netstat):
 						found = True
 						break
 				if not found:
-					print_log("Unknown bsd statistic variable: '%s:%s'" % (table.name, line))
+					log_err(None ,("Unknown bsd statistic variable: '%s:%s'"
+							% (table.name, line)))
 
 
 class GbtcpNetstat(BSDNetstat, Netstat.Registered):
@@ -370,12 +371,11 @@ class CongenNetstat(BSDNetstat, Netstat.Registered):
 
 
 	def read(self, repo, pid):
-		sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+		sock = Socket(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM))
 		sock.connect("/var/run/con-gen.%d.sock" % pid)
-		#send_string(sock, "s")
-		sock.send(("s\n").encode('utf-8'))
+		sock.send_string("s")
 
-		self.parse(recv_lines(sock)[1])
+		self.parse(sock.recv_lines()[1])
 
 
 def main():

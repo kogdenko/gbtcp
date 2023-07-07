@@ -7,12 +7,12 @@ import time
 import select
 import psutil
 import platform
+import socket
 import argparse
 import subprocess
 import traceback
 import multiprocessing
 import syslog
-import sqlite3
 import ipaddress
 import threading
 import numpy
@@ -60,11 +60,35 @@ TEST_DELAY_DEFAULT = 2
 CONCURRENCY_DEFAULT=1000
 CONCURRENCY_MAX=20000
 
+log_level_syslog = syslog.LOG_INFO
+log_level_stdout = syslog.LOG_NOTICE
 
-def print_log(s, to_stdout=False):
-	syslog.syslog(s)
-	if True or to_stdout:
+
+def print_log(level, s):
+	if level <= log_level_syslog:
+		syslog.syslog(s)
+	if level <= log_level_stdout:
 		print(s)
+
+
+def log_err(exc, s):
+	if exc != None:
+		s += " ('" + str(exc) + "')"
+	print_log(syslog.LOG_ERR, s)
+	if exc != None:
+		traceback.print_exception(exc)
+
+def die(s):
+	log_err(None, s)
+	sys.exit(1)
+
+
+def log_info(s):
+	print_log(syslog.LOG_INFO, s)
+
+
+def log_notice(s):
+	print_log(syslog.LOG_NOTICE, s)
 
 
 def dbg(*args):
@@ -128,6 +152,86 @@ class mac_address:
    
 	def __repr__(self):
 		return __str__(self)
+
+
+class Socket:
+	def __init__(self, sock):
+		self.sock = sock
+		self.recv_buffer = []
+
+
+	def connect(self, address):
+		self.sock.connect(address)
+
+
+	def settimeout(self, timeout):
+		self.sock.settimeout(timeout)
+
+
+	def recv_timed(self, bufsize, timeout=None):
+		if timeout == None:
+			data = self.sock.recv(bufsize)
+			return False, data
+
+		blocking = self.sock.getblocking()
+		self.sock.setblocking(0)
+
+		ready = select.select([self.sock], [], [], timeout)
+		if ready[0]:
+			timedout = False
+			data = self.sock.recv(bufsize)
+		else:
+			timedout = True
+			data = None
+
+		self.sock.setblocking(blocking)
+		return timedout, data
+
+
+	def split_lines(self, message):
+		lines = message.splitlines()
+		if '' in lines:
+			lines.remove('')
+
+		return False, lines
+
+
+	def pop_recv_buffer(self):
+		message = self.recv_buffer[0]
+		self.recv_buffer = self.recv_buffer[1:]
+		return message
+
+
+	def recv_lines(self, timeout=None):
+		if len(self.recv_buffer) > 0:
+			message = self.pop_recv_buffer()
+			if len(self.recv_buffer) > 0:
+				return self.split_lines(message)
+		else:
+			message = ""
+
+		while True:
+			timedout, data = self.recv_timed(1024, timeout)
+			if timedout:
+				return True, None
+
+			s = data.decode('utf-8')
+
+			message += s
+
+			self.recv_buffer = message.split("\n\n")
+			assert(len(self.recv_buffer) > 0)
+			if len(self.recv_buffer) > 1 or s == "":
+				message = self.pop_recv_buffer()
+				return self.split_lines(message)
+
+
+	def send_string(self, s):
+		while s[-1] == '\n':
+			s = s[:-1]
+		data = (s + "\n\n").encode('utf-8')
+		rc = self.sock.send(data)
+		assert(rc == len(data))
 
 
 def argparse_ip_address(s):
@@ -255,12 +359,13 @@ def system(cmd, fault_tollerance=False, env=None):
 	else:
 		cmd_with_env = cmd
 
-	proc = subprocess.Popen(cmd.split(), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+	proc = subprocess.Popen(cmd.split(), env=env,
+			stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	try:
 		out, err = proc.communicate(timeout = 5)
 	except Exception as exc:
 		proc.kill();
-		print_log("Command '%s' failed: '%s'" % (cmd_with_env, sys.exc_info()[0]))
+		log_err(exc, "Command '%s' failed" % cmd_with_env)
 		raise exc
 
 	out = bytes_to_str(out)
@@ -274,7 +379,7 @@ def system(cmd, fault_tollerance=False, env=None):
 		log += "\n%s" % out
 	if len(err):
 		log += "\n%s" % err
-	print_log(log)
+	log_info(log)
 
 	if rc != 0 and not fault_tollerance:
 		raise RuntimeError("Command '%s' failed with code '%d'" % (cmd, rc))
@@ -383,59 +488,6 @@ def get_interface_driver(name):
 	raise RuntimeError("invalid ethtool driver: '%s'" % name )
 
 
-
-def recv_timed(sock, bufsize, timeout=None):
-	if timeout == None:
-		return False, sock.recv(bufsize)
-
-	blocking = sock.getblocking()
-	sock.setblocking(0)
-
-	ready = select.select([sock], [], [], timeout)
-	if ready[0]:
-		timedout = False
-		data = sock.recv(bufsize)
-	else:
-		timedout = True
-		data = None
-
-	sock.setblocking(blocking)
-	return timedout, data
-
-
-def recv_lines(sock, timeout=None):
-	message = None
-	while True:
-		timedout, data = recv_timed(sock, 1024, timeout)
-		if data == None:
-			s = None
-		else:
-			s = data.decode('utf-8')
-
-		if not s:
-			if not message:
-				return timedout, None
-			break
-		if not message:
-			message = s
-		else:
-			message += s
-		if '\n\n' in message:
-			break
-
-	lines = message.splitlines()
-	if '' in lines:
-		lines.remove('')
-
-	return timedout, lines
-
-
-def send_string(sock, s):
-	while s[-1] == '\n':
-		s = s[:-1]
-	sock.send((s + "\n\n").encode('utf-8'))
-
-
 def milliseconds():
 	return int(time.monotonic_ns() / 1000000)
 
@@ -476,7 +528,7 @@ def start_process(cmd, env=None):
 	if len(s):
 		log += " %s" % s
 	log += " %s & [pid=%d]" % (cmd, proc.pid)
-	print_log(log)
+	log_info(log)
 	return proc
 
 
@@ -485,11 +537,11 @@ def wait_process(proc):
 	t0 = milliseconds()
 	try:
 		proc.wait(timeout=5)
-	except Exception as e:
+	except Exception as exc:
 		t1 = milliseconds()
 		dt = t1 - t0
 		assert(dt * 1000 > 4.5)
-		print_log("$ [pid=%d] Timeouted" % proc.pid)
+		log_err(exc, "$ [pid=%d] Timeouted" % proc.pid)
 		proc.terminate()
 		proc.wait(timeout=5)
 
@@ -500,7 +552,7 @@ def wait_process(proc):
 				break
 			lines.append(line.decode('utf-8').strip())
 
-	print_log("$ [pid=%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
+	log_info("$ [pid=%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
 	return proc.returncode, lines
 
 

@@ -6,42 +6,47 @@ import mysql.connector
 from common import *
 
 
+def mysql_enum(enum):
+	s = ""
+	for e in enum:
+		if s:
+			s += ", "
+		s += "'" + e.value + "'"
+	return "enum(" + s + ")"
+
+
 class Database:
+	test_fields = [
+			["tag", "varchar(40)"],
+			["concurrency", "int"],
+			["mode", mysql_enum(Mode)],
+			["local_os", "varchar(64)"],
+			["local_app", "varchar(64)"],
+			["local_transport", mysql_enum(Transport)],
+			["local_driver", mysql_enum(Driver)],
+			["local_cpu_model", "varchar(64)"],
+			["local_cpu_mask", "varchar(128)"],
+			["remote_os", "varchar(64)"],
+			["remote_app", "varchar(64)"],
+			["remote_transport", mysql_enum(Transport)],
+			["remote_driver", mysql_enum(Driver)],
+			["remote_cpu_model", "varchar(64)"],
+			["remote_cpu_mask", "varchar(128)"],
+		]
+
+
 	class Rep:
 		pass
 
 
-	@staticmethod
-	def mysql_enum(enum):
-		s = ""
-		for e in enum:
-			if s:
-				s += ", "
-			s += "'" + e.value + "'"
-		return "enum(" + s + ")"
+	class Test:
+		pass
 
 
 	def create_core_tables(self):
 		columns = unique = ""		 
-		fields = [
-				["tag", "varchar(40)"],
-				["concurrency", "int"],
-				["mode", self.mysql_enum(Mode)],
-				["local_os", "varchar(64)"],
-				["local_app", "varchar(64)"],
-				["local_transport", self.mysql_enum(Transport)],
-				["local_driver", self.mysql_enum(Driver)],
-				["local_cpu_model", "varchar(64)"],
-				["local_cpu_mask", "varchar(128)"],
-				["remote_os", "varchar(64)"],
-				["remote_app", "varchar(64)"],
-				["remote_transport", self.mysql_enum(Transport)],
-				["remote_driver", self.mysql_enum(Driver)],
-				["remote_cpu_model", "varchar(64)"],
-				["remote_cpu_mask", "varchar(128)"],
-			]
 
-		for field in fields:
+		for field in self.test_fields:
 			if columns:
 				columns += ", "
 				unique += ", "
@@ -69,7 +74,6 @@ class Database:
 
 
 	def __init__(self, address):
-		#self.sql_conn = sqlite3.connect(address)
 
 		self.sql_conn = mysql.connector.connect(user='root')
 		self.execute("create database if not exists gbtcp")
@@ -92,14 +96,34 @@ class Database:
 
 
 	def fetchid(self, sql_cursor):
-		row = sql_cursor.fetchone()
-		assert(row != None)
-		assert(len(row) == 1)
-		assert(type(row[0]) == int)
-		return int(row[0])
+		rows = sql_cursor.fetchone()
+		assert(rows != None)
+		assert(len(rows) == 1)
+		assert(type(rows[0]) == int)
+		return int(rows[0])
 
 
-	def insert_into_test2(self, duration, fields):
+	def insert_into_test(self,
+			duration,
+			tag,
+			concurrency,
+			mode,
+			local_os,
+			local_app,
+			local_transport,
+			local_driver,
+			local_cpu_model,
+			local_cpu_mask,
+			remote_os,
+			remote_app,
+			remote_transport,
+			remote_driver,
+			remote_cpu_model,
+			remote_cpu_mask):
+		fields = locals()
+		del fields['self']
+		del fields['duration']
+
 		where = keys = values = ""
 
 		for key, value in fields.items():
@@ -136,29 +160,6 @@ class Database:
 		return test_id, n_reps
 
 
-	def insert_into_test(self,
-			duration,
-			tag,
-			concurrency,
-			mode,
-			local_os,
-			local_app,
-			local_transport,
-			local_driver,
-			local_cpu_model,
-			local_cpu_mask,
-			remote_os,
-			remote_app,
-			remote_transport,
-			remote_driver,
-			remote_cpu_model,
-			remote_cpu_mask):
-		fields = locals()
-		del fields['self']
-		del fields['duration']
-		return self.insert_into_test2(duration, fields)
-
-
 	def delete_rep(self, rep_id):
 		cmd = "delete from rep where id = %d" % rep_id
 		self.execute(cmd)
@@ -184,10 +185,12 @@ class Database:
 
 		cmd = ("insert into rep "
 				"(test_id, duration, cpu_load, ipps, opps, cps) "
-				"values (%d, %d, %d, 0, 0, 0)" %
+				"values (%d, %d, %d, %d, %d, 0)" %
 				(rep.test_id,
 				rep.duration,
 				rep.cpu_load,
+				rep.ipps,
+				rep.opps,
 				))
 		sql_cursor = self.execute(cmd)
 		self.commit()
@@ -195,62 +198,33 @@ class Database:
 
 
 	def fetch_rep(self, sql_cursor):
-		row = sql_cursor.fetchone()
-		if row == None:
+		rows = sql_cursor.fetchone()
+		if rows == None:
 			return None
-		assert(len(row) == 7)
+		assert(len(rows) == 7)
 		rep = Database.Rep()
-		rep.id = int(row[0])
-		rep.test_id = int(row[1])
-		rep.duration = int(row[2])
-		rep.cpu_load = int(row[3])
-		rep.ipps = int(row[4])
-		rep.opps = int(row[5])
-		rep.cps = int(row[6])
+		rep.id = int(rows[0])
+		rep.test_id = int(rows[1])
+		rep.duration = int(rows[2])
+		rep.cpu_load = int(rows[3])
+		rep.ipps = int(rows[4])
+		rep.opps = int(rows[5])
+		rep.cps = int(rows[6])
 		return rep
 
 
 	def fetch_test(self, sql_cursor):
-		row = sql_cursor.fetchone()
-		if row == None:
+		rows = sql_cursor.fetchone()
+		if rows == None:
 			return None
-		assert(len(row) == 10)
+		assert(len(rows) == len(Database.test_fields) + 1)
 		test = Database.Test()
-		test.id = int(row[0])
-		test.tag = row[1]
-		test.tester_id = int(row[2])
-		test.os_id = int(row[3])
-		test.app_id = int(row[4])
-		test.transport = Transport(row[5])
-		test.driver_id = int(row[6])
-		test.concurrency = int(row[7])
-		test.cpu_model_id = int(row[8])
-		test.cpu_mask = row[9]
+		test.id = int(rows[0])
 
-		test.tester = tester_dict.get(test.tester_id)
-		assert(test.tester)
+		for i in range(1, len(rows)):
+			setattr(test, Database.test_fields[i - 1][0], rows[i])
 
-		name, ver = self.get_os(test.os_id)
-		assert(name)
-		test.os = name + "-" + ver
-
-		name, ver = self.get_app(test.app_id)
-		assert(name)
-		test.app = name + "-" + ver
-
-		test.driver = driver_dict.get(test.driver_id)
-		assert(test.driver)
-
-		cpu_models = self.get_cpu_model(test.cpu_model_id)
-		assert(cpu_models)
-		alias = cpu_models[0].alias
-		name = cpu_models[0].name
-		if alias == None or len(alias) == 0:
-			test.cpu_model = name
-		else:
-			test.cpu_model = alias
-
-		return test;
+		return test
 
 
 	def get_rep(self, rep_id):
@@ -270,54 +244,22 @@ class Database:
 			reps.append(rep)
 
 
-	def get_cpu_model_id(self, cpu_model_name, cpu_model_alias=None):
-		assert(cpu_model_alias == None)
-		cmd = ("insert into cpu_model(name) select \"%s\" "
-			"where not exists (select 1 from cpu_model where name=\"%s\")"
-			% (cpu_model_name, cpu_model_name))
-		self.execute(cmd)
-		cmd = "select id from cpu_model where name=\"%s\"" % cpu_model_name
-		sql_cursor = self.execute(cmd)
-		self.sql_conn.commit()
-		return self.fetchid(sql_cursor)
-
-
-	def set_cpu_model_alias(self, cpu_model_id, cpu_model_alias):
-		cmd = "update cpu_model set alias = '%s' where id = %d" % (cpu_model_alias, cpu_model_id)
-		self.execute(cmd)
-		self.sql_conn.commit();
-
-
-	def get_tests(self, commit):
+	def get_tests(self, tag):
 		tests = []
-		cmd = "select test from %s where tag='%s'" % commit
+
+		cmd = "select id"
+		for field in Database.test_fields:
+			cmd += ", " + field[0]
+		cmd += " from test where tag='%s'" % tag
+
 		sql_cursor = self.execute(cmd)
 		while True:
 			test = self.fetch_test(sql_cursor)
 			if test == None:
 				return tests
 			tests.append(test)
+
 		return tests
-
-
-	def get_cpu_model(self, cpu_model_id = None):
-		cpu_models = []
-		if cpu_model_id == None:
-			cmd = "select * from cpu_model"
-		else:
-			cmd = "select * from cpu_model where id=%d" % cpu_model_id
-		sql_cursor = self.execute(cmd)
-		while True:
-			row = sql_cursor.fetchone()
-			if row == None:
-				break
-			assert(len(row) == 3)
-			cpu_model = Database.Cpu_model()
-			cpu_model.id = int(row[0])
-			cpu_model.name = row[1]
-			cpu_model.alias = row[2]
-			cpu_models.append(cpu_model)
-		return cpu_models
 
 
 	def get_columns(self, table):
@@ -326,25 +268,25 @@ class Database:
 		columns = []
 		sql_cursor = self.execute(cmd)
 		while True:
-			row = sql_cursor.fetchone()
-			if row == None:
+			rows = sql_cursor.fetchone()
+			if rows == None:
 				break
-			columns.append(row[0])
+			columns.append(rows[0])
 		return columns
 
 
 	def is_table_exists(self, table):
 		cmd = "show tables like '%s'" % table
 		sql_cursor = self.execute(cmd)
-		row = sql_cursor.fetchone()
-		if row == None:
+		rows = sql_cursor.fetchone()
+		if rows == None:
 			return False
 		else:
 			return True
 
 
 	def create_netstat_table(self, table, columns):
-		cmd = "create table if not exists %s (rep_id int, local int" %	table
+		cmd = "create table if not exists %s (rep_id int, local boolean" % table
 		for column in columns:
 			cmd += ", %s bigint" % column
 		cmd += (", primary key(rep_id, local),"
@@ -379,7 +321,7 @@ class Database:
 		cmd = "insert into %s (rep_id, local" % table
 		for entry in entries:
 			cmd += ", %s" % entry.name
-		cmd += ") values (%d, \"%s\"" % (rep_id, local)
+		cmd += ") values (%d, %d" % (rep_id, local)
 		for entry in entries:
 			cmd += ", %d" % entry.value
 		cmd += ")"

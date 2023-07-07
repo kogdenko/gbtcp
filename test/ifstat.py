@@ -75,12 +75,8 @@ class Ifstat:
 
 
 	def read(self, app):
-		try:
-			ok = self.vread(app)
-		except Exception as e:
-			raise RuntimeError("Ifstat: Internal error: '%s'" % str(e))
-		if not ok:
-			raise RuntimeError("Ifstat: Invalid interface: '%s'" % app.repo.interface.name)
+		ok = self.vread(app)
+		assert(ok)
 
 
 class LinuxIfstat(Ifstat):
@@ -144,12 +140,12 @@ class CongenIfstat(Ifstat):
 
 	def vread(self, app):
 		self.reset_counters()
-		sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+		sock = Socket(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM))
 		sun_path = "/var/run/con-gen.%d.sock" % app.proc.pid
 		sock.connect(sun_path)
-		send_string(sock, "i")
+		sock.send_string("i")
 
-		lines = recv_lines(sock)[1]
+		lines = sock.recv_lines()[1]
 		return self.parse(None, lines)
 
 
