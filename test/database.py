@@ -154,7 +154,7 @@ class Database:
 		reps = self.get_reps(test_id)
 
 		for rep in reps:
-			if rep.duration >= duration:
+			if rep.cpu_load >= CPU_LOAD_THRESHOLD and rep.duration >= duration:
 				n_reps += 1
 
 		return test_id, n_reps

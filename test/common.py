@@ -24,7 +24,7 @@ SUN_PATH = "/var/run/gbtcp-test.sock"
 TEST_REPS_MIN = 1
 TEST_REPS_MAX = 20
 TEST_REPS_DEFAULT = 5
-
+CPU_LOAD_THRESHOLD = 98
 
 class Mode(Enum):
 	CLIENT = "client"
@@ -60,15 +60,27 @@ TEST_DELAY_DEFAULT = 2
 CONCURRENCY_DEFAULT=1000
 CONCURRENCY_MAX=20000
 
-log_level_syslog = syslog.LOG_INFO
-log_level_stdout = syslog.LOG_NOTICE
+g_log_level_stdout = syslog.LOG_NOTICE
+g_log_level_syslog = syslog.LOG_INFO
+
+def set_log_level(log_level_stdout, log_level_syslog):
+	global g_log_level_syslog
+	global g_log_level_stdout
+
+	if log_level_stdout:
+		g_log_level_stdout = log_level_stdout
+	if log_level_syslog:
+		g_log_level_syslog = log_level_syslog
 
 
 def print_log(level, s):
-	if level <= log_level_syslog:
-		syslog.syslog(s)
-	if level <= log_level_stdout:
+	global g_log_level_stdout
+	global g_log_level_syslog
+
+	if level <= g_log_level_stdout:
 		print(s)
+	if level <= g_log_level_syslog:
+		syslog.syslog(s)
 
 
 def log_err(exc, s):
@@ -374,12 +386,15 @@ def system(cmd, fault_tollerance=False, env=None):
 
 	log = "$ %s" % cmd_with_env
 	if rc != 0:
-		log += " $? = %d", rc
+		log += " $? = %d" % rc
 	if len(out):
 		log += "\n%s" % out
 	if len(err):
 		log += "\n%s" % err
-	log_info(log)
+	if rc == 0:
+		log_info(log)
+	else:
+		log_err(None, log)
 
 	if rc != 0 and not fault_tollerance:
 		raise RuntimeError("Command '%s' failed with code '%d'" % (cmd, rc))

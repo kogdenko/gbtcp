@@ -68,16 +68,15 @@ usage(void)
 int
 main(int argc, char **argv)
 {
-	int rc, fd, opt, port, Sflag;
+	int rc, fd, opt, port;
 	char buf[256];
 	struct sockaddr_in a;
 	cpuset_t worker_cpus;
 
-	Sflag = 0;
 	port = 80;
 	http_len = strlen(http);
 	CPU_ZERO(&worker_cpus);
-	while ((opt = getopt(argc, argv, "hvp:la:S")) != -1) {
+	while ((opt = getopt(argc, argv, "hvp:la:")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
@@ -98,14 +97,7 @@ main(int argc, char **argv)
 				die(-rc, "-a: Invalid cpu list");
 			}
 			break;
-		case 'S':
-			Sflag = 1;
-			break;
 		}
-	}
-	if (Sflag) {
-		stop_master(PROG_NAME, port);
-		return EXIT_SUCCESS;
 	}
 	a.sin_family = AF_INET;
 	a.sin_addr.s_addr = 0;

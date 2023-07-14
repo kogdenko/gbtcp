@@ -29,6 +29,10 @@ class Server:
 		mode = Mode(lines[5])
 
 		app = application.create(application_name, transport)
+		if app.is_gbtcp():
+			print("Server not intended to run gbtcp")
+			return None
+		
 		app.start(self.repo, self.network, mode, concurrency, self.cpus)
 	
 		time.sleep(3)	
@@ -43,8 +47,7 @@ class Server:
 			if not timedout:
 				break
 			ms_new = milliseconds()
-			ifstat_new = app.create_ifstat()
-			ifstat_new.read(app)
+			ifstat_new = app.read_ifstat()
 			if ifstat_old:
 				ifstat_rate = (ifstat_new - ifstat_old) / ((ms_new - ms_old) / 1000)
 				ipps.append(ifstat_rate.ipackets)
@@ -73,7 +76,7 @@ class Server:
 		try:
 			while True:
 				lines = self.sock.recv_lines()[1]
-				if lines == None:
+				if lines == None or len(lines) == 0:
 					# Disconnected
 					return
 
@@ -131,6 +134,7 @@ class Server:
 		self.network.set_interface(self.args.i)
 
 		self.repo = Repository()
+		self.repo.set_interface(self.args.i)
 
 		for cpu in self.cpus:
 			set_cpu_scaling_governor(cpu)
@@ -140,6 +144,7 @@ class Server:
 
 def main():
 	server = Server()
+	#set_log_level(syslog.LOG_DEBUG, None)
 	server.loop()
 
 

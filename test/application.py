@@ -1,6 +1,5 @@
 #!/usr/bin/python
 # SPDX-License-Identifier: GPL-2.0
-# TODO: Read linux netstat right after start
 import platform
 import re
 import signal
@@ -37,10 +36,15 @@ class Application:
 		self.transport = transport
 		self.version = None
 		self.repo = None
+		self.proc = None
+
+
+	def is_gbtcp(self):
+		return self.transport != Transport.NATIVE
 
 
 	def __del__(self):
-		if self.repo != None:
+		if self.repo != None and self.proc != None:
 			self.stop()
 
 
@@ -57,11 +61,23 @@ class Application:
 			return netstat.GbtcpNetstat()
 
 
+	def read_netstat(self):
+		netstat = self.create_netstat()
+		netstat.read(self.repo, self.proc.pid) 
+		return netstat
+
+
 	def create_ifstat(self):
 		if self.transport == Transport.NATIVE:
 			return ifstat.LinuxIfstat()
 		else:
 			return ifstat.GbtcpIfstat()
+
+
+	def read_ifstat(self):
+		ifstat = self.create_ifstat()
+		ifstat.read(self)
+		return ifstat
 
 
 	def configure_network(self, onoff, network, mode, concurrency, cpus):
@@ -71,12 +87,22 @@ class Application:
 
 	def after_start(self, repo):
 		self.repo = repo
+		self.initial_netstat = self.create_netstat()
+		if type(self.initial_netstat) == netstat.LinuxNetstat:
+			self.initial_netstat = self.read_netstat()
 
 
 	def before_stop(self):
-		self.netstat = self.create_netstat()
-		self.netstat.read(self.repo, self.proc.pid)
+		netstat = self.create_netstat()
+		netstat.read(self.repo, self.proc.pid)
+		self.netstat = netstat - self.initial_netstat
 		self.repo = None
+
+
+	def wait_process(self):
+		res = wait_process(self.proc)
+		self.proc = None
+		return res
 
 
 	@staticmethod
@@ -99,7 +125,7 @@ class nginx(Application, Application.Registered):
 	def stop(self):
 		self.before_stop()
 		system("nginx -s quit", True)
-		return wait_process(self.proc)
+		return self.wait_process()
 
 
 	def start(self, repo, network, mode, concurrency, cpus):
@@ -182,22 +208,27 @@ class gbtcp_base_helloworld(Application):
 
 
 	def stop(self):
-		self.repo.system("%s -S" % self.get_path(self.repo), True)
 		self.before_stop()
-		return wait_process(self.proc)
+		self.proc.send_signal(signal.SIGUSR1)
+		return self.wait_process()
 
 
 	def start(self, repo, network, mode, concurrency, cpus):
-		assert(mode == Mode.SERVER)
-
 		self.repo = repo
 		self.configure_network(True, network, mode, concurrency, cpus)
 
-		cmd = "%s -l -a " % self.get_path(repo)
+		cmd = self.get_path(repo)
+		cmd += " -a "
 		for i in range(len(cpus)):
 			if i != 0:
 				cmd += ","
 			cmd += str(cpus[i])
+		if mode == Mode.SERVER:
+			cmd += " -l -C"
+		else:
+			cmd += " -c %d" % concurrency
+			cmd += " " + str(network.server)
+
 		self.proc = repo.start_process(cmd, network, mode, self.transport)
 		self.after_start(repo)
 
@@ -224,6 +255,10 @@ class con_gen(Application, Application.Registered):
 	@staticmethod
 	def system_get_version(repo):
 		return "1.0.2"
+
+
+	def is_gbtcp(self):
+		return False;
 
 
 	def create_ifstat(self):
@@ -269,7 +304,6 @@ class con_gen(Application, Application.Registered):
 
 			n_cpus = len(cpus)
 			for i in range(n_cpus):
-				concurrency_per_cpu = concurrency / n_cpus
 				if i != 0:
 					cmd += " --"
 				cmd += " -i %s-%d" % (network.interface.name, i)
@@ -283,4 +317,4 @@ class con_gen(Application, Application.Registered):
 	def stop(self):
 		self.before_stop()
 		self.proc.send_signal(signal.SIGINT)
-		return wait_process(self.proc)
+		return self.wait_process()

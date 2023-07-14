@@ -107,23 +107,6 @@ master_loop(int report_num, unsigned int (*sleep_fn)(unsigned int))
 	master_done = 1;
 }
 
-void
-stop_master(const char *pname, int port)
-{
-	int rc, pid, pid_file_fd;
-	char pid_file_path[PATH_MAX];
-
-	pid_file_get_path(pid_file_path, pname, port); 
-	pid_file_fd = pid_file_open(pid_file_path);
-	rc = pid_file_lock(pid_file_fd, true);
-	if (rc < 0) {
-		pid = pid_file_read(pid_file_fd);
-		kill(pid, SIGUSR1);
-		// TODO: timeout!!!
-		pid_file_lock(pid_file_fd, false);
-	}
-}
-
 static void
 sigusr1(int signum)
 {

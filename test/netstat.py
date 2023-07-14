@@ -111,14 +111,14 @@ class Netstat:
 
 
 	def __sub__(self, right):
-		res = Netstat()
+		res = type(self)()
 		for table in self.tables:
 			res.tables.append(table - right.get_table(table.name))
 		return res
 
 
 	def __truediv__(self, dt):
-		res = Netstat()
+		res = type(self)()
 		for table in self.tables:
 			res.tables.append(table / dt)
 		return res
@@ -193,7 +193,7 @@ class LinuxNetstat(Netstat, Netstat.Registered):
 		with open(path, 'r') as f:
 			lines = f.readlines()
 
-		self.create_from_lines()
+		self.create_from_lines(lines)
 
 
 	def read(self, repo, pid):

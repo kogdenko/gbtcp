@@ -11,8 +11,7 @@ struct worker {
 	int wrk_cpu;
 };
 
-void stop_master(const char *, int);
 void start_master(cpuset_t *worker_cpus, int, const char *, int, int,
-	void *(*)(void *), pid_t (*)(void), unsigned int (*)(unsigned int));
+		void *(*)(void *), pid_t (*)(void), unsigned int (*)(unsigned int));
 
 #endif // GBTCP_TOOLS_COMMON_WORKER_H

@@ -424,19 +424,18 @@ usage(void)
 int
 main(int argc, char **argv)
 {
-	int rc, opt, nflag, tflag, Sflag, port;
+	int rc, opt, nflag, tflag, port;
 	int concurrency;
 	char hostname[32];
 	cpuset_t worker_cpus;
 
 	tflag = 0;
-	Sflag = 0;
 	CPU_ZERO(&worker_cpus);
 	concurrency = 0;
 	assert(sizeof(union connection) == sizeof(uint64_t));
 	nflag = 0;
 	port = 80;
-	while ((opt = getopt(argc, argv, "hvp:lc:n:Ca:tS")) != -1) {
+	while ((opt = getopt(argc, argv, "hvp:lc:n:Ca:t")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
@@ -471,9 +470,6 @@ main(int argc, char **argv)
 		case 't':
 			tflag = 1;
 			break;
-		case 'S':
-			Sflag = 1;
-			break;
 		default:
 			usage();
 			return EXIT_FAILURE;
@@ -485,10 +481,6 @@ main(int argc, char **argv)
 	g_addr.sin_family = AF_INET;
 	g_addr.sin_port = htons(port);
 	g_addr.sin_addr.s_addr = INADDR_ANY;
-	if (Sflag) {
-		stop_master(PROG_NAME, port);
-		return EXIT_SUCCESS;
-	}
 	if (g_lflag) {
 		g_http_len = snprintf(g_http, sizeof(g_http),
 			"HTTP/1.0 200 OK\r\n"

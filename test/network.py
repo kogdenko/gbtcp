@@ -45,6 +45,9 @@ class Network:
 	def reset_routing(self):
 		system("ip a flush dev %s" % self.interface.name)
 		system("ip r flush dev %s" % self.interface.name)
+#		time.sleep(1)
+#		print(system("ip r s dev %s" % self.interface.name))
+#		print(system("ip a s dev %s" % self.interface.name))
 
 
 	def configure_server_routing(self):

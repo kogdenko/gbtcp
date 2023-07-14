@@ -3,7 +3,8 @@
 
 # TODO:
 # - Client interface: Gold, Silver, Bronze (2)
-# - Analayzer (3)
+# - CPS
+# - Analyze new commit
 import os
 import sys
 import time
@@ -12,6 +13,7 @@ import errno
 import getopt
 import socket
 import subprocess
+import syslog
 
 import numpy
 
@@ -85,11 +87,6 @@ class CheckTest:
 
 
 class Client:
-	@staticmethod
-	def add_test(d, test):
-		d[test.get_name()] = test
-
-
 	def __del__(self):
 		log_notice("Passed: %d" % self.tests_passed)
 		log_notice("Failed: %d" % self.tests_failed)
@@ -102,77 +99,44 @@ class Client:
 			set_cpu_scaling_governor(cpu)	
 
 
-	def __init__(self): 
+	def __init__(self, interface, server_address): 
 		self.tests_passed = 0
 		self.tests_failed = 0
+		self.failed = {}
 		self.repo = Repository()
 
 		self.os = get_os()
 		self.cpu_model = get_cpu_model()
 
-		tests = {}
 		for f in os.listdir(self.repo.path + '/bin'):
 			if f[:10] == "gbtcp-test":
 				if os.path.isfile(self.repo.path + '/test/' + f + '.pkt'):
-					#Client.add_test(tests, Tcpkt(f))
 					pass
 				else:
-					Client.add_test(tests, CheckTest(self, f))
+					test = CheckTest(self, f)
+					test.run()
 
 		# Assume that last test ended at least 10 seconds ago
 		self.start_cooling_time = milliseconds() - 10000
 
-		ap = argparse.ArgumentParser()
 
-		argparse_add_duration(ap, TEST_DURATION_DEFAULT)
-
-		ap.add_argument("-i", metavar="interface", required=True, type=argparse_interface,
-				help="")
-
-		ap.add_argument("--connect", metavar="ip", type=argparse_ip_address,
-				help="")
-
-		ap.add_argument("--network", metavar="ip/mask", type=argparse_ip_network,
-				default="20.30.0.0/16",
-				help="")
-
-		ap.add_argument("--sample", metavar="count", type=int,
-				choices=range(TEST_REPS_MIN, TEST_REPS_MAX),
-				default=TEST_REPS_DEFAULT,
-				help="")
-
-		ap.add_argument("--cooling", metavar="seconds", type=int,
-				choices=range(COOLING_MIN, COOLING_MAX),
-				default=COOLING_DEFAULT,
-				help="")
-
-		ap.add_argument("--test", metavar="name", type=str, nargs='+',
-				choices = [ k for (k, v) in tests.items() ],
-				help="")
-
-		self.args = ap.parse_args()
 		self.remote_transport = Transport.NETMAP
 		self.dry_run = False
 		self.cpus = []
-		self.duration = self.args.duration
-		self.sample = self.args.sample
-		self.interface = self.args.i
+		self.duration = TEST_DURATION_DEFAULT
+		self.n_reps = 1
+		self.cooling = COOLING_DEFAULT
+		self.interface = interface
 		self.network = Network()
 		self.network.set_interface(self.interface)
-		self.network.set_ip_network(self.args.network)
-
-
-		self.tests = []
-		if self.args.test:
-			for test in self.args.test:
-				self.tests.append(tests[test])
+		self.network.set_ip_network(ipaddress.ip_network("20.30.0.0/16"))
 
 		self.repo.set_interface(self.interface)
 
 		self.database = Database("")
 
-		if self.args.connect:
-			self.sock = Socket(socket.create_connection(str(self.args.connect), 9999))
+		if server_address:
+			self.sock = Socket(socket.create_connection(server_address, 9999))
 		else:
 			self.sock = Socket(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM))
 			self.sock.connect(SUN_PATH)
@@ -196,10 +160,10 @@ class Client:
 		self.remote_cpu_mask = hello[3]
 
 
-	def cooling(self):
+	def do_cooling(self):
 		ms = milliseconds() - self.start_cooling_time
-		if ms < self.args.cooling * 1000:
-			t = int(math.ceil((self.args.cooling * 1000 - ms) / 1000))
+		if ms < self.cooling * 1000:
+			t = int(math.ceil((self.cooling * 1000 - ms) / 1000))
 			time.sleep(t)
 
 
@@ -219,7 +183,16 @@ class Client:
 
 
 	def do_rep(self, local, test_id, cpus):
-		self.cooling()
+		failed_key = (str(self.remote_transport) + "_" +
+				str(local.transport) + "_" +
+				local.get_name())
+		failed_n_cpus = self.failed.get(failed_key)
+
+		if failed_n_cpus and len(cpus) >= failed_n_cpus:
+			self.tests_failed += 1
+			return
+
+		self.do_cooling()
 
 		if self.mode == Mode.SERVER:
 			local.start(self.repo, self.network, self.mode, self.concurrency, cpus)
@@ -270,8 +243,9 @@ class Client:
 
 		print_report(test_id, rep, local, self.concurrency, top.load)
 
-		if rep == None and rep.cpu_load < 98:
+		if rep == None or rep.cpu_load < CPU_LOAD_THRESHOLD:
 			self.tests_failed += 1
+			self.failed[failed_key] = len(cpus)
 		else:
 			self.tests_passed += 1
 
@@ -280,6 +254,8 @@ class Client:
 		cpus = self.cpus[0:self.n_cpus]
 
 		local = application.create(self.local, self.local_transport)
+		remote = application.create(self.remote, self.remote_transport)
+		assert(not remote.is_gbtcp())
 
 		if self.dry_run:
 			test_id = None
@@ -310,23 +286,59 @@ class Client:
 					self.remote_cpu_mask,
 				)
 
-		for j in range (0, self.sample - n_passed):
+		for j in range (0, self.n_reps - n_passed):
 			self.interface.set_channels(cpus)
 			self.do_rep(local, test_id, cpus)
 
 
+def bronze(c):
+	c.n_reps = 1
+	c.cooling = 10
+	c.duration = 10
+
+	c.remote_transport = Transport.NETMAP
+	c.local_transport = Transport.NETMAP
+	c.mode = Mode.SERVER
+	c.remote = CON_GEN #EPOLL_HELLOWORLD
+	c.concurrency = 5000
+	for app in [EPOLL_HELLOWORLD, NGINX]:
+		c.local = app
+		for i in range(1, len(c.cpus)):
+			c.n_cpus = i
+			c.do_run()
+
+def silver():
+	pass
+
+
+def gold():
+	pass
+
+
 def main():
-	self = Client()
-	self.set_cpus([1, 2, 3, 4])
-	self.local_transport = Transport.NETMAP
-	self.mode = Mode.SERVER
-	self.local = EPOLL_HELLOWORLD
-	self.remote = CON_GEN
-	self.concurrency = 1000
-	for i in range(1, len(self.cpus)):
-		self.n_cpus = i
-		self.do_run()
+	ap = argparse.ArgumentParser()
+
+	ap.add_argument("-i", metavar="interface", required=True, type=argparse_interface,
+			help="")
+
+	ap.add_argument("--connect", metavar="ip", type=argparse_ip_address,
+			help="")
+
+	ap.add_argument("--bronze", action="store_true", help="Run bronze tests")
+
+	args = ap.parse_args()
+
+	c = Client(args.i, args.connect)
+
+	#set_log_level(syslog.LOG_DEBUG, None)
+
+	c.set_cpus([1, 2, 3, 4, 5, 6, 7])
+
+	if args.bronze:
+		bronze(c)
+
+	return c.tests_failed == 0
 
 
 if __name__ == "__main__":
-	sys.exit(main())
+	main()
