@@ -196,7 +196,7 @@ class LinuxNetstat(Netstat, Netstat.Registered):
 		self.create_from_lines(lines)
 
 
-	def read(self, repo, pid):
+	def read(self, app):
 		self.tables = []
 		self.read_file('/proc/net/snmp')
 		self.read_file('/proc/net/netstat')
@@ -355,9 +355,10 @@ class GbtcpNetstat(BSDNetstat, Netstat.Registered):
 		BSDNetstat.__init__(self)
 
 
-	def read(self, repo, pid):
-		cmd = repo.path + "/bin/gbtcp-netstat -nss"
-		self.parse(repo.system(cmd)[1].splitlines())
+	def read(self, app):
+		cmd = app.repo.path + "/bin/gbtcp-netstat -nss"
+		out = app.repo.system(cmd, LOG_DEBUG)[1]
+		self.parse(out.splitlines())
 
 
 class CongenNetstat(BSDNetstat, Netstat.Registered):
@@ -370,15 +371,29 @@ class CongenNetstat(BSDNetstat, Netstat.Registered):
 		BSDNetstat.__init__(self)
 
 
-	def read(self, repo, pid):
+	def read(self, app):
 		sock = Socket(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM))
-		sock.connect("/var/run/con-gen.%d.sock" % pid)
+
+		assert(app.is_running())
+
+		sock.connect("/var/run/con-gen.%d.sock" % app.proc.pid)
 		sock.send_string("s")
 
 		self.parse(sock.recv_lines()[1])
 
 
 def main():
+	class PseudoProc:
+		def __init__(self, pid):
+			self.pid = pid
+
+
+	class PseudoApplication:
+		def __init__(pid):
+			self.proc = PseudoProc(pid)
+			self.repo = Repository()
+
+
 	ap = argparse.ArgumentParser()
 	ap.add_argument("--type", type=str, required=True)
 	ap.add_argument("--pid", metavar="num", type=int, default=None)
@@ -388,16 +403,16 @@ def main():
 			help="Write netstat to database")
 	args = ap.parse_args()
 
-	repo = Repository() 
+	app = PseudoApplication(args.pid)
 
 	if args.rate:
 		while True:
 			ns0 = create(args.type)
-			ns0.read(repo, args.pid)
+			ns0.read(app)
 			time.sleep(args.rate)
 			print("Netstat rate:")
 			ns1 = create(args.type)
-			ns1.read(repo, args.pid)
+			ns1.read(app)
 			rate = (ns1 - ns0) / args.rate
 			rate.set_hide_zeroes(True)
 			print(rate)

@@ -3,6 +3,7 @@
 import platform
 import re
 import signal
+from syslog import *
 
 from common import *
 import netstat
@@ -39,6 +40,10 @@ class Application:
 		self.proc = None
 
 
+	def is_running(self):
+		return self.proc.poll() == None
+
+
 	def is_gbtcp(self):
 		return self.transport != Transport.NATIVE
 
@@ -63,7 +68,7 @@ class Application:
 
 	def read_netstat(self):
 		netstat = self.create_netstat()
-		netstat.read(self.repo, self.proc.pid) 
+		netstat.read(self) 
 		return netstat
 
 
@@ -93,8 +98,7 @@ class Application:
 
 
 	def before_stop(self):
-		netstat = self.create_netstat()
-		netstat.read(self.repo, self.proc.pid)
+		netstat = self.read_netstat()
 		self.netstat = netstat - self.initial_netstat
 		self.repo = None
 
@@ -124,7 +128,7 @@ class nginx(Application, Application.Registered):
 
 	def stop(self):
 		self.before_stop()
-		system("nginx -s quit", True)
+		system("nginx -s quit", LOG_INFO, True)
 		return self.wait_process()
 
 
@@ -259,6 +263,10 @@ class con_gen(Application, Application.Registered):
 
 	def is_gbtcp(self):
 		return False;
+
+
+	def create_netstat(self):
+		return netstat.CongenNetstat()
 
 
 	def create_ifstat(self):

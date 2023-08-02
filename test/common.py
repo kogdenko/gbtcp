@@ -10,9 +10,10 @@ import platform
 import socket
 import argparse
 import subprocess
+import datetime
 import traceback
 import multiprocessing
-import syslog
+from syslog import *
 import ipaddress
 import threading
 import numpy
@@ -60,8 +61,8 @@ TEST_DELAY_DEFAULT = 2
 CONCURRENCY_DEFAULT=1000
 CONCURRENCY_MAX=20000
 
-g_log_level_stdout = syslog.LOG_NOTICE
-g_log_level_syslog = syslog.LOG_INFO
+g_log_level_stdout = LOG_NOTICE
+g_log_level_syslog = LOG_INFO
 
 def set_log_level(log_level_stdout, log_level_syslog):
 	global g_log_level_syslog
@@ -77,30 +78,36 @@ def print_log(level, s):
 	global g_log_level_stdout
 	global g_log_level_syslog
 
+#	if True:
+#		traceback.print_stack()
+
 	if level <= g_log_level_stdout:
-		print(s)
+		print(str(datetime.datetime.now()) + ": " + s)
 	if level <= g_log_level_syslog:
-		syslog.syslog(s)
+		syslog(s)
 
 
 def log_err(exc, s):
 	if exc != None:
-		s += " ('" + str(exc) + "')"
-	print_log(syslog.LOG_ERR, s)
-	if exc != None:
-		traceback.print_exception(exc)
+		s += " ('" + str(exc) + "')\n" + traceback.format_exception(exc)
+	print_log(LOG_ERR, s)
+
 
 def die(s):
 	log_err(None, s)
 	sys.exit(1)
 
 
+def log_debug(s):
+	print_log(LOG_DEBUG, s)
+
+
 def log_info(s):
-	print_log(syslog.LOG_INFO, s)
+	print_log(LOG_INFO, s)
 
 
 def log_notice(s):
-	print_log(syslog.LOG_NOTICE, s)
+	print_log(LOG_NOTICE, s)
 
 
 def dbg(*args):
@@ -225,6 +232,7 @@ class Socket:
 		while True:
 			timedout, data = self.recv_timed(1024, timeout)
 			if timedout:
+				log_debug("recv Timeouted")
 				return True, None
 
 			s = data.decode('utf-8')
@@ -235,6 +243,7 @@ class Socket:
 			assert(len(self.recv_buffer) > 0)
 			if len(self.recv_buffer) > 1 or s == "":
 				message = self.pop_recv_buffer()
+				log_debug("recv: %s" % message)
 				return self.split_lines(message)
 
 
@@ -244,6 +253,7 @@ class Socket:
 		data = (s + "\n\n").encode('utf-8')
 		rc = self.sock.send(data)
 		assert(rc == len(data))
+		log_debug("send: %s" % s)
 
 
 def argparse_ip_address(s):
@@ -291,6 +301,20 @@ def argparse_add_cpu(ap):
 			required=True,
 			choices=range(0, multiprocessing.cpu_count() - 1),
 			help="")
+
+
+def argparse_log_stdout(s):
+	set_log_level(int(s), None)
+
+
+def argparse_add_log_level(ap):
+	log_levels = [LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING, LOG_ERR]
+	ap.add_argument("--stdout", metavar="log-level", type=int, default=LOG_NOTICE,
+			choices=log_levels,
+			help="Set stdout log level")
+	ap.add_argument("--syslog", metavar="log-level", type=int, default=LOG_NOTICE,
+			choices=log_levels,
+			help="Set syslog log level")
 
 
 def argparse_add_duration(ap, default=None):
@@ -364,7 +388,7 @@ def env_str(env):
 	return s;
 
 
-def system(cmd, fault_tollerance=False, env=None):
+def system(cmd, log_level=LOG_INFO, fault_tollerance=False, env=None):
 	s = env_str(env)
 	if len(s):
 		cmd_with_env = "%s %s" % (s, cmd)
@@ -392,9 +416,13 @@ def system(cmd, fault_tollerance=False, env=None):
 	if len(err):
 		log += "\n%s" % err
 	if rc == 0:
-		log_info(log)
+		print_log(log_level, log)
 	else:
-		log_err(None, log)
+		if fault_tollerance:
+			failed_log_level = log_level
+		else:
+			failed_log_level = LOG_ERR
+		print_log(failed_log_level, log)
 
 	if rc != 0 and not fault_tollerance:
 		raise RuntimeError("Command '%s' failed with code '%d'" % (cmd, rc))
@@ -403,7 +431,7 @@ def system(cmd, fault_tollerance=False, env=None):
 
 
 def rmmod(module):
-	rc, _, err = system("rmmod %s" % module, True)
+	rc, _, err = system("rmmod %s" % module, LOG_INFO, True)
 	if rc == 0:
 		return True
 	lines = err.splitlines()
@@ -567,7 +595,9 @@ def wait_process(proc):
 				break
 			lines.append(line.decode('utf-8').strip())
 
-	log_info("$ [pid=%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines)))
+	log_info("$ [pid=%d] Done + %d" % (proc.pid, proc.returncode))
+	log_debug('\n'.join(lines))
+
 	return proc.returncode, lines
 
 
@@ -661,10 +691,10 @@ class Top:
 
 
 class Repository:
-	def system(self, cmd, fault_tollerance=False):
+	def system(self, cmd, log_level=LOG_INFO, fault_tollerance=False):
 		env = os.environ.copy()
 		env["LD_LIBRARY_PATH"] = self.path + "/bin"
-		return system(cmd, fault_tollerance, env)
+		return system(cmd, log_level, fault_tollerance, env)
 
 
 	def __init__(self):

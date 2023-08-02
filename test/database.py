@@ -36,7 +36,9 @@ class Database:
 
 
 	class Rep:
-		pass
+		def __init__(self):
+			self.id = None
+			self.test_id = None
 
 
 	class Test:
@@ -167,10 +169,7 @@ class Database:
 
 
 	def insert_into_rep(self, rep):
-		if not rep.test_id:
-			# Dry run
-			rep.id = None
-			return
+		assert(rep.test_id)
 
 		reps = self.get_reps(rep.test_id)
 		while len(reps) > TEST_REPS_MAX:

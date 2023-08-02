@@ -14,6 +14,7 @@ import getopt
 import socket
 import subprocess
 import syslog
+from enum import Enum
 
 import numpy
 
@@ -33,6 +34,13 @@ COOLING_MAX = 3*60
 COOLING_DEFAULT = 20
 
 
+class Status(Enum):
+	PASSED = "Passed"
+	FAILED = "Failed"
+	SKIPPED = "Skipped"
+	CALIBRATION = "Calibration"
+
+
 def get_peer_mode(mode):
 	if mode == Mode.SERVER:
 		return Mode.CLIENT
@@ -41,27 +49,21 @@ def get_peer_mode(mode):
 
 
 def print_report(test_id, rep, app, concurrency, cpu_load):
-	s = ""
-	if rep != None:
-		s += ("%d/%d: " % (test_id, rep.id))
+	pps = rep.ipps + rep.opps
 
-	s += ("%s:%s: c=%d, CPU=%s" %
-		(app.transport.value, app.get_name(), concurrency, str(cpu_load)))
+	report = ""
+	if test_id != None:
+		report += "%d/%d: " % (test_id, rep.id)
 
-	if rep != None:
-		 pps = rep.ipps + rep.opps
-		 s += ", %.2f mpps" % (pps/1000000)
+	report += ("%s/%s: c=%d, CPU=%s, %.2f mpps ... %s " % (
+			app.transport.value,
+			app.get_name(),
+			concurrency,
+			str(cpu_load),
+			pps/1000000,
+			rep.status.value))
 
-	s += " ... "
-
-	if rep == None:
-		s += "Error"
-	elif rep.cpu_load < 98:
-		s += "Failed"
-	else:
-		s += "Passed"
-
-	log_notice(s)
+	log_notice(report)
 
 
 class CheckTest:
@@ -79,17 +81,18 @@ class CheckTest:
 				None, None)
 		if wait_process(proc)[0] == 0:
 			self.client.tests_passed += 1
-			status = "Passed"
+			status = Status.PASSED
 		else:
 			self.client.tests_failed += 1
-			status = "Failed"
-		log_notice("%s ... %s" % (self.name, status))
+			status = Status.FAILED
+		log_notice("%s ... %s" % (self.name, status.value))
 
 
 class Client:
 	def __del__(self):
 		log_notice("Passed: %d" % self.tests_passed)
 		log_notice("Failed: %d" % self.tests_failed)
+		log_notice("Skipped: %d" % self.tests_skipped)
 
 
 	def set_cpus(self, cpus):
@@ -100,9 +103,11 @@ class Client:
 
 
 	def __init__(self, interface, server_address): 
+		self.max_pps = None
 		self.tests_passed = 0
 		self.tests_failed = 0
-		self.failed = {}
+		self.tests_skipped = 0
+		self.skipped = {}
 		self.repo = Repository()
 
 		self.os = get_os()
@@ -125,6 +130,7 @@ class Client:
 		self.cpus = []
 		self.duration = TEST_DURATION_DEFAULT
 		self.n_reps = 1
+		self.n_tries = 2
 		self.cooling = COOLING_DEFAULT
 		self.interface = interface
 		self.network = Network()
@@ -183,13 +189,13 @@ class Client:
 
 
 	def do_rep(self, local, test_id, cpus):
-		failed_key = (str(self.remote_transport) + "_" +
+		skipped_key = (str(self.remote_transport) + "_" +
 				str(local.transport) + "_" +
 				local.get_name())
-		failed_n_cpus = self.failed.get(failed_key)
+		skipped_n_cpus = self.skipped.get(skipped_key)
 
-		if failed_n_cpus and len(cpus) >= failed_n_cpus:
-			self.tests_failed += 1
+		if skipped_n_cpus and len(cpus) > skipped_n_cpus:
+			self.tests_skipped += 1
 			return
 
 		self.do_cooling()
@@ -236,18 +242,31 @@ class Client:
 
 		self.start_cooling()
 
-		if rep != None:
+		if test_id != None:
 			self.database.insert_into_rep(rep)
 			local_netstat.insert_into_database(self.database, rep.id, True)
 			remote_netstat.insert_into_database(self.database, rep.id, False) 
 
+		pps = rep.ipps + rep.opps
+		if self.max_pps == None:
+			rep.status = Status.CALIBRATION
+			self.max_pps = pps
+		else:
+			if rep.cpu_load < CPU_LOAD_THRESHOLD:
+				if abs(self.max_pps - pps) > self.max_pps * 0.1:
+					rep.status = Status.FAILED
+					self.tests_failed += 1
+				else:
+					rep.status = Status.SKIPPED
+					self.tests_skipped += 1
+				self.skipped[skipped_key] = len(cpus)
+			else:
+				rep.status = Status.PASSED
+				self.tests_passed += 1
+
 		print_report(test_id, rep, local, self.concurrency, top.load)
 
-		if rep == None or rep.cpu_load < CPU_LOAD_THRESHOLD:
-			self.tests_failed += 1
-			self.failed[failed_key] = len(cpus)
-		else:
-			self.tests_passed += 1
+		return rep.status
 
 
 	def do_run(self):
@@ -286,13 +305,38 @@ class Client:
 					self.remote_cpu_mask,
 				)
 
-		for j in range (0, self.n_reps - n_passed):
-			self.interface.set_channels(cpus)
-			self.do_rep(local, test_id, cpus)
+		self.interface.set_channels(cpus)
+
+		for _ in range (0, self.n_reps - n_passed):
+			for _ in range (0, self.n_tries):
+				status = self.do_rep(local, test_id, cpus)
+				if status != Status.FAILED:
+					break
+
+
+def calibration(c):
+	dry_run = c.dry_run
+	c.dry_run = True
+
+	c.n_reps = 1
+	c.n_tries = 1
+	c.cooling = 10
+	c.duration = 10
+	c.remote_transport = Transport.NETMAP
+	c.local_transport = Transport.NETMAP
+	c.mode = Mode.SERVER
+	c.remote = CON_GEN
+	c.local = CON_GEN
+	c.concurrency = len(c.cpus) * 1000
+	c.n_cpus = len(c.cpus)
+	c.do_run()
+
+	c.dry_run = dry_run
 
 
 def bronze(c):
 	c.n_reps = 1
+	c.n_tries = 3
 	c.cooling = 10
 	c.duration = 10
 
@@ -307,6 +351,24 @@ def bronze(c):
 			c.n_cpus = i
 			c.do_run()
 
+
+def custom(c):
+	c.n_reps = 10
+	c.cooling = 10
+	c.duration = 10
+
+	c.remote_transport = Transport.NETMAP
+	c.local_transport = Transport.NETMAP
+	c.mode = Mode.SERVER
+	c.remote = CON_GEN #EPOLL_HELLOWORLD
+	c.concurrency = 5000
+	for app in [CON_GEN]:
+		c.local = app
+		for i in range(1, len(c.cpus)):
+			c.n_cpus = i
+			c.do_run()
+
+
 def silver():
 	pass
 
@@ -318,6 +380,10 @@ def gold():
 def main():
 	ap = argparse.ArgumentParser()
 
+	argparse_add_log_level(ap)
+
+	argparse_add_cpu(ap)
+
 	ap.add_argument("-i", metavar="interface", required=True, type=argparse_interface,
 			help="")
 
@@ -325,15 +391,23 @@ def main():
 			help="")
 
 	ap.add_argument("--bronze", action="store_true", help="Run bronze tests")
+	ap.add_argument("--custom", action="store_true", help="Run custom tests")
 
 	args = ap.parse_args()
 
+	set_log_level(args.stdout, args.syslog)
+
+	for app in application.Application.registered():
+		system("killall -9 %s" % app.get_name(), LOG_DEBUG, True)
+
 	c = Client(args.i, args.connect)
 
-	#set_log_level(syslog.LOG_DEBUG, None)
+	c.set_cpus(args.cpu)
 
-	c.set_cpus([1, 2, 3, 4, 5, 6, 7])
+	calibration(c)
 
+	if args.custom:
+		custom(c)
 	if args.bronze:
 		bronze(c)
 

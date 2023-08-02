@@ -141,6 +141,9 @@ class CongenIfstat(Ifstat):
 	def vread(self, app):
 		self.reset_counters()
 		sock = Socket(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM))
+
+		assert(app.is_running())
+
 		sun_path = "/var/run/con-gen.%d.sock" % app.proc.pid
 		sock.connect(sun_path)
 		sock.send_string("i")

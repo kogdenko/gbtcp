@@ -29,10 +29,8 @@ class Server:
 		mode = Mode(lines[5])
 
 		app = application.create(application_name, transport)
-		if app.is_gbtcp():
-			print("Server not intended to run gbtcp")
-			return None
-		
+		assert(not app.is_gbtcp())
+	
 		app.start(self.repo, self.network, mode, concurrency, self.cpus)
 	
 		time.sleep(3)	
@@ -121,6 +119,7 @@ class Server:
 		ap = argparse.ArgumentParser()
 
 		argparse_add_cpu(ap)
+		argparse_add_log_level(ap)
 
 		ap.add_argument("--listen", metavar="ip", type=argparse_ip_address,
 				help="Listen for incomming test commands")
@@ -128,7 +127,11 @@ class Server:
 		ap.add_argument("-i", metavar="interface", required=True, type=argparse_interface,
 				help="Interface direct connected to test client")
 
+
 		self.args = ap.parse_args()
+
+		set_log_level(self.args.stdout, self.args.syslog)
+
 		self.cpus = self.args.cpu
 		self.network = Network()
 		self.network.set_interface(self.args.i)
@@ -143,6 +146,7 @@ class Server:
 
 
 def main():
+
 	server = Server()
 	#set_log_level(syslog.LOG_DEBUG, None)
 	server.loop()
