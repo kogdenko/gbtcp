@@ -125,9 +125,14 @@ service_start_controller(void)
 }
 
 static int
-service_rx(struct in_context *p)
+gt_gbtcp_rx(struct route_if *ifp, void *data, int len)
 {
 	int rc, ipproto;
+	struct in_context *p, in;
+
+	in_context_init(&in, data, len);
+	in.in_ifp = ifp;
+	p = &in;
 
 	rc = eth_input(p);
 	assert(rc < 0);
@@ -167,6 +172,12 @@ redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, const voi
 	return rc;
 }
 
+static int
+gt_service_rx(struct route_if *ifp, void *data, int len)
+{
+	return gt_gbtcp_rx(ifp, data, len);
+}
+
 static void
 service_rssq_rx(struct dev *dev, void *data, int len)
 {
@@ -178,12 +189,12 @@ service_rssq_rx(struct dev *dev, void *data, int len)
 	ifp = dev->dev_ifp;
 	in_context_init(&p, data, len);
 	p.in_ifp = ifp;
-	p.in_tcps = &current->p_tcps;
-	p.in_udps = &current->p_udps;
-	p.in_ips = &current->p_ips;
-	p.in_icmps = &current->p_icmps;
-	p.in_arps = &current->p_arps;
-	in = service_rx(&p);
+	current->p_rx_tcps = &current->p_tcps;
+	current->p_rx_udps = &current->p_udps;
+	current->p_rx_ips = &current->p_ips;
+	current->p_rx_icmps = &current->p_icmps;
+	current->p_rx_arps = &current->p_arps;
+	in = gt_service_rx(ifp, data, len);
 	if (in == IN_BYPASS) {
 		if (current->p_sid == CONTROLLER_SID) {
 			transmit_to_host(ifp, data, len);
@@ -221,7 +232,6 @@ service_redirect_dev_rx(struct dev *dev, void *data, int len)
 	struct eth_hdr *eh;
 	struct route_if *ifp;
 	struct service_msg *msg;
-	struct in_context p;
 	struct dev_pkt pkt;
 
 	if (len < sizeof(*eh)) {
@@ -251,13 +261,12 @@ service_redirect_dev_rx(struct dev *dev, void *data, int len)
 	len -= sizeof(*msg);
 	switch (msg->msg_type) {
 	case SERVICE_MSG_RX:
-		in_context_init(&p, data, len);
-		p.in_tcps = &tcps;
-		p.in_udps = &udps;
-		p.in_ips = &ips;
-		p.in_icmps = &icmps;
-		p.in_arps = &arps;
-		service_rx(&p);
+		current->p_rx_tcps = &tcps;
+		current->p_rx_udps = &udps;
+		current->p_rx_ips = &ips;
+		current->p_rx_icmps = &icmps;
+		current->p_rx_arps = &arps;
+		gt_service_rx(NULL, data, len);
 		break;
 	case SERVICE_MSG_TX:
 		rc = route_get_tx_packet(ifp, &pkt, 0);

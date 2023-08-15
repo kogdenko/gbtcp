@@ -1,4 +1,5 @@
-// gpl2
+// SPDX-License-Identifier: GPL-2.0
+
 #include "internals.h"
 
 struct mod mods[MODS_MAX] = {
@@ -31,6 +32,11 @@ struct mod mods[MODS_MAX] = {
 		.mod_deinit = tcp_mod_deinit,
 		.mod_timer = tcp_mod_timer,
 	},
+//	[MOD_bsd] = {
+//		.mod_init = bsd_mod_init,
+//		.mod_deinit = bsd_mod_deinit,
+//		.mod_timer = bsd_mod_timer,
+//	},
 };
 
 const char *

@@ -184,6 +184,24 @@ srcs = [
 	'gbtcp/dev.c',
 ]
 
+if False:
+	srcs.append([
+		'bsd44/tcp_debug.c',
+		'bsd44/tcp_timer.c',
+		'bsd44/uipc_socket.c',
+		'bsd44/tcp_usrreq.c',
+		'bsd44/if_ether.c',
+		'bsd44/udp_usrreq.c',
+		'bsd44/ip_input.c',
+		'bsd44/glue.c',
+		'bsd44/in_pcb.c',
+		'bsd44/tcp_input.c',
+		'bsd44/tcp_output.c',
+		'bsd44/ip_output.c',
+		'bsd44/ip_icmp.c',
+		'bsd44/tcp_subr.c',
+	])
+
 if PLATFORM == "Linux":
 	srcs.append('gbtcp/Linux/netlink.c')
 	ldflags.append("-ldl")

@@ -181,11 +181,6 @@ struct arp_stat {
 
 struct in_context {
 	struct route_if *in_ifp;
-	struct tcp_stat *in_tcps;
-	struct udp_stat *in_udps;
-	struct ip_stat *in_ips;
-	struct icmp_stat *in_icmps;
-	struct arp_stat *in_arps;
 	u_char *in_cur;
 	int in_rem;
 	int in_errnum;

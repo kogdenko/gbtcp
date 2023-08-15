@@ -34,7 +34,7 @@ file_mod_init(void)
 	if (rc == 0) {
 		curmod->file_nofile = upper_pow2_32(GT_FIRST_FD + 100000);
 		sysctl_add_int(GT_SYSCTL_FILE_NOFILE, SYSCTL_WR, &curmod->file_nofile,
-			GT_FIRST_FD + 1, 1 << 26);
+				GT_FIRST_FD + 1, 1 << 26);
 	}
 	return rc;
 }

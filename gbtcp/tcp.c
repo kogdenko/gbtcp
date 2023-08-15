@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+
 // TODO:
 // 1) del ack: with a stream of full-sized incoming segments,
 //    ACK responses must be sent for every second segment.
@@ -76,8 +78,6 @@ struct tcp_mod {
 	struct htable tbl_connected;
 	struct htable tbl_binded;
 };
-
-int gt_so_udata_size;
 
 // subr
 static const char *tcp_flags_str(struct strbuf *sb, int proto,
@@ -1169,8 +1169,8 @@ static void
 tcp_close(struct sock *so)
 {
 	so->so_ssnt = 0;
-	timer_del(&so->so_timer);
-	timer_del(&so->so_timer_delack);
+	timer_cancel(&so->so_timer);
+	timer_cancel(&so->so_timer_delack);
 	sockbuf_free(&so->so_rcvbuf);
 	sockbuf_free(&so->so_sndbuf);
 	if (so->so_passive_open) {
@@ -1230,7 +1230,7 @@ static void
 tcp_delack(struct sock *so)
 {
 	if (timer_is_running(&so->so_timer_delack)) {
-		timer_del(&so->so_timer_delack);
+		timer_cancel(&so->so_timer_delack);
 		tcp_into_ackq(so);
 	}
 	timer_set(&so->so_timer_delack, 200 * NSEC_MSEC,
@@ -1506,7 +1506,7 @@ tcp_rcv_established(struct sock *so, struct in_context *in)
 			tcp_set_state(so, in, GT_TCPS_CLOSING);
 			break;
 		case GT_TCPS_FIN_WAIT_2:
-			timer_del(&so->so_timer); // tcp_fin_timeout
+			timer_cancel(&so->so_timer); // tcp_fin_timeout
 			rc = tcp_enter_TIME_WAIT(so, in);
 			if (rc) {
 				return;
@@ -1685,7 +1685,7 @@ tcp_process_ack_complete(struct sock *so, struct in_context *in)
 
 	so->so_retx = 0;
 	so->so_ntries = 0;
-	timer_del(&so->so_timer);
+	timer_cancel(&so->so_timer);
 	so->so_nagle_acked = 1;
 	if (so->so_sfin && so->so_sfin_acked == 0) {
 		assert(so->so_sndbuf.sob_len == 0);
@@ -1987,7 +1987,7 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcp_fill_info *tcb,
 		}
 		tcp_tx_timer_set(so);
 	}
-	timer_del(&so->so_timer_delack);
+	timer_cancel(&so->so_timer_delack);
 	return total_len;
 }
 

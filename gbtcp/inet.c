@@ -381,46 +381,48 @@ arp_input(struct in_context *in)
 	be32_t sip, tip;
 	struct route_if_addr *ifa;
 	struct arp_advert adv;
+	struct arp_stat *arps;
 
-	in->in_arps->arps_received++;
+	arps = current->p_rx_arps;
+	arps->arps_received++;
 	if (in->in_rem < sizeof(struct arp_hdr)) {
-		in->in_arps->arps_toosmall++;
+		arps->arps_toosmall++;
 		return IN_DROP;
 	}
 	in->in_ah = (struct arp_hdr *)in->in_cur;
 	SHIFT(in, sizeof(struct arp_hdr));
 	if (in->in_ah->ah_hrd != ARP_HRD_ETH_BE) {
-		in->in_arps->arps_badhrd++;
+		arps->arps_badhrd++;
 		return IN_DROP;
 	}
 	if (in->in_ah->ah_pro != ETH_TYPE_IP4_BE) {
-		in->in_arps->arps_badpro++;
+		arps->arps_badpro++;
 		return IN_DROP;
 	}
 	if (in->in_ah->ah_hlen != sizeof(struct eth_addr)) {
-		in->in_arps->arps_badhlen++;
+		arps->arps_badhlen++;
 		return IN_DROP;
 	}
 	if (in->in_ah->ah_plen != sizeof(be32_t)) {
-		in->in_arps->arps_badplen++;
+		arps->arps_badplen++;
 		return IN_DROP;
 	}
 	tip = in->in_ah->ah_data.aip_tip;
 	sip = in->in_ah->ah_data.aip_sip;
 	if (ipaddr4_is_loopback(tip)) {
-		in->in_arps->arps_badaddr++;
+		arps->arps_badaddr++;
 		return IN_DROP;
 	}
 	if (ipaddr4_is_bcast(tip)) {
-		in->in_arps->arps_badaddr++;
+		arps->arps_badaddr++;
 		return IN_DROP;
 	}
 	if (ipaddr4_is_loopback(sip)) {
-		in->in_arps->arps_badaddr++;
+		arps->arps_badaddr++;
 		return IN_DROP;
 	}
 	if (ipaddr4_is_bcast(sip)) {
-		in->in_arps->arps_badaddr++;
+		arps->arps_badaddr++;
 		return IN_DROP;
 	}
 	ifa = route_ifaddr_get4(tip);
@@ -434,7 +436,7 @@ arp_input(struct in_context *in)
 		}
 	}
 	if (i == in->in_ifp->rif_n_addrs) {
-		in->in_arps->arps_filtered++;
+		arps->arps_filtered++;
 		return IN_BYPASS;
 	}
 	if (sip == 0) {
@@ -443,16 +445,16 @@ arp_input(struct in_context *in)
 	}
 	switch (in->in_ah->ah_op) {
 	case ARP_OP_REQUEST_BE:
-		in->in_arps->arps_rxrequests++;
+		arps->arps_rxrequests++;
 		is_req = 1;
 		arp_reply(in->in_ifp, in->in_ah);
 		break;
 	case ARP_OP_REPLY_BE:
-		in->in_arps->arps_rxreplies++;
+		arps->arps_rxreplies++;
 		is_req = 0;
 		break;
 	default:
-		in->in_arps->arps_badop++;
+		arps->arps_badop++;
 		return IN_DROP;
 	}
 	adv.arpa_af = AF_INET;
@@ -536,15 +538,17 @@ static int
 tcp_input(struct in_context *in)
 {
 	int rc, len, win, cksum;
+	struct tcp_stat *tcps;
 
+	tcps = current->p_rx_tcps;
 	if (in->in_rem < sizeof(struct tcp_hdr)) {
-		in->in_tcps->tcps_rcvshort++;
+		tcps->tcps_rcvshort++;
 		return IN_DROP;
 	}
 	in->in_th = (struct tcp_hdr *)in->in_cur;
 	in->in_th_len = TCP_HDR_LEN(in->in_th->th_data_off);
 	if (in->in_rem < in->in_th_len) {
-		in->in_tcps->tcps_rcvshort++;
+		tcps->tcps_rcvshort++;
 		return IN_DROP;
 	}
 	SHIFT(in, in->in_th_len);
@@ -561,7 +565,7 @@ tcp_input(struct in_context *in)
 	in->in_th->th_cksum = 0;
 	if (in->in_cksum_offload == 0) {
 		if (cksum != ip4_udp_calc_cksum(in->in_ih)) {
-			in->in_tcps->tcps_rcvbadsum++;
+			tcps->tcps_rcvbadsum++;
 			return IN_DROP;
 		}
 	}
@@ -570,7 +574,7 @@ tcp_input(struct in_context *in)
 	                    (void *)(in->in_th + 1),
 	                    in->in_th_len - sizeof(*in->in_th));
 	if (rc) {
-		in->in_tcps->tcps_rcvbadoff++;
+		tcps->tcps_rcvbadoff++;
 		return IN_DROP;
 	}
 	return IN_OK;
@@ -580,9 +584,11 @@ static int
 icmp_input(struct in_context *in)
 {
 	int ih_len, type, code;
+	struct icmp_stat *icmps;
 
+	icmps = current->p_rx_icmps;
 	if (in->in_rem < sizeof(struct icmp4_hdr)) {
-		in->in_icmps->icmps_tooshort++;
+		icmps->icmps_tooshort++;
 		return IN_DROP;
 	}
 	in->in_icp = (struct icmp4_hdr *)in->in_cur;
@@ -592,7 +598,7 @@ icmp_input(struct in_context *in)
 	if (type > ICMP_MAXTYPE) {
 		return IN_BYPASS;
 	}
-	in->in_icmps->icmps_inhist[type]++;
+	icmps->icmps_inhist[type]++;
 	switch (type) {
 	case ICMP_UNREACH:
 		switch (code) {
@@ -614,34 +620,34 @@ icmp_input(struct in_context *in)
 			in->in_errnum = EMSGSIZE;
 			break;
 		default:
-			in->in_icmps->icmps_badcode++;
+			icmps->icmps_badcode++;
 			return IN_DROP;
 		}
 		break;
 	case ICMP_TIMXCEED:
 		if (code > 1) {
-			in->in_icmps->icmps_badcode++;
+			icmps->icmps_badcode++;
 			return IN_DROP;
 		}
 		// TODO:
 		break;
 	case ICMP_PARAMPROB:
 		if (code > 1) {
-			in->in_icmps->icmps_badcode++;
+			icmps->icmps_badcode++;
 			return IN_DROP;
 		}
 		in->in_errnum = ENOPROTOOPT;
 		break;
 	case ICMP_SOURCEQUENCH:
 		if (code) {
-			in->in_icmps->icmps_badcode++;
+			icmps->icmps_badcode++;
 			return IN_DROP;
 		}
 		// TODO:
 		break;
 	case ICMP_REDIRECT:
 		if (code > 3) {
-			in->in_icmps->icmps_badcode++;
+			icmps->icmps_badcode++;
 			return IN_DROP;
 		}
 		// TODO:
@@ -652,13 +658,13 @@ icmp_input(struct in_context *in)
 	in->in_emb_ih = NULL;
 	in->in_emb_th = NULL;
 	if (in->in_rem < sizeof(*in->in_emb_ih)) {
-		in->in_icmps->icmps_badlen++;
+		icmps->icmps_badlen++;
 		return IN_DROP;
 	}
 	in->in_emb_ih = (struct ip4_hdr *)in->in_cur;
 	ih_len = IP4_HDR_LEN(in->in_emb_ih->ih_ver_ihl);
 	if (ih_len < sizeof(*in->in_emb_ih)) {
-		in->in_icmps->icmps_badlen++;
+		icmps->icmps_badlen++;
 		return IN_DROP;
 	}
 	SHIFT(in, ih_len);
@@ -666,21 +672,21 @@ icmp_input(struct in_context *in)
 	switch (in->in_emb_ipproto) {
 	case IPPROTO_UDP:
 		if (in->in_rem < sizeof(*in->in_emb_uh)) {
-			in->in_icmps->icmps_badlen++;
+			icmps->icmps_badlen++;
 			return IN_DROP;
 		}
 		in->in_emb_uh = (struct udp_hdr *)in->in_cur;
 		return IN_OK;
 	case IPPROTO_TCP:
 		if (in->in_rem < sizeof(*in->in_emb_th)) {
-			in->in_icmps->icmps_badlen++;
+			icmps->icmps_badlen++;
 			return IN_BYPASS;
 		}
 		in->in_emb_th = (struct tcp_hdr *)in->in_cur;
 		return IN_OK;
 	case IPPROTO_ICMP:
 		if (in->in_rem < sizeof(*in->in_emb_icp)) {
-			in->in_icmps->icmps_badlen++;
+			icmps->icmps_badlen++;
 			return IN_DROP;
 		}
 		in->in_emb_icp = (struct icmp4_hdr *)in->in_cur;
@@ -694,10 +700,14 @@ static int
 ip_input(struct in_context *in)
 {
 	int rc, total_len, cksum;
+	struct ip_stat *ips;
+	struct udp_stat *udps;
 
-	in->in_ips->ips_total++;
+	ips = current->p_rx_ips;
+	udps = current->p_rx_udps;
+	ips->ips_total++;
 	if (in->in_rem < sizeof(struct ip4_hdr)) {
-		in->in_ips->ips_toosmall++;
+		ips->ips_toosmall++;
 		return IN_DROP;
 	}
 	in->in_ih = (struct ip4_hdr *)(in->in_eh + 1);
@@ -714,26 +724,26 @@ ip_input(struct in_context *in)
 	}
 	in->in_ih_len = IP4_HDR_LEN(in->in_ih->ih_ver_ihl);
 	if (in->in_ih_len < sizeof(*in->in_ih)) {
-		in->in_ips->ips_badhlen++;
+		ips->ips_badhlen++;
 		return IN_DROP;
 	}
 	if (in->in_rem < in->in_ih_len) {
-		in->in_ips->ips_badhlen++;
+		ips->ips_badhlen++;
 		return IN_DROP;
 	}
 	SHIFT(in, in->in_ih_len);
 	total_len = ntoh16(in->in_ih->ih_total_len);
 	if (total_len > 65535) {
-		in->in_ips->ips_toolong++;
+		ips->ips_toolong++;
 		return IN_DROP;
 	}
 	if (total_len < in->in_ih_len) {
-		in->in_ips->ips_badlen++;
+		ips->ips_badlen++;
 		return IN_DROP;
 	}
 	in->in_ip_payload_len = total_len - in->in_ih_len;
 	if (in->in_ip_payload_len > in->in_rem) {
-		in->in_ips->ips_tooshort++;
+		ips->ips_tooshort++;
 		return IN_DROP;
 	}
 	in->in_ipproto = in->in_ih->ih_proto;
@@ -741,7 +751,7 @@ ip_input(struct in_context *in)
 	in->in_ih->ih_cksum = 0;
 	if (in->in_cksum_offload == 0) {
 		if (cksum != ip4_calc_cksum(in->in_ih)) {
-			in->in_ips->ips_badsum++;
+			ips->ips_badsum++;
 			return IN_DROP;
 		}
 	}
@@ -749,7 +759,7 @@ ip_input(struct in_context *in)
 	switch (in->in_ipproto) {
 	case IPPROTO_UDP:
 		if (in->in_rem < sizeof(struct udp_hdr)) {
-			in->in_udps->udps_badlen++;
+			udps->udps_badlen++;
 			return IN_DROP;
 		}
 		in->in_uh = (struct udp_hdr *)in->in_cur;

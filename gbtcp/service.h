@@ -49,11 +49,22 @@ struct service {
 	struct mbuf_pool *p_arp_incomplete_pool;
 	struct mbuf_pool *p_file_pool;
 	struct mbuf_pool *p_sockbuf_pool;
+
 	struct tcp_stat p_tcps;
+	struct tcp_stat *p_rx_tcps;
+
 	struct udp_stat p_udps;
+	struct udp_stat *p_rx_udps;
+
 	struct ip_stat p_ips;
+	struct ip_stat *p_rx_ips;
+
 	struct icmp_stat p_icmps;
+	struct icmp_stat *p_rx_icmps;
+
 	struct arp_stat p_arps;
+	struct arp_stat *p_rx_arps;
+
 	int p_pid;
 	int p_fd;
 	uint64_t p_start_time;

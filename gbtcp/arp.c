@@ -345,7 +345,7 @@ arp_set_state(struct arp_entry *e, int state)
 		log_add_ipaddr(AF_INET, &e->ae_next_hop));
 	WRITE_ONCE(e->ae_state, state);
 	if (state == ARP_REACHABLE) {
-		timer_del(&e->ae_timer);
+		timer_cancel(&e->ae_timer);
 		e->ae_confirmed = shared_ns();
 		e->ae_n_probes = 0;
 	}
@@ -380,7 +380,7 @@ static void
 arp_entry_del(struct arp_entry *e)
 {
 	dlist_remove_rcu(&e->ae_list);
-	timer_del(&e->ae_timer);
+	timer_cancel(&e->ae_timer);
 	arp_set_state(e, ARP_NONE);
 	mbuf_free(&e->ae_incomplete_q->pkt_mbuf);
 	mbuf_free_rcu(&e->ae_mbuf);

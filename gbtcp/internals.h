@@ -32,5 +32,6 @@
 #include "api.h"
 #include "service.h"
 #include "controller.h"
+#include "bsd44/glue.h"
 
 #endif // GBTCP_INETRNALS_H

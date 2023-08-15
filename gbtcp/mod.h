@@ -1,4 +1,5 @@
-// gpl2
+// SPDX-License-Identifier: GPL-2.0
+
 #ifndef GBTCP_MOD_H
 #define GBTCP_MOD_H
 

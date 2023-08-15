@@ -92,8 +92,7 @@ run_ring_timers(struct timer_ring *ring, uint64_t t, struct dlist *queue)
 		seg = ring->tmr_segs + (pos & TIMER_RING_MASK);
 		SEG_LOCK(seg);
 		while (!dlist_is_empty(&seg->htb_head)) {
-			timer = DLIST_FIRST(&seg->htb_head,
-			                    struct timer, tm_list);
+			timer = DLIST_FIRST(&seg->htb_head, struct timer, tm_list);
 			DLIST_REMOVE(timer, tm_list);
 			DLIST_INSERT_HEAD(queue, timer, tm_list);
 		}
@@ -131,7 +130,7 @@ migrate_timers_in_seg(u_char sid, timer_seg_t *dst_seg, timer_seg_t *src_seg)
 	while (!dlist_is_empty(&src_seg->htb_head)) {
 		timer = DLIST_FIRST(&src_seg->htb_head, struct timer, tm_list);
 		DLIST_REMOVE(timer, tm_list);
-		// timer_del() can be executed while migrate_timers()
+		// timer_cancel() can be executed while migrate_timers()
 		WRITE_ONCE(timer->tm_sid, sid);
 		DLIST_INSERT_TAIL(&dst_seg->htb_head, timer, tm_list);
 	}
@@ -215,7 +214,7 @@ timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 	assert(expire >= TIMER_EXPIRE_MIN);
 	assert(expire <= TIMER_EXPIRE_MAX);
 	assert(mod_id > 0 && mod_id < MODS_MAX);
-	timer_del(timer);
+	timer_cancel(timer);
 	if (expire < 2*TIMER_RING1_SEG) {
 		ring_id = 0;
 	} else {
@@ -239,7 +238,7 @@ timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 }
 
 void
-timer_del(struct timer *timer)
+timer_cancel(struct timer *timer)
 {
 	u_char sid;
 	struct service *s;
@@ -248,7 +247,7 @@ timer_del(struct timer *timer)
 
 	if (timer_is_running(timer)) {
 restart:
-		// timer_del executed while migrate_timers
+		// timer_cancel() has been executed while migrate_timers
 		sid = READ_ONCE(timer->tm_sid);
 		s = service_get_by_sid(sid);
 		ring = s->p_timer_rings[timer->tm_ring_id];
