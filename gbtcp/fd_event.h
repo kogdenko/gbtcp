@@ -1,4 +1,5 @@
-// GPL v2 license
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_FD_EVENT_H
 #define GBTCP_FD_EVENT_H
 

@@ -1,7 +1,7 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD mbuf
+#include "mbuf.h"
+#include "shm.h"
 
 #define MBUF_MAGIC 0xcafe
 
@@ -25,12 +25,10 @@ mbuf_chunk_alloc(struct mbuf_pool *p, struct mbuf_chunk **pchunk)
 	struct mbuf_chunk *chunk;
 	struct mbuf *m;
 
-	if (p->mbp_chunk_map_size != 0 &&
-	    p->mbp_n_allocated_chunks == p->mbp_chunk_map_size) {
+	if (p->mbp_chunk_map_size != 0 && p->mbp_n_allocated_chunks == p->mbp_chunk_map_size) {
 		return -ENOMEM;
 	}
-	rc = shm_alloc_pages((void **)pchunk,
-		p->mbp_chunk_size, p->mbp_chunk_size);
+	rc = shm_alloc_pages((void **)pchunk, p->mbp_chunk_size, p->mbp_chunk_size);
 	if (rc) {
 		return rc;
 	}
@@ -72,8 +70,8 @@ mbuf_chunk_free(struct mbuf_pool *p, struct mbuf_chunk *chunk)
 }
 
 int
-mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid,
-	int chunk_size, int mbuf_size, int n_mbufs_max)
+mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid, int chunk_size,
+		int mbuf_size, int n_mbufs_max)
 {
 	int size, mbuf_size_align, mbufs_per_chunk, chunk_map_size;
 	struct mbuf_pool *p;
@@ -83,8 +81,7 @@ mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid,
 	assert((chunk_size & PAGE_MASK) == 0);
 	mbuf_size_align = ALIGN_PTR(mbuf_size);
 	assert(mbuf_size_align >= mbuf_size);
-	mbufs_per_chunk = (chunk_size - sizeof(struct mbuf_chunk)) /
-		mbuf_size_align;
+	mbufs_per_chunk = (chunk_size - sizeof(struct mbuf_chunk)) / mbuf_size_align;
 	chunk_map_size = n_mbufs_max / mbufs_per_chunk;
 	if (n_mbufs_max % mbufs_per_chunk) {
 		chunk_map_size++;
@@ -107,7 +104,7 @@ mbuf_pool_alloc(struct mbuf_pool **pp, u_char sid,
 	if (p->mbp_chunk_map_size) {
 		p->mbp_chunk_map = (struct mbuf_chunk **)(p + 1);
 	}
-	INFO(0, "ok; pool=%p", p);
+	GT_INFO(MBUF, 0, "Mbuf pool alloc; pool=%p", p);
 	return 0;
 }
 
@@ -122,7 +119,7 @@ mbuf_pool_free(struct mbuf_pool *p)
 	}
 	p->mbp_referenced = 0;
 	if (p->mbp_n_allocated_chunks == 0) {
-		INFO(0, "ok; pool=%p", p);
+		GT_INFO(MBUF, 0, "Mbuf pool free; pool=%p", p);
 		shm_free(p);
 		return;
 	}
@@ -148,12 +145,11 @@ mbuf_alloc2(struct mbuf *m, struct mbuf_chunk *chunk)
 	chunk->mbc_n_mbufs--;
 	if (chunk->mbc_n_mbufs == 0) {
 		DLIST_REMOVE(chunk, mbc_list);
-		DLIST_INSERT_HEAD(&p->mbp_not_avail_chunk_head,
-		                  chunk, mbc_list);
+		DLIST_INSERT_HEAD(&p->mbp_not_avail_chunk_head, chunk, mbc_list);
 	}
 	WRITE_ONCE(m->mb_freed, 0);
-	DBG(0, "ok; m=%p, c=%p, pool=%p, n=%d",
-	    m, chunk, p, chunk->mbc_n_mbufs);
+	GT_DBG(MBUF, 0, "Mbuf alloc; mbuf=%p, chunk=%p, pool=%p, n=%d",
+			m, chunk, p, chunk->mbc_n_mbufs);
 }
 
 int
@@ -187,7 +183,6 @@ mbuf_alloc(struct mbuf_pool *p, struct mbuf **mp)
 	m = DLIST_FIRST(&chunk->mbc_mbuf_head, struct mbuf, mb_list);
 	mbuf_alloc2(m, chunk);
 	*mp = m;
-	//printf("alloc mbuf=%p\n", m);
 	return 0;
 }
 
@@ -231,8 +226,8 @@ mbuf_free_garbage(struct mbuf *m)
 	struct mbuf_pool *p;
 
 	p = m->mb_chunk->mbc_pool;
-	DBG(0, "hit; m=%p, pool=%p, sid=%d->%d",
-	    m, p, current->p_sid, p->mbp_sid);
+	GT_DBG(MBUF, 0, "Mbuf move to grabage; mbuf=%p, pool=%p, sid=%d->%d",
+			m, p, current->p_sid, p->mbp_sid);
 	assert(p->mbp_sid < GT_SERVICES_MAX);
 	if (current->p_mbuf_garbage_max < p->mbp_sid + 1) {
 		current->p_mbuf_garbage_max = p->mbp_sid + 1;
@@ -249,8 +244,8 @@ mbuf_free_direct(struct mbuf *m)
 
 	chunk = m->mb_chunk;
 	p = chunk->mbc_pool;
-	DBG(0, "hit; m=%p, c=%p, pool=%p, n=%d",
-	    m, chunk, p, chunk->mbc_n_mbufs);
+	GT_DBG(MBUF, 0, "Mbuf free; mbuf=%p, chunk=%p, pool=%p, n=%d",
+			m, chunk, p, chunk->mbc_n_mbufs);
 	assert(chunk->mbc_n_mbufs < p->mbp_mbufs_per_chunk);
 	DLIST_INSERT_HEAD(&chunk->mbc_mbuf_head, m, mb_list);
 	if (chunk->mbc_n_mbufs == 0) {
@@ -283,7 +278,6 @@ mbuf_free(struct mbuf *m)
 	if (m == NULL) {
 		return;
 	}
-	DBG(0, "hit; m=%p", m);
 	assert(m->mb_freed == 0);
 	WRITE_ONCE(m->mb_freed, 1);
 	switch (m->mb_area) {
@@ -300,7 +294,7 @@ mbuf_free(struct mbuf *m)
 		}
 		break;
 	default:
-		BUG("bad area");
+		BUG("Bad mbuf area");
 	}
 }
 

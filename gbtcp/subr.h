@@ -1,8 +1,10 @@
-// gpl2
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_SUBR_H
 #define GBTCP_SUBR_H
 
-#include "global.h"
+#include "sys.h"
+#include "gbtcp.h"
 
 #ifdef __linux__
 #define GT_POLLRDHUP POLLRDHUP
@@ -303,14 +305,14 @@ ssize_t send_record(int, const void *, size_t, int);
 int read_rss_key(const char *, u_char *);
 int read_rss_queue_num(const char *);
 
-pid_t gtl_gettid(void);
+pid_t gt_gettid(void);
 int read_proc_comm(char *, int);
 
 uint64_t rdtsc(void);
 
 uint64_t sleep_compute_hz(void);
 
-int gtl_set_affinity(int) GT_EXPORT;
+int gt_set_affinity(int) GT_EXPORT;
 
 uint64_t rand64(void);
 uint32_t rand32(void);

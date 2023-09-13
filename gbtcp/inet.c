@@ -1,9 +1,11 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD inet
+#include "inet.h"
+#include "log.h"
+//#include "service.h"
+#include "shm.h"
 
-struct inet_mod {
+struct gt_module_inet {
 	struct log_scope log_scope;
 	int inet_cksum_offload_rx;
 	int inet_cksum_offload_tx;
@@ -122,22 +124,24 @@ int
 inet_mod_init(void)
 {
 	int rc;
+	struct gt_module_inet *m;
 
-	rc = curmod_init();
+	rc = gt_module_init(GT_MODULE_INET, sizeof(*m));
 	if (rc) {
 		return rc;
 	}
+	m = gt_module_get(GT_MODULE_INET);
 	sysctl_add_inet_stat_tcp();
 	sysctl_add_inet_stat_udp();
 	sysctl_add_inet_stat_ip();
 	sysctl_add_inet_stat_arp();
 	sysctl_add_int(GT_SYSCTL_INET_CKSUM_OFFLOAD_RX, SYSCTL_WR,
-		&curmod->inet_cksum_offload_rx, 0, 1);
+			&m->inet_cksum_offload_rx, 0, 1);
 	sysctl_add_int(GT_SYSCTL_INET_CKSUM_OFFLOAD_TX, SYSCTL_WR,
-		&curmod->inet_cksum_offload_tx, 0, 1);
+			&m->inet_cksum_offload_tx, 0, 1);
 
-	curmod->inet_cksum_offload_rx = 0;
-	curmod->inet_cksum_offload_tx = 0;
+	m->inet_cksum_offload_rx = 0;
+	m->inet_cksum_offload_tx = 0;
 
 	return 0;
 }
@@ -145,13 +149,16 @@ inet_mod_init(void)
 void
 in_context_init(struct in_context *in, void *data, int len)
 {
+	struct gt_module_inet *m;
+
+	m = gt_module_get(GT_MODULE_INET);
 	in->in_ifp = NULL;
 	in->in_cur = data;
 	in->in_rem = len;
 	in->in_errnum = 0;
 	in->in_ipproto = 0;
 	in->in_emb_ipproto = 0;
-	in->in_cksum_offload = curmod->inet_cksum_offload_rx;
+	in->in_cksum_offload = m->inet_cksum_offload_rx;
 }
 
 static uint8_t *
@@ -340,8 +347,10 @@ ip4_set_cksum(struct ip4_hdr *ih, void *l4_h)
 	uint16_t ip4_cksum, udp_cksum;
 	struct udp_hdr *uh;
 	struct tcp_hdr *th;
+	struct gt_module_inet *m;
 
-	if (curmod->inet_cksum_offload_tx) {
+	m = gt_module_get(GT_MODULE_INET);
+	if (m->inet_cksum_offload_tx) {
 		ip4_cksum = 0;
 		udp_cksum = 0;
 	} else {

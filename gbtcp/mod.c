@@ -1,36 +1,41 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#include "internals.h"
+#include "file.h"
+#include "gbtcp/socket.h"
+#include "global.h"
+#include "log.h"
+#include "mod.h"
+#include "shm.h"
 
 struct mod mods[MODS_MAX] = {
-	[MOD_log] = {
+	[GT_MODULE_LOG] = {
 		.mod_init = log_mod_init,
 	},
-	[MOD_shm] = {
+	[GT_MODULE_SHM] = {
 		.mod_init = shm_mod_init,
 	},
-	[MOD_dev] = {
+	[GT_MODULE_DEV] = {
 		.mod_init = dev_mod_init,
 	},
-	[MOD_route] = {
+	[GT_MODULE_ROUTE] = {
 		.mod_init = route_mod_init,
 		.mod_deinit = route_mod_deinit,
 	},
-	[MOD_arp] = {
+	[GT_MODULE_ARP] = {
 		.mod_init = arp_mod_init,
 		.mod_deinit = arp_mod_deinit,
 		.mod_timer = arp_mod_timer,
 	},
-	[MOD_file] = {
+	[GT_MODULE_FILE] = {
 		.mod_init = file_mod_init,
 	},
-	[MOD_inet] = {
+	[GT_MODULE_INET] = {
 		.mod_init = inet_mod_init,
 	},
-	[MOD_tcp] = {
-		.mod_init = tcp_mod_init,
-		.mod_deinit = tcp_mod_deinit,
-		.mod_timer = tcp_mod_timer,
+	[GT_MODULE_SOCKET] = {
+		.mod_init = socket_mod_init,
+		.mod_deinit = socket_mod_deinit,
+		.mod_timer = socket_mod_timer,
 	},
 //	[MOD_bsd] = {
 //		.mod_init = bsd_mod_init,
@@ -40,43 +45,58 @@ struct mod mods[MODS_MAX] = {
 };
 
 const char *
-mod_name(int mod_id)
+gt_module_id2name(int module_id)
 {
-#define MOD_ID2NAME(name) case MOD_##name: return #name;
-	switch (mod_id) {
-	MOD_FOREACH(MOD_ID2NAME)
+#define MODULE_ID2NAME(name) case GT_MODULE_##name: return #name;
+	switch (module_id) {
+	MOD_FOREACH(MODULE_ID2NAME)
 	default:
-		assert(!"bad mod_id");
+		GT_DIE(0, "Bad module id: %d", module_id);
 		return NULL;
 	}
-#undef MOD_ID2NAME
+#undef MODULE_ID2NAME
+}
+
+void*
+gt_module_get(int module_id)
+{
+	return shared->shm_mods[module_id];
+}
+
+void*
+gt_module_get_safe(int module_id)
+{
+	if (shared == NULL) {
+		return NULL;
+	}
+	return gt_module_get(module_id);
 }
 
 int
-mod_init2(int mod_id, size_t size)
+gt_module_init(int module_id, size_t size)
 {
 	struct log_scope *scope;
 
-	assert(shared->shm_mods[mod_id] == NULL);
+	assert(shared->shm_mods[module_id] == NULL);
 	assert(size >= sizeof(*scope));
 	scope = shm_malloc(size);
 	if (scope == NULL) {
 		return -ENOMEM;
 	} else {
 		memset(scope, 0, size);
-		log_scope_init(scope, mod_name(mod_id));
-		shared->shm_mods[mod_id] = scope;
+		log_scope_init(scope, gt_module_id2name(module_id));
+		shared->shm_mods[module_id] = scope;
 		return 0;
 	}
 }
 
 void
-mod_deinit1(int mod_id)
+gt_module_deinit(int module_id)
 {
 	struct log_scope *scope;
 
-	sysctl_del(mod_name(mod_id));
-	scope = shared->shm_mods[mod_id];
+	sysctl_del(gt_module_id2name(module_id));
+	scope = shared->shm_mods[module_id];
 	log_scope_deinit(scope);
 	shm_free(scope);
 }

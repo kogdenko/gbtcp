@@ -1,11 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: LGPL-2.1-only
 #include <linux/if_xdp.h>
 #include <linux/if_link.h>
 #include <xdp/xsk.h>
 #include "../sys.h"
 #include "../dev.h"
-
-#define CURMOD dev
 
 #define XDP_FRAME_SIZE XSK_UMEM__DEFAULT_FRAME_SIZE
 #define XDP_FRAME_NUM \
@@ -81,7 +79,7 @@ xdp_queue_init(struct dev *dev)
 	q->xq_prog_id = UINT32_MAX;
 	rc = bpf_xdp_query_id(dev->dev_ifindex, 0, &q->xq_prog_id);
 	if (rc < 0) {
-		ERR(-rc, "bpf_xdp_query_id('%d') failed", dev->dev_ifindex);
+		GT_ERR(DEV, -rc, "bpf_xdp_query_id('%d') failed", dev->dev_ifindex);
 		goto err;
 	}
 
@@ -99,7 +97,7 @@ xdp_queue_init(struct dev *dev)
 	size = XDP_FRAME_NUM * XDP_FRAME_SIZE;
 	rc = xsk_umem__create(&q->xq_umem, q->xq_buf, size, &q->xq_fill, &q->xq_comp, NULL);
 	if (rc < 0) {
-		ERR(-rc, "xsk_umem__create() failed");
+		GT_ERR(DEV, -rc, "xsk_umem__create() failed");
 		goto err;
 	}
 	memset(&cfg, 0, sizeof(cfg));
@@ -109,14 +107,14 @@ xdp_queue_init(struct dev *dev)
 	rc = xsk_socket__create(&q->xq_xsk, dev->dev_ifname, dev->dev_queue_id, q->xq_umem,
 		&q->xq_rx, &q->xq_tx, &cfg);
 	if (rc < 0) {
-		ERR(-rc, "xsk_socket__create('%s', '%d') failed",
-			dev->dev_ifname, dev->dev_queue_id);
+		GT_ERR(DEV, -rc, "xsk_socket__create('%s', '%d') failed",
+				dev->dev_ifname, dev->dev_queue_id);
 		goto err;
 	}
 	idx = UINT32_MAX;
 	rc = xsk_ring_prod__reserve(&q->xq_fill, XSK_RING_PROD__DEFAULT_NUM_DESCS, &idx);
 	if (rc != XSK_RING_PROD__DEFAULT_NUM_DESCS) {
-		ERR(0, "xsk_ring_prod__reserve() failed");
+		GT_ERR(DEV, 0, "xsk_ring_prod__reserve() failed");
 		rc = -EINVAL;
 		goto err;
 	}
@@ -157,24 +155,27 @@ xdp_dev_init(struct dev *dev)
 {
 	int rc;
 
-	NOTICE(0, "Create XDP device '%s', queue=%d", dev->dev_ifname, dev->dev_queue_id);
+	GT_NOTICE(DEV, 0, "Create XDP device '%s'; queue=%d",
+			dev->dev_ifname, dev->dev_queue_id);
 	if (dev->dev_queue_id < 0) {
 		rc = -ENOTSUP;
 		goto err;
 	}
 	dev->dev_xdp_queue = sys_malloc(sizeof(*dev->dev_xdp_queue));
 	if (dev->dev_xdp_queue == NULL) {
-		ERR(0, "No memory to allocate XDP queue");
+		GT_ERR(DEV, 0, "No memory to allocate XDP queue");
 		rc = -ENOMEM;
 		goto err;
 	}
 	rc = xdp_queue_init(dev);
 	if (rc >= 0) {
-		NOTICE(0, "XDP device '%s' created, queue=%d", dev->dev_ifname, dev->dev_queue_id);
+		GT_NOTICE(DEV, 0, "XDP device '%s' created; queue=%d",
+				dev->dev_ifname, dev->dev_queue_id);
 		return rc;
 	}
 err:
-	ERR(-rc, "Failed to create XDP device '%s', queue=%d", dev->dev_ifname, dev->dev_queue_id);
+	GT_ERR(DEV, -rc, "Failed to create XDP device '%s'; queue=%d",
+			dev->dev_ifname, dev->dev_queue_id);
 	sys_free(dev->dev_xdp_queue);
 	dev->dev_xdp_queue = NULL;
 	return rc;
@@ -183,7 +184,8 @@ err:
 static void
 xdp_dev_deinit(struct dev *dev, bool cloexec)
 {
-	NOTICE(0, "Destroy XDP device '%s', queue=%d'", dev->dev_ifname, dev->dev_queue_id);
+	GT_NOTICE(DEV, 0, "Destroy XDP device '%s', queue=%d'",
+			dev->dev_ifname, dev->dev_queue_id);
 	assert(dev->dev_xdp_queue != NULL);
 	xdp_queue_deinit(dev, cloexec);
 	sys_free(dev->dev_xdp_queue);

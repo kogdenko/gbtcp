@@ -1,5 +1,7 @@
-// GPL V2 License
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
+
+#include "gbtcp.h"
+#include "subr.h"
 
 static __thread int preload_called;
 

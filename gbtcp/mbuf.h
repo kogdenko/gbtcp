@@ -1,4 +1,5 @@
-// gpl2
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_MBUF_H
 #define GBTCP_MBUF_H
 
@@ -48,9 +49,7 @@ struct mbuf_pool {
 	     m = mbuf_next(p, tmp_id))
 
 int mbuf_mod_init(void **);
-int mbuf_mod_service_init(struct service *);
 void mbuf_mod_deinit(void);
-void mbuf_mod_service_deinit(struct service *);
 
 int mbuf_pool_alloc(struct mbuf_pool **, u_char, int, int, int);
 void mbuf_pool_free(struct mbuf_pool *);

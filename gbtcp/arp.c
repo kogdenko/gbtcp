@@ -1,7 +1,14 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD arp
+#include "arp.h"
+#include "global.h"
+#include "htable.h"
+#include "inet.h"
+#include "log.h"
+#include "mbuf.h"
+#include "service.h"
+#include "shm.h"
+#include "timer.h"
 
 #define ARP_REACHABLE_TIME (30 * NSEC_SEC)
 #define ARP_RETRANS_TIMER NSEC_SEC
@@ -11,7 +18,7 @@
 
 #define arps current->p_arps
 
-struct arp_mod {
+struct gt_module_arp {
 	struct log_scope log_scope;
 	struct htable arp_htable;
 	uint64_t arp_reachable_time;
@@ -159,7 +166,7 @@ arp_probe(struct arp_entry *e)
 		return;
 	}
 	e->ae_n_probes++;
-	timer_set(&e->ae_timer, ARP_RETRANS_TIMER, 0);
+	timer_set(&e->ae_timer, ARP_RETRANS_TIMER, GT_MODULE_ARP, 0);
 	route.rt_dst.ipa_4 = e->ae_next_hop;
 	rc = route_get(AF_INET, NULL, &route);
 	if (rc) {
@@ -280,29 +287,34 @@ int
 arp_mod_init(void)
 {
 	int rc;
+	struct gt_module_arp *mod;
 
-	rc = curmod_init();
+	rc = gt_module_init(GT_MODULE_ARP, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
-	rc = htable_init(&curmod->arp_htable, 32, arp_entry_hash, HTABLE_SHARED|HTABLE_POWOF2);
+	mod = gt_module_get(GT_MODULE_ARP);
+	rc = htable_init(&mod->arp_htable, 32, arp_entry_hash, HTABLE_SHARED|HTABLE_POWOF2);
 	if (rc) {
-		curmod_deinit();
+		gt_module_deinit(GT_MODULE_ARP);
 		return rc;
 	}
-	sysctl_add_htable_list(GT_SYSCTL_ARP_LIST, SYSCTL_RD, &curmod->arp_htable,
-		sysctl_arp_entry);
+	sysctl_add_htable_list(GT_SYSCTL_ARP_LIST, SYSCTL_RD, &mod->arp_htable,
+			sysctl_arp_entry);
 	sysctl_add(GT_SYSCTL_ARP_ADD, SYSCTL_WR, NULL, NULL, sysctl_arp_add);
 	sysctl_add(GT_SYSCTL_ARP_DEL, SYSCTL_WR, NULL, NULL, sysctl_arp_del);
-	curmod->arp_reachable_time = arp_calc_reachable_time();
+	mod->arp_reachable_time = arp_calc_reachable_time();
 	return 0;
 }
 
 void
 arp_mod_deinit(void)
 {
-	htable_deinit(&curmod->arp_htable);
-	curmod_deinit();
+	struct gt_module_arp *mod;
+
+	mod = gt_module_get(GT_MODULE_ARP);
+	htable_deinit(&mod->arp_htable);
+	gt_module_deinit(GT_MODULE_ARP);
 }
 
 int
@@ -340,9 +352,9 @@ service_deinit_arp(struct service *s)
 static inline void
 arp_set_state(struct arp_entry *e, int state)
 {
-	INFO(0, "hit; state=%s->%s, next_hop=%s",
-		arp_state_str(e->ae_state), arp_state_str(state),
-		log_add_ipaddr(AF_INET, &e->ae_next_hop));
+	GT_INFO(0, "Set arp entry state; state=%s->%s, next_hop=%s",
+			arp_state_str(e->ae_state), arp_state_str(state),
+			log_add_ipaddr(AF_INET, &e->ae_next_hop));
 	WRITE_ONCE(e->ae_state, state);
 	if (state == ARP_REACHABLE) {
 		timer_cancel(&e->ae_timer);
@@ -405,11 +417,13 @@ arp_mod_timer(struct timer *timer, u_char fn_id)
 	uint32_t h;
 	struct arp_entry *e;
 	struct htable_bucket *b;
+	struct gt_module_arp *mod;
 
+	mod = gt_module_get(GT_MODULE_ARP);
 	arps.arps_timeouts++;
 	e = container_of(timer, struct arp_entry, ae_timer);
 	h = arp_entry_hash(e);
-	b = htable_bucket_get(&curmod->arp_htable, h);
+	b = htable_bucket_get(&mod->arp_htable, h);
 	HTABLE_BUCKET_LOCK(b);
 	if (e->ae_state == ARP_INCOMPLETE || e->ae_state == ARP_PROBE) {
 		if (e->ae_n_probes >= ARP_MAX_UNICAST_SOLICIT) {
@@ -425,17 +439,19 @@ static int
 arp_is_reachable_timeouted(struct arp_entry *e)
 {
 	uint64_t t;
+	struct gt_module_arp *mod;
 
+	mod = gt_module_get(GT_MODULE_ARP);
 	if (READ_ONCE(e->ae_admin)) {
 		return 0;
 	}
 	t = shared_ns();
-	return t - e->ae_confirmed > curmod->arp_reachable_time;
+	return t - e->ae_confirmed > mod->arp_reachable_time;
 }
 
 void
 arp_resolve_slow(struct route_if *ifp, struct htable_bucket *b,
-	be32_t next_hop, struct dev_pkt *pkt)
+		be32_t next_hop, struct dev_pkt *pkt)
 {
 	int rc;
 	struct arp_entry *e, *tmp;	
@@ -481,11 +497,13 @@ arp_resolve(struct route_entry *r, struct dev_pkt *pkt)
 	struct route_if *ifp;
 	struct htable_bucket *b;
 	struct arp_entry *e;
+	struct gt_module_arp *mod;
 
+	mod = gt_module_get(GT_MODULE_ARP);
 	ifp = r->rt_ifp;
 	next_hop = route_get_next_hop4(r);
 	h = arp_hash(next_hop);
-	b = htable_bucket_get(&curmod->arp_htable, h);
+	b = htable_bucket_get(&mod->arp_htable, h);
 	// Fast path
 	DLIST_FOREACH_RCU(e, &b->htb_head, ae_list) {
 		state = READ_ONCE(e->ae_state);
@@ -583,13 +601,16 @@ arp_update(struct arp_advert *adv)
 {
 	uint32_t h;
 	struct htable_bucket *b;
+	struct gt_module_arp *mod;
 
-	INFO(0, "hit; next_hop=%s", log_add_ipaddr(AF_INET, &adv->arpa_next_hop));
+	mod = gt_module_get(GT_MODULE_ARP);
+	GT_INFO(0, "Update arp entry; next_hop=%s",
+			log_add_ipaddr(AF_INET, &adv->arpa_next_hop));
 	if (!eth_addr_is_ucast(adv->arpa_addr.ea_bytes)) {
 		return;
 	}
 	h = arp_hash(adv->arpa_next_hop);
-	b = htable_bucket_get(&curmod->arp_htable, h);
+	b = htable_bucket_get(&mod->arp_htable, h);
 	HTABLE_BUCKET_LOCK(b);
 	arp_update_locked(adv, b);
 	HTABLE_BUCKET_UNLOCK(b);
@@ -602,10 +623,12 @@ arp_add(be32_t next_hop, struct eth_addr *addr)
 	uint32_t h;
 	struct htable_bucket *b;
 	struct arp_entry *e;
+	struct gt_module_arp *mod;
 
+	mod = gt_module_get(GT_MODULE_ARP);
 	rc = 0;
 	h = arp_hash(next_hop);
-	b = htable_bucket_get(&curmod->arp_htable, h);
+	b = htable_bucket_get(&mod->arp_htable, h);
 	HTABLE_BUCKET_LOCK(b);
 	e = arp_entry_get(b, next_hop);
 	if (e != NULL) {
@@ -628,9 +651,11 @@ arp_del(be32_t next_hop)
 	uint32_t h;
 	struct htable_bucket *b;
 	struct arp_entry *e;
+	struct gt_module_arp *mod;
 
+	mod = gt_module_get(GT_MODULE_ARP);
 	h = arp_hash(next_hop);
-	b = htable_bucket_get(&curmod->arp_htable, h);
+	b = htable_bucket_get(&mod->arp_htable, h);
 	HTABLE_BUCKET_LOCK(b);
 	e = arp_entry_get(b, next_hop);
 	if (e == NULL) {

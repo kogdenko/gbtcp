@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: GPL-2.0
+# SPDX-License-Identifier: LGPL-2.1-only
+
 import platform
 import shutil
 import subprocess
@@ -6,6 +7,7 @@ import subprocess
 HAVE_NETMAP = False
 HAVE_XDP = False
 HAVE_VALE = False
+HAVE_BSD44 = False
 
 COMPILER = 'gcc'
 
@@ -70,6 +72,8 @@ def configure(target, source, env):
 		s += "#define GT_HAVE_NETMAP\n"
 	if HAVE_VALE:
 		s += "#define GT_HAVE_VALE\n"
+	if HAVE_BSD44:
+		s += "#define GT_HAVE_BSD44\n"
 
 	s += "\n"
 	s += "#endif // GBTCP_CONFIG_H\n"
@@ -178,13 +182,13 @@ srcs = [
 	'gbtcp/lptree.c',
 	'gbtcp/shm.c',
 	'gbtcp/sys.c',
-	'gbtcp/tcp.c',
+	'gbtcp/gbtcp/socket.c',
 	'gbtcp/service.c',
 	'gbtcp/subr.c',
 	'gbtcp/dev.c',
 ]
 
-if False:
+if HAVE_BSD44:
 	srcs.append([
 		'bsd44/tcp_debug.c',
 		'bsd44/tcp_timer.c',

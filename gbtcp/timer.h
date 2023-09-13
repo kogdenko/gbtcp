@@ -1,4 +1,5 @@
-// gpl2
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_TIMER_H
 #define GBTCP_TIMER_H
 
@@ -18,12 +19,14 @@
 #define TIMER_EXPIRE_MAX (TIMER_RING1_SEG*TIMER_RING_SIZE - 1) // ~ 19 hours
 #define TIMER_N_RINGS 2
 
+struct service;
+
 struct timer {
 	struct dlist tm_list;
 	u_char tm_sid;
 	u_char tm_ring_id;
 	u_short tm_seg_id;
-	u_char tm_mod_id;
+	u_char tm_module_id;
 	u_char tm_fn_id;
 };
 
@@ -43,9 +46,7 @@ void migrate_timers(struct service *, struct service *);
 void timer_init(struct timer *);
 int timer_is_running(struct timer *);
 uint64_t timer_timeout(struct timer *);
-void timer_set4(struct timer *, uint64_t, u_char, u_char);
-#define timer_set(timer, expire, fn_id) \
-	timer_set4(timer, expire, GT_CAT2(MOD_, CURMOD), fn_id)
+void timer_set(struct timer *, uint64_t, u_char, u_char);
 void timer_cancel(struct timer *);
 
 #endif // GBTCP_TIMER_H

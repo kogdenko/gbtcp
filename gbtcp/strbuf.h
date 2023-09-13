@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_STRBUF_H
 #define GBTCP_STRBUF_H
 

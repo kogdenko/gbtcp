@@ -1,7 +1,12 @@
-// GPL v2 License
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD service
+#include "config.h"
+#include "controller.h"
+#include "fd_event.h"
+#include "gbtcp/socket.h"
+#include "service.h"
+#include "shm.h"
+#include "pid.h"
 
 #define MSG_ETHTYPE 0x0101
 
@@ -31,6 +36,27 @@ int current_sigprocmask_set;
 
 static void service_detach(void);
 
+int
+service_init_tcp(struct service *s)
+{
+	int rc;
+
+	if (s->p_sockbuf_pool == NULL) {
+		rc = mbuf_pool_alloc(&s->p_sockbuf_pool, s->p_sid,
+			2 * 1024 * 1024, SOCKBUF_CHUNK_SIZE, 0);
+	} else {
+		rc = 0;
+	}
+	return rc;
+}
+
+void
+service_deinit_tcp(struct service *s)
+{
+	mbuf_pool_free(s->p_sockbuf_pool);
+	s->p_sockbuf_pool = NULL;
+}
+
 static int
 service_pipe(int fd[2])
 {
@@ -56,21 +82,21 @@ service_peer_recv(int fd)
 	to = 4 * NSEC_SEC;
 	rc = read_timed(fd, &msg, sizeof(msg), &to);
 	if (rc == 0) {
-		ERR(0, "Service peer closed");
+		GT_ERR(SERVICE, 0, "Service peer closed");
 		return -EPIPE;
 	} else if (rc == sizeof(msg)) {
 		if (msg >= 0) {
 			if (msg > 0) {
-				ERR(msg, "Service peer error");
+				GT_ERR(SERVICE, msg, "Service peer error");
 			}
 			return msg;
 		} else {
 			rc = msg;
-			ERR(-rc, "Service peer failed");
+			GT_ERR(SERVICE, -rc, "Service peer failed");
 			return rc;
 		}
 	} else if (rc > 0) {
-		ERR(0, "Service peer truncated (%d) reply ", rc);
+		GT_ERR(SERVICE, 0, "Service peer truncated (%d) reply ", rc);
 		return -EINVAL;
 	} else {
 		return rc;
@@ -90,11 +116,11 @@ service_start_controller_nolog(void)
 	if (rc == 0) {
 		sys_close(pipe_fd[0]);
 		sys_close(service_sysctl_fd);
-		rc = gtl_controller_init(1);
+		rc = gt_controller_init(1);
 		service_peer_send(pipe_fd[1], rc);
 		sys_close(pipe_fd[1]);
 		if (rc == 0) {
-			gtl_controller_start(0);
+			gt_controller_start(0);
 		}
 		exit(EXIT_SUCCESS);
 	} else if (rc > 0) {
@@ -112,49 +138,18 @@ service_start_controller(void)
 {
 	int rc;
 
-	NOTICE(0, "Starting controller");
+	GT_NOTICE(SERVICE, 0, "Starting controller");
 	rc = service_start_controller_nolog();
 	if (rc < 0) {
-		ERR(-rc, "Failed to start controller");
+		GT_ERR(SERVICE, -rc, "Failed to start controller");
 	} else if (rc > 0) {
-		WARN(rc, "Unable to start controller due to initialization error");
+		GT_WARN(SERVICE, rc, "Unable to start controller due to initialization error");
 	} else {
-		NOTICE(0, "Controller started");
+		GT_NOTICE(SERVICE, 0, "Controller started");
 	}
 	return rc;
 }
 
-static int
-gt_gbtcp_rx(struct route_if *ifp, void *data, int len)
-{
-	int rc, ipproto;
-	struct in_context *p, in;
-
-	in_context_init(&in, data, len);
-	in.in_ifp = ifp;
-	p = &in;
-
-	rc = eth_input(p);
-	assert(rc < 0);
-	if (rc != IN_OK) {
-		return rc;
-	}
-	ipproto = p->in_ipproto;
-	if (ipproto == IPPROTO_UDP || ipproto == IPPROTO_TCP) {
-		rc = so_input(ipproto, p,
-			p->in_ih->ih_daddr, p->in_ih->ih_saddr,
-			p->in_uh->uh_dport, p->in_uh->uh_sport);
-	} else if (ipproto == IPPROTO_ICMP && p->in_errnum &&
-	           (p->in_emb_ipproto == IPPROTO_UDP ||
-	            p->in_emb_ipproto == IPPROTO_TCP)) {
-		rc = so_input_err(p->in_emb_ipproto, p,
-			p->in_ih->ih_daddr, p->in_ih->ih_saddr,
-			p->in_uh->uh_dport, p->in_uh->uh_sport);
-	} else {
-		rc = IN_DROP;
-	}
-	return rc;
-}
 
 static int
 redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, const void *data, int len)
@@ -175,7 +170,7 @@ redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, const voi
 static int
 gt_service_rx(struct route_if *ifp, void *data, int len)
 {
-	return gt_gbtcp_rx(ifp, data, len);
+	return gt_gbtcp_so_rx(ifp, data, len);
 }
 
 static void
@@ -585,7 +580,7 @@ service_attach(void)
 	service_sysctl_fd = rc;
 	rc = sysctl_connect(service_sysctl_fd);
 	if (rc) {
-		WARN(0, "Failed connect to controller");
+		GT_WARN(SERVICE, 0, "Failed connect to controller");
 		if (!service_autostart_controller) {
 			goto err;
 		}
@@ -638,12 +633,12 @@ service_attach(void)
 	if (rc) {
 		goto err;
 	}
-	ERR(0, "Service attached");
+	GT_ERR(SERVICE, 0, "Service attached");
 	spinlock_unlock(&service_attach_lock);
 	return 0;
 err:
 	service_detach();
-	ERR(-rc, "Failed to attach service");
+	GT_ERR(SERVICE, -rc, "Failed to attach service");
 	spinlock_unlock(&service_attach_lock);
 	return rc;
 }
@@ -663,7 +658,7 @@ service_detach(void)
 		current_sigprocmask_set = 0;
 		sys_sigprocmask(SIG_SETMASK, &current_sigprocmask, NULL);
 	}
-	NOTICE(0, "Service detached");
+	GT_NOTICE(SERVICE, 0, "Service detached");
 }
 
 static void
@@ -924,7 +919,7 @@ service_dup_so(struct sock *oldso)
 	struct sockaddr_in a;
 	struct sock *newso;
 
-	fd = so_get_fd(oldso);
+	fd = file_get_fd((struct file *)oldso);
 	flags = oldso->so_blocked ? SOCK_NONBLOCK : 0;
 	rc = so_socket6(&newso, fd, AF_INET, SOCK_STREAM, flags, 0);
 	if (rc < 0) {
@@ -942,10 +937,10 @@ service_dup_so(struct sock *oldso)
 		goto err;
 	}
 	newso->so_blocked = oldso->so_blocked;
-	INFO(0, "service: Duplicate socket, fd=%d", fd);
+	GT_INFO(SERVICE, 0, "service: Duplicate socket, fd=%d", fd);
 	return 0;
 err:
-	WARN(-rc, "service: Failed to duplicate socket, fd=%d", fd);
+	GT_WARN(SERVICE, -rc, "service: Failed to duplicate socket, fd=%d", fd);
 	so_close(newso);
 	return rc;
 }
@@ -998,7 +993,7 @@ service_in_child0(void)
 static void
 service_in_child(int pipe_fd[2])
 {
-	NOTICE(0, "Child process started");
+	GT_NOTICE(SERVICE, 0, "Child process started");
 	sys_close(pipe_fd[0]);
 	service_in_child0();
 	service_peer_send(pipe_fd[1], 0);
@@ -1010,7 +1005,7 @@ service_fork(void)
 {
 	int rc, pipe_fd[2];
 
-	NOTICE(0, "service: fork()");
+	GT_NOTICE(SERVICE, 0, "service: fork()");
 	rc = service_pipe(pipe_fd);
 	if (rc) {
 		return rc;
@@ -1039,15 +1034,15 @@ service_clone_in_child(void *arg)
 }
 
 int
-service_clone(int (*fn)(void *), void *child_stack,
-	int flags, void *arg, void *ptid, void *tls, void *ctid)
+service_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
+		void *ptid, void *tls, void *ctid)
 {
 	int rc, clone_vm, clone_files, clone_thread;
 
 	clone_vm = flags & CLONE_VM;
 	clone_files = flags & CLONE_FILES;
 	clone_thread = flags & CLONE_THREAD;
-	NOTICE(0, "service: clone('%s')", log_add_clone_flags(flags));
+	GT_NOTICE(SERVICE, 0, "service: clone('%s')", log_add_clone_flags(flags));
 	if (clone_vm) {
 		if (clone_files == 0 || clone_thread == 0) {
 			return -EINVAL;
@@ -1066,8 +1061,7 @@ service_clone(int (*fn)(void *), void *child_stack,
 		if (rc) {
 			return rc;
 		}
-		rc = sys_clone(service_clone_in_child, child_stack, flags, arg,
-			ptid, tls, ctid);
+		rc = sys_clone(service_clone_in_child, child_stack, flags, arg, ptid, tls, ctid);
 		if (rc == -1) {
 			rc = -errno;
 			sys_close(service_clone_pipe_fd[0]);

@@ -1,6 +1,7 @@
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD sockbuf
+#include "mbuf.h"
+#include "sockbuf.h"
 
 #define SOCKBUF_CHUNK_DATA_SIZE \
 	(SOCKBUF_CHUNK_SIZE - sizeof(struct sbchunk))
@@ -215,8 +216,7 @@ sockbuf_copy(struct sock_buf *b, int off, u_char *dst, int cnt)
 }
 
 int
-sockbuf_readv(struct sock_buf *b, const struct iovec *iov, int iovcnt,
-	int accum_len_max, int peek)
+sockbuf_readv(struct sock_buf *b, const struct iovec *iov, int iovcnt, int accum_len_max, int peek)
 {
 	int n, off;
 	u_char *ptr;

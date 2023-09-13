@@ -1,4 +1,5 @@
-// GPL v2 License
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_H
 #define GBTCP_H
 

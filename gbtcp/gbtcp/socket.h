@@ -1,10 +1,14 @@
-#ifndef GBTCP_TCP_H
-#define GBTCP_TCP_H
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#include "file.h"
-#include "timer.h"
-#include "sockbuf.h"
-#include "htable.h"
+#ifndef GBTCP_GBTCP_SOCKET_H
+#define GBTCP_GBTCP_SOCKET_H
+
+#include "../file.h"
+#include "../timer.h"
+#include "../sockbuf.h"
+#include "../htable.h"
+
+struct route_if;
 
 #define SO_IPPROTO_UDP 0
 #define SO_IPPROTO_TCP 1
@@ -93,15 +97,11 @@ struct sock {
 		DLIST_FOREACH_RCU(so, &so_get_binded_bucket(GT_UNIQV(i))->htb_head, \
 			so_binded_list)
 
-int tcp_mod_init(void);
-void tcp_mod_deinit(void);
-void tcp_mod_timer(struct timer *, u_char);
-
-int service_init_tcp(struct service *);
-void service_deinit_tcp(struct service *);
+int socket_mod_init(void);
+void socket_mod_deinit(void);
+void socket_mod_timer(struct timer *, u_char);
 
 int so_get(int, struct sock **);
-int so_get_fd(struct sock *);
 
 struct htable_bucket *so_get_binded_bucket(uint16_t);
 
@@ -111,29 +111,23 @@ short so_get_events(struct file *fp);
 
 int sock_nread(struct file *fp);
 
-int so_input(int, struct in_context *, be32_t, be32_t, be16_t, be16_t);
-int so_input_err(int, struct in_context *, be32_t, be32_t, be16_t, be16_t);
-
 void sock_tx_flush(void);
 
 int so_socket6(struct sock **, int, int, int, int, int);
 #define so_socket(pso, domain, type, flags, ipproto) \
 	so_socket6(pso, 0, domain, type, flags, ipproto)
 
-int so_connect(struct sock *so, const struct sockaddr_in *f_addr_in,
-	struct sockaddr_in *l_addr_in);
+int so_connect(struct sock *, const struct sockaddr_in *, struct sockaddr_in *);
 
 int so_bind(struct sock *, const struct sockaddr_in *);
 
 int so_listen(struct sock *, int);
 
-int so_accept(struct sock **, struct sock *,
-	struct sockaddr *, socklen_t *, int);
+int so_accept(struct sock **, struct sock *, struct sockaddr *, socklen_t *, int);
 
 void so_close(struct sock *);
 
-int so_recvfrom(struct sock *, const struct iovec *, int, int,
-	struct sockaddr *, socklen_t *);
+int so_recvfrom(struct sock *, const struct iovec *, int, int, struct sockaddr *, socklen_t *);
 
 int so_aio_recvfrom(struct sock *, struct iovec *, int, struct sockaddr *, socklen_t *);
 
@@ -148,4 +142,6 @@ int so_setsockopt(struct sock *, int, int, const void *, socklen_t);
 
 int so_getpeername(struct sock *, struct sockaddr *, socklen_t *);
 
-#endif // GBTCP_TCP_H
+int gt_gbtcp_so_rx(struct route_if *, void *, int);
+
+#endif // GBTCP_GBTCP_SOCKET_H

@@ -1,7 +1,9 @@
-// GPL v2 License
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_DEV_H
 #define GBTCP_DEV_H
 
+#include "config.h"
 #include "timer.h"
 #include "mbuf.h"
 
@@ -26,6 +28,9 @@
 #endif // GT_HAVE_XDP
 
 #define dev_is_inited(dev) ((dev)->dev_fn != NULL)
+
+struct dev;
+struct dev_pkt;
 
 typedef void (*dev_f)(struct dev *, void *, int);
 

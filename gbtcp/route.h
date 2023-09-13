@@ -1,4 +1,5 @@
-// GPL v2 license
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_ROUTE_H
 #define GBTCP_ROUTE_H
 
@@ -12,7 +13,7 @@
 #define EPHEMERAL_PORT_MAX 65535
 #define NEPHEMERAL_PORTS (EPHEMERAL_PORT_MAX - EPHEMERAL_PORT_MIN + 1)
 
-struct route_mod {
+struct gt_module_route {
 	struct log_scope log_scope;
 	struct lptree route_lptree;
 	struct mbuf_pool *route_pool;

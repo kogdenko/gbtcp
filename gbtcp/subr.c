@@ -1,7 +1,8 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD subr
+#include "log.h"
+#include "service.h" // FIXME: SERVICE_COMM_MAX
+#include "subr.h"
 
 union tsc {
 	uint64_t tsc_64;
@@ -22,8 +23,8 @@ eth_addr_aton(struct eth_addr *a, const char *s)
 	struct eth_addr x;
 
 	rc = sscanf(s, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
-		x.ea_bytes + 0, x.ea_bytes + 1, x.ea_bytes + 2,
-		x.ea_bytes + 3, x.ea_bytes + 4, x.ea_bytes + 5);
+			x.ea_bytes + 0, x.ea_bytes + 1, x.ea_bytes + 2,
+			x.ea_bytes + 3, x.ea_bytes + 4, x.ea_bytes + 5);
 	if (rc == 6) {
 		*a = x;
 		return 0;
@@ -447,8 +448,7 @@ nanoseconds_to_timespec(struct timespec *ts, uint64_t t)
 }
 
 int
-connect_timed(int fd, const struct sockaddr *addr,
-	socklen_t addrlen, uint64_t *to)
+connect_timed(int fd, const struct sockaddr *addr, socklen_t addrlen, uint64_t *to)
 {
 	int rc, errnum, flags;
 	uint64_t t, elapsed;
@@ -493,8 +493,7 @@ restart:
 		break;
 	case 1:
 		opt_len = sizeof(errnum);
-		rc = sys_getsockopt(fd, SOL_SOCKET, SO_ERROR,
-		                    &errnum, &opt_len);
+		rc = sys_getsockopt(fd, SOL_SOCKET, SO_ERROR, &errnum, &opt_len);
 		if (rc) {
 			return rc;
 		}
@@ -512,8 +511,8 @@ restart:
 	}
 out:
 	if (errnum) {
-		ERR(errnum, "failed; fd=%d, addr=%s",
-		    fd, log_add_sockaddr(addr, addrlen));
+		GT_ERR(SYS, errnum, "connect_timed() failed; fd=%d, addr=%s",
+				fd, log_add_sockaddr(addr, addrlen));
 	}
 	return -errnum;
 }
@@ -563,7 +562,7 @@ restart:
 	}
 	fcntl_setfl_nonblock_rollback(fd, flags);
 	if (rc < 0) {
-		ERR(-rc, "read_timed() failed, fd=%d", fd);
+		GT_ERR(SYS, -rc, "read_timed() failed, fd=%d", fd);
 	}
 	return rc;
 }
@@ -623,7 +622,7 @@ read_rss_key(const char *ifname, u_char *rss_key)
 		goto out;
 	}
 	if (rss.key_size != RSS_KEY_SIZE) {
-		ERR(0, "invalid rss key_size; key_size=%d", rss.key_size);
+		GT_ERR(SYS, 0, "ioctl(SIOCETHTOOL): Invalid rss key size: %d", rss.key_size);
 		goto out;
 	}
 	size = (sizeof(rss) + rss.key_size +
@@ -673,13 +672,13 @@ read_rss_queue_num(const char *ifname)
 	sys_close(fd);
 	return cmd.combined_count + cmd.rx_count;
 err:
-	ERR(-rc, "Failed to get interface (%s) rss queue number", ifname);
+	GT_ERR(SYS, -rc, "Failed to get ETHTOOL_GCHANNELS; ifname\"%s\"", ifname);
 	sys_close(fd);
 	return rc;
 }
 
 pid_t
-gtl_gettid(void)
+gt_gettid(void)
 {
 	pid_t tid;
 
@@ -717,7 +716,7 @@ read_proc_comm(char *name, int pid)
 		return 0;
 	}
 err:
-	ERR(0, "bad format; path=/proc/%d/status", pid);
+	GT_ERR(SYS, 0, "/proc/%d/status has invalid format", pid);
 	return -EPROTO;
 }
 #else // __linux__
@@ -824,7 +823,7 @@ restart:
 }
 
 int
-gtl_set_affinity(int cpu_id)
+gt_set_affinity(int cpu_id)
 {
 	int rc;
 	cpu_set_t cpumask;
@@ -833,7 +832,7 @@ gtl_set_affinity(int cpu_id)
 	CPU_SET(cpu_id, &cpumask);
 	rc = pthread_setaffinity_np(pthread_self(), sizeof(cpumask), &cpumask);
 	if (rc != 0) {
-		ERR(rc, "pthread_setaffinity_np(self, %d) failed", cpu_id);
+		GT_ERR(SYS, rc, "pthread_setaffinity_np(self, %d) failed", cpu_id);
 	}
 	return -rc;
 }

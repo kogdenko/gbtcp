@@ -1,5 +1,6 @@
-// gpl2 license
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
+
+#include "list.h"
 
 void
 dlist_init(struct  dlist *head)

@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #include "subr.h"
 #include "pid.h"
 #include "worker.h"

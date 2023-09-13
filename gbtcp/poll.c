@@ -1,5 +1,9 @@
-// gpl2 license
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
+
+#include "fd_event.h"
+#include "file.h"
+#include "gbtcp/socket.h"
+#include "poll.h"
 
 struct poll_entry {
 	struct file_aio pe_aio;

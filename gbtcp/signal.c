@@ -1,4 +1,4 @@
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
 #if 0
 void *gt_signal_stack;

@@ -1,7 +1,6 @@
-// GPL v2 License
-#include "../internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD route
+#include "../route.h"
 
 #define VETH_INFO_PEER 1
 
@@ -159,7 +158,7 @@ rtnl_open(unsigned int nl_groups)
 	}
 	return fd;
 err:
-	ERR(-rc, "Failed to open netlink connection");
+	GT_ERR(ROUTE, -rc, "Failed to open netlink connection");
 	if (fd != -1) {
 		sys_close(fd);
 	}
@@ -354,7 +353,7 @@ route_msg_handler(struct nlmsghdr *h, void *udata)
 		rc = route_handle_route(h, &msg);
 		break;
 	default:
-		INFO(0, "Unknown netlink message type '%d'", h->nlmsg_type);
+		GT_INFO(ROUTE, 0, "Unknown netlink message type '%d'", h->nlmsg_type);
 		return 0;
 	}
 	if (rc == 1 && d->rmhd_fn != NULL) {
@@ -386,7 +385,7 @@ rtnl_recvmsg(int fd, int (*handler)(struct nlmsghdr *, void *), void *udata)
 	rc = sys_recvmsg(fd, &msg, 0);
 	if (rc < 0) {
 		if (rc != -EAGAIN) {
-			ERR(-rc, "Unable to read netlink message");
+			GT_ERR(ROUTE, -rc, "Unable to read netlink message");
 		}
 		return rc;
 	}
@@ -396,12 +395,12 @@ rtnl_recvmsg(int fd, int (*handler)(struct nlmsghdr *, void *), void *udata)
 		case NLMSG_ERROR:
 			err = NLMSG_DATA(h);
 			if (nlmsg_len(h) < sizeof(*err)) {
-				ERR(0, "Netlink error truncated");
+				GT_ERR(ROUTE, 0, "Netlink error truncated");
 				return -EPROTO;
 			}
 			err = NLMSG_DATA(h);
 			if (err->error) {
-				ERR(-err->error, "Receive netlink error");
+				GT_ERR(ROUTE, -err->error, "Receive netlink error");
 				return -err->error;
 			}
 			break;
@@ -414,11 +413,11 @@ rtnl_recvmsg(int fd, int (*handler)(struct nlmsghdr *, void *), void *udata)
 				rc = (*handler)(h, udata);
 			}
 			if (rc < 0) {
-				ERR(-rc, "Netlink '%s' message handler failed",
-					nlmsg_type_str(h->nlmsg_type));
+				GT_ERR(ROUTE, -rc, "Netlink '%s' message handler failed",
+						nlmsg_type_str(h->nlmsg_type));
 			} else {
-				DBG(0, "Netlink '%s' message processed",
-					nlmsg_type_str(h->nlmsg_type));
+				GT_DBG(ROUTE, 0, "Netlink '%s' message processed",
+						nlmsg_type_str(h->nlmsg_type));
 			}
 			if (rc < 0) {
 				return rc;
@@ -427,7 +426,7 @@ rtnl_recvmsg(int fd, int (*handler)(struct nlmsghdr *, void *), void *udata)
 		}
 	}
 	if (msg.msg_flags & MSG_TRUNC) {
-		ERR(0, "Receive truncated netlink message");
+		GT_ERR(ROUTE, 0, "Receive truncated netlink message");
 		return 0;
 	}
 	return 0;
@@ -502,7 +501,7 @@ route_dump(route_msg_f fn, void *udata)
 	sys_close(fd);
 	return 0;
 err:
-	ERR(-rc, "Failed to dump route info");
+	GT_ERR(ROUTE, -rc, "Failed to dump route info");
 	sys_close(fd);
 	return rc;
 }
@@ -557,7 +556,7 @@ netlink_veth_add(const char *veth, const char *peer)
 	sys_close(fd);
 	return 0;
 err:
-	ERR(-rc, "Failed to add veth interface '%s' peer '%s'", veth, peer);
+	GT_ERR(ROUTE, -rc, "Failed to add veth interface '%s' peer '%s'", veth, peer);
 	sys_close(fd);
 	return rc;
 }
@@ -609,9 +608,9 @@ netlink_link_get_flags(int ifindex)
 	return msg.rtm_link.rtml_flags;
 err:
 	if (sys_if_indextoname(ifindex, ifname) < 0) {
-		ERR(-rc, "Failed to get link (ifindex=%d) flags", ifindex);
+		GT_ERR(ROUTE, -rc, "Failed to get link (ifindex=%d) flags", ifindex);
 	} else {
-		ERR(-rc, "FDailed to get link '%s' flags", ifname);
+		GT_ERR(ROUTE, -rc, "Failed to get link '%s' flags", ifname);
 	}
 	sys_close(fd);
 	return rc;
@@ -653,7 +652,7 @@ netlink_link_up(int ifindex, const char *ifname, int flags)
 	sys_close(fd);
 	return 0;
 err:
-	ERR(-rc, "Failed to UP link '%s'", ifname);
+	GT_ERR(ROUTE, -rc, "Failed to UP link '%s'", ifname);
 	sys_close(fd);
 	return rc;
 }
@@ -691,6 +690,6 @@ netlink_link_del(const char *ifname)
 	sys_close(fd);
 	return 0;
 err:
-	ERR(-rc, "Failed to del link '%s'", ifname);
+	GT_ERR(ROUTE, -rc, "Failed to del link '%s'", ifname);
 	return rc;
 }

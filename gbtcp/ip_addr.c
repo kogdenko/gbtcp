@@ -1,4 +1,7 @@
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
+
+#include "ip_addr.h"
+#include "sys.h"
 
 struct ipaddr ipaddr_zero;
 

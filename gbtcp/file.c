@@ -1,9 +1,14 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD file
+#include "epoll.h"
+#include "fd_event.h"
+#include "file.h"
+#include "gbtcp/socket.h"
+#include "global.h"
+#include "log.h"
+#include "service.h"
 
-struct file_mod {
+struct gt_module_file {
 	struct log_scope log_scope;
 	int file_nofile;
 };
@@ -29,11 +34,13 @@ int
 file_mod_init(void)
 {
 	int rc;
+	struct gt_module_file *m;
 
-	rc = curmod_init();
+	rc = gt_module_init(GT_MODULE_FILE, sizeof(*m));
 	if (rc == 0) {
-		curmod->file_nofile = upper_pow2_32(GT_FIRST_FD + 100000);
-		sysctl_add_int(GT_SYSCTL_FILE_NOFILE, SYSCTL_WR, &curmod->file_nofile,
+		m = gt_module_get(GT_MODULE_FILE);
+		m->file_nofile = upper_pow2_32(GT_FIRST_FD + 100000);
+		sysctl_add_int(GT_SYSCTL_FILE_NOFILE, SYSCTL_WR, &m->file_nofile,
 				GT_FIRST_FD + 1, 1 << 26);
 	}
 	return rc;
@@ -50,13 +57,14 @@ int
 init_files(struct service *s)
 {
 	int rc, size, n;
+	struct gt_module_file *m;
 
+	m = gt_module_get(GT_MODULE_FILE);
 	if (s->p_file_pool == NULL) {
 		size = sizeof(struct sock);
-		n = curmod->file_nofile - GT_FIRST_FD;
+		n = m->file_nofile - GT_FIRST_FD;
 		assert(n > 0);
-		rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid,
-			2 * 1024 * 1024, size, n);
+		rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid,	2 * 1024 * 1024, size, n);
 	} else {
 		rc = 0;
 	}

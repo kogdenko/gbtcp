@@ -1,5 +1,6 @@
-// GPL v2 License
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
+
+#include "strbuf.h"
 
 #define STRBUF_ADD_FLAG(flag) \
 	if (rem & flag) { \

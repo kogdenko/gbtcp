@@ -1,7 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD controller
+#include "controller.h"
+#include "fd_event.h"
+#include "pid.h"
+#include "shm.h"
 
 static struct sysctl_conn *controller_conn;
 static int controller_pid_fd = -1;
@@ -132,7 +134,7 @@ controller_lock_service(struct service *s)
 
 	rc = spinlock_trylock(&s->p_lock);
 	if (rc == 0) {
-		ERR(0, "Sevice DEADLOCK, pid=%d", s->p_pid);
+		GT_ERR(CONTROLLER, 0, "Sevice DEADLOCK, pid=%d", s->p_pid);
 		exit(69);
 	}
 }
@@ -236,11 +238,11 @@ set_rss_binding(u_int rss_qid, int sid)
 		return;
 	}
 	if (old_sid != SERVICE_ID_INVALID) {
-		NOTICE(0, "Unbind tx/rx queue (%d) from service (pid=%d)",
+		GT_NOTICE(CONTROLLER, 0, "Unbind tx/rx queue (%d) from service (pid=%d)",
 			rss_qid, shared->shm_services[old_sid].p_pid);
 	}
 	if (sid != SERVICE_ID_INVALID) {
-		NOTICE(0, "Bind tx/rx queue (%d) to service (pid=%d)",
+		GT_NOTICE(CONTROLLER, 0, "Bind tx/rx queue (%d) to service (pid=%d)",
 			rss_qid, shared->shm_services[sid].p_pid);
 	}
 	WRITE_ONCE(shared->shm_rss_table[rss_qid], sid);
@@ -277,7 +279,7 @@ controller_del_service(struct service *s)
 	struct sockaddr_un a;
 	struct service *new;
 
-	NOTICE(0, "Delete service (pid=%d)", s->p_pid);
+	GT_NOTICE(CONTROLLER, 0, "Delete service (pid=%d)", s->p_pid);
 	sid = s->p_sid;
 	rss_nq = s->p_rss_nq;
 	controller_check_service_deadlock(s);
@@ -315,7 +317,7 @@ controller_add_service(struct service *s, int pid, struct sysctl_conn *cp)
 
 	assert(s != current);
 	fd = sysctl_conn_fd(cp);
-	NOTICE(0, "Add service process (pid=%d), fd=%d", pid, fd);
+	GT_NOTICE(CONTROLLER, 0, "Add service process (pid=%d), fd=%d", pid, fd);
 	service_init_shared(s, pid, fd);
 	sid_max = MAX(sid_max, s->p_sid);
 }
@@ -523,7 +525,7 @@ controller_unbind(int pid)
 }
 
 int
-gtl_controller_init(int daemonize)
+gt_controller_init(int daemonize)
 {
 	int i, rc, pid;
 	uint64_t hz;
@@ -586,20 +588,20 @@ gtl_controller_init(int daemonize)
 	sysctl_add(SYSCTL_CONTROLLER_ADD, SYSCTL_WR, NULL, NULL, sysctl_controller_add);
 	sysctl_add_list(GT_SYSCTL_CONTROLLER_SERVICE_LIST, SYSCTL_RD, NULL,
 		sysctl_controller_service_list_next, sysctl_controller_service_list);
-	NOTICE(0, "Controller initialized");
+	GT_NOTICE(CONTROLLER, 0, "Controller initialized");
 	return 0;
 err:
-	ERR(-rc, "Controller initialization failed");
-	gtl_controller_deinit();
+	GT_ERR(CONTROLLER, -rc, "Controller initialization failed");
+	gt_controller_deinit();
 	return rc;
 }
 
 void
-gtl_controller_deinit(void)
+gt_controller_deinit(void)
 {
 	int pid;
 
-	NOTICE(0, "Controller shutdown");
+	GT_NOTICE(CONTROLLER, 0, "Controller shutdown");
 	pid = getpid();
 	controller_unbind(pid);
 	if (current != NULL) {
@@ -624,10 +626,10 @@ controller_process(void)
 }
 
 void
-gtl_controller_start(int persist)
+gt_controller_start(int persist)
 {
 	while (!controller_done || persist) {
 		controller_process();
 	}
-	gtl_controller_deinit();
+	gt_controller_deinit();
 }

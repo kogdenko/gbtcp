@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD timer
+#include "shm.h"
+#include "timer.h"
 
 #define TIMER_RING_POISON TIMER_N_RINGS
 
@@ -70,8 +70,8 @@ call_timers(struct dlist *queue)
 		timer = DLIST_FIRST(queue, struct timer, tm_list);
 		DLIST_REMOVE(timer, tm_list);
 		timer->tm_ring_id = TIMER_RING_POISON;
-		assert(timer->tm_mod_id < MODS_MAX);
-		fn = mods[timer->tm_mod_id].mod_timer;
+		assert(timer->tm_module_id < MODS_MAX);
+		fn = mods[timer->tm_module_id].mod_timer;
 		assert(fn != NULL);
 		(*fn)(timer, timer->tm_fn_id);
 	}
@@ -203,7 +203,7 @@ timer_timeout(struct timer *timer)
 #endif
 
 void
-timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
+timer_set(struct timer *timer, uint64_t expire, u_char module_id, u_char fn_id)
 {
 	int ring_id;
 	u_short seg_id;
@@ -230,7 +230,7 @@ timer_set4(struct timer *timer, uint64_t expire, u_char mod_id, u_char fn_id)
 	timer->tm_sid = current->p_sid;
 	timer->tm_ring_id = ring_id;
 	timer->tm_seg_id = seg_id;
-	timer->tm_mod_id = mod_id;
+	timer->tm_module_id = module_id;
 	timer->tm_fn_id = fn_id;
 	SEG_LOCK(seg);
 	DLIST_INSERT_HEAD(&seg->htb_head, timer, tm_list);

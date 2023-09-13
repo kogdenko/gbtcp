@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_API_H
 #define GBTCP_API_H
 
 #include "subr.h"
 
-#define GT_RETURN(rc) \
+#define GT_API_RETURN(rc) \
 	if (rc < 0) { \
 		gt_errno = -rc; \
 		return -1; \

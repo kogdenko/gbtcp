@@ -1,11 +1,14 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: LGPL-2.1-only
 
 // TODO:
 // 1) del ack: with a stream of full-sized incoming segments,
 //    ACK responses must be sent for every second segment.
-#include "internals.h"
 
-#define CURMOD tcp
+#include "../inet.h"
+#include "../mod.h"
+#include "../service.h"
+#include "socket.h"
+
 
 #if 0
 #define TCP_DBG(fmt, ...) \
@@ -72,12 +75,14 @@ struct sockbuf_msg {
 	be32_t sobm_faddr;
 };
 
-struct tcp_mod {
+struct gt_module_socket {
 	struct log_scope log_scope;
 	uint64_t tcp_fin_timeout;
 	struct htable tbl_connected;
 	struct htable tbl_binded;
 };
+
+#define curmod ((struct gt_module_socket *)gt_module_get(GT_MODULE_SOCKET))
 
 // subr
 static const char *tcp_flags_str(struct strbuf *sb, int proto,
@@ -190,6 +195,12 @@ static int sysctl_tcp_fin_timeout(const long long *new, long long *old);
 #define SO_HASH(faddr, lport, fport) \
 	((faddr) ^ ((faddr) >> 16) ^ ntoh16((lport) ^ (fport)))
 
+static int
+so_get_fd(struct sock *so)
+{
+	return file_get_fd((struct file *)so);
+}
+
 static uint32_t
 so_hash(void *e)
 {
@@ -248,67 +259,44 @@ sysctl_socket_binded(void *udata, const char *new, struct strbuf *out)
 }
 
 int
-tcp_mod_init(void)
+socket_mod_init(void)
 {
 	int rc;
 
-	rc = curmod_init();
+	rc = gt_module_init(GT_MODULE_SOCKET, sizeof(struct gt_module_socket));
 	if (rc) {
 		return rc;
 	}
-	rc = htable_init(&curmod->tbl_connected, 65536, so_hash,
-	                 HTABLE_SHARED|HTABLE_POWOF2);
+	rc = htable_init(&curmod->tbl_connected, 65536, so_hash, HTABLE_SHARED|HTABLE_POWOF2);
 	if (rc) {
-		tcp_mod_deinit();
+		socket_mod_deinit();
 		return rc;
 	}
-	rc = htable_init(&curmod->tbl_binded, EPHEMERAL_PORT_MAX,
-	                 NULL, HTABLE_SHARED);
+	rc = htable_init(&curmod->tbl_binded, EPHEMERAL_PORT_MAX, NULL, HTABLE_SHARED);
 	if (rc) {
-		tcp_mod_deinit();
+		socket_mod_deinit();
 		return rc;
 	}
 	sysctl_add_htable_list(GT_SYSCTL_SOCKET_CONNECTED_LIST, SYSCTL_RD,
-		&curmod->tbl_connected, sysctl_socket_connected);
+			&curmod->tbl_connected, sysctl_socket_connected);
 	sysctl_add_htable_size(GT_SYSCTL_SOCKET_CONNECTED_SIZE,
-		&curmod->tbl_connected);
+			&curmod->tbl_connected);
 	sysctl_add_htable_list(GT_SYSCTL_SOCKET_BINDED_LIST, SYSCTL_RD,
-		&curmod->tbl_binded, sysctl_socket_binded);
+			&curmod->tbl_binded, sysctl_socket_binded);
 	curmod->tcp_fin_timeout = NSEC_MINUTE;
 	sysctl_add_intfn(GT_SYSCTL_TCP_FIN_TIMEOUT, SYSCTL_WR,
-		&sysctl_tcp_fin_timeout, 1, 24 * 60 * 60);
+			&sysctl_tcp_fin_timeout, 1, 24 * 60 * 60);
 	return 0;
 }
 
 void
-tcp_mod_deinit(void)
+socket_mod_deinit(void)
 {
 	sysctl_del(GT_SYSCTL_SOCKET);
 	sysctl_del(GT_SYSCTL_TCP);
 	htable_deinit(&curmod->tbl_connected);
 	htable_deinit(&curmod->tbl_binded);
-	curmod_deinit();
-}
-
-int
-service_init_tcp(struct service *s)
-{
-	int rc;
-
-	if (s->p_sockbuf_pool == NULL) {
-		rc = mbuf_pool_alloc(&s->p_sockbuf_pool, s->p_sid,
-			2 * 1024 * 1024, SOCKBUF_CHUNK_SIZE, 0);
-	} else {
-		rc = 0;
-	}
-	return rc;
-}
-
-void
-service_deinit_tcp(struct service *s)
-{
-	mbuf_pool_free(s->p_sockbuf_pool);
-	s->p_sockbuf_pool = NULL;
+	gt_module_deinit(GT_MODULE_SOCKET);
 }
 
 const char *
@@ -517,8 +505,7 @@ so_socket6(struct sock **pso, int fd, int domain, int type, int flags,
 }
 
 int
-so_connect(struct sock *so, const struct sockaddr_in *faddr_in,
-	struct sockaddr_in *laddr_in)
+so_connect(struct sock *so, const struct sockaddr_in *faddr_in,	struct sockaddr_in *laddr_in)
 {
 	int rc;
 	struct route_entry r;
@@ -1233,8 +1220,7 @@ tcp_delack(struct sock *so)
 		timer_cancel(&so->so_timer_delack);
 		tcp_into_ackq(so);
 	}
-	timer_set(&so->so_timer_delack, 200 * NSEC_MSEC,
-		TCP_TIMER_DELACK);
+	timer_set(&so->so_timer_delack, 200 * NSEC_MSEC, GT_MODULE_SOCKET, TCP_TIMER_DELACK);
 }
 
 #if 0
@@ -1265,7 +1251,7 @@ tcp_tx_timer_set(struct sock *so)
 		expires = 500 * NSEC_MSEC;
 	}
 	expires <<= so->so_ntries;
-	timer_set(&so->so_timer, expires, TCP_TIMER_REXMIT);
+	timer_set(&so->so_timer, expires, GT_MODULE_SOCKET, TCP_TIMER_REXMIT);
 }
 
 static int
@@ -1280,7 +1266,7 @@ tcp_wprobe_timer_set(struct sock *so)
 		return 0;
 	}
 	expires = 10 * NSEC_SEC;
-	timer_set(&so->so_timer, expires, TCP_TIMER_PERSIST);
+	timer_set(&so->so_timer, expires, GT_MODULE_SOCKET, TCP_TIMER_PERSIST);
 	return 1;
 }
 
@@ -1290,11 +1276,11 @@ tcp_timer_set_tcp_fin_timeout(struct sock *so)
 	assert(so->so_retx == 0);
 	assert(so->so_wprobe == 0);
 	assert(!timer_is_running(&so->so_timer));
-	timer_set(&so->so_timer, curmod->tcp_fin_timeout, TCP_TIMER_FIN);
+	timer_set(&so->so_timer, curmod->tcp_fin_timeout, GT_MODULE_SOCKET, TCP_TIMER_FIN);
 }
 
 void
-tcp_mod_timer(struct timer *timer, u_char fn_id)
+socket_mod_timer(struct timer *timer, u_char fn_id)
 {
 	struct sock *so;
 
@@ -2270,12 +2256,6 @@ sock_str(struct strbuf *sb, struct sock *so)
 	return strbuf_cstr(sb);
 }
 
-int
-so_get_fd(struct sock *so)
-{
-	return file_get_fd((struct file *)so);
-}
-
 struct htable_bucket *
 so_get_binded_bucket(uint16_t lport)
 {
@@ -2792,3 +2772,36 @@ so_input_err(int ipproto, struct in_context *p, be32_t laddr, be32_t faddr,
 	return IN_OK;
 #endif
 }
+
+int
+gt_gbtcp_so_rx(struct route_if *ifp, void *data, int len)
+{
+	int rc, ipproto;
+	struct in_context *p, in;
+
+	in_context_init(&in, data, len);
+	in.in_ifp = ifp;
+	p = &in;
+
+	rc = eth_input(p);
+	assert(rc < 0);
+	if (rc != IN_OK) {
+		return rc;
+	}
+	ipproto = p->in_ipproto;
+	if (ipproto == IPPROTO_UDP || ipproto == IPPROTO_TCP) {
+		rc = so_input(ipproto, p,
+			p->in_ih->ih_daddr, p->in_ih->ih_saddr,
+			p->in_uh->uh_dport, p->in_uh->uh_sport);
+	} else if (ipproto == IPPROTO_ICMP && p->in_errnum &&
+	           (p->in_emb_ipproto == IPPROTO_UDP ||
+	            p->in_emb_ipproto == IPPROTO_TCP)) {
+		rc = so_input_err(p->in_emb_ipproto, p,
+			p->in_ih->ih_daddr, p->in_ih->ih_saddr,
+			p->in_uh->uh_dport, p->in_uh->uh_sport);
+	} else {
+		rc = IN_DROP;
+	}
+	return rc;
+}
+

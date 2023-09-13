@@ -1,12 +1,13 @@
-// gpl2
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_SERVICE_H
 #define GBTCP_SERVICE_H
 
-#include "subr.h"
-#include "mod.h"
-#include "mbuf.h"
-#include "route.h"
 #include "inet.h"
+#include "mbuf.h"
+#include "mod.h"
+#include "route.h"
+#include "subr.h"
 
 #define SERVICE_COMM_MAX 32
 #define SERVICE_ID_INVALID GT_SERVICES_MAX
@@ -27,10 +28,6 @@ do { \
 #define SERVICE_UNLOCK \
 	service_unlock()
 
-#define SERVICE_FOREACH(s) \
-	for ((s) = shared->shm_services; \
-	     (s) != shared->shm_services + ARRAY_SIZE(shared->shm_services); \
-	     (s)++)
 
 struct service {
 	struct spinlock p_lock;

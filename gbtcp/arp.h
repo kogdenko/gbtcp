@@ -1,8 +1,16 @@
-// gpl2
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_ARP_H
 #define GBTCP_ARP_H
 
 #include "subr.h"
+
+struct arp_hdr;
+struct dev_pkt;
+struct route_entry;
+struct route_if;
+struct service;
+struct timer;
 
 struct arp_advert {
 	int arpa_af;

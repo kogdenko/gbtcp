@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef TEST_SUBR_H
 #define TEST_SUBR_H
 

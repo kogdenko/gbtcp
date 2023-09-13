@@ -1,4 +1,5 @@
-// GPL v2 License
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #define NETMAP_WITH_LIBS
 #include <net/netmap_user.h>
 
@@ -71,19 +72,19 @@ netmap_dev_init(struct dev *dev)
 	memset(&nmr, 0, sizeof(nmr));
 	flags = 0;
 	netmap_dev_name(dev, dev_name);
-	NOTICE(0, "Create netmap device '%s'", dev_name);
+	GT_NOTICE(DEV, 0, "Create netmap device '%s'", dev_name);
 	dev->dev_nmd = nm_open(dev_name, &nmr, flags, NULL);
 	if (dev->dev_nmd != NULL) {
 		assert(dev->dev_nmd->nifp != NULL);
 		dev->dev_fd = dev->dev_nmd->fd;
 		nmr = dev->dev_nmd->req;
-		NOTICE(0, "Netmap device '%s' created %u/%u (rx/tx) slots",
-			dev_name, nmr.nr_rx_slots, nmr.nr_tx_slots);
+		GT_NOTICE(DEV, 0, "Netmap device '%s' created %u/%u (rx/tx) slots",
+				dev_name, nmr.nr_rx_slots, nmr.nr_tx_slots);
 		return dev->dev_nmd->fd;
 	} else {
 		rc = -errno;
 		assert(rc);
-		ERR(-rc, "Failed to create netmap device '%s'", dev_name);
+		GT_ERR(DEV, -rc, "Failed to create netmap device '%s'", dev_name);
 		return rc;
 	}
 }
@@ -93,7 +94,7 @@ netmap_dev_deinit(struct dev *dev, bool cloexec)
 {
 	char dev_name[NETMAP_DEV_NAMSIZ];
 
-	NOTICE(0, "Destroy netmap device '%s'", netmap_dev_name(dev, dev_name));
+	GT_NOTICE(DEV, 0, "Destroy netmap device '%s'", netmap_dev_name(dev, dev_name));
 	assert(dev->dev_nmd != NULL);
 	nm_close(dev->dev_nmd);
 	if (!cloexec) {

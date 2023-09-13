@@ -1,10 +1,13 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: LGPL-2.1-only
 
 #ifndef GBTCP_MOD_H
 #define GBTCP_MOD_H
 
-#include "subr.h"
-#include "service.h"
+#include "global.h"
+//#include "subr.h"
+//#include "service.h"
+
+struct timer;
 
 struct mod {
 	int (*mod_init)(void);
@@ -14,20 +17,10 @@ struct mod {
 
 extern struct mod mods[MODS_MAX];
 
-#define mod_get(id) \
-	(shared == NULL ? NULL : shared->shm_mods[id])
-
-#define curmod ((struct GT_CAT2(CURMOD, _mod) *) \
-	(shared->shm_mods[GT_CAT2(MOD_, CURMOD)]))
-
-#define curmod_init() \
-	mod_init2(GT_CAT2(MOD_, CURMOD), sizeof(struct GT_CAT2(CURMOD, _mod)))
-
-#define curmod_deinit() \
-	mod_deinit1(GT_CAT2(MOD_, CURMOD))
-
-const char *mod_name(int);
-int mod_init2(int, size_t);
-void mod_deinit1(int);
+const char *gt_module_id2name(int);
+void *gt_module_get(int);
+void *gt_module_get_safe(int);
+int gt_module_init(int, size_t);
+void gt_module_deinit(int);
 
 #endif // GBTCP_MOD_H

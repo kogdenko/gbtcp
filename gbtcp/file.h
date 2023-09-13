@@ -1,10 +1,12 @@
-// gpl2
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_FILE_H
 #define GBTCP_FILE_H
 
 #include "mbuf.h"
 
 struct file_aio;
+struct service;
 
 enum file_type {
 	FILE_SOCK,

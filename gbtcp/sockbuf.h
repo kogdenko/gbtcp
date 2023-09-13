@@ -1,10 +1,13 @@
-// gpl2
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_SOCKBUF_H
 #define GBTCP_SOCKBUF_H
 
 #include "list.h"
 
 #define SOCKBUF_CHUNK_SIZE 2048
+
+struct mbuf_pool;
 
 struct sock_buf {
 	int sob_max;

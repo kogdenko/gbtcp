@@ -1,7 +1,8 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD htable
+#include "htable.h"
+#include "shm.h"
+#include "sys.h"
 
 struct htable_id {
 	uint32_t lo;
@@ -155,8 +156,7 @@ sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 }
 
 static int
-sysctl_htable_list(void *udata, const char *ident,
-	const char *new, struct strbuf *out)
+sysctl_htable_list(void *udata, const char *ident, const char *new, struct strbuf *out)
 {
 	int rc, lo;
 	struct dlist *e;
@@ -195,8 +195,7 @@ sysctl_add_htable_size(const char *path, struct htable *t)
 }
 
 void
-sysctl_add_htable_list(const char *path, int mode, struct htable *t,
-	htable_sysctl_f fn)
+sysctl_add_htable_list(const char *path, int mode, struct htable *t, htable_sysctl_f fn)
 {
 	assert(t->ht_sysctl_fn == NULL);
 	assert(fn != NULL);

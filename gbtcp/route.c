@@ -1,12 +1,11 @@
-// GPL v2 license
-#include "internals.h"
-//#include "list.h"
-//#include "route.h"
-//#include "shm.h"
-//#include "service.h"
-//#include "controller.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD route
+#include "controller.h"
+#include "fd_event.h"
+#include "lptree.h"
+#include "mod.h"
+#include "route.h"
+#include "shm.h"
 
 struct route_entry_long {
 	struct lptree_rule rtl_rule;
@@ -49,7 +48,10 @@ route_foreach_set_srcs(struct route_if *ifp)
 struct dlist *
 route_if_head(void)
 {
-	return &curmod->route_if_head;
+	struct gt_module_route *mod;
+	
+	mod = gt_module_get(GT_MODULE_ROUTE);
+	return &mod->route_if_head;
 }
 
 struct route_if *
@@ -83,7 +85,9 @@ route_if_add(const char *ifname, struct route_if **ifpp)
 {
 	int rc, dev_transport;
 	struct route_if *ifp;
+	struct gt_module_route *mod;
 
+	mod = gt_module_get(GT_MODULE_ROUTE);
 	if (ifpp != NULL) {
 		*ifpp = NULL;
 	}
@@ -103,10 +107,10 @@ route_if_add(const char *ifname, struct route_if **ifpp)
 	gt_strzcpy(ifp->rif_name, ifname, sizeof(ifp->rif_name));
 	rc = sys_if_nametoindex(ifname);
 	ifp->rif_index = rc;
-	DLIST_INSERT_HEAD(&curmod->route_if_head, ifp, rif_list);
+	DLIST_INSERT_HEAD(&mod->route_if_head, ifp, rif_list);
 	dev_transport = dev_transport_get();
 	rc = gt_dev_init_locked(&ifp->rif_host_dev, dev_transport,
-		ifp->rif_name, DEV_QUEUE_HOST, interface_dev_host_rx);
+			ifp->rif_name, DEV_QUEUE_HOST, interface_dev_host_rx);
 	if (rc < 0 && rc != -ENOTSUP) {
 		goto err;
 	}
@@ -129,10 +133,10 @@ route_if_add(const char *ifname, struct route_if **ifpp)
 		route_dump(route_on_msg, NULL);
 	}
 	*ifpp = ifp;
-	NOTICE(0, "Interface '%s' added", ifname);
+	GT_NOTICE(ROUTE, 0, "Interface '%s' added", ifname);
 	return 0;
 err:
-	ERR(-rc, "Failed to add interface '%s'", ifname);
+	GT_ERR(ROUTE, -rc, "Failed to add interface '%s'", ifname);
 	route_if_del(ifp);
 	return rc;
 }
@@ -146,7 +150,7 @@ route_if_del(struct route_if *ifp)
 		return;
 	}
 	DLIST_REMOVE(ifp, rif_list);
-	NOTICE(0, "Delete interface '%s'", ifp->rif_name);
+	GT_NOTICE(ROUTE, 0, "Delete interface '%s'", ifp->rif_name);
 	ifp->rif_list.dls_next = NULL;
 	while (!dlist_is_empty(&ifp->rif_routes)) {
 		route = DLIST_FIRST(&ifp->rif_routes, struct route_entry_long, rtl_list);
@@ -159,13 +163,14 @@ route_if_del(struct route_if *ifp)
 }
 
 static int
-route_ifaddr_add(struct route_if_addr **ifap,
-	struct route_if *ifp, const struct ipaddr *addr)
+route_ifaddr_add(struct route_if_addr **ifap, struct route_if *ifp, const struct ipaddr *addr)
 {
 	int i, rc, size;
 	void *new_ptr;
 	struct route_if_addr *ifa, *tmp;
+	struct gt_module_route *m;
 
+	m = gt_module_get(GT_MODULE_ROUTE);
 	ifa = route_ifaddr_get(AF_INET, addr);
 	if (ifa == NULL) {
 		ifa = shm_malloc(sizeof(*ifa));
@@ -177,7 +182,7 @@ route_ifaddr_add(struct route_if_addr **ifap,
 		ifa->ria_ref_cnt = 0;
 		i = rand32() % NEPHEMERAL_PORTS;
 		ifa->ria_ephemeral_port = EPHEMERAL_PORT_MIN + i;
-		DLIST_INSERT_HEAD(&curmod->route_addr_head, ifa, ria_list);
+		DLIST_INSERT_HEAD(&m->route_addr_head, ifa, ria_list);
 	}
 	for (i = 0; i < ifp->rif_n_addrs; ++i) {
 		tmp = ifp->rif_addrs[i];
@@ -201,10 +206,10 @@ route_ifaddr_add(struct route_if_addr **ifap,
 	if (ifap != NULL) {
 		*ifap = ifa;
 	}
-	INFO(0, "Address '%s' added", log_add_ipaddr(AF_INET, &addr->ipa_4));
+	GT_INFO(ROUTE, 0, "Address '%s' added", log_add_ipaddr(AF_INET, &addr->ipa_4));
 	return 0;
 err:
-	ERR(-rc, "Failed to add adress '%s'", log_add_ipaddr(AF_INET, &addr->ipa_4));
+	GT_ERR(ROUTE, -rc, "Failed to add address '%s'", log_add_ipaddr(AF_INET, &addr->ipa_4));
 	return rc;
 }
 
@@ -231,11 +236,11 @@ route_ifaddr_del(struct route_if *ifp, const struct ipaddr *addr)
 			}
 		}
 	}
-	ERR(0, "Failed to delete address '%s' (Address not found)",
-	     log_add_ipaddr(AF_INET, &addr->ipa_4));
+	GT_ERR(ROUTE, 0, "Failed to delete address '%s' (Address not found)",
+		     log_add_ipaddr(AF_INET, &addr->ipa_4));
 	return -ENOENT;
 out:
-	NOTICE(0, "Address '%s' deleted", log_add_ipaddr(AF_INET, &addr->ipa_4));
+	GT_NOTICE(ROUTE, 0, "Address '%s' deleted", log_add_ipaddr(AF_INET, &addr->ipa_4));
 	return 0;
 }
 
@@ -288,16 +293,18 @@ route_add(struct route_entry *a)
 	uint32_t key;
 	struct lptree_rule *rule;
 	struct route_entry_long *route;
+	struct gt_module_route *m;
 
 	assert(a->rt_af == AF_INET);
 	assert(a->rt_ifp != NULL);
+	m = gt_module_get(GT_MODULE_ROUTE);
 	key = ntoh32(a->rt_dst.ipa_4);
 	if (a->rt_pfx > 32) {
 		rc = -EINVAL;
 		goto err;
 	}
 	if (a->rt_pfx == 0) {
-		route = curmod->route_default;
+		route = m->route_default;
 	} else {
 		route = NULL;
 	}
@@ -305,7 +312,7 @@ route_add(struct route_entry *a)
 		rc = -EEXIST;
 		goto err;
 	}
-	rc = mbuf_alloc(curmod->route_pool, (struct mbuf **)&route);
+	rc = mbuf_alloc(m->route_pool, (struct mbuf **)&route);
 	if (rc) {
 		goto err;
 	}
@@ -313,9 +320,9 @@ route_add(struct route_entry *a)
 	if (a->rt_pfx == 0) {
 		rule->lpr_key = key; 
 		rule->lpr_depth = a->rt_pfx;
-		curmod->route_default = route;
+		m->route_default = route;
 	} else {
-		lptree_add(&curmod->route_lptree, rule, key, a->rt_pfx);
+		lptree_add(&m->route_lptree, rule, key, a->rt_pfx);
 		if (rc) {
 			mbuf_free((struct mbuf *)rule);
 			goto err;
@@ -328,14 +335,14 @@ route_add(struct route_entry *a)
 	route->rtl_srcs = NULL;
 	DLIST_INSERT_HEAD(&route->rtl_ifp->rif_routes, route, rtl_list);
 	route_set_srcs(route);
-	NOTICE(0, "Route to '%s/%u' added, dev='%s', via='%s'",
-		log_add_ipaddr(AF_INET, &a->rt_dst.ipa_4), a->rt_pfx, a->rt_ifp->rif_name,
-		log_add_ipaddr(AF_INET, &a->rt_via.ipa_4));
+	GT_NOTICE(ROUTE, 0, "Route to '%s/%u' added, dev='%s', via='%s'",
+			log_add_ipaddr(AF_INET, &a->rt_dst.ipa_4), a->rt_pfx, a->rt_ifp->rif_name,
+			log_add_ipaddr(AF_INET, &a->rt_via.ipa_4));
 	return 0;
 err:
-	ERR(-rc, "Failed to add route to '%s/%u', dev='%s', via='%s'",
-		log_add_ipaddr(AF_INET, &a->rt_dst.ipa_4), a->rt_pfx, a->rt_ifp->rif_name,
-		log_add_ipaddr(AF_INET, &a->rt_via.ipa_4));
+	GT_ERR(ROUTE, -rc, "Failed to add route to '%s/%u', dev='%s', via='%s'",
+			log_add_ipaddr(AF_INET, &a->rt_dst.ipa_4), a->rt_pfx, a->rt_ifp->rif_name,
+			log_add_ipaddr(AF_INET, &a->rt_via.ipa_4));
 	return rc;
 }
 
@@ -345,14 +352,16 @@ route_del(struct route_entry_long *route)
 	int pfx;
 	uint32_t dst;
 	struct lptree_rule *rule;
+	struct gt_module_route *m;
 
+	m = gt_module_get(GT_MODULE_ROUTE);
 	rule = &route->rtl_rule;
 	dst = hton32(rule->lpr_key);
 	pfx = rule->lpr_depth;
 	shm_free(route->rtl_srcs);
 	DLIST_REMOVE(route, rtl_list);
-	lptree_del(&curmod->route_lptree, rule);
-	NOTICE(0, "Route to '%s/%d' deteled", log_add_ipaddr(AF_INET, &dst), pfx);
+	lptree_del(&m->route_lptree, rule);
+	GT_NOTICE(ROUTE, 0, "Route to '%s/%d' deteled", log_add_ipaddr(AF_INET, &dst), pfx);
 }
 
 static int
@@ -361,15 +370,17 @@ route_del2(be32_t dst, int pfx)
 	int rc;
 	struct lptree_rule *rule;
 	struct route_entry_long *route;
+	struct gt_module_route *m;
 
+	m = gt_module_get(GT_MODULE_ROUTE);
 	if (pfx > 32) {
 		rc = -EINVAL;
 		goto err;
 	}
 	if (pfx == 0) {
-		route = curmod->route_default;
+		route = m->route_default;
 	} else {
-		rule = lptree_get(&curmod->route_lptree, ntoh32(dst), pfx);
+		rule = lptree_get(&m->route_lptree, ntoh32(dst), pfx);
 		route = (struct route_entry_long *)rule;
 	}
 	if (route == NULL) {
@@ -379,7 +390,7 @@ route_del2(be32_t dst, int pfx)
 	route_del(route);
 	return 0;
 err:
-	ERR(-rc, "Failed to delete route to %s/%d", log_add_ipaddr(AF_INET, &dst), pfx);
+	GT_ERR(ROUTE, -rc, "Failed to delete route to %s/%d", log_add_ipaddr(AF_INET, &dst), pfx);
 	return rc;
 }
 
@@ -613,13 +624,15 @@ sysctl_route_list_next(void *udata, const char *ident, struct strbuf *out)
 {
 	int rc, id;
 	struct mbuf *m;
-
+	struct gt_module_route *mod;
+	
+	mod = gt_module_get(GT_MODULE_ROUTE);
 	if (ident == NULL) {
 		id = 0;
 	} else {
 		id = strtoul(ident, NULL, 10) + 1;
 	}
-	m = mbuf_next(curmod->route_pool, id);
+	m = mbuf_next(mod->route_pool, id);
 	if (m == NULL) {
 		return -ENOENT;
 	} else {
@@ -636,9 +649,11 @@ sysctl_route_list(void *udata, const char *ident, const char *new, struct strbuf
 	be32_t dst;
 	struct mbuf *m;
 	struct route_entry_long *route;
-
+	struct gt_module_route *mod;
+	
+	mod = gt_module_get(GT_MODULE_ROUTE);
 	id = strtoul(ident, NULL, 10);
-	m = mbuf_get(curmod->route_pool, id);
+	m = mbuf_get(mod->route_pool, id);
 	route = (struct route_entry_long *)m;
 	if (route == NULL) {
 		return -ENOENT;
@@ -657,20 +672,22 @@ int
 route_mod_init(void)
 {
 	int rc;
+	struct gt_module_route *mod;
 
-	rc = curmod_init();
+	rc = gt_module_init(GT_MODULE_ROUTE, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
-	curmod->route_default = NULL;
-	dlist_init(&curmod->route_if_head);
-	dlist_init(&curmod->route_addr_head);
-	rc = mbuf_pool_alloc(&curmod->route_pool, CONTROLLER_SID,
-		PAGE_SIZE, sizeof(struct route_entry_long), 10000);
+	mod = gt_module_get(GT_MODULE_ROUTE);
+	mod->route_default = NULL;
+	dlist_init(&mod->route_if_head);
+	dlist_init(&mod->route_addr_head);
+	rc = mbuf_pool_alloc(&mod->route_pool, CONTROLLER_SID, PAGE_SIZE,
+			sizeof(struct route_entry_long), 10000);
 	if (rc) {
 		goto err;
 	}
-	rc = lptree_init(&curmod->route_lptree);
+	rc = lptree_init(&mod->route_lptree);
 	if (rc) {
 		goto err;
 	}
@@ -679,13 +696,13 @@ route_mod_init(void)
 		goto err;
 	}
 	sysctl_add_list(GT_SYSCTL_ROUTE_IF_LIST, SYSCTL_WR, NULL,
-		sysctl_route_if_list_next, sysctl_route_if_list);
+			sysctl_route_if_list_next, sysctl_route_if_list);
 	sysctl_add(GT_SYSCTL_ROUTE_IF_ADD, SYSCTL_WR, NULL, NULL, sysctl_route_if_add);
 	sysctl_add(GT_SYSCTL_ROUTE_IF_DEL, SYSCTL_WR, NULL, NULL, sysctl_route_if_del);
 	sysctl_add_list(GT_SYSCTL_ROUTE_ADDR_LIST, SYSCTL_RD, NULL,
-		sysctl_route_addr_list_next, sysctl_route_addr_list);
+			sysctl_route_addr_list_next, sysctl_route_addr_list);
 	sysctl_add_list(GT_SYSCTL_ROUTE_ROUTE_LIST, SYSCTL_RD, NULL,
-		sysctl_route_list_next, sysctl_route_list);
+			sysctl_route_list_next, sysctl_route_list);
 	return 0;
 err:
 	route_mod_deinit();
@@ -695,21 +712,25 @@ err:
 void
 route_mod_deinit(void)
 {
+	struct gt_module_route *mod;
+
+	mod = gt_module_get(GT_MODULE_ROUTE);
 	sysctl_del(GT_SYSCTL_ROUTE);
 	route_monitor_stop();
-	lptree_deinit(&curmod->route_lptree);
-	mbuf_pool_free(curmod->route_pool);
-	curmod->route_pool = NULL;	
-	curmod_deinit();
+	lptree_deinit(&mod->route_lptree);
+	mbuf_pool_free(mod->route_pool);
+	mod->route_pool = NULL;	
+	gt_module_deinit(GT_MODULE_ROUTE);
 }
-
 
 struct route_if_addr *
 route_ifaddr_get(int af, const struct ipaddr *addr)
 {
 	struct route_if_addr *ifa;
+	struct gt_module_route *mod;
 
-	DLIST_FOREACH(ifa, &curmod->route_addr_head, ria_list) {
+	mod = gt_module_get(GT_MODULE_ROUTE);
+	DLIST_FOREACH(ifa, &mod->route_addr_head, ria_list) {
 		if (!ipaddr_cmp(af, &ifa->ria_addr, addr)) {
 			return ifa;
 		}
@@ -736,18 +757,20 @@ route_get(int af, struct ipaddr *src, struct route_entry *g)
 	struct lptree_rule *rule;
 	struct route_entry_long *route;
 	struct route_if_addr *ifa;
+	struct gt_module_route *mod;
 
+	mod = gt_module_get(GT_MODULE_ROUTE);
 	assert(af == AF_INET);
 	g->rt_af = AF_INET;
 	if (ipaddr4_is_loopback(g->rt_dst.ipa_4)) {
 		return -ENETUNREACH;
 	}
 	key = ntoh32(g->rt_dst.ipa_4);
-	rule = lptree_search(&curmod->route_lptree, key);
+	rule = lptree_search(&mod->route_lptree, key);
 	assert(rule != NULL);
 	route = (struct route_entry_long *)rule;
 	if (route == NULL) {
-		route = curmod->route_default;
+		route = mod->route_default;
 		if (route == NULL) {
 			return -ENETUNREACH;
 		}

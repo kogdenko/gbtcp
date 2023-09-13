@@ -1,7 +1,6 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD shm
+#include "shm.h"
 
 #define SHM_MAGIC 0xb9d1
 #define SHM_PATH GT_PREFIX"/shm"
@@ -17,7 +16,7 @@
   #define SHM_HINT NULL
 #endif // __linux__
 
-struct shm_mod {
+struct gt_module_shm {
 	struct log_scope log_scope;
 	int shm_n_allocated_pages;
 };
@@ -64,12 +63,14 @@ int
 shm_mod_init(void)
 {
 	int rc;
+	struct gt_module_shm *mod;
 
-	rc = curmod_init();
+	rc = gt_module_init(GT_MODULE_SHM, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
-	sysctl_add_int("shm.n_allocated_pages", SYSCTL_RD, &curmod->shm_n_allocated_pages, 0, 0);
+	mod = gt_module_get(GT_MODULE_SHM);
+	sysctl_add_int("shm.n_allocated_pages", SYSCTL_RD, &mod->shm_n_allocated_pages, 0, 0);
 	return 0;
 }
 
@@ -86,25 +87,31 @@ shm_page_is_allocated(u_int page)
 static void
 shm_page_alloc(u_int page)
 {
+	struct gt_module_shm *mod;
+
 	assert(!shm_page_is_allocated(page));
 	bitset_set(shared->shm_pages, page);
 	if (shm_early) {
 		shm_early_n_allocated_pages++;
 	} else {
-		curmod->shm_n_allocated_pages++;
+		mod = gt_module_get(GT_MODULE_SHM);
+		mod->shm_n_allocated_pages++;
 	}
 }
 
 static void
 shm_page_free(u_int page)
 {
+	struct gt_module_shm *mod;
+
 	assert(page < shared->shm_n_pages);
 	assert(page >= shared->shm_n_sb_pages);
 	bitset_clr(shared->shm_pages, page);
 	if (shm_early) {
 		shm_early_n_allocated_pages--;
 	} else {
-		curmod->shm_n_allocated_pages--;
+		mod = gt_module_get(GT_MODULE_SHM);
+		mod->shm_n_allocated_pages--;
 	}
 }
 
@@ -186,6 +193,7 @@ shm_init(void)
 {
 	int i, rc, n_pages, sb_size;
 	size_t size;
+	struct gt_module_shm *mod;
 	//struct stat buf;
 
 	assert(shm_early);
@@ -227,7 +235,7 @@ shm_init(void)
 	}
 	for (i = MOD_FIRST; i < MODS_MAX; ++i) {
 		if (mods[i].mod_init == NULL) {
-			rc = mod_init2(i, sizeof(struct log_scope));
+			rc = gt_module_init(i, sizeof(struct log_scope));
 		} else {
 			rc = (*mods[i].mod_init)();
 		}
@@ -236,12 +244,14 @@ shm_init(void)
 		}
 	}	
 	shm_early = 0;
-	curmod->shm_n_allocated_pages += shm_early_n_allocated_pages;
+	mod = gt_module_get(GT_MODULE_SHM);
+	mod->shm_n_allocated_pages += shm_early_n_allocated_pages;
 	shm_early_n_allocated_pages = 0;
-	NOTICE(0, "Shared memory initialized at address %p", (void *)shared->shm_base_addr);
+	GT_NOTICE(SHM, 0, "Shared memory initialized at address %p",
+			(void *)shared->shm_base_addr);
 	return 0;
 err:
-	ERR(-rc, "Failed to initialize shared memory");
+	GT_ERR(SHM, -rc, "Failed to initialize shared memory");
 	shm_deinit();
 	return rc;
 }
@@ -274,10 +284,10 @@ shm_attach(void)
 	}
 	assert(shared == addr);
 	shm_early = 0;
-	NOTICE(0, "Shared memory mapped to address: %p", shared);
+	GT_NOTICE(SHM, 0, "Shared memory mapped to address: %p", shared);
 	return 0;
 err:
-	ERR(-rc, "Failed to map shared memory");
+	GT_ERR(SHM, -rc, "Failed to map shared memory");
 	shm_detach();
 	return rc;
 }
@@ -297,7 +307,7 @@ shm_detach(void)
 	sys_close(shm_fd);
 	shm_fd = -1;
 	shm_early = 1;
-	NOTICE(0, "Shared memory detached");
+	GT_NOTICE(SHM, 0, "Shared memory detached");
 }
 
 void
@@ -309,7 +319,7 @@ shm_deinit(void)
 		for (i = MODS_MAX - 1; i >= MOD_FIRST; --i) {
 			if (shared->shm_mods[i] != NULL) {
 				if (mods[i].mod_deinit == NULL) {
-					mod_deinit1(i);
+					gt_module_deinit(i);
 				} else {
 					(*mods[i].mod_deinit)();
 				}
@@ -346,13 +356,13 @@ shm_alloc_pages_locked(void **pp, size_t alignment, size_t size)
 				shm_page_alloc(page + i);
 			}
 			*pp = (void *)shm_page_to_virt(page);
-			INFO(0, "Allocated %d pages (%zu bytes) in shared memory at %p",
-				size_n, size, *pp);
+			GT_INFO(SHM, 0, "Allocated %d pages (%zu bytes) in shared memory at %p",
+					size_n, size, *pp);
 			return 0;
 		}
 	}
-	WARN(ENOMEM, "Failed to allocate %d pages (%zu bytes) in shared memory",
-		size_n, size);
+	GT_WARN(SHM, ENOMEM, "Failed to allocate %d pages (%zu bytes) in shared memory",
+			size_n, size);
 	return -ENOMEM;
 }
 
@@ -365,11 +375,11 @@ shm_free_pages_locked(uintptr_t addr, size_t size)
 	page = shm_virt_to_page(addr);
 	for (i = 0; i < size_n; ++i) {
 		if (!shm_page_is_allocated(page + i)) {
-			gtl_die(0, "Double free page at %p", (void *)shm_page_to_virt(page + i));
+			GT_DIE(0, "Double free page at %p", (void *)shm_page_to_virt(page + i));
 		}
 		shm_page_free(page + i);
 	}
-	INFO(0, "Free %d pages (%zu bytes) in shared memory", size_n, size);
+	GT_INFO(SHM, 0, "Free %d pages (%zu bytes) in shared memory", size_n, size);
 }
 
 #define IS_ADJACENT(l, r) \
@@ -471,9 +481,9 @@ shm_malloc(size_t size)
 	shm_lock();
 	new_ptr = shm_malloc_locked(size);
 	if (new_ptr != NULL) {
-		INFO(0, "Allocated %zu bytes of shared memory at %p", size, new_ptr);
+		GT_INFO(SHM, 0, "Allocated %zu bytes of shared memory at %p", size, new_ptr);
 	} else {
-		WARN(ENOMEM, "Failed to allocate %zu bytes in shared memory", size);
+		GT_WARN(SHM, ENOMEM, "Failed to allocate %zu bytes in shared memory", size);
 	}
 	shm_unlock_and_free_garbage();
 	return new_ptr;
@@ -506,7 +516,7 @@ shm_free(void *ptr)
 	shm_lock();
 	shm_free_locked(ptr);
 	// TODO: ??? change to real number of bytes
-	INFO(0, "Free ??? bytes shared memory at %p", ptr);
+	GT_INFO(SHM, 0, "Free ??? bytes shared memory at %p", ptr);
 	shm_unlock_and_free_garbage();
 }
 

@@ -1,5 +1,6 @@
 #!/usr/bin/python
-# SPDX-License-Identifier: GPL-2.0
+
+# SPDX-License-Identifier: LGPL-2.1-only
 
 # TODO:
 # - Client interface: Gold, Silver, Bronze (2)

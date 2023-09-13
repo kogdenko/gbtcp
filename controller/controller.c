@@ -1,5 +1,7 @@
-// gpl2
-#include <gbtcp/internals.h>
+// SPDX-License-Identifier: LGPL-2.1-only
+
+#include <gbtcp/subr.h>
+#include <gbtcp/controller.h>
 
 int
 main(int argc, char **argv)
@@ -23,13 +25,13 @@ main(int argc, char **argv)
 			break;
 		}
 	}
-	rc = gtl_controller_init(daemonize);
+	rc = gt_controller_init(daemonize);
 	if (rc) {
 		return EXIT_FAILURE;
 	}
 	if (affinity != -1) {
-		gtl_set_affinity(affinity);
+		gt_set_affinity(affinity);
 	}
-	gtl_controller_start(persist);
+	gt_controller_start(persist);
 	return 0;
 }

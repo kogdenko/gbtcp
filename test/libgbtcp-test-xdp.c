@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #include <getopt.h>
 #include <test/test.h>
 #include <gbtcp/dev.h>

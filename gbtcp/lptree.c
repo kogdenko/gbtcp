@@ -1,5 +1,7 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
+
+#include "controller.h"
+#include "lptree.h"
 
 struct lptree_node {
 	struct mbuf lpn_mbuf;
@@ -116,7 +118,7 @@ lptree_init(struct lptree *tree)
 
 	tree->lpt_root = NULL;
 	rc = mbuf_pool_alloc(&tree->lpt_node_pool, CONTROLLER_SID,
-		PAGE_SIZE, sizeof(struct lptree_node), 0);
+			PAGE_SIZE, sizeof(struct lptree_node), 0);
 	return rc;
 }
 

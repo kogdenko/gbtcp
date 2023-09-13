@@ -1,8 +1,16 @@
-// gpl2
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_SHM_H
 #define GBTCP_SHM_H
 
 #include "service.h"
+
+#define shared_ns() READ_ONCE(shared->shm_ns)
+
+#define SERVICE_FOREACH(s) \
+	for ((s) = shared->shm_services; \
+	     (s) != shared->shm_services + ARRAY_SIZE(shared->shm_services); \
+	     (s)++)
 
 struct shm_hdr {
 	uintptr_t shm_base_addr;
@@ -39,7 +47,5 @@ void *shm_realloc(void *, size_t);
 void shm_free(void *);
 int shm_alloc_pages(void **, size_t, size_t);
 void shm_free_pages(void *, size_t);
-
-#define shared_ns() READ_ONCE(shared->shm_ns)
 
 #endif // GBTCP_SHM_H

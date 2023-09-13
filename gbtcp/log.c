@@ -1,11 +1,12 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
+
+#include "log.h"
+#include "mod.h"
+#include "sysctl.h"
 
 #define LOG_LEVEL_DEFAULT LOG_NOTICE
 
-#define CURMOD log
-
-struct log_mod {
+struct gt_module_log {
 	struct log_scope log_scope;
 	int log_level;
 };
@@ -24,13 +25,15 @@ int
 log_mod_init(void)
 {
 	int rc;
+	struct gt_module_log *mod;
 
-	rc = curmod_init();
+	rc = gt_module_init(GT_MODULE_LOG, sizeof(*mod));
 	if (rc) {
 		return rc;
 	}
-	curmod->log_level = log_early_level;
-	sysctl_add_int("log.level", SYSCTL_WR, &curmod->log_level, LOG_EMERG, LOG_DEBUG); 
+	mod = gt_module_get(GT_MODULE_LOG);
+	mod->log_level = log_early_level;
+	sysctl_add_int("log.level", SYSCTL_WR, &mod->log_level, LOG_EMERG, LOG_DEBUG); 
 	return 0;
 }
 
@@ -45,8 +48,7 @@ log_scope_init(struct log_scope *scope, const char *name)
 	scope->lgs_name_len = strlen(scope->lgs_name);
 	assert(scope->lgs_name_len);
 	snprintf(path, sizeof(path), "log.scope.%s.level", name);
-	sysctl_add_int(path, SYSCTL_WR, &scope->lgs_level,
-	               LOG_EMERG, LOG_DEBUG);
+	sysctl_add_int(path, SYSCTL_WR, &scope->lgs_level, LOG_EMERG, LOG_DEBUG);
 }
 
 void
@@ -61,24 +63,29 @@ log_scope_deinit(struct log_scope *scope)
 void
 log_set_level(int level)
 {
-	if (mod_get(MOD_log) == NULL) {
+	struct gt_module_log *mod;
+
+	mod = gt_module_get_safe(GT_MODULE_LOG);
+	if (mod == NULL) {
 		log_early_level = level;
 	} else {
-		curmod->log_level = level;
+		mod->log_level = level;
 	}
 }
 
 int
-log_is_enabled(int mod_id, int level, int debug)
+log_is_enabled(int module_id, int level, int debug)
 {
 	int thresh;
 	struct log_scope *scope;
+	struct gt_module_log *mod;
 
-	if (mod_get(MOD_log) == NULL) {
+	mod = gt_module_get_safe(GT_MODULE_LOG);
+	if (mod == NULL) {
 		thresh = log_early_level;
 	} else {
-		thresh = curmod->log_level;
-		scope = mod_get(mod_id);
+		thresh = mod->log_level;
+		scope = gt_module_get(module_id);
 		if (scope != NULL && thresh < scope->lgs_level) {
 			thresh = scope->lgs_level;
 		}

@@ -1,7 +1,11 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD epoll
+#include "epoll.h"
+#include "fd_event.h"
+#include "file.h"
+#include "service.h"
+#include "sys.h"
+#include "gbtcp/socket.h"
 
 #define EPOLL_FLAG_ENABLED (1 << 0)
 #define EPOLL_FLAG_ONESHOT (1 << 1)
@@ -87,7 +91,6 @@ epoll_entry_handler(void *aio_ptr, int fd, short revents)
 {
 	struct epoll_entry *e;
 	struct epoll *ep;
-	struct sock *so;
 
 	e = container_of(aio_ptr, struct epoll_entry, epe_aio);
 	e->epe_revents |= revents & e->epe_filter;
@@ -98,10 +101,12 @@ epoll_entry_handler(void *aio_ptr, int fd, short revents)
 		ep = e->epe_epoll;
 		DLIST_INSERT_HEAD(&ep->ep_triggered, e, epe_list);
 	}
-	so_get(e->epe_fd, &so);
-	if (so->so_rfin) {
-		assert(epoll_entry_is_triggered(e));
-	}
+
+//	struct sock *so;
+//	so_get(e->epe_fd, &so);
+//	if (so->so_rfin) {
+//		assert(epoll_entry_is_triggered(e));
+//	}
 }
 
 static void
@@ -216,8 +221,8 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 		}
 		epoll_get_event(e, so, buf + n);
 		n++;
-		DBG(0, "hit; fd=%d, events=%s",
-		    e->epe_fd, log_add_poll_events(e->epe_revents));
+		GT_DBG(EPOLL, 0, "Epoll event trigger: fd=%d, events=%s",
+				e->epe_fd, log_add_poll_events(e->epe_revents));
 		e->epe_revents = 0;
 		if (e->epe_flags & EPOLL_FLAG_ET) {
 			epoll_entry_relax(e);

@@ -1,15 +1,17 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD sysctl
+#include "api.h"
+#include "config.h"
+#include "fd_event.h"
+#include "sysctl.h"
 
 #define SYSCTL_DEPTH_MAX 32
 #define SYSCTL_NODE_NAME_MAX 128
 #define SYSCTL_NTOKENS_MAX 3
 
-struct sysctl_mod {
-	struct log_scope log_scope;
-};
+//struct sysctl_mod {
+//	struct log_scope log_scope;
+//};
 
 struct sysctl_int_data {
 	union {
@@ -254,7 +256,7 @@ sysctl_read_file(int loader)
 		return rc;
 	}
 	path = path_buf;
-	NOTICE(0, "Read sysctl file '%s'", path);
+	GT_NOTICE(SYSCTL, 0, "Read sysctl file '%s'", path);
 	rc = sys_fopen(&file, path, "r");
 	if (rc) {
 		return rc == -ENOENT ? 0 : rc;
@@ -265,7 +267,7 @@ sysctl_read_file(int loader)
 		line++;
 		rc = sysctl_parse_line(loader, s);
 		if (rc) {
-			ERR(-rc, "%s:%d: Inavlid configuration", path, line);
+			GT_ERR(SYSCTL, -rc, "%s:%d: Inavlid configuration", path, line);
 		}
 	}
 	fclose(file);
@@ -529,7 +531,7 @@ sysctl_handler(struct sysctl_conn *cp, struct sysctl_node *node,
 	off = out->sb_len;
 	rc = (*node->scn_fn)(cp, node->scn_udata, new, out);
 	if (rc < 0) {
-		ERR(-rc, "sysctl '%s' handler failed",
+		GT_ERR(SYSCTL, -rc, "sysctl '%s' handler failed",
 			log_add_sysctl_node(node));
 		return rc;
 	}
@@ -763,7 +765,7 @@ sysctl_in_req(struct sysctl_conn *cp, struct iovec *t)
 	}
 	strbuf_add_ch(&out, '\n');
 	if (strbuf_space(&out) == 0) {
-		ERR(0, "%s: Too long message", path);
+		GT_ERR(SYSCTL, 0, "%s: Too long message", path);
 		return -ENOBUFS;
 	}
 	rc = sysctl_conn_send(cp, &out);
@@ -771,15 +773,15 @@ sysctl_in_req(struct sysctl_conn *cp, struct iovec *t)
 }
 
 static void
-sysctl_add6(const char *path, int mode, void *udata,
-	void (*free_fn)(void *), sysctl_f fn, struct sysctl_node **pnode)
+sysctl_add6(const char *path, int mode, void *udata, void (*free_fn)(void *), sysctl_f fn,
+		struct sysctl_node **pnode)
 {
 	int rc;
 
 	assert(sysctl_root != NULL);
 	rc = sysctl_node_add(path, mode, udata, free_fn, fn, pnode);
 	if (rc < 0) {
-		gtl_die(-rc, "sysctl_add('%s') failed", path);
+		GT_DIE(-rc, "sysctl_add('%s') failed", path);
 	}
 }
 
@@ -792,8 +794,8 @@ sysctl_add(const char *path, int mode, void *udata, void (*free_fn)(void *), sys
 }
 
 static void
-sysctl_add_int_union(const char *path, int mode, void *ptr,
-		int int_sizeof, int64_t min, int64_t max)
+sysctl_add_int_union(const char *path, int mode, void *ptr, int int_sizeof,
+		int64_t min, int64_t max)
 {
 	struct sysctl_int_data *data;
 	struct sysctl_node *node;
@@ -810,8 +812,8 @@ sysctl_add_int_union(const char *path, int mode, void *ptr,
 }
 
 void
-sysctl_add_intfn(const char *path, int mode,
-		int (*intfn)(const long long *, long long *), int min, int max)
+sysctl_add_intfn(const char *path, int mode, int (*intfn)(const long long *, long long *),
+		int min, int max)
 {
 	sysctl_add_int_union(path, mode, intfn, 0, min, max);
 }
@@ -1036,11 +1038,11 @@ gt_sysctl(const char *path, char *old, const char *new)
 
 	rc = sysctl_req_safe(path, old, new);
 	if (rc < 0) {
-		INFO(-rc, "gt_sysctl('%s') failed", path);
+		GT_INFO(SYSCTL, -rc, "gt_sysctl('%s') failed", path);
 	} else {
-		INFO(0, "gt_stsctl('%s') ok", path);
+		GT_INFO(SYSCTL, 0, "gt_stsctl('%s') ok", path);
 	}
-	GT_RETURN(rc);
+	GT_API_RETURN(rc);
 }
 
 int

@@ -1,4 +1,4 @@
-// GPL v2 License
+// SPDX-License-Identifier: LGPL-2.1-only
 #include "../internals.h"
 
 #define REQUIRE(type) \

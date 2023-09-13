@@ -1,7 +1,12 @@
-// gpl2
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD fd_event
+#include "dev.h"
+#include "fd_event.h"
+#include "gbtcp/socket.h"
+#include "global.h"
+#include "log.h"
+#include "service.h"
+#include "subr.h"
 
 // System should periodically RX netmap devices or packets would be lost
 #define FD_EVENT_TIMEOUT_MIN (20 * NSEC_USEC)
@@ -72,7 +77,7 @@ fd_event_add(struct fd_event **pe, int fd, void *udata, fd_event_f fn)
 		e = fd_event_buf + i;
 		if (e->fde_ref_cnt) {
 			if (e->fde_fn != NULL && e->fde_fd == fd) {
-				gtl_die(0, "Trying to add duplicate fd=%d to multiplexer", fd);
+				GT_DIE(0, "Add duplicate fd to multiplexer; fd=%d", fd);
 			}
 		} else {
 			if (id == -1) {

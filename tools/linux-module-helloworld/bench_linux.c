@@ -1,4 +1,4 @@
-// gpl2
+// SPDX-License-Identifier: LGPL-2.1-only
 // See: ./fs/ocfs2/cluster/tcp.c
 #include <linux/module.h>
 #include <linux/kthread.h>

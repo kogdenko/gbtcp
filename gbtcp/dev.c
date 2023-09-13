@@ -1,7 +1,12 @@
-// GPL v2 License
-#include "internals.h"
+// SPDX-License-Identifier: LGPL-2.1-only
 
-#define CURMOD dev
+#include "api.h"
+#include "config.h"
+#include "dev.h"
+#include "fd_event.h"
+#include "global.h"
+#include "mod.h"
+#include "service.h"
 
 #ifdef GT_HAVE_NETMAP
 extern struct dev_ops netmap_dev_ops;
@@ -11,10 +16,12 @@ extern struct dev_ops netmap_dev_ops;
 extern struct dev_ops xdp_dev_ops;
 #endif // GT_HAVE_XDP
 
-struct dev_mod {
+struct gt_module_dev {
 	struct log_scope log_scope;
 	int dev_transport;
 };
+
+#define curmod ((struct gt_module_dev *)gt_module_get(GT_MODULE_DEV))
 
 static int
 dev_rxtx(void *udata, short revents)
@@ -109,7 +116,7 @@ dev_mod_init(void)
 {
 	int rc;
 
-	rc = curmod_init();
+	rc = gt_module_init(GT_MODULE_DEV, sizeof(struct gt_module_dev));
 	if (rc) {
 		return rc;
 	}

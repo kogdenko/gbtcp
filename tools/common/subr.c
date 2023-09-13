@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #define _GNU_SOURCE
 #include "subr.h"
 

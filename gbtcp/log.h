@@ -1,7 +1,9 @@
-// gpl2 license
+// SPDX-License-Identifier: LGPL-2.1-only
+
 #ifndef GBTCP_LOG_H
 #define GBTCP_LOG_H
 
+#include "global.h"
 #include "subr.h"
 #include "strbuf.h"
 
@@ -13,40 +15,52 @@ struct log_scope {
 	int lgs_level;
 };
 
-#ifdef LOG_DISABLED
-#define LOGF(level, errnum, fmt, ...) \
+#ifdef GT_LOG_DISABLED
+#define GT_LOGF(MODULE_NAME, level, errnum, fmt, ...) \
 	do { \
 		UNUSED(errnum); \
 	} while (0)
-#else // LOG_DISABLED
-#define LOGF(level, errnum, fmt, ...) \
+#else // GT_LOG_DISABLED
+#define GT_LOGF(MODULE_NAME, level, errnum, fmt, ...) \
 do { \
-	if (log_is_enabled(GT_CAT2(MOD_, CURMOD), level, 0)) { \
+	if (log_is_enabled(GT_CAT2(GT_MODULE_, MODULE_NAME), level, 0)) { \
 		log_buf_init(); \
 		log_printf(level, __func__, errnum, fmt, ##__VA_ARGS__); \
 	} \
 } while (0)
-#endif // LOG_DISABLED
+#endif // GT_LOG_DISABLED
 
 #define log_trace0() log_trace(NULL)
 
 #ifdef NDEBUG
-#define DBG(err, ...)
-#define INFO(...)
+#define GT_DBG(MODULE_NAME, errnum, ...) \
+	do { \
+		UNUSED(errnum); \
+	} while (0)
+#define GT_INFO GT_DBG
 #else /*NDEBUG */
-#define DBG(err, ...) LOGF(LOG_DEBUG, err, __VA_ARGS__)
-#define INFO(err, ...) LOGF(LOG_INFO, err, __VA_ARGS__)
+#define GT_DBG(MODULE_NAME, err, ...) \
+	GT_LOGF(MODULE_NAME, LOG_DEBUG, errnum, __VA_ARGS__)
+
+#define GT_INFO(MODULE_NAME, err, ...) \
+	GT_LOGF(MODULE_NAME, LOG_INFO, errnum, __VA_ARGS__)
 #endif /* NDEBUG */
 
-#define gtl_die(errnum, fmt, ...) \
+#define GT_DIE(errnum, fmt, ...) \
 do { \
-	LOGF(LOG_CRIT, errnum, fmt, ##__VA_ARGS__); \
+	log_buf_init(); \
+	log_printf(LOG_CRIT, __func__, errnum, fmt, ##__VA_ARGS__); \
 	abort(); \
 } while (0)
 
-#define NOTICE(err, ...) LOGF(LOG_NOTICE, err, __VA_ARGS__)
-#define WARN(err, ...) LOGF(LOG_WARNING, err, __VA_ARGS__)
-#define ERR(err, ...) LOGF(LOG_ERR, err, __VA_ARGS__)
+#define GT_NOTICE(MODULE_NAME, errnum, ...) \
+	GT_LOGF(MODULE_NAME, LOG_NOTICE, errnum, __VA_ARGS__)
+
+#define GT_WARN(MODULE_NAME, errnum, ...) \
+	GT_LOGF(MODULE_NAME, LOG_WARNING, errnum, __VA_ARGS__)
+
+#define GT_ERR(MODULE_NAME, errnum, ...) \
+	GT_LOGF(MODULE_NAME, LOG_ERR, errnum, __VA_ARGS__)
 
 void log_init_early(void);
 
