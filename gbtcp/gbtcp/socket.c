@@ -9,6 +9,12 @@
 #include "../service.h"
 #include "socket.h"
 
+#define so_file so_base.sobase_file
+#define so_bind_list so_base.sobase_bind_list
+#define so_connect_list so_base.sobase_connect_list
+#define so_blocked so_file.fl_blocked
+#define so_referenced so_file.fl_referenced
+#define so_sid so_file.fl_sid
 
 #if 0
 #define TCP_DBG(fmt, ...) \
@@ -37,6 +43,86 @@
 #define tcps current->p_tcps
 #define udps current->p_udps
 #define ips current->p_ips
+
+#define SO_IPPROTO_UDP 0
+#define SO_IPPROTO_TCP 1
+
+struct sock {
+	struct gt_sock so_base;
+//	struct file so_file;
+	union {
+		uint64_t so_flags;
+		struct {
+			u_int so_err : 4;
+			u_int so_ipproto : 2;
+			u_int so_binded : 1;
+			u_int so_is_attached : 1;
+			u_int so_processing : 1;
+			// TCP
+			u_int so_is_listen : 1;
+			u_int so_passive_open : 1;
+			u_int so_accepted : 1;
+			u_int so_ack : 1;
+			u_int so_rst : 1;
+			u_int so_reuseaddr : 1;
+			u_int so_reuseport : 1;
+			u_int so_state : 4;
+			u_int so_wprobe : 1;
+			u_int so_retx : 1;
+			u_int so_tx_timo : 1;
+			u_int so_swndup : 1;
+			u_int so_ntries : 3;
+			u_int so_dont_frag : 1;
+			u_int so_wshut : 1;
+			u_int so_rshut : 1;
+			u_int so_rsyn : 1;
+			u_int so_rfin : 1;
+			u_int so_ssyn : 1;
+			u_int so_ssyn_acked : 1;
+			u_int so_sfin : 1;
+			u_int so_sfin_sent : 1;
+			u_int so_sfin_acked : 1;
+			u_int so_nagle : 1;
+			u_int so_nagle_acked : 1;
+		};
+	};
+	be32_t so_laddr;
+	be32_t so_faddr;
+	be32_t so_lport;
+	be32_t so_fport;
+	uint16_t so_lmss;
+	uint16_t so_rmss;
+	struct timer so_timer;
+	struct timer so_timer_delack;
+	union {
+		struct {
+			uint32_t so_rseq;
+			uint32_t so_sack;
+			uint16_t so_ssnt;
+			uint16_t so_swnd;
+			uint16_t so_rwnd;
+			uint16_t so_rwnd_max;
+			uint16_t so_ip_id;
+			struct dlist so_accept_list;
+			struct dlist so_tx_list;
+		};
+		struct {
+			// Listen
+			struct dlist so_incompleteq;
+			struct dlist so_completeq;
+			int so_backlog;
+			int so_acceptq_len;
+		};
+	};
+	struct sock *so_acceptor;
+	struct sock_buf so_rcvbuf;
+	union {
+		struct sock_buf so_sndbuf; // TCP
+		struct sock_buf so_msgbuf; // UDP
+	};
+};
+
+
 
 enum {
 	TCP_TIMER_DELACK,
@@ -91,8 +177,8 @@ static const char *tcp_flags_str(struct strbuf *sb, int proto,
 static const char *gt_log_add_sock(struct sock *so)
 	__attribute__((unused));
 
-static void gt_set_sockaddr(struct sockaddr *addr, socklen_t *addrlen,
-	be32_t s_addr, be16_t port);
+static int gt_set_sockaddr(struct sockaddr *addr, socklen_t *addrlen,
+		be32_t s_addr, be16_t port);
 
 // tcp
 static int tcp_set_swnd(struct sock *so);
@@ -196,6 +282,23 @@ static int sysctl_tcp_fin_timeout(const long long *new, long long *old);
 	((faddr) ^ ((faddr) >> 16) ^ ntoh16((lport) ^ (fport)))
 
 static int
+tcps_is_connected(int state)
+{
+	switch (state) {
+	case GT_TCPS_ESTABLISHED:
+	case GT_TCPS_CLOSE_WAIT:
+	case GT_TCPS_FIN_WAIT_1:
+	case GT_TCPS_CLOSING:
+	case GT_TCPS_LAST_ACK:
+	case GT_TCPS_FIN_WAIT_2:
+	case GT_TCPS_TIME_WAIT:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static int
 so_get_fd(struct sock *so)
 {
 	return file_get_fd((struct file *)so);
@@ -245,7 +348,7 @@ sysctl_socket_connected(void *udata, const char *new, struct strbuf *out)
 {
 	struct sock *so;
 
-	so = container_of(udata, struct sock, so_attached_list);
+	so = container_of(udata, struct sock, so_connect_list);
 	sysctl_socket(so, out);
 }
 
@@ -254,7 +357,7 @@ sysctl_socket_binded(void *udata, const char *new, struct strbuf *out)
 {
 	struct sock *so;
 
-	so = container_of(udata, struct sock, so_binded_list);
+	so = container_of(udata, struct sock, so_bind_list);
 	sysctl_socket(so, out);
 }
 
@@ -312,7 +415,13 @@ gt_log_add_sock(struct sock *so)
 }
 
 int
-so_get(int fd, struct sock **pso)
+gt_gbtcp_so_struct_size(void)
+{
+	return sizeof(struct sock);
+}
+
+int
+gt_gbtcp_so_get(int fd, struct file **fpp)
 {
 	int rc;
 	struct file *fp;
@@ -323,7 +432,7 @@ so_get(int fd, struct sock **pso)
 	} else if (fp->fl_type != FILE_SOCK) {
 		return -ENOTSOCK;
 	} else {
-		*pso = (struct sock *)fp;
+		*fpp = fp;
 		return 0;
 	}
 }
@@ -339,7 +448,7 @@ so_wakeup(struct sock *so, struct in_context *p, short revents)
 	}
 }
 
-static inline int
+static int
 so_err_pack(int errnum)
 {
 	switch (errnum) {
@@ -356,7 +465,7 @@ so_err_pack(int errnum)
 	}
 }
 
-static inline int
+static int
 so_err_unpack(int so_errnum)
 {
 	switch (so_errnum) {
@@ -374,11 +483,25 @@ so_err_unpack(int so_errnum)
 	}
 }
 
+static int
+so_ipproto_unpack(int ipproto)
+{
+	switch (ipproto) {
+	case SO_IPPROTO_TCP: return IPPROTO_TCP;
+	case SO_IPPROTO_UDP: return IPPROTO_UDP;
+	default:
+		assert(0);
+		return 0;
+	}
+}
+
 int
-so_get_errnum(struct sock *so)
+gt_gbtcp_so_get_err(struct file *fp)
 {
 	int errnum;
+	struct sock *so;
 
+	so = (struct sock *)fp;
 	errnum = so_err_unpack(so->so_err);
 	return errnum;
 }
@@ -401,15 +524,17 @@ so_pop_errnum(struct sock *so)
 {
 	int errnum;
 
-	errnum = so_get_errnum(so);
+	errnum = gt_gbtcp_so_get_err(&so->so_file);
 	if (so->so_err != SO_EINPROGRESS) {
 		so->so_err = 0;
 	}
 	return errnum;
 }
 
+#define so_nread gt_gbtcp_so_nread
+
 short
-so_get_events(struct file *fp)
+gt_gbtcp_so_get_events(struct file *fp)
 {
 	short events;
 	struct sock *so;
@@ -431,11 +556,10 @@ so_get_events(struct file *fp)
 			}
 			break;
 		default:
-			if (so->so_rshut || so->so_rfin || sock_nread(fp)) {
+			if (so->so_rshut || so->so_rfin || so_nread(fp)) {
 				events |= POLLIN;
 			}
-			if (so->so_state >= GT_TCPS_ESTABLISHED &&
-			    !sockbuf_full(&so->so_sndbuf)) {
+			if (tcps_is_connected(so->so_state) && !sockbuf_full(&so->so_sndbuf)) {
 				events |= POLLOUT;
 			}
 			break;
@@ -445,7 +569,7 @@ so_get_events(struct file *fp)
 		if (so->so_faddr != 0) {
 			events |= POLLOUT;
 		}
-		if (sock_nread(fp)) {
+		if (so_nread(fp)) {
 			events |= POLLIN;
 		}
 		break;
@@ -456,7 +580,7 @@ so_get_events(struct file *fp)
 }
 
 int
-sock_nread(struct file *fp)
+gt_gbtcp_so_nread(struct file *fp)
 {
 	struct sock *so;
 
@@ -465,8 +589,7 @@ sock_nread(struct file *fp)
 }
 
 int
-so_socket6(struct sock **pso, int fd, int domain, int type, int flags,
-	int ipproto)
+gt_gbtcp_so_socket6(struct file **fpp, int fd, int domain, int type, int flags, int ipproto)
 {
 	int so_fd, so_ipproto;
 	struct sock *so;
@@ -500,16 +623,18 @@ so_socket6(struct sock **pso, int fd, int domain, int type, int flags,
 	}
 	so->so_referenced = 1;
 	so_fd = so_get_fd(so);
-	*pso = so;
+	*fpp = &so->so_file;
 	return so_fd;
 }
 
 int
-so_connect(struct sock *so, const struct sockaddr_in *faddr_in,	struct sockaddr_in *laddr_in)
+gt_gbtcp_so_connect(struct file *fp, const struct sockaddr_in *faddr_in, struct sockaddr_in *laddr_in)
 {
 	int rc;
+	struct sock *so;
 	struct route_entry r;
 
+	so = (struct sock *)fp;
 	if (faddr_in->sin_port == 0 || faddr_in->sin_addr.s_addr == 0) {
 		return -EINVAL;
 	}
@@ -563,11 +688,13 @@ so_connect(struct sock *so, const struct sockaddr_in *faddr_in,	struct sockaddr_
 }
 
 int
-so_bind(struct sock *so, const struct sockaddr_in *addr)
+gt_gbtcp_so_bind(struct file *fp, const struct sockaddr_in *addr)
 {
 	be16_t lport;
+	struct sock *so;
 	struct htable_bucket *b;
 
+	so = (struct sock *)fp;
 	if (so->so_state != GT_TCPS_CLOSED) {
 		return -EINVAL;
 	}
@@ -586,14 +713,17 @@ so_bind(struct sock *so, const struct sockaddr_in *addr)
 	b = htable_bucket_get(&curmod->tbl_binded, lport);
 	HTABLE_BUCKET_LOCK(b);
 	so->so_binded = 1;
-	DLIST_INSERT_TAIL(&b->htb_head, so, so_binded_list);
+	DLIST_INSERT_TAIL(&b->htb_head, so, so_bind_list);
 	HTABLE_BUCKET_UNLOCK(b);
 	return 0;
 }
 
 int 
-so_listen(struct sock *so, int backlog)
+gt_gbtcp_so_listen(struct file *fp, int backlog)
 {
+	struct sock *so;
+
+	so = (struct sock *)fp;
 	if (so->so_state == GT_TCPS_LISTEN) {
 		return 0;
 	}
@@ -616,12 +746,13 @@ so_listen(struct sock *so, int backlog)
 }
 
 int
-so_accept(struct sock **pso, struct sock *lso,
-	struct sockaddr *addr, socklen_t *addrlen, int flags)
+gt_gbtcp_so_accept(struct file **fpp, struct file *lfp,
+		struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
 	int fd;
-	struct sock *so;
+	struct sock *so, *lso;
 
+	lso = (struct sock *)lfp;
 	if (lso->so_state != GT_TCPS_LISTEN) {
 		return -EINVAL;
 	}
@@ -630,7 +761,7 @@ so_accept(struct sock **pso, struct sock *lso,
 	}
 	assert(lso->so_acceptq_len);
 	so = DLIST_FIRST(&lso->so_completeq, struct sock, so_accept_list);
-	assert(so->so_state >= GT_TCPS_ESTABLISHED);
+	assert(tcps_is_connected(so->so_state));
 	assert(so->so_accepted == 0);
 	assert(so->so_acceptor == lso);
 	so->so_accepted = 1;
@@ -643,14 +774,17 @@ so_accept(struct sock **pso, struct sock *lso,
 	}
 	so->so_referenced = 1;
 	fd = so_get_fd(so);
-	*pso = so;
+	*fpp = &so->so_file;
 	tcps.tcps_accepts++;
 	return fd;
 }
 
 void
-so_close(struct sock *so)
+gt_gbtcp_so_close(struct file *fp)
 {
+	struct sock *so;
+
+	so = (struct sock *)fp;
 	so->so_referenced = 0;
 	// so_close can be called from controller
 	so->so_sid = current->p_sid;
@@ -677,7 +811,7 @@ so_close(struct sock *so)
 		if (1) { // Gracefull
 			so->so_rshut = 1;
 			so->so_wshut = 1;
-			if (so->so_state >= GT_TCPS_ESTABLISHED) {
+			if (tcps_is_connected(so->so_state)) {
 				tcp_wshut(so, NULL);	
 			}
 		} else {
@@ -701,7 +835,7 @@ so_can_recv(struct sock *so)
 		return 0;
 	}
 	if (so->so_ipproto == SO_IPPROTO_TCP) {
-		if (so->so_state < GT_TCPS_ESTABLISHED) {
+		if (!tcps_is_connected(so->so_state)) {
 			return -EAGAIN;
 		}
 	}
@@ -709,11 +843,13 @@ so_can_recv(struct sock *so)
 }
 
 int
-so_recvfrom(struct sock *so, const struct iovec *iov, int iovcnt,
-	int flags, struct sockaddr *addr, socklen_t *addrlen)
+gt_gbtcp_so_recvfrom(struct file *fp, const struct iovec *iov, int iovcnt,
+		int flags, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc, peek;
+	struct sock *so;
 
+	so = (struct sock *)fp;
 	if (flags & ~MSG_PEEK) {
 		return -ENOTSUP;
 	}
@@ -745,14 +881,16 @@ so_recvfrom(struct sock *so, const struct iovec *iov, int iovcnt,
 static struct in_context *cur_zerocopy_in;
 
 int
-so_aio_recvfrom(struct sock *so, struct iovec *iov, int flags,
+gt_gbtcp_so_aio_recvfrom(struct file *fp, struct iovec *iov, int flags,
 	struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
+	struct sock *so;
 
 	if (flags) {
 		return -ENOTSUP;
 	}
+	so = (struct sock *)fp;
 	rc = so_can_recv(so);
 	if (rc <= 0) {
 		return rc;
@@ -780,10 +918,12 @@ so_aio_recvfrom(struct sock *so, struct iovec *iov, int flags,
 }
 
 int
-so_recvdrain(struct sock *so, int len)
+gt_gbtcp_so_recvdrain(struct file *fp, int len)
 {
 	int rc, off;
+	struct sock *so;
 
+	so = (struct sock *)fp;
 	rc = so_can_recv(so);
 	if (rc <= 0) {
 		return rc;
@@ -802,11 +942,13 @@ so_recvdrain(struct sock *so, int len)
 }
 
 int
-so_sendto(struct sock *so, const struct iovec *iov, int iovcnt,
-	int flags, be32_t daddr, be16_t dport)
+gt_gbtcp_so_sendto(struct file *fp, const struct iovec *iov, int iovcnt, int flags,
+		be32_t daddr, be16_t dport)
 {
 	int rc;
+	struct sock *so;
 
+	so = (struct sock *)fp;
 	if (flags & ~(MSG_NOSIGNAL)) {
 		return -ENOTSUP;
 	}
@@ -826,13 +968,13 @@ so_sendto(struct sock *so, const struct iovec *iov, int iovcnt,
 
 #ifdef __linux__
 int
-sock_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
+gt_gbtcp_so_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 {
 	return -ENOTSUP;
 }
 #else /* __linux */
 int
-sock_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
+gt_gbtcp_so_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 {
 	int v;
 	struct sock *so;
@@ -854,9 +996,12 @@ sock_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 #endif /* __linux__ */
 
 int
-so_getsockopt(struct sock *so, int level, int optname, void *optval,
-	socklen_t *optlen)
+gt_gbtcp_so_getsockopt(struct file *fp, int level, int optname, void *optval, socklen_t *optlen)
 {
+	struct tcp_info *tcpi;
+	struct sock *so;
+
+	so = (struct sock *)fp;
 	switch (level) {
 	case IPPROTO_TCP:
 		switch (optname) {
@@ -867,8 +1012,18 @@ so_getsockopt(struct sock *so, int level, int optname, void *optval,
 			*optlen = sizeof(int);
 			*((int *)optval) = so->so_nagle;
 			return 0;
+
+		case TCP_INFO:
+			if (*optlen < sizeof(*tcpi)) {
+				return -EINVAL;
+			}
+			tcpi = optval;
+			tcpi->tcpi_state = so->so_state;
+			// TODO: Fill al fields
+			return 0;
 		}
 		break;
+
 	case SOL_SOCKET:
 		switch (optname) {
 		case SO_ERROR:
@@ -878,17 +1033,28 @@ so_getsockopt(struct sock *so, int level, int optname, void *optval,
 			*optlen = sizeof(int);
 			*((int *)optval) = so_pop_errnum(so);
 			return 0;
+
+		case SO_PROTOCOL:
+			if (*optlen < sizeof(int)) {
+				return -EINVAL;
+			}
+			*optlen = sizeof(int);
+			*((int *)optval) = so_ipproto_unpack(so->so_ipproto);
+			return 0; 
 		}
 	}
+
 	return -ENOPROTOOPT;
 }
 
 int
-so_setsockopt(struct sock *so, int level, int optname, const void *optval,
-	socklen_t optlen)
+gt_gbtcp_so_setsockopt(struct file *fp, int level, int optname,
+		const void *optval, socklen_t optlen)
 {
 	int optint;
+	struct sock *so;
 
+	so = (struct sock *)fp;
 	switch (level) {
 	case IPPROTO_TCP:
 		if (so->so_ipproto != SO_IPPROTO_TCP) {
@@ -944,18 +1110,33 @@ so_setsockopt(struct sock *so, int level, int optname, const void *optval,
 }
 
 int
-so_getpeername(struct sock *so, struct sockaddr *addr, socklen_t *addrlen)
+gt_gbtcp_so_getsockname(struct file *fp, struct sockaddr *addr, socklen_t *addrlen)
 {
+	int rc;
+	struct sock *so;
+
+	so = (struct sock *)fp;
+	rc = gt_set_sockaddr(addr, addrlen, so->so_laddr, so->so_lport);
+	return rc;
+}
+
+int
+gt_gbtcp_so_getpeername(struct file *fp, struct sockaddr *addr, socklen_t *addrlen)
+{
+	int rc;
+	struct sock *so;
+
+	so = (struct sock *)fp;
 	if (so->so_faddr == 0) {
 		return -ENOTCONN;
 	}
 	if (so->so_ipproto == SO_IPPROTO_TCP) {
-		if (so->so_state < GT_TCPS_ESTABLISHED) {
+		if (!tcps_is_connected(so->so_state)) {
 			return -ENOTCONN;
 		}
 	}
-	gt_set_sockaddr(addr, addrlen, so->so_faddr, so->so_fport);
-	return 0;
+	rc = gt_set_sockaddr(addr, addrlen, so->so_faddr, so->so_fport);
+	return rc;
 }
 
 static const char *
@@ -971,21 +1152,34 @@ tcp_flags_str(struct strbuf *sb, int proto, uint8_t tcp_flags)
 	return s;
 }
 
-void
-gt_set_sockaddr(struct sockaddr *addr, socklen_t *addrlen,
-	be32_t s_addr, be16_t port)
+static void
+gt_set_sockaddr_safe(void *addr, be32_t s_addr, be16_t port)
 {
-	struct sockaddr_in *addr_in;
+	struct sockaddr_in *in;
+
+	in = (struct sockaddr_in *)addr;
+	in->sin_family = AF_INET;
+	in->sin_addr.s_addr = s_addr;
+	in->sin_port = port;
+}
+
+static int
+gt_set_sockaddr(struct sockaddr *addr, socklen_t *addrlen, be32_t s_addr, be16_t port)
+{
+	struct sockaddr_in in;
 
 	if (addrlen != NULL) {
-		if (*addrlen >= sizeof(*addr_in)) {
-			addr_in = (struct sockaddr_in *)addr;
-			addr_in->sin_family = AF_INET;
-			addr_in->sin_addr.s_addr = s_addr;
-			addr_in->sin_port = port;
+		if (*addrlen < 0) {
+			return -EINVAL;
+		} else if (*addrlen >= sizeof(in)) {
+			gt_set_sockaddr_safe(addr, s_addr, port);
+		} else {
+			gt_set_sockaddr_safe(&in, s_addr, port);
+			memcpy(addr, &in, *addrlen);
 		}
-		*addrlen = sizeof(*addr_in);
+		*addrlen = sizeof(in);
 	}
+	return 0;
 }
 
 // tcp
@@ -1177,7 +1371,7 @@ tcp_close_not_accepted(struct dlist *q)
 
 	DLIST_FOREACH_SAFE(so, q, so_accept_list, tmp_so) {
 		assert(so->so_referenced == 0);
-		so_close(so);
+		gt_gbtcp_so_close(&so->so_file);
 	}
 }
 
@@ -1194,7 +1388,7 @@ tcp_reset(struct sock *so, struct in_context *in)
 static void
 tcp_wshut(struct sock *so, struct in_context *in)
 {
-	assert(so->so_state >= GT_TCPS_ESTABLISHED);
+	assert(tcps_is_connected(so->so_state));
 	if (so->so_sfin) {
 		return;
 	}
@@ -1245,7 +1439,7 @@ tcp_tx_timer_set(struct sock *so)
 		so->so_wprobe = 0;
 		so->so_ntries = 0;
 	}
-	if (so->so_state < GT_TCPS_ESTABLISHED) {
+	if (!tcps_is_connected(so->so_state)) {
 		expires = NSEC_SEC;
 	} else {
 		expires = 500 * NSEC_MSEC;
@@ -1356,8 +1550,7 @@ tcp_rcv_SYN_SENT(struct sock *so, struct in_context *in)
 
 static void
 tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
-	be32_t laddr, be32_t faddr,
-	be16_t lport, be16_t fport)
+		be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
 	uint32_t h;
 	struct htable_bucket *b;
@@ -1421,7 +1614,7 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 	b = htable_bucket_get(&curmod->tbl_connected, h);
 	HTABLE_BUCKET_LOCK(b);
 	so->so_is_attached = 1;
-	dlist_insert_tail_rcu(&b->htb_head, &so->so_attached_list);
+	dlist_insert_tail_rcu(&b->htb_head, &so->so_connect_list);
 	HTABLE_BUCKET_UNLOCK(b);
 }
 
@@ -1466,7 +1659,7 @@ tcp_rcv_established(struct sock *so, struct in_context *in)
 {
 	int rc;
 
-	assert(so->so_state >= GT_TCPS_ESTABLISHED);
+	assert(tcps_is_connected(so->so_state));
 	if (so->so_rfin) {
 		if (in->in_len || (in->in_tcp_flags & TCP_FLAG_FIN)) {
 			tcp_into_ackq(so);
@@ -1510,7 +1703,7 @@ tcp_rcv_open(struct sock *so, struct in_context *in)
 	if (in->in_tcp_flags & TCP_FLAG_RST) {
 		// TODO: check seq
 		tcps.tcps_drops++;
-		if (so->so_state < GT_TCPS_ESTABLISHED) {
+		if (!tcps_is_connected(so->so_state)) {
 			tcps.tcps_conndrops++;
 			so_set_err(so, in, ECONNREFUSED);
 		} else {
@@ -1577,7 +1770,7 @@ tcp_is_in_order(struct sock *so, struct in_context *in)
 static int
 gt_tcp_process_badack(struct sock *so, uint32_t acked)
 {
-	if (so->so_state >= GT_TCPS_ESTABLISHED) {
+	if (tcps_is_connected(so->so_state)) {
 		so->so_ssnt = 0;
 	} else {
 		// TODO
@@ -1744,7 +1937,7 @@ gt_tcp_send(struct sock *so, const struct iovec *iov, int iovcnt, int flags)
 	if (so->so_state == GT_TCPS_SYN_SENT ||
 	    so->so_state == GT_TCPS_SYN_RCVD) {
 		return -EAGAIN;
-	} else if (so->so_state < GT_TCPS_ESTABLISHED) {
+	} else if (!tcps_is_connected(so->so_state)) {
 		if ((flags & MSG_NOSIGNAL) == 0) {
 			raise(SIGPIPE);
 		}
@@ -1809,7 +2002,7 @@ tcp_tx_established(struct route_entry *r, struct dev_pkt *pkt, struct sock *so)
 	int cnt, snt;
 	uint8_t tcp_flags;
 
-	if (so->so_state < GT_TCPS_ESTABLISHED) {
+	if (!tcps_is_connected(so->so_state)) {
 		return 0;
 	}
 	if (so->so_sfin_acked || so->so_sfin_sent) {
@@ -1900,8 +2093,7 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcp_fill_info *tcb,
 		tcb->tcb_opts.tcp_opt_mss = so->so_lmss;
 	}
 	cnt = so->so_sndbuf.sob_len - so->so_ssnt;
-	if (so->so_state >= GT_TCPS_ESTABLISHED &&
-		(tcp_flags & TCP_FLAG_RST) == 0) {
+	if (tcps_is_connected(so->so_state) && (tcp_flags & TCP_FLAG_RST) == 0) {
 		tcp_flags |= TCP_FLAG_ACK;
 		if (len == 0 && cnt && so->so_rwnd > so->so_ssnt) {
 			len = MIN(cnt, so->so_rwnd - so->so_ssnt);
@@ -1978,7 +2170,7 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcp_fill_info *tcb,
 }
 
 void
-sock_tx_flush(void)
+gt_gbtcp_so_tx_flush(void)
 {
 	int rc;
 	struct dev_pkt pkt;
@@ -2006,7 +2198,7 @@ sock_tx_flush(void)
 
 static int
 gt_udp_rcvbuf_recv(struct sock *so, const struct iovec *iov, int iovcnt,
-	struct sockaddr *addr, socklen_t *addrlen, int peek)
+		struct sockaddr *addr, socklen_t *addrlen, int peek)
 {
 	int rc, cnt;
 	struct sockbuf_msg msg;
@@ -2256,23 +2448,37 @@ sock_str(struct strbuf *sb, struct sock *so)
 	return strbuf_cstr(sb);
 }
 
-struct htable_bucket *
-so_get_binded_bucket(uint16_t lport)
+int
+gt_foreach_binded_socket(gt_foreach_socket_f fn, void *udata)
 {
-	assert(lport < EPHEMERAL_PORT_MAX);
-	return htable_bucket_get(&curmod->tbl_binded, lport);
+	int rc, lport;
+	struct htable_bucket *bucket;
+	struct file *fp;
+	struct gt_sock *so;
+
+	for (lport = 0; lport < EPHEMERAL_PORT_MAX; ++lport) {
+		bucket = htable_bucket_get(&curmod->tbl_binded, lport);
+		DLIST_FOREACH_RCU(so, &bucket->htb_head, sobase_bind_list) {
+			fp = (struct file *)so;
+			rc = (*fn)(fp, udata);
+			if (rc != 0) {
+				return rc;
+			}
+		}
+	}
+	return 0;
 }
 
 static struct sock *
 so_find(struct htable_bucket *b, int so_ipproto,
-	be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
+		be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
 	struct sock *so;
 
-	DLIST_FOREACH_RCU(so, &b->htb_head, so_attached_list) {
+	DLIST_FOREACH_RCU(so, &b->htb_head, so_connect_list) {
 		if (so->so_ipproto == so_ipproto &&
-		    so->so_laddr == laddr && so->so_faddr == faddr &&
-		    so->so_lport == lport && so->so_fport == fport) {
+				    so->so_laddr == laddr && so->so_faddr == faddr &&
+				    so->so_lport == lport && so->so_fport == fport) {
 			return so;
 		}
 	}
@@ -2281,14 +2487,14 @@ so_find(struct htable_bucket *b, int so_ipproto,
 
 static struct sock *
 so_find_binded(struct htable_bucket *b, int so_ipproto,
-	be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
+		be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
 	int active, res_active;
 	struct sock *so, *res;
 
 	res = NULL;
 	res_active = 0;
-	DLIST_FOREACH_RCU(so, &b->htb_head, so_binded_list) {
+	DLIST_FOREACH_RCU(so, &b->htb_head, so_bind_list) {
 		if (so->so_ipproto == so_ipproto &&
 		    (so->so_laddr == 0 ||
 		     so->so_laddr == laddr)) {
@@ -2302,13 +2508,6 @@ so_find_binded(struct htable_bucket *b, int so_ipproto,
 			}
 		}
 	}
-//	if (res != NULL) {
-//		if (res->so_sid != current->p_sid) {
-///			dbg_rl(1, "badbind");
-//		} else {
-//			dbg_rl(1, "good bind");
-//		}
-//	}
 	return res;
 }
 
@@ -2341,8 +2540,7 @@ so_bind_ephemeral_port(struct sock *so, struct route_entry *r)
 			      so->so_lport, so->so_fport);
 		if (tmp == NULL) {
 			so->so_is_attached = 1;
-			dlist_insert_tail_rcu(&b->htb_head,
-				&so->so_attached_list);
+			dlist_insert_tail_rcu(&b->htb_head, &so->so_connect_list);
 			HTABLE_BUCKET_UNLOCK(b);
 			return 0;
 		}
@@ -2407,6 +2605,7 @@ so_new(int fd, int so_ipproto)
 	so = (struct sock *)fp;
 	TCP_DBG("New socket, fd=%d", so_get_fd(so));
 	so->so_flags = 0;
+	so->so_state = GT_TCPS_CLOSED;
 	so->so_sid = current->p_sid;
 	so->so_ipproto = so_ipproto;
 	so->so_laddr = 0;
@@ -2452,7 +2651,7 @@ so_unref(struct sock *so, struct in_context *in)
 			b = htable_bucket_get(&curmod->tbl_connected, h);
 			HTABLE_BUCKET_LOCK(b);
 		}
-		dlist_remove_rcu(&so->so_attached_list);
+		dlist_remove_rcu(&so->so_connect_list);
 		if (b != NULL) {
 			HTABLE_BUCKET_UNLOCK(b);
 		}
@@ -2463,7 +2662,7 @@ so_unref(struct sock *so, struct in_context *in)
 		if (lport > 0 && lport < curmod->tbl_binded.ht_size) {
 			b = htable_bucket_get(&curmod->tbl_binded, lport);
 			HTABLE_BUCKET_LOCK(b);
-			dlist_remove_rcu(&so->so_binded_list);
+			dlist_remove_rcu(&so->so_bind_list);
 			HTABLE_BUCKET_UNLOCK(b);
 		}
 	}
@@ -2758,7 +2957,7 @@ so_input_err(int ipproto, struct in_context *p, be32_t laddr, be32_t faddr,
 	b = curmod->binded + lport;
 	HTABLE_BUCKET_LOCK(b);
 	rc = IP_BYPASS;
-	DLIST_FOREACH(so, b, so_binded_list) {
+	DLIST_FOREACH(so, b, so_bind_list) {
 		if (so->so_ipproto == SO_IPPROTO_UDP &&
 		    (so->so_tuple.sot_laddr == 0 ||
 		     so->so_tuple.sot_laddr == so_tuple->sot_laddr)) {

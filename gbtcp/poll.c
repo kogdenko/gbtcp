@@ -37,7 +37,7 @@ u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 {
 	int i, fd, rc, n_triggered;
 	struct pollfd *pfd;
-	struct sock *so;
+	struct file *fp;
 	struct fd_poll p;
 	struct poll_entry *e, entries[FD_SETSIZE];
 
@@ -55,14 +55,14 @@ u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 		e->pe_revents = 0;
 		e->pe_filter = pfd->events;
 		e->pe_n_triggered = NULL;
-		rc = so_get(pfd->fd, &so);
+		rc = gt_vso_get(pfd->fd, &fp);
 		if (rc == 0) {
 			// gbtcp fd
 			fd = -1;
 			mbuf_init(&e->pe_mbuf, MBUF_AREA_NONE);
 			file_aio_init(&e->pe_aio);
 			e->pe_n_triggered = &n_triggered;
-			file_aio_add(&so->so_file, &e->pe_aio, poll_handler);
+			file_aio_add(fp, &e->pe_aio, poll_handler);
 		}
 		rc = fd_poll_add3(&p, fd, pfd->events);
 		assert(rc == i);

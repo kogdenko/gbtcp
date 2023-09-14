@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-only
 
-#ifndef GBTCP_H
-#define GBTCP_H
+#ifndef GBTCP_GBTCP_H
+#define GBTCP_GBTCP_H
 
 #define _GNU_SOURCE
 #include <stdarg.h>
@@ -11,28 +11,44 @@
 #include <poll.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+
 #ifdef __linux__
 #include <sys/epoll.h>
+#include <netinet/tcp.h>
 #else // __linux__
 #include <sys/event.h>
 #include <sys/time.h>
 #endif // __linux__
-#include <gbtcp/config.h>
 
-#define GT_EXPORT __attribute__ ((visibility("default")))
+#define GT_EXPORT __attribute__ ((visibility("default"))) // FIXME: *.sym file
 
-#define GT_TCPS_CLOSED 0
-#define GT_TCPS_LISTEN 1
-#define GT_TCPS_SYN_SENT 2
-#define GT_TCPS_SYN_RCVD 3
-#define GT_TCPS_ESTABLISHED 4
-#define GT_TCPS_CLOSE_WAIT 5
-#define GT_TCPS_FIN_WAIT_1 6
-#define GT_TCPS_CLOSING 7
-#define GT_TCPS_LAST_ACK 8
-#define GT_TCPS_FIN_WAIT_2 9
-#define GT_TCPS_TIME_WAIT 10
-#define GT_TCP_NSTATES 11
+#ifdef __linux__
+#define GT_TCPS_CLOSED TCP_CLOSE
+#define GT_TCPS_LISTEN TCP_LISTEN
+#define GT_TCPS_SYN_SENT TCP_SYN_SENT
+#define GT_TCPS_SYN_RCVD TCP_SYN_RECV
+#define GT_TCPS_ESTABLISHED TCP_ESTABLISHED
+#define GT_TCPS_CLOSE_WAIT TCP_CLOSE_WAIT
+#define GT_TCPS_FIN_WAIT_1 TCP_FIN_WAIT1
+#define GT_TCPS_CLOSING TCP_CLOSING
+#define GT_TCPS_LAST_ACK TCP_LAST_ACK
+#define GT_TCPS_FIN_WAIT_2 TCP_FIN_WAIT2
+#define GT_TCPS_TIME_WAIT TCP_TIME_WAIT
+#define GT_TCPS_MAX_STATES (TCP_CLOSING + 1)
+#else // __linux__ 
+#define GT_TCPS_CLOSED TCPS_CLOSED
+#define GT_TCPS_LISTEN TCPS_LISTEN
+#define GT_TCPS_SYN_SENT TCPS_SYN_SENT
+#define GT_TCPS_SYN_RCVD TCPS_SYN_RECEIVED
+#define GT_TCPS_ESTABLISHED TCPS_ESTABLISHED
+#define GT_TCPS_CLOSE_WAIT TCPS_CLOSE_WAIT
+#define GT_TCPS_FIN_WAIT_1 TCPS_FIN_WAIT_1
+#define GT_TCPS_CLOSING TCPS_CLOSING
+#define GT_TCPS_LAST_ACK TCPS_LAST_ACK
+#define GT_TCPS_FIN_WAIT_2 TCPS_FIN_WAIT_2
+#define GT_TCPS_TIME_WAIT TCPS_TIME_WAIT
+#define GT_TCPS_MAX_STATES TCPS_NSTATES
+#endif // __linux__
 
 #define GT_SYSCTL_BUFSIZ 4096
 #define GT_RSS_NQ_MAX 32
@@ -230,4 +246,4 @@ void gt_dbg5(const char *, u_int, const char *, int, const char *, ...)
 #define gt_dbg(fmt, ...) \
 	gt_dbg5(__FILE__, __LINE__, __func__, 0, fmt, ##__VA_ARGS__)
 
-#endif // GBTCP_H
+#endif // GBTCP_GBTCP_H

@@ -10,138 +10,87 @@
 
 struct route_if;
 
-#define SO_IPPROTO_UDP 0
-#define SO_IPPROTO_TCP 1
-
-struct sock {
-	struct file so_file;
-#define so_blocked so_file.fl_blocked
-#define so_referenced so_file.fl_referenced
-#define so_sid so_file.fl_sid
-	union {
-		uint64_t so_flags;
-		struct {
-			u_int so_err : 4;
-			u_int so_ipproto : 2;
-			u_int so_binded : 1;
-			u_int so_is_attached : 1;
-			u_int so_processing : 1;
-			// TCP
-			u_int so_is_listen : 1;
-			u_int so_passive_open : 1;
-			u_int so_accepted : 1;
-			u_int so_ack : 1;
-			u_int so_rst : 1;
-			u_int so_reuseaddr : 1;
-			u_int so_reuseport : 1;
-			u_int so_state : 4;
-			u_int so_wprobe : 1;
-			u_int so_retx : 1;
-			u_int so_tx_timo : 1;
-			u_int so_swndup : 1;
-			u_int so_ntries : 3;
-			u_int so_dont_frag : 1;
-			u_int so_wshut : 1;
-			u_int so_rshut : 1;
-			u_int so_rsyn : 1;
-			u_int so_rfin : 1;
-			u_int so_ssyn : 1;
-			u_int so_ssyn_acked : 1;
-			u_int so_sfin : 1;
-			u_int so_sfin_sent : 1;
-			u_int so_sfin_acked : 1;
-			u_int so_nagle : 1;
-			u_int so_nagle_acked : 1;
-		};
-	};
-	struct dlist so_attached_list;
-	struct dlist so_binded_list;
-	be32_t so_laddr;
-	be32_t so_faddr;
-	be32_t so_lport;
-	be32_t so_fport;
-	uint16_t so_lmss;
-	uint16_t so_rmss;
-	struct timer so_timer;
-	struct timer so_timer_delack;
-	union {
-		struct {
-			uint32_t so_rseq;
-			uint32_t so_sack;
-			uint16_t so_ssnt;
-			uint16_t so_swnd;
-			uint16_t so_rwnd;
-			uint16_t so_rwnd_max;
-			uint16_t so_ip_id;
-			struct dlist so_accept_list;
-			struct dlist so_tx_list;
-		};
-		struct {
-			// Listen
-			struct dlist so_incompleteq;
-			struct dlist so_completeq;
-			int so_backlog;
-			int so_acceptq_len;
-		};
-	};
-	struct sock *so_acceptor;
-	struct sock_buf so_rcvbuf;
-	union {
-		struct sock_buf so_sndbuf; // TCP
-		struct sock_buf so_msgbuf; // UDP
-	};
+struct gt_sock {
+	struct file sobase_file;
+	struct dlist sobase_connect_list;
+	struct dlist sobase_bind_list;
 };
-
-#define SO_FOREACH_BINDED(so) \
-	for (int GT_UNIQV(i) = 0; GT_UNIQV(i) < EPHEMERAL_PORT_MAX; ++GT_UNIQV(i)) \
-		DLIST_FOREACH_RCU(so, &so_get_binded_bucket(GT_UNIQV(i))->htb_head, \
-			so_binded_list)
 
 int socket_mod_init(void);
 void socket_mod_deinit(void);
 void socket_mod_timer(struct timer *, u_char);
 
-int so_get(int, struct sock **);
+#define gt_vso_struct_size gt_gbtcp_so_struct_size
+int gt_gbtcp_so_struct_size(void);
 
-struct htable_bucket *so_get_binded_bucket(uint16_t);
+#define gt_vso_get gt_gbtcp_so_get
+int gt_gbtcp_so_get(int, struct file **);
 
-int so_get_errnum(struct sock *so);
+typedef int (*gt_foreach_socket_f)(struct file *, void *);
+int gt_foreach_binded_socket(gt_foreach_socket_f, void *);
 
-short so_get_events(struct file *fp);
+#define gt_vso_get_err gt_gbtcp_so_get_err
+int gt_gbtcp_so_get_err(struct file *);
 
-int sock_nread(struct file *fp);
+#define gt_vso_get_events gt_gbtcp_so_get_events
+short gt_gbtcp_so_get_events(struct file *);
 
-void sock_tx_flush(void);
+#define gt_vso_nread gt_gbtcp_so_nread
+int gt_gbtcp_so_nread(struct file *);
 
-int so_socket6(struct sock **, int, int, int, int, int);
-#define so_socket(pso, domain, type, flags, ipproto) \
-	so_socket6(pso, 0, domain, type, flags, ipproto)
+#define gt_vso_tx_flush gt_gbtcp_so_tx_flush
+void gt_gbtcp_so_tx_flush(void);
 
-int so_connect(struct sock *, const struct sockaddr_in *, struct sockaddr_in *);
+#define gt_vso_socket6 gt_gbtcp_so_socket6
+int gt_gbtcp_so_socket6(struct file **, int, int, int, int, int);
 
-int so_bind(struct sock *, const struct sockaddr_in *);
+#define gt_vso_socket(pso, domain, type, flags, ipproto) \
+	gt_vso_socket6(pso, 0, domain, type, flags, ipproto)
 
-int so_listen(struct sock *, int);
+#define gt_vso_connect gt_gbtcp_so_connect
+int gt_gbtcp_so_connect(struct file *, const struct sockaddr_in *, struct sockaddr_in *);
 
-int so_accept(struct sock **, struct sock *, struct sockaddr *, socklen_t *, int);
+#define gt_vso_bind gt_gbtcp_so_bind
+int gt_gbtcp_so_bind(struct file *, const struct sockaddr_in *);
 
-void so_close(struct sock *);
+#define gt_vso_listen gt_gbtcp_so_listen
+int gt_gbtcp_so_listen(struct file *, int);
 
-int so_recvfrom(struct sock *, const struct iovec *, int, int, struct sockaddr *, socklen_t *);
+#define gt_vso_accept gt_gbtcp_so_accept
+int gt_gbtcp_so_accept(struct file **, struct file *, struct sockaddr *, socklen_t *, int);
 
-int so_aio_recvfrom(struct sock *, struct iovec *, int, struct sockaddr *, socklen_t *);
+#define gt_vso_close gt_gbtcp_so_close
+void gt_gbtcp_so_close(struct file *);
 
-int so_recvdrain(struct sock *, int);
+#define gt_vso_recvfrom gt_gbtcp_so_recvfrom
+int gt_gbtcp_so_recvfrom(struct file *, const struct iovec *, int, int,
+		struct sockaddr *, socklen_t *);
 
-int so_sendto(struct sock *, const struct iovec *, int, int, be32_t, be16_t);
+#define gt_vso_aio_recvfrom gt_gbtcp_so_aio_recvfrom
+int gt_gbtcp_so_aio_recvfrom(struct file *, struct iovec *, int, struct sockaddr *, socklen_t *);
 
-int sock_ioctl(struct file *fp, unsigned long request, uintptr_t arg);
+#define gt_vso_recvdrain gt_gbtcp_so_recvdrain
+int gt_gbtcp_so_recvdrain(struct file *, int);
 
-int so_getsockopt(struct sock *, int, int, void *, socklen_t *);
-int so_setsockopt(struct sock *, int, int, const void *, socklen_t);
+#define gt_vso_sendto gt_gbtcp_so_sendto
+int gt_gbtcp_so_sendto(struct file *, const struct iovec *, int, int, be32_t, be16_t);
 
-int so_getpeername(struct sock *, struct sockaddr *, socklen_t *);
+#define gt_vso_ioctl gt_gbtcp_so_ioctl
+int gt_gbtcp_so_ioctl(struct file *, unsigned long, uintptr_t);
 
+#define gt_vso_getsockopt gt_gbtcp_so_getsockopt
+int gt_gbtcp_so_getsockopt(struct file *, int, int, void *, socklen_t *);
+
+#define gt_vso_setsockopt gt_gbtcp_so_setsockopt
+int gt_gbtcp_so_setsockopt(struct file *, int, int, const void *, socklen_t);
+
+#define gt_vso_getsockname gt_gbtcp_so_getsockname
+int gt_gbtcp_so_getsockname(struct file *, struct sockaddr *, socklen_t *);
+
+#define gt_vso_getpeername gt_gbtcp_so_getpeername
+int gt_gbtcp_so_getpeername(struct file *, struct sockaddr *, socklen_t *);
+
+#define gt_vso_rx gt_gbtcp_so_rx
 int gt_gbtcp_so_rx(struct route_if *, void *, int);
 
 #endif // GBTCP_GBTCP_SOCKET_H

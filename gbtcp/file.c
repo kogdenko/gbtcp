@@ -61,7 +61,7 @@ init_files(struct service *s)
 
 	m = gt_module_get(GT_MODULE_FILE);
 	if (s->p_file_pool == NULL) {
-		size = sizeof(struct sock);
+		size = gt_vso_struct_size();
 		n = m->file_nofile - GT_FIRST_FD;
 		assert(n > 0);
 		rc = mbuf_pool_alloc(&s->p_file_pool, s->p_sid,	2 * 1024 * 1024, size, n);
@@ -178,7 +178,7 @@ file_close(struct file *fp)
 		fp->fl_referenced = 0;
 		switch (fp->fl_type) {
 		case FILE_SOCK:
-			so_close((struct sock *)fp);
+			gt_vso_close(fp);
 			break;
 		case FILE_EPOLL:
 			u_epoll_close(fp);
@@ -247,14 +247,14 @@ file_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 		}
 		break;
 	case FIONREAD:
-		rc = sock_nread(fp);
+		rc = gt_vso_nread(fp);
 		if (rc < 0) {
 			break;
 		}
 		*((int *)arg) = rc;
 		break;
 	default:
-		rc = sock_ioctl(fp, request, arg);
+		rc = gt_vso_ioctl(fp, request, arg);
 		break;
 	}
 	return rc;
@@ -306,7 +306,7 @@ file_get_events(struct file *fp)
 	short revents;
 
 	if (fp->fl_type == FILE_SOCK) {
-		revents = so_get_events(fp);
+		revents = gt_vso_get_events(fp);
 	} else {
 		revents = 0;
 	}

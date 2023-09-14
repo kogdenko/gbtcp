@@ -121,7 +121,7 @@ epoll_entry_set(struct epoll_entry *e, struct file *fp, short filter)
 
 #ifdef __linux__
 static void
-epoll_get_event(struct epoll_entry *e, struct sock *so, epoll_event_t *event)
+epoll_get_event(struct epoll_entry *e, struct file *fp, epoll_event_t *event)
 {
 	short x, y;
 
@@ -146,7 +146,7 @@ epoll_get_event(struct epoll_entry *e, struct sock *so, epoll_event_t *event)
 }
 #else // __linux__
 static void
-epoll_get_event(struct epoll_entry *e, struct sock *so, epoll_event_t *event)
+epoll_get_event(struct epoll_entry *e, struct file *fp, epoll_event_t *event)
 {
 	short x, filter;
 	u_short flags;
@@ -158,14 +158,14 @@ epoll_get_event(struct epoll_entry *e, struct sock *so, epoll_event_t *event)
 	data = 0;
 	if (x & POLLIN) {
 		filter = EVFILT_READ;
-		file_ioctl(&so->so_file, FIONREAD, (uintptr_t)(&data));
+		file_ioctl(fp, FIONREAD, (uintptr_t)(&data));
 	} else if (x & POLLOUT) {
 		filter = EVFILT_WRITE;
-		file_ioctl(&so->so_file, FIONSPACE, (uintptr_t)(&data));
+		file_ioctl(fp, FIONSPACE, (uintptr_t)(&data));
 	}
 	if (x & POLLERR) {
 		flags |= EV_ERROR;
-		data = so_get_errnum(so);
+		data = gt_vso_get_errnum(fp);
 	}
 	assert(filter || flags);
 	event->filter = filter;
@@ -199,7 +199,7 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 {
 	int n;
 	short revents;
-	struct sock *so;
+	struct file *fp;
 	struct epoll_entry *e, *tmp;
 
 	n = 0;
@@ -210,16 +210,16 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 		if ((e->epe_flags & EPOLL_FLAG_ENABLED) == 0) {
 			continue;
 		}
-		so_get(e->epe_fd, &so);
+		gt_vso_get(e->epe_fd, &fp);
 		if (e->epe_revents == 0) {
-			revents = file_get_events(&so->so_file);
+			revents = file_get_events(fp);
 			e->epe_revents = revents & e->epe_filter;
 			if (e->epe_revents == 0) {
 				epoll_entry_relax(e);
 				continue;
 			}
 		}
-		epoll_get_event(e, so, buf + n);
+		epoll_get_event(e, fp, buf + n);
 		n++;
 		GT_DBG(EPOLL, 0, "Epoll event trigger: fd=%d, events=%s",
 				e->epe_fd, log_add_poll_events(e->epe_revents));
@@ -257,13 +257,11 @@ fd_read_triggered(int fd, epoll_event_t *events, int maxevents)
 }
 
 static int
-kevent_mod(struct epoll *ep, struct sock *so, struct kevent *event)
+kevent_mod(struct epoll *ep, struct file *fp, struct kevent *event)
 {
 	short filter;
-	struct file *fp;
 	struct epoll_entry *e;
 
-	fp = &so->so_file;
 	if (event->flags & EV_RECEIPT) {
 		return -ENOTSUP;
 	}
@@ -423,7 +421,6 @@ int
 u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 {
 	int rc, filter;
-	struct sock *so;
 	struct file *fp;
 	struct epoll *ep;
 	struct epoll_entry *e;
@@ -435,12 +432,11 @@ u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 	if (rc) {
 		return rc;
 	}
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc) {
 		rc = sys_epoll_ctl(ep->ep_fd, op, fd, event);
 		return rc;
 	}
-	fp = &so->so_file;
 	filter = 0;
 	if (event->events & EPOLLIN) {
 		filter |= POLLIN;
@@ -498,12 +494,12 @@ u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 #else // __linux__
 int
 u_kevent(int kq, const struct kevent *changelist, int nchanges,
-	struct kevent *eventlist, int nevents, const struct timespec *timeout)
+		struct kevent *eventlist, int nevents, const struct timespec *timeout)
 {
 	int i, rc;
 	uint64_t to;
 	struct kevent *event;
-	struct sock *so;
+	struct file *fp;
 	struct epoll *ep;
 
 	rc = epoll_get(kq, &ep);
@@ -512,12 +508,11 @@ u_kevent(int kq, const struct kevent *changelist, int nchanges,
 	}
 	for (i = 0; i < nchanges; ++i) {
 		event = (struct kevent *)changelist + i;
-		rc = so_get(event->ident, &so);
+		rc = gt_vso_get(event->ident, &fp);
 		if (rc) {
-			rc = sys_kevent(ep->ep_fd, event, 1,
-				NULL, 0, NULL);
+			rc = sys_kevent(ep->ep_fd, event, 1, NULL, 0, NULL);
 		} else {
-			rc = kevent_mod(ep, so, event);
+			rc = kevent_mod(ep, fp, event);
 		}
 		if (rc < 0) {
 			if (nevents) {

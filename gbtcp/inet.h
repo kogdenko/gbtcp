@@ -151,7 +151,7 @@ struct tcp_opts {
 #define TCP_STAT_DECLARE(n) uint64_t tcps_##n;
 struct tcp_stat {
 	GT_X_TCP_STAT(TCP_STAT_DECLARE)
-	uint64_t tcps_states[GT_TCP_NSTATES];
+	uint64_t tcps_states[GT_TCPS_MAX_STATES];
 };
 #undef TCP_STAT_DECLARE
 

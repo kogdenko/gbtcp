@@ -18,7 +18,7 @@ struct log_scope {
 #ifdef GT_LOG_DISABLED
 #define GT_LOGF(MODULE_NAME, level, errnum, fmt, ...) \
 	do { \
-		UNUSED(errnum); \
+		GT_UNUSED(errnum); \
 	} while (0)
 #else // GT_LOG_DISABLED
 #define GT_LOGF(MODULE_NAME, level, errnum, fmt, ...) \
@@ -35,7 +35,7 @@ do { \
 #ifdef NDEBUG
 #define GT_DBG(MODULE_NAME, errnum, ...) \
 	do { \
-		UNUSED(errnum); \
+		GT_UNUSED(errnum); \
 	} while (0)
 #define GT_INFO GT_DBG
 #else /*NDEBUG */

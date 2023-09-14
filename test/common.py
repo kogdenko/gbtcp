@@ -91,7 +91,8 @@ def print_log(level, s):
 
 def log_err(exc, s):
 	if exc != None:
-		s += " ('" + str(exc) + "')\n" + traceback.format_exception(exc)
+		exception_str = '\n'.join(traceback.format_exception(exc))
+		s += " ('" + str(exc) + "')\n" + exception_str
 	print_log(LOG_ERR, s)
 
 

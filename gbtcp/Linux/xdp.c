@@ -224,7 +224,7 @@ xdp_dev_rx(struct dev *dev)
 		rc = xsk_ring_prod__reserve(&q->xq_fill, m, &idx_fill);
 		assert(rc == m);
 		assert(idx_fill != UINT32_MAX);
-		UNUSED(rc);
+		GT_UNUSED(rc);
 		for (i = 0; i < m; ++i, ++idx_fill) {
 			frame = xdp_queue_alloc_frame(q);
 			*xsk_ring_prod__fill_addr(&q->xq_fill, idx_fill) = frame;

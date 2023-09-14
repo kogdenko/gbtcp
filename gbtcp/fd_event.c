@@ -211,7 +211,7 @@ fd_poll_wait(struct fd_poll *p, const sigset_t *sigmask)
 	}
 	p->fdp_throttled = 0;
 	p->fdp_n_events = 0;
-	sock_tx_flush();
+	gt_vso_tx_flush();
 	dev_tx_flush();
 	for (i = 0; i < fd_event_n_used; ++i) {
 		if (p->fdp_n_added + p->fdp_n_events == FD_SETSIZE) {

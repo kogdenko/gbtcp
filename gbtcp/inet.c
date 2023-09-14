@@ -86,7 +86,7 @@ sysctl_add_inet_stat_tcp(void)
 	sysctl_add_inet_stat("tcp", #x, field_off(struct service, p_tcps.tcps_##x));
 	GT_X_TCP_STAT(SYSCTL_ADD_TCP_STAT)
 #undef SYSCTL_ADD_TCP_STAT
-	for (i = 0; i < GT_TCP_NSTATES; ++i) {
+	for (i = 0; i < GT_TCPS_MAX_STATES; ++i) {
 		snprintf(name, sizeof(name), "states.%d", i);
 		off = field_off(struct service, p_tcps.tcps_states[i]);
 		sysctl_add_inet_stat("tcp", name, off);

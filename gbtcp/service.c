@@ -6,6 +6,7 @@
 #include "gbtcp/socket.h"
 #include "service.h"
 #include "shm.h"
+#include "subr.h" // FIXME
 #include "pid.h"
 
 #define MSG_ETHTYPE 0x0101
@@ -170,7 +171,7 @@ redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, const voi
 static int
 gt_service_rx(struct route_if *ifp, void *data, int len)
 {
-	return gt_gbtcp_so_rx(ifp, data, len);
+	return gt_vso_rx(ifp, data, len);
 }
 
 static void
@@ -912,80 +913,116 @@ service_in_parent(int pipe_fd[2])
 	sys_close(pipe_fd[0]);
 }
 
-static int
-service_dup_so(struct sock *oldso)
+/*static*/ int
+service_dup_so(struct file *oldso)
 {
 	int rc, fd, flags;
-	struct sockaddr_in a;
-	struct sock *newso;
+	socklen_t addrlen;
+	struct sockaddr_in addr;
+	struct file *newso;
 
-	fd = file_get_fd((struct file *)oldso);
-	flags = oldso->so_blocked ? SOCK_NONBLOCK : 0;
-	rc = so_socket6(&newso, fd, AF_INET, SOCK_STREAM, flags, 0);
+	fd = file_get_fd(oldso);
+	flags = oldso->fl_blocked ? SOCK_NONBLOCK : 0;
+	rc = gt_vso_socket6(&newso, fd, AF_INET, SOCK_STREAM, flags, 0);
 	if (rc < 0) {
 		return rc;
 	}
-	a.sin_family = AF_INET;
-	a.sin_port = oldso->so_lport;
-	a.sin_addr.s_addr = oldso->so_laddr;
-	rc = so_bind(newso, &a);
+	addrlen = sizeof(addr);
+	gt_vso_getsockname(oldso, (struct sockaddr *)&addr, &addrlen);
+	rc = gt_vso_bind(newso, &addr);
 	if (rc) {
 		goto err;
 	}
-	rc = so_listen(newso, 0);
+	rc = gt_vso_listen(newso, 0);
 	if (rc) {
 		goto err;
 	}
-	newso->so_blocked = oldso->so_blocked;
+	newso->fl_blocked = oldso->fl_blocked;
 	GT_INFO(SERVICE, 0, "service: Duplicate socket, fd=%d", fd);
 	return 0;
 err:
 	GT_WARN(SERVICE, -rc, "service: Failed to duplicate socket, fd=%d", fd);
-	so_close(newso);
+	gt_vso_close(newso);
 	return rc;
+}
+
+//if (so->so_sid == parent_sid &&
+//		so->so_ipproto == SO_IPPROTO_TCP &&
+//		so->so_state == GT_TCPS_LISTEN) {
+//	break;
+//}
+
+// Duplicate only listen sockets
+struct child_foreach_binded_socket_udata {
+	int parent_sid;
+	int duplicated;
+};
+
+static int
+child_foreach_binded_socket(struct file *fp, void *udata_raw)
+{
+	int rc, proto;
+	socklen_t optlen;
+	struct tcp_info tcpi;
+	struct child_foreach_binded_socket_udata *udata;
+
+	udata = udata_raw;
+	if (fp->fl_sid != udata->parent_sid) {
+		return 0;
+	}
+	optlen = sizeof(proto);
+	rc = gt_vso_getsockopt(fp, SOL_SOCKET, SO_PROTOCOL, &proto, &optlen);
+	if (rc) {
+		return 0;
+	}
+	if (proto != IPPROTO_TCP) {
+		return 0;
+	}
+	optlen = sizeof(tcpi);
+	rc = gt_vso_getsockopt(fp, IPPROTO_TCP, TCP_INFO, &tcpi, &optlen);
+	if (rc) {
+		return 0;
+	}
+	if (tcpi.tcpi_state != GT_TCPS_LISTEN) {
+		return 0;
+	}
+	if (current->p_sid == udata->parent_sid) {
+		return 1;
+	}
+	rc = service_dup_so(fp);
+	if (rc == 0) {
+		udata->duplicated++;
+	}
+	return 0;
 }
 
 static void
 service_in_child0(void)
 {
-	int rc, parent_sid, flag;
+	int rc;
 	struct dev *dev;
-	struct sock *so;
+	struct child_foreach_binded_socket_udata udata;
 
 	DLIST_FOREACH(dev, &current->p_dev_head, dev_list) {
 		gt_dev_deinit_locked(dev, true);
 	}
 	dlist_init(&current->p_dev_head);
-	flag = 0;
-	parent_sid = current->p_sid;
-	SO_FOREACH_BINDED(so) {
-		if (so->so_sid == parent_sid &&
-				so->so_ipproto == SO_IPPROTO_TCP &&
-				so->so_state == GT_TCPS_LISTEN) {
-			flag = 1;
-			break;
-		}
-	}
+
+	udata.parent_sid = current->p_sid;
+	udata.duplicated = 0;
+	rc = gt_foreach_binded_socket(child_foreach_binded_socket, &udata);
 	service_detach();
-	if (!flag) {
+	if (!rc) {
 		return;
 	}
+
 	rc = service_attach();
 	if (rc) {
 		return;
 	}
-	flag = 0;
-	SO_FOREACH_BINDED(so) {
-		if (so->so_sid == parent_sid &&
-				so->so_ipproto == SO_IPPROTO_TCP &&
-				so->so_state == GT_TCPS_LISTEN) {
-			rc = service_dup_so(so);
-			if (rc == 0) {
-				flag = 1;
-			}
-		}
-	}
-	if (!flag) {
+
+	gt_foreach_binded_socket(child_foreach_binded_socket, &udata);
+	if (!udata.duplicated) {
 		service_detach();
 	}
 }

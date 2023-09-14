@@ -84,7 +84,7 @@ int
 gt_socket(int domain, int type, int proto)
 {
 	int rc, flags, type_noflags;
-	struct sock *so;
+	struct file *fp;
 
 	API_LOCK;
 	flags = SOCK_TYPE_FLAGS(type);
@@ -92,7 +92,7 @@ gt_socket(int domain, int type, int proto)
 	GT_INFO(API, 0, "gt_socket('%s', '%s')",
 			log_add_socket_type(type_noflags),
 			log_add_socket_flags(flags));
-	rc = so_socket(&so, domain, type_noflags, flags, proto);
+	rc = gt_vso_socket(&fp, domain, type_noflags, flags, proto);
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_socket('%s', '%s') failed",
 				log_add_socket_type(type_noflags),
@@ -113,7 +113,7 @@ gt_connect_locked(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	socklen_t optlen;
 	const struct sockaddr_in *faddr_in;
 	struct sockaddr_in laddr_in;
-	struct sock *so;
+	struct file *fp;
 
 	if (addr->sa_family != AF_INET) {
 		return -EAFNOSUPPORT;
@@ -121,19 +121,19 @@ gt_connect_locked(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	if (addrlen < sizeof(*faddr_in)) {
 		return -EINVAL;
 	}
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
 	faddr_in = (const struct sockaddr_in *)addr;
-	rc = so_connect(so, faddr_in, &laddr_in);
+	rc = gt_vso_connect(fp, faddr_in, &laddr_in);
 restart:
-	if (rc == -EINPROGRESS && so->so_blocked) {
-		file_wait(&so->so_file, POLLOUT);
-		rc = so_get(fd, &so);
+	if (rc == -EINPROGRESS && fp->fl_blocked) {
+		file_wait(fp, POLLOUT);
+		rc = gt_vso_get(fd, &fp);
 		if (rc == 0) {
 			optlen = sizeof(error);
-			rc = so_getsockopt(so, SOL_SOCKET, SO_ERROR, &error, &optlen);
+			rc = gt_vso_getsockopt(fp, SOL_SOCKET, SO_ERROR, &error, &optlen);
 			assert(rc == 0 && "so_getsockopt");
 			rc = -error;
 			goto restart;
@@ -169,7 +169,7 @@ gt_bind_locked(int fd, const struct sockaddr *addr, socklen_t addrlen)
 {
 	int rc;
 	const struct sockaddr_in *addr_in;
-	struct sock *so;
+	struct file *fp;
 
 	if (addr->sa_family != AF_INET) {
 		return -EAFNOSUPPORT;
@@ -177,12 +177,12 @@ gt_bind_locked(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	if (addrlen < sizeof(*addr_in)) {
 		return -EINVAL;
 	}
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
 	addr_in = (const struct sockaddr_in *)addr;
-	rc = so_bind(so, addr_in);
+	rc = gt_vso_bind(fp, addr_in);
 	return rc;
 }
 
@@ -209,13 +209,13 @@ int
 gt_listen(int fd, int backlog)
 {
 	int rc;
-	struct sock *so;
+	struct file *fp;
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_listen(lfd=%d)", fd);
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc == 0) {
-		rc = so_listen(so, backlog);
+		rc = gt_vso_listen(fp, backlog);
 	}
 	if (rc < 0) {
 		GT_INFO(API, rc, "gt_listen(lfd=%d) failed", fd);
@@ -230,17 +230,17 @@ int
 gt_accept4_locked(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
 	int rc;
-	struct sock *so, *lso;
+	struct file *fp, *lfp;
 
-	rc = so_get(lfd, &lso);
+	rc = gt_vso_get(lfd, &lfp);
 	if (rc) {
 		return rc;
 	}
 restart:
-	rc = so_accept(&so, lso, addr, addrlen, flags);
-	if (rc == -EAGAIN && lso->so_blocked) {
-		file_wait(&lso->so_file, POLLIN);
-		rc = so_get(lfd, &lso);
+	rc = gt_vso_accept(&fp, lfp, addr, addrlen, flags);
+	if (rc == -EAGAIN && lfp->fl_blocked) {
+		file_wait(lfp, POLLIN);
+		rc = gt_vso_get(lfd, &lfp);
 		if (rc == 0) {
 			goto restart;
 		}
@@ -321,17 +321,17 @@ gt_recvfrom_locked(int fd, const struct iovec *iov, int iovcnt, int flags,
 		struct sockaddr *addr, socklen_t *addrlen)
 {
 	ssize_t rc;
-	struct sock *so;
+	struct file *fp;
 
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
 restart:
-	rc = so_recvfrom(so, iov, iovcnt, flags, addr, addrlen);
-	if (rc == -EAGAIN && so->so_blocked) {
-		file_wait(&so->so_file, POLLIN);
-		rc = so_get(fd, &so);
+	rc = gt_vso_recvfrom(fp, iov, iovcnt, flags, addr, addrlen);
+	if (rc == -EAGAIN && fp->fl_blocked) {
+		file_wait(fp, POLLIN);
+		rc = gt_vso_get(fd, &fp);
 		if (rc == 0) {
 			goto restart;
 		}
@@ -405,15 +405,15 @@ gt_write(int fd, const void *buf, size_t count)
 
 int
 gt_send_locked(int fd, const struct iovec *iov, int iovcnt, int flags,
-	const void *name, int namelen)
+		const void *name, int namelen)
 {
 	int rc;
 	be32_t faddr;
 	be16_t fport;
 	const struct sockaddr_in *addr_in;
-	struct sock *so;
+	struct file *fp;
 
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
@@ -426,10 +426,10 @@ gt_send_locked(int fd, const struct iovec *iov, int iovcnt, int flags,
 		fport = 0;
 	}
 restart:
-	rc = so_sendto(so, iov, iovcnt, flags, faddr, fport);
-	if (rc == -EAGAIN && so->so_blocked) {
-		file_wait(&so->so_file, POLLOUT);
-		rc = so_get(fd, &so);
+	rc = gt_vso_sendto(fp, iov, iovcnt, flags, faddr, fport);
+	if (rc == -EAGAIN && fp->fl_blocked) {
+		file_wait(fp, POLLOUT);
+		rc = gt_vso_get(fd, &fp);
 		if (rc == 0) {
 			goto restart;
 		}
@@ -518,15 +518,15 @@ int
 gt_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
 {
 	int rc;
-	struct sock *so;
+	struct file *fp;
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_getsockopt(fd=%d, '%s', '%s')",
 			fd, log_add_sockopt_level(level),
 			log_add_sockopt_optname(level, optname));
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc == 0) {
-		rc = so_getsockopt(so, level, optname, optval, optlen);
+		rc = gt_vso_getsockopt(fp, level, optname, optval, optlen);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_getsockopt(fd=%d, '%s', '%s') failed",
@@ -549,15 +549,15 @@ int
 gt_setsockopt(int fd, int level, int optname, const void *optval, socklen_t optlen)
 {
 	int rc;
-	struct sock *so;
+	struct file *fp;
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_setsockopt(fd=%d, '%s', '%s')",
 			fd, log_add_sockopt_level(level),
 			log_add_sockopt_optname(level, optname));
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc == 0) {
-		rc = so_setsockopt(so, level, optname, optval, optlen);
+		rc = gt_vso_setsockopt(fp, level, optname, optval, optlen);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_setsockopt(fd=%d, '%s', '%s') failed",
@@ -576,13 +576,13 @@ int
 gt_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
-	struct sock *so;
+	struct file *fp;
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_getpeername(fd=%d)", fd);
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc == 0) {
-		rc = so_getpeername(so, addr, addrlen);
+		rc = gt_vso_getpeername(fp, addr, addrlen);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_getpeername(fd=%d) failed", fd);
@@ -736,13 +736,13 @@ int
 gt_aio_cancel(int fd)
 {
 	int rc;
-	struct sock *so;	
+	struct file *fp;
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_aio_cancel(fd=%d)", fd);
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc == 0) {
-		file_aio_cancel(&so->so_file.fl_aio);
+		file_aio_cancel(&fp->fl_aio);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_aio_cancel(fd=%d) failed", fd);
@@ -757,13 +757,13 @@ int
 gt_aio_set(int fd, gt_aio_f fn)
 {
 	int rc;
-	struct sock *so;
+	struct file *fp;
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_aio_set(fd=%d)", fd);
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc == 0) {
-		file_aio_add(&so->so_file, &so->so_file.fl_aio, fn);
+		file_aio_add(fp, &fp->fl_aio, fn);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_aio(set(fd=%d) failed", fd);
@@ -778,13 +778,13 @@ ssize_t
 gt_aio_recvfrom(int fd, struct iovec *iov, int flags, struct sockaddr *addr, socklen_t *addrlen)
 {
 	ssize_t rc;
-	struct sock *so;
+	struct file *fp;
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_aio_recvfrom(fd=%d)", fd);
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc == 0) {
-		rc = so_aio_recvfrom(so, iov, flags, addr, addrlen);
+		rc = gt_vso_aio_recvfrom(fp, iov, flags, addr, addrlen);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_aio_recvfrom(fd=%d) failed", fd);
@@ -799,13 +799,13 @@ ssize_t
 gt_recvdrain(int fd, size_t cnt)
 {
 	ssize_t rc;
-	struct sock *so;
+	struct file *fp;
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_aio_recvfrain(fd=%d)", fd);
-	rc = so_get(fd, &so);
+	rc = gt_vso_get(fd, &fp);
 	if (rc == 0) {
-		rc = so_recvdrain(so, cnt);
+		rc = gt_vso_recvdrain(fp, cnt);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_aio_recvdrain(fd=%d) failed", fd);

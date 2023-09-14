@@ -92,9 +92,7 @@ struct profiler {
 	((type *)((intptr_t)(ptr) - field_off(type, field)))
 #endif // container_of
 
-#ifndef UNUSED
-#define UNUSED(x) (void)(x)
-#endif // UNUSED
+#define GT_UNUSED(x) (void)(x)
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -151,7 +149,7 @@ struct profiler {
 #define GT_CAT3_MED(x, y, z) GT_CAT3_RES(~, x##y##z)
 #define GT_CAT3(x, y, z) GT_CAT3_MED(x, y, z)
 
-#define GT_UNIQV(name) GT_CAT3(name, uniqv_, __LINE__)
+#define GT_UNIQ_VAR(name) GT_CAT3(name, uniq_var_, __LINE__)
 
 #define MEM_PREFETCH(ptr) \
 	__builtin_prefetch(ptr)

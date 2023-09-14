@@ -37,7 +37,7 @@ LIST_HEAD(interface_head, interface);
 #define PROTO_FLAG_UDP (1 << 3)
 #define PROTO_FLAG_ALL 0xffffffff
 
-static const char *tcpstates[GT_TCP_NSTATES] = {
+static const char *tcpstates[GT_TCPS_MAX_STATES] = {
 	[GT_TCPS_CLOSED] = "CLOSED",
 	[GT_TCPS_LISTEN] = "LISTEN",
 	[GT_TCPS_SYN_SENT] = "SYN_SENT",
@@ -456,7 +456,7 @@ print_socket(const char *path, void *udata, const char *buf)
 	print_sockaddr(laddr, lport, proto_name);
 	print_sockaddr(faddr, fport, proto_name);
 	if (ipproto == IPPROTO_TCP) {
-		if (state >= GT_TCP_NSTATES) {
+		if (state >= GT_TCPS_MAX_STATES) {
 			printf("%-11d ", state);
 		} else {
 			printf("%-11s ", tcpstates[state]);
@@ -500,7 +500,7 @@ struct stat_entry {
 #define MYX(n) unsigned long long n;
 struct tcp_stat {
 	GT_X_TCP_STAT(MYX);
-	unsigned long long states[GT_TCP_NSTATES];
+	unsigned long long states[GT_TCPS_MAX_STATES];
 };
 
 struct udp_stat {
@@ -730,18 +730,16 @@ print_tcp_stats(void)
 		printf("\t%llu packets sent\n",	tcps.sndtotal);
 	}
 	if (tcps.sndpack || tcps.sndbyte || sflag > 1) {
-		printf("\t\t%llu data packets (%llu bytes)\n",
-		       tcps.sndpack, tcps.sndbyte);
+		printf("\t\t%llu data packets (%llu bytes)\n", tcps.sndpack, tcps.sndbyte);
 	}
 	if (tcps.sndrexmitpack || tcps.sndrexmitbyte ||sflag > 1) {
 		printf("\t\t%llu data packets (%llu bytes) retransmitted\n",
-		       tcps.sndrexmitpack, tcps.sndrexmitbyte);
+			       tcps.sndrexmitpack, tcps.sndrexmitbyte);
 	}
 //	printf("\t\t%llu data packets unnecessarily retransmitted\n", tcps.sndrexmitbad);
 //	printf("\t\t%llu resends initiated by MTU discovery\n", tcps.mturesent);
 	if (tcps.sndacks || tcps.delack || sflag > 1) {
-		printf("\t\t%llu ack-only packets (%llu delayed)\n",
-		       tcps.sndacks, tcps.delack);
+		printf("\t\t%llu ack-only packets (%llu delayed)\n", tcps.sndacks, tcps.delack);
 	}
 	if (tcps.sndurg || sflag > 1) {
 		printf("\t\t%llu URG only packets\n", tcps.sndurg);
@@ -760,8 +758,7 @@ print_tcp_stats(void)
 		printf("\t%llu packets received\n", tcps.rcvtotal);
 	}
 	if (tcps.rcvackpack || tcps.rcvackbyte || sflag > 1) {
-		printf("\t\t%llu acks (for %llu bytes)\n",
-		       tcps.rcvackpack, tcps.rcvackbyte);
+		printf("\t\t%llu acks (for %llu bytes)\n", tcps.rcvackpack, tcps.rcvackbyte);
 	}
 	if (tcps.rcvdupack || sflag > 1) {
 		printf("\t\t%llu duplicate acks\n", tcps.rcvdupack);
@@ -771,26 +768,26 @@ print_tcp_stats(void)
 	}
 	if (tcps.rcvpack || tcps.rcvbyte || sflag > 1) {
 		printf("\t\t%llu packets (%llu bytes) received in-sequence\n",
-		       tcps.rcvpack, tcps.rcvbyte);
+			       tcps.rcvpack, tcps.rcvbyte);
 	}
 	if (tcps.rcvduppack || tcps.rcvdupbyte || sflag > 1) {
 		printf("\t\t%llu completely duplicate packets (%llu bytes)\n",
-		       tcps.rcvduppack, tcps.rcvdupbyte);
+				tcps.rcvduppack, tcps.rcvdupbyte);
 	}
 	if (tcps.pawsdrop || sflag > 1) {
 		printf("\t\t%llu old duplicate packets\n", tcps.pawsdrop);
 	}
 	if (tcps.rcvpartduppack || tcps.rcvpartdupbyte || sflag > 1) {
 		printf("\t\t%llu packets with some dup. data (%llu bytes duped)\n",
-		       tcps.rcvpartduppack, tcps.rcvpartdupbyte);
+			       tcps.rcvpartduppack, tcps.rcvpartdupbyte);
 	}
 	if (tcps.rcvoopack || tcps.rcvoobyte || sflag > 1) {
 		printf("\t\t%llu out-of-order packets (%llu bytes)\n",
-		       tcps.rcvoopack, tcps.rcvoobyte);
+			       tcps.rcvoopack, tcps.rcvoobyte);
 	}
 	if (tcps.rcvpackafterwin || tcps.rcvbyteafterwin || sflag > 1) {
 		printf("\t\t%llu packets (%llu bytes) of data after window\n",
-		       tcps.rcvpackafterwin, tcps.rcvbyteafterwin);
+			       tcps.rcvpackafterwin, tcps.rcvbyteafterwin);
 	}
 	if (tcps.rcvwinprobe || sflag > 1) {
 		printf("\t\t%llu window probes\n", tcps.rcvwinprobe);
@@ -799,24 +796,19 @@ print_tcp_stats(void)
 		printf("\t\t%llu window update packets\n", tcps.rcvwinupd);
 	}
 	if (tcps.rcvafterclose || sflag > 1) {
-		printf("\t\t%llu packets received after close\n",
-		       tcps.rcvafterclose);
+		printf("\t\t%llu packets received after close\n", tcps.rcvafterclose);
 	}
 	if (tcps.rcvbadsum || sflag > 1) {
-		printf("\t\t%llu discarded for bad checksums\n",
-		       tcps.rcvbadsum);
+		printf("\t\t%llu discarded for bad checksums\n", tcps.rcvbadsum);
 	}
 	if (tcps.rcvbadoff || sflag > 1) {
-		printf("\t\t%llu discarded for bad header offset fields\n",
-		       tcps.rcvbadoff);
+		printf("\t\t%llu discarded for bad header offset fields\n", tcps.rcvbadoff);
 	}
 	if (tcps.rcvshort || sflag > 1) {
-		printf("\t\t%llu discarded because packet too short\n",
-		       tcps.rcvshort);
+		printf("\t\t%llu discarded because packet too short\n", tcps.rcvshort);
 	}
 	if (tcps.rcvmemdrop || sflag > 1) {
-		printf("\t\t%llu discarded due to memory problems\n",
-		       tcps.rcvmemdrop);
+		printf("\t\t%llu discarded due to memory problems\n", tcps.rcvmemdrop);
 	}
 	// connection requests
 	if (tcps.connattempt || sflag > 1) {
@@ -833,33 +825,30 @@ print_tcp_stats(void)
 	}
 //	printf("\t%llu ignored RSTs in the windows\n", tcps.badrst);
 	if (tcps.connects || sflag > 1) {
-		printf("\t%llu connections established (including accepts)\n",
-		       tcps.connects);
+		printf("\t%llu connections established (including accepts)\n", tcps.connects);
 	}
 //	printf("\t\t%llu times used RTT from hostcache\n", tcps.usedrtt);
 //	printf("\t\t%llu times used RTT variance from hostcache\n", tcps.usedrttvar);
 //	printf("\t\t%llu times used slow-start threshold from hostcache\n", tcps.usedssthresh);
 	if (tcps.closed || tcps.drops || sflag > 1) {
 		printf("\t%llu connections closed (including %llu drops)\n",
-		       tcps.closed, tcps.drops);
+			       tcps.closed, tcps.drops);
 	}
 //	printf("\t\t%llu connections updated cached RTT on close\n", tcps.cachedrtt);
 //	printf("\t\t%llu connections updated cached RTT variance on close\n", tcps.cachedrttvar);
 //	printf("\t\t%llu connections updated cached ssthresh on close\n", tcps.cachedssthresh);
 	if (tcps.conndrops || sflag > 1) {
-		printf("\t%llu embryonic connections dropped\n",
-		       tcps.conndrops);
+		printf("\t%llu embryonic connections dropped\n", tcps.conndrops);
 	}
 	if (tcps.rttupdated || tcps.segstimed || sflag > 1) {
 		printf("\t%llu segments updated rtt (of %llu attempts)\n",
-		       tcps.rttupdated, tcps.segstimed);
+			       tcps.rttupdated, tcps.segstimed);
 	}
 	if (tcps.rexmttimeo || sflag > 1) {
 		printf("\t%llu retransmit timeouts\n", tcps.rexmttimeo);
 	}
 	if (tcps.timeoutdrop || sflag > 1) {
-		printf("\t\t%llu connections dropped by rexmit timeout\n",
-		       tcps.timeoutdrop);
+		printf("\t\t%llu connections dropped by rexmit timeout\n", tcps.timeoutdrop);
 	}
 	if (tcps.persisttimeo || sflag > 1) {
 		printf("\t%llu persist timeouts\n", tcps.persisttimeo);
@@ -873,16 +862,13 @@ print_tcp_stats(void)
 		printf("\t\t%llu keepalive probes sent\n", tcps.keepprobe);
 	}
 	if (tcps.keepdrops || sflag > 1) {
-		printf("\t\t%llu connections dropped by keepalive\n",
-		       tcps.keepdrops);
+		printf("\t\t%llu connections dropped by keepalive\n", tcps.keepdrops);
 	}
 	if (tcps.predack || sflag > 1) {
-		printf("\t%llu correct ACK header predictions\n",
-		       tcps.predack);
+		printf("\t%llu correct ACK header predictions\n", tcps.predack);
 	}
 	if (tcps.preddat || sflag > 1) {
-		printf("\t%llu correct data packet header predictions\n",
-		       tcps.preddat);
+		printf("\t%llu correct data packet header predictions\n", tcps.preddat);
 	}
 //	// syncache
 //	printf("\t%llu syncache entries added\n", tcps.sc_added);
@@ -921,7 +907,7 @@ print_tcp_stats(void)
 //	printf("\t%llu times unexpected signature received\n", tcps.sig_err_sigopt);
 //	printf("\t%llu times no signature provided by segment\n", tcps.sig_err_nosigopt);
 	first = 1;
-	for (i = 0; i < GT_TCP_NSTATES; ++i) {
+	for (i = 0; i < GT_TCPS_MAX_STATES; ++i) {
 		if (tcps.states[i] || sflag > 1) {
 			if (first) {
 				first = 0;

@@ -30,17 +30,15 @@ struct file {
 };
 
 #define FILE_FOREACH2(s, fp) \
-	for (int GT_UNIQV(fd) = 0; \
-		(fp = file_next(s, GT_UNIQV(fd))) != NULL; \
-		GT_UNIQV(fd) = file_get_fd(fp) + 1)
+	for (int GT_UNIQ_VAR(fd) = 0; \
+			(fp = file_next(s, GT_UNIQ_VAR(fd))) != NULL; \
+			GT_UNIQ_VAR(fd) = file_get_fd(fp) + 1)
 
 #define FILE_FOREACH_SAFE3(s, fp, tmp_fd) \
-	for (int GT_UNIQV(fd) = 0; \
-		((fp = file_next(s, GT_UNIQV(fd))) != NULL) && \
-		((tmp_fd = file_get_fd(fp) + 1), 1); \
-		GT_UNIQV(fd) = tmp_fd)
-
-extern int file_sizeof;
+	for (int GT_UNIQ_VAR(fd) = 0; \
+			((fp = file_next(s, GT_UNIQ_VAR(fd))) != NULL) && \
+			((tmp_fd = file_get_fd(fp) + 1), 1); \
+			GT_UNIQ_VAR(fd) = tmp_fd)
 
 int file_mod_init(void);
 

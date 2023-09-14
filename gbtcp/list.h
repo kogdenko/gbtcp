@@ -66,6 +66,10 @@ void dlist_splice_tail_init(struct dlist *, struct dlist *);
 #define dlist_foreach(var, head) \
 	for (var = (head)->dls_next; var != (head); var = var->dls_next)
 
+#define dlist_foreach_rcu(var, head) \
+	for (var = READ_ONCE((head)->dls_next); \
+			var != (head); var = READ_ONCE(var->dls_next))
+
 #define DLIST_FOREACH(var, head, field) \
 	for (var = DLIST_FIRST(head, typeof(*(var)), field); \
 	     &((var)->field) != (head); \
