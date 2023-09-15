@@ -1,35 +1,4 @@
-/*
- * Copyright (c) 1982, 1986, 1988, 1993
- *	The Regents of the University of California.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *	This product includes software developed by the University of
- *	California, Berkeley and its contributors.
- * 4. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-4-Clause
 
 #include "socket.h"
 #include "ip.h"
@@ -48,99 +17,70 @@
  * Ip input routine.  Checksum and byte swap header.  If fragmented
  * try to reassemble.  Process options.  Pass to next level.
  */
-void
-ip_input(struct ip *ip, int len, int eth_flags)
+int
+ip_input(struct route_if *ifp, struct ip4_hdr *ip, int len, int eth_flags)
 {
-	uint16_t ip_sum;
-	uint32_t ia;
 	int hlen;
 	struct ip_stat *ips;
 
 	ips = current->p_rx_ips;
 	ips->ips_total++;
-	if (len < sizeof(struct ip)) {
+	if (len < sizeof(*ip)) {
 		ips->ips_toosmall++;
-		return;
+		return IN_DROP;
 	}
-	if (ip->ip_v != IPVERSION) {
+	if (IP4_HDR_VER(ip->ih_ver_ihl) != IPVERSION) {
 		ips->ips_badvers++;
-		return;
+		return IN_DROP;
 	}
-	hlen = ip->ip_hl << 2;
-	if (hlen < sizeof(struct ip)) {	/* minimum header length */
+	hlen = IP4_HDR_LEN(ip->ih_ver_ihl);
+	if (hlen < sizeof(*ip)) {	/* minimum header length */
 		ips->ips_badhlen++;
-		return;
+		return IN_DROP;
 	}
 	if (hlen > len) {
 		ips->ips_badhlen++;
-		return;
+		return IN_DROP;
 	}
-	ip_sum = ip->ip_sum;
-	if (ip_sum == 0) {
-		ip_sum = 0xffff;
-	}
-	ip->ip_sum = 0;
-	if (current->t_ip_do_incksum) {
-		ip->ip_sum = ip_cksum(ip);
-		if (ip->ip_sum != ip_sum) {
-			ips->ips_badsum++;
-			if (current->t_ip_do_incksum) {
-				return;
-			}
-		}
+	if (!gt_ip4_validate_cksum(ip)) {
+		ips->ips_badsum++;
+		return IN_DROP;
 	}
 
 	/*
 	 * Convert fields to host representation.
 	 */
-	NTOHS(ip->ip_len);
-	if (ip->ip_len < hlen) {
+	NTOHS(ip->ih_total_len);
+	if (ip->ih_total_len < hlen) {
 		ips->ips_badlen++;
-		return;
+		return IN_DROP;
 	}
-	NTOHS(ip->ip_id);
-	NTOHS(ip->ip_off);
+	NTOHS(ip->ih_id);
+	NTOHS(ip->ih_frag_off);
 
 	/*
 	 * Check that the amount of data in the buffers
 	 * is as at least much as the IP header would have us expect.
 	 * Drop packet if shorter than we expect.
 	 */
-	if (len < ip->ip_len) {
+	if (len < ip->ih_total_len) {
 		ips->ips_tooshort++;
-		return;
+		return IN_DROP;
 	}
 
-//	// Check our list of addresses, to see if the packet is for us.
-//	for (ia = current->t_ip_laddr_min;
-//	     ia <= current->t_ip_laddr_max; ++ia) {
-//		if (ia == ntohl(ip->ip_dst.s_addr)) {
-//			goto ours;
-//		}
-//	}
-
-//	// Not for us.
-//	icmp_error(ip, ICMP_UNREACH, ICMP_UNREACH_NET, 0);
-//	return;
-
-ours:
-	if (ip->ip_off &~ IP_DF) {
+	if (ip->ih_frag_off &~ IP_DF) {
 		ips->ips_fragments++;
-		return;
+		return IN_BYPASS;
 	}
-	ip->ip_len -= hlen;
-	ips->ips_delivered++;
-	switch (ip->ip_p) {
+	ip->ih_total_len -= hlen;
+	switch (ip->ih_proto) {
 	case IPPROTO_TCP:
-		tcp_input(ip, hlen, eth_flags);
-		break;
+		return tcp_input(ifp, ip, hlen, eth_flags);
 	case IPPROTO_UDP:
-		udp_input(ip, hlen, eth_flags);
-		break;
+		return udp_input(ip, hlen, eth_flags);
 	case IPPROTO_ICMP:
-		icmp_input(ip, hlen);
-		break;
+		return icmp_input(ip, hlen);
 	default:
-		break;
+		return IN_BYPASS;
 	}
 }

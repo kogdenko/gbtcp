@@ -67,6 +67,7 @@
 #define GT_SYSCTL_ROUTE_ROUTE_LIST "route.route.list"
 #define GT_SYSCTL_TCP "tcp"
 #define GT_SYSCTL_TCP_FIN_TIMEOUT "tcp.fin_timeout"
+#define GT_SYSCTL_TCP_TIME_WAIT_TIMEOUT "tcp.time_wait_timeout"
 #define GT_SYSCTL_SOCKET "socket"
 #define GT_SYSCTL_SOCKET_CONNECTED_LIST "socket.connected.list"
 #define GT_SYSCTL_SOCKET_CONNECTED_SIZE "socket.connected.size"

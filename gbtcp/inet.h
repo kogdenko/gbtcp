@@ -20,6 +20,8 @@
 #define ARP_OP_REPLY 2
 #define ARP_OP_REPLY_BE hton16(ARP_OP_REPLY)
 
+#define GT_IP4_VER 4
+
 #define IP4_MTU_MIN 68
 
 #define IP4_VER_IHL (0x40|0x05)
@@ -28,16 +30,16 @@
 #define IP4H_FLAG_DF (1 << 6)
 #define IP4H_FLAG_MF (1 << 5)
 
-#define IP6_MTU_GT_MIN 1280
+#define IP6_MTU_MIN 1280
 
 #define IP6H_VER_TC_FL 0x60
 
-#define TCP_FLAG_FIN 0x01
-#define TCP_FLAG_SYN 0x02
-#define TCP_FLAG_RST 0x04
-#define TCP_FLAG_PSH 0x08
-#define TCP_FLAG_ACK 0x10
-#define TCP_FLAG_URG 0x20
+#define GT_TCPF_FIN 0x01
+#define GT_TCPF_SYN 0x02
+#define GT_TCPF_RST 0x04
+#define GT_TCPF_PSH 0x08
+#define GT_TCPF_ACK 0x10
+#define GT_TCPF_URG 0x20
 
 #define TCP_OPT_EOL 0 
 #define TCP_OPT_NOP 1
@@ -50,6 +52,12 @@
 #define IN_OK -1
 #define IN_DROP -2
 #define IN_BYPASS -3
+
+#define GT_INET_PARSER_SHIFT(in, size) \
+	do { \
+		in->in_cur += size; \
+		in->in_rem -= size; \
+	} while (0)
 
 struct eth_hdr {
 	struct eth_addr eh_daddr;
@@ -147,7 +155,6 @@ struct tcp_opts {
 	struct tcp_opt_ts tcp_opt_ts;
 };
 
-
 #define TCP_STAT_DECLARE(n) uint64_t tcps_##n;
 struct tcp_stat {
 	GT_X_TCP_STAT(TCP_STAT_DECLARE)
@@ -185,7 +192,6 @@ struct in_context {
 	u_char *in_cur;
 	int in_rem;
 	int in_errnum;
-	u_char in_cksum_offload;
 	struct eth_hdr *in_eh;
 	struct arp_hdr *in_ah;
 	struct ip4_hdr *in_ih;
@@ -216,6 +222,8 @@ struct in_context {
 };
 
 #define IP4_HDR_LEN(ver_ihl) (((ver_ihl) & 0x0f) << 2)
+#define IP4_HDR_VER(ver_ihl) ((ver_ihl) & 0xf0)
+
 #define TCP_HDR_LEN(data_off) ((data_off & 0xf0) >> 2)
 
 int inet_mod_init(void);
@@ -223,6 +231,8 @@ int inet_mod_init(void);
 void in_context_init(struct in_context *, void *, int);
 int eth_input(struct in_context *);
 void ip4_set_cksum(struct ip4_hdr *, void *);
+int gt_ip4_validate_cksum(struct ip4_hdr *);
+int gt_tcp_validate_cksum(struct ip4_hdr *, struct tcp_hdr *, int);
 int tcp_opts_fill(struct tcp_opts *, void *);
 int tcp_opts_len(struct tcp_opts *);
 

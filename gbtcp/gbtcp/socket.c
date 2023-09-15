@@ -38,12 +38,12 @@
 #endif
 
 #define TCP_FLAG_FOREACH(x) \
-	x(TCP_FLAG_FIN, 'F') \
-	x(TCP_FLAG_SYN, 'S') \
-	x(TCP_FLAG_RST, 'R') \
-	x(TCP_FLAG_PSH, 'P') \
-	x(TCP_FLAG_ACK, '.') \
-	x(TCP_FLAG_URG, 'U') 
+	x(GT_TCPF_FIN, 'F') \
+	x(GT_TCPF_SYN, 'S') \
+	x(GT_TCPF_RST, 'R') \
+	x(GT_TCPF_PSH, 'P') \
+	x(GT_TCPF_ACK, '.') \
+	x(GT_TCPF_URG, 'U') 
 
 #define tcps current->p_tcps
 #define udps current->p_udps
@@ -129,6 +129,7 @@ enum {
 	TCP_TIMER_REXMIT,
 	TCP_TIMER_PERSIST,
 	TCP_TIMER_FIN,
+	TCP_TIMER_TIME_WAIT,
 };
 
 enum so_error {
@@ -202,9 +203,9 @@ static int tcp_is_in_order(struct sock *, struct in_context *);
 
 static int gt_tcp_process_badack(struct sock *so, uint32_t acked);
 
-static int tcp_enter_TIME_WAIT(struct sock *, struct in_context *);
+static int tcp_enter_time_wait(struct sock *, struct in_context *);
 
-static void tcp_rcv_TIME_WAIT(struct sock *so);
+static void tcp_rcv_time_wait(struct sock *so);
 
 static int tcp_process_ack(struct sock *, struct in_context *);
 
@@ -1307,17 +1308,6 @@ tcp_delack(struct sock *so)
 	timer_set(&so->so_timer_delack, 200 * NSEC_MSEC, GT_MODULE_SOCKET, TCP_TIMER_DELACK);
 }
 
-#if 0
-static void
-gt_tcp_timeout_TIME_WAIT(struct timer *timer)
-{
-	struct sock *so;
-
-	so = gt_container_of(timer, struct sock, timer);
-	tcp_set_state(so, TCPS_CLOSED);
-}
-#endif
-
 static void
 tcp_tx_timer_set(struct sock *so)
 {
@@ -1373,6 +1363,7 @@ gt_gbtcp_so_timer(struct timer *timer, u_char fn_id)
 		so = container_of(timer, struct sock, so_timer_delack);
 		tcp_into_ackq(so);
 		break;
+
 	case TCP_TIMER_REXMIT:
 		so = container_of(timer, struct sock, so_timer);
 		assert(GT_SOCK_ALIVE(so));
@@ -1397,6 +1388,7 @@ gt_gbtcp_so_timer(struct timer *timer, u_char fn_id)
 		so->so_tx_timo = 1;
 		tcp_into_sndq(so);
 		break;
+
 	case TCP_TIMER_PERSIST:
 		so = container_of(timer, struct sock, so_timer);
 		assert(GT_SOCK_ALIVE(so));
@@ -1408,10 +1400,17 @@ gt_gbtcp_so_timer(struct timer *timer, u_char fn_id)
 		tcp_into_ackq(so);
 		tcp_wprobe_timer_set(so);
 		break;
+
 	case TCP_TIMER_FIN:
 		so = container_of(timer, struct sock, so_timer);
-		tcp_enter_TIME_WAIT(so, NULL);
+		tcp_enter_time_wait(so, NULL);
 		break;
+
+	case TCP_TIMER_TIME_WAIT:
+		so = container_of(timer, struct sock, so_timer);
+		tcp_set_state(so, NULL, GT_TCPS_CLOSED);
+		break;
+
 	default:
 		BUG("bad timer");
 		break;
@@ -1423,11 +1422,11 @@ static void
 tcp_rcv_SYN_SENT(struct sock *so, struct in_context *in)
 {
 	switch (in->in_tcp_flags) {
-	case TCP_FLAG_SYN|TCP_FLAG_ACK:
+	case GT_TCPF_SYN|GT_TCPF_ACK:
 		tcp_set_state(so, in, GT_TCPS_ESTABLISHED);
 		so->so_ack = 1;
 		break;
-	case TCP_FLAG_SYN:
+	case GT_TCPF_SYN:
 		tcp_set_state(so, in, GT_TCPS_SYN_RCVD);
 		break;
 	default:
@@ -1461,7 +1460,7 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 	so->so_lport = lport;
 	so->so_fport = fport;
 	gt_tcp_open(so);
-	if (in->in_tcp_flags != TCP_FLAG_SYN) {
+	if (in->in_tcp_flags != GT_TCPF_SYN) {
 		TCP_DBG("First connection packet not a SYN [%s]; %s:%hu>%s:%hu, seq=%u, lfd=%d, fd=%d",
 			log_add_tcp_flags(so->so_ipproto, in->in_tcp_flags),
 			log_add_ipaddr(AF_INET, &so->so_laddr),
@@ -1551,7 +1550,7 @@ tcp_rcv_established(struct sock *so, struct in_context *in)
 
 	assert(tcps_is_connected(so->so_state));
 	if (so->so_rfin) {
-		if (in->in_len || (in->in_tcp_flags & TCP_FLAG_FIN)) {
+		if (in->in_len || (in->in_tcp_flags & GT_TCPF_FIN)) {
 			tcp_into_ackq(so);
 		}
 		return;
@@ -1559,10 +1558,10 @@ tcp_rcv_established(struct sock *so, struct in_context *in)
 	if (in->in_len) {
 		tcp_rcv_data(so, in);
 	}
-	if (in->in_tcp_flags & TCP_FLAG_SYN) {
+	if (in->in_tcp_flags & GT_TCPF_SYN) {
 		tcp_into_ackq(so);
 	}
-	if (in->in_tcp_flags & TCP_FLAG_FIN) {
+	if (in->in_tcp_flags & GT_TCPF_FIN) {
 		so->so_rfin = 1;
 		so->so_rseq++;
 		so_wakeup(so, in, POLLIN|GT_POLLRDHUP);
@@ -1576,7 +1575,7 @@ tcp_rcv_established(struct sock *so, struct in_context *in)
 			break;
 		case GT_TCPS_FIN_WAIT_2:
 			timer_cancel(&so->so_timer); // tcp_fin_timeout
-			rc = tcp_enter_TIME_WAIT(so, in);
+			rc = tcp_enter_time_wait(so, in);
 			if (rc) {
 				return;
 			}
@@ -1590,7 +1589,7 @@ tcp_rcv_open(struct sock *so, struct in_context *in)
 {
 	int rc;
 
-	if (in->in_tcp_flags & TCP_FLAG_RST) {
+	if (in->in_tcp_flags & GT_TCPF_RST) {
 		// TODO: check seq
 		tcps.tcps_drops++;
 		if (!tcps_is_connected(so->so_state)) {
@@ -1608,7 +1607,7 @@ tcp_rcv_open(struct sock *so, struct in_context *in)
 			return;
 		}
 	}
-	if (in->in_tcp_flags & TCP_FLAG_ACK) {
+	if (in->in_tcp_flags & GT_TCPF_ACK) {
 		rc = tcp_process_ack(so, in);
 		if (rc) {
 			return;
@@ -1641,7 +1640,7 @@ tcp_is_in_order(struct sock *so, struct in_context *in)
 	uint32_t len, off;
 
 	len = in->in_len;
-	if (in->in_tcp_flags & (TCP_FLAG_SYN|TCP_FLAG_FIN)) {
+	if (in->in_tcp_flags & (GT_TCPF_SYN|GT_TCPF_FIN)) {
 		len++;
 	}
 	off = tcp_diff_seq(in->in_tcp_seq, so->so_rseq);
@@ -1675,21 +1674,24 @@ gt_tcp_process_badack(struct sock *so, uint32_t acked)
 }
 
 static int
-tcp_enter_TIME_WAIT(struct sock *so, struct in_context *in)
+tcp_enter_time_wait(struct sock *so, struct in_context *in)
 {
 	int rc;
+	uint64_t to;
 
-#if 1
-	rc = tcp_set_state(so, in, GT_TCPS_CLOSED);
-	return rc;
-#else
-	tcp_set_state(so, GT_TCPS_TIME_WAIT);
-	timer_set(&so->so_timer, 2 * MSL, gt_tcp_timeout_TIME_WAIT);
-#endif
+	to = curmod->tcp_time_wait_timeout;
+	if (to == 0) {
+		rc = tcp_set_state(so, in, GT_TCPS_CLOSED);
+		return rc;
+	} else {
+		tcp_set_state(so, NULL, GT_TCPS_TIME_WAIT);
+		timer_set(&so->so_timer, to, GT_MODULE_SOCKET, TCP_TIMER_TIME_WAIT);
+		return 0;
+	}
 }
 
 static void
-tcp_rcv_TIME_WAIT(struct sock *so)
+tcp_rcv_time_wait(struct sock *so)
 {
 }
 
@@ -1765,7 +1767,7 @@ tcp_process_ack_complete(struct sock *so, struct in_context *in)
 			tcp_set_state(so, in, GT_TCPS_FIN_WAIT_2);
 			break;
 		case GT_TCPS_CLOSING:
-			rc = tcp_enter_TIME_WAIT(so, in);
+			rc = tcp_enter_time_wait(so, in);
 			if (rc) {
 				return rc;
 			}
@@ -1905,7 +1907,7 @@ tcp_tx_established(struct route_entry *r, struct dev_pkt *pkt, struct sock *so)
 	} else {
 		snt = tcp_sender(so, cnt);
 		if (snt) {
-			tcp_flags = TCP_FLAG_ACK;
+			tcp_flags = GT_TCPF_ACK;
 		} else {
 			if (tcp_wprobe_timer_set(so)) {
 				so->so_wprobe = 1;
@@ -1923,7 +1925,7 @@ tcp_tx_established(struct route_entry *r, struct dev_pkt *pkt, struct sock *so)
 			break;
 		}
 		so->so_sfin_sent = 1;
-		tcp_flags |= TCP_FLAG_FIN;
+		tcp_flags |= GT_TCPF_FIN;
 	}
 	if (tcp_flags) {
 		tcp_tx_data(r, pkt, so, tcp_flags, snt);
@@ -1945,17 +1947,17 @@ tcp_tx(struct route_entry *r, struct dev_pkt *pkt, struct sock *so)
 	case GT_TCPS_LISTEN:
 		return 1;
 	case GT_TCPS_SYN_SENT:
-		tcp_tx_data(r, pkt, so, TCP_FLAG_SYN, 0);
+		tcp_tx_data(r, pkt, so, GT_TCPF_SYN, 0);
 		return 1;
 	case GT_TCPS_SYN_RCVD:
-		tcp_tx_data(r, pkt, so, TCP_FLAG_SYN|TCP_FLAG_ACK, 0);
+		tcp_tx_data(r, pkt, so, GT_TCPF_SYN|GT_TCPF_ACK, 0);
 		return 1;
 	default:
 		rc = tcp_tx_established(r, pkt, so);
 		if (rc == 0) {
 			if (so->so_ack) {
 				so->so_ack = 0;
-				tcp_tx_data(r, pkt, so, TCP_FLAG_ACK, 0);
+				tcp_tx_data(r, pkt, so, GT_TCPF_ACK, 0);
 			}
 			return 1;
 		} else {
@@ -1967,7 +1969,7 @@ tcp_tx(struct route_entry *r, struct dev_pkt *pkt, struct sock *so)
 
 static int
 tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcp_fill_info *tcb,
-	uint8_t tcp_flags, u_int len)
+		uint8_t tcp_flags, u_int len)
 {
 	int cnt, emss, tcp_opts_len, th_len, total_len;
 	void *payload;
@@ -1978,13 +1980,13 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcp_fill_info *tcb,
 	ih = (struct ip4_hdr *)(eh + 1);
 	th = (struct tcp_hdr *)(ih + 1);
 	tcb->tcb_opts.tcp_opt_flags = 0;
-	if (tcp_flags & TCP_FLAG_SYN) {
+	if (tcp_flags & GT_TCPF_SYN) {
 		tcb->tcb_opts.tcp_opt_flags |= (1 << TCP_OPT_MSS);
 		tcb->tcb_opts.tcp_opt_mss = so->so_lmss;
 	}
 	cnt = so->so_sndbuf.sob_len - so->so_ssnt;
-	if (tcps_is_connected(so->so_state) && (tcp_flags & TCP_FLAG_RST) == 0) {
-		tcp_flags |= TCP_FLAG_ACK;
+	if (tcps_is_connected(so->so_state) && (tcp_flags & GT_TCPF_RST) == 0) {
+		tcp_flags |= GT_TCPF_ACK;
 		if (len == 0 && cnt && so->so_rwnd > so->so_ssnt) {
 			len = MIN(cnt, so->so_rwnd - so->so_ssnt);
 		}
@@ -1994,7 +1996,7 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcp_fill_info *tcb,
 		assert(len <= so->so_rwnd - so->so_ssnt);
 		if (so->so_ssnt + len == so->so_sndbuf.sob_len ||
 		    (so->so_rwnd - so->so_ssnt) - len <= tcp_emss(so)) {
-			tcp_flags |= TCP_FLAG_PSH;
+			tcp_flags |= GT_TCPF_PSH;
 		}
 	}
 	tcb->tcb_win = so->so_swnd;
@@ -2043,11 +2045,11 @@ tcp_fill(struct sock *so, struct eth_hdr *eh, struct tcp_fill_info *tcb,
 	ip4_set_cksum(ih, th);
 	so->so_ip_id++;
 	so->so_ssnt += tcb->tcb_len;
-	if (tcp_flags & TCP_FLAG_SYN) {
+	if (tcp_flags & GT_TCPF_SYN) {
 		so->so_ssyn = 1;
 		assert(so->so_ssyn_acked == 0);
 	}
-	if (tcb->tcb_len || (tcp_flags & (TCP_FLAG_SYN|TCP_FLAG_FIN))) {
+	if (tcb->tcb_len || (tcp_flags & (GT_TCPF_SYN|GT_TCPF_FIN))) {
 		if (so->so_tx_timo) {
 			so->so_tx_timo = 0;
 			tcps.tcps_sndrexmitpack++;
@@ -2610,10 +2612,10 @@ sock_tx(struct route_entry *r, struct dev_pkt *pkt, struct sock *so)
 	if (so->so_state == GT_TCPS_CLOSED && so->so_referenced == 0) { // ?????
 		tcp_flags = 0;
 		if (so->so_ack) {
-			tcp_flags |= TCP_FLAG_ACK;
+			tcp_flags |= GT_TCPF_ACK;
 		}
 		if (so->so_rst) {
-			tcp_flags |= TCP_FLAG_RST;
+			tcp_flags |= GT_TCPF_RST;
 		}
 		if (tcp_flags) { // TODO: ????
 			tcp_tx_data(r, pkt, so, tcp_flags, 0);
@@ -2645,7 +2647,7 @@ tcp_tx_data(struct route_entry *r, struct dev_pkt *pkt,
 	if (tcb.tcb_len) {
 		tcps.tcps_sndpack++;
 		tcps.tcps_sndbyte += tcb.tcb_len;
-	} else if (tcb.tcb_flags == TCP_FLAG_ACK) {
+	} else if (tcb.tcb_flags == GT_TCPF_ACK) {
 		tcps.tcps_sndacks++;
 		if (delack) {
 			tcps.tcps_delack++;
@@ -2681,9 +2683,9 @@ sock_sndbuf_drain(struct sock *so, int cnt)
 		cnt, so->so_sndbuf.sob_len, so_get_fd(so));
 }
 
-int
+static int
 so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
-	be16_t lport, be16_t fport)
+		be16_t lport, be16_t fport)
 {
 	int so_ipproto, i;
 	uint32_t h;
@@ -2747,7 +2749,7 @@ so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 			tcp_rcv_LISTEN(so, in, laddr, faddr, lport, fport);
 			break;
 		case GT_TCPS_TIME_WAIT:
-			tcp_rcv_TIME_WAIT(so);
+			tcp_rcv_time_wait(so);
 			break;
 		default:
 			tcp_rcv_open(so, in);

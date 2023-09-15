@@ -43,6 +43,8 @@
 // Per RFC 768, August, 1980.
 int udpcksum = 1;
 
+#define udpstat (*current->p_rx_udps)
+
 static	void udp_notify(struct socket *, int);
 
 void
@@ -51,7 +53,7 @@ udp_init(void)
 }
 
 void
-udp_input(struct ip *ip, int iphlen, int eth_flags)
+udp_input(struct ip4_hdr *ip, int iphlen, int eth_flags)
 {
 	struct bsd_udp_hdr *uh;
 	struct socket *so;
@@ -63,7 +65,7 @@ udp_input(struct ip *ip, int iphlen, int eth_flags)
 
 	// Get IP and UDP header together in first mbuf.
 	if (ip->ip_len < sizeof(struct bsd_udp_hdr)) {
-		counter64_inc(&udpstat.udps_hdrops);
+		udpstat.udps_hdrops++;
 		return;
 	}
 	uh = (struct bsd_udp_hdr *)((u_char *)ip + iphlen);
@@ -73,7 +75,7 @@ udp_input(struct ip *ip, int iphlen, int eth_flags)
 	len = ntohs((u_short)uh->uh_ulen);
 	if (ip->ip_len != len) {
 		if (len > ip->ip_len) {
-			counter64_inc(&udpstat.udps_badlen);
+			udpstat.udps_badlen++;
 			return;
 		}
 	}
@@ -88,7 +90,7 @@ udp_input(struct ip *ip, int iphlen, int eth_flags)
 		uh->uh_sum = 0;
 		uh->uh_sum = udp_cksum(ip, len);
 		if (uh->uh_sum != uh_sum) {
-			counter64_inc(&udpstat.udps_badsum);
+			udpstat.udps_badsum++;
 			return;
 		}
 	}
@@ -97,9 +99,9 @@ udp_input(struct ip *ip, int iphlen, int eth_flags)
 	so = in_pcblookup(IPPROTO_UDP, ip->ip_dst.s_addr, uh->uh_dport,
 			ip->ip_src.s_addr, uh->uh_sport);
 	if (so == NULL) {
-		counter64_inc(&udpstat.udps_noport);
+		udpstat.udps_noport++;
 		if (eth_flags & (M_BCAST | M_MCAST)) {
-			counter64_inc(&udpstat.udps_noportbcast);
+			udpstat.udps_noportbcast++;
 		} else {
 			*ip = save_ip;
 			ip->ip_len += iphlen;
@@ -188,7 +190,7 @@ udp_output(struct socket *so, const void *dat, int len,	const struct sockaddr_in
 	if (udpcksum) {
 		uh->uh_sum = udp_cksum(ip, sizeof(*uh) + len);
 	}
-	counter64_inc(&udpstat.udps_opackets);
+	udpstat.udps_opackets++;
 	rc = ip_output(&pkt, ip);
 //	if (addr) {
 //		in_pcbdisconnect(so);

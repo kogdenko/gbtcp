@@ -42,112 +42,6 @@
 
 u_char	etherbroadcastaddr[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 
-/*
- * ARP trailer negotiation.  Trailer protocol is not IP specific,
- * but ARP request/response use IP addresses.
- */
-#define ETHERTYPE_IPTRAILERS ETHERTYPE_TRAIL
-
-/*
- * ARP for Internet protocols on 10 Mb/s Ethernet.
- * Algorithm is that given in RFC 826.
- * In addition, a sanity check is performed on the sender
- * protocol address, to catch impersonators.
- * We no longer handle negotiations for use of trailer protocol:
- * Formerly, ARP replied for protocol type ETHERTYPE_TRAIL sent
- * along with IP replies if we wanted trailers sent to us,
- * and also sent them in response to IP replies.
- * This allowed either end to announce the desire to receive
- * trailer packets.
- * We no longer reply to requests for ETHERTYPE_TRAIL protocol either,
- * but formerly didn't normally send requests.
- */
-void
-arp_input(struct arphdr *ar, int len)
-{
-	uint32_t ia;
-	be32_t ian;
-	struct ether_arp *ea;
-	struct ether_header *eh;
-	struct in_addr isaddr, itaddr, myaddr;
-	int op;
-	struct packet pkt;
-
-	if (len >= sizeof(struct arphdr) &&
-	    ntohs(ar->ar_hrd) == ARPHRD_ETHER &&
-	    len >= sizeof(*ar) + 2 * ar->ar_hln + 2 * ar->ar_pln) {
-		switch (ntohs(ar->ar_pro)) {
-		case ETHERTYPE_IP:
-		case ETHERTYPE_IPTRAILERS:
-			goto in;
-		default:
-			break;
-		}
-	}
-	return;
-in:
-	myaddr.s_addr = 0;
-	ea = (struct ether_arp *)(ar);
-	op = ntohs(ea->arp_op);
-	memcpy(&isaddr, ea->arp_spa, sizeof(isaddr));
-	memcpy(&itaddr, ea->arp_tpa, sizeof(itaddr));
-	if (1) {
-		myaddr = itaddr;
-		goto reply; 	// Reply to all requetsts
-	}
-	for (ia = current->t_ip_laddr_min;
-	     ia <= current->t_ip_laddr_max; ++ia) {
-		ian = htonl(ia);
-		if ((itaddr.s_addr == ian) || (isaddr.s_addr == ian)) {
-			myaddr.s_addr = ian;
-			break;
-		}
-	}
-	if (myaddr.s_addr == 0) {
-		goto out;
-	}
-	if (!memcmp(ea->arp_sha, current->t_eth_laddr, sizeof(ea->arp_sha))) {
-		goto out;	/* it's from me, ignore it. */
-	}
-	if (!memcmp(ea->arp_sha, etherbroadcastaddr, sizeof(ea->arp_sha))) {
-		printf(
-		    "arp: ether address is broadcast for IP address %x!\n",
-		    ntohl(isaddr.s_addr));
-		goto out;
-	}
-	if (isaddr.s_addr == myaddr.s_addr) {
-		printf(
-		   "duplicate IP address %x!! sent from ethernet address: %s\n",
-		   ntohl(isaddr.s_addr), ether_sprintf(ea->arp_sha));
-		itaddr = myaddr;
-		goto reply;
-	}
-reply:
-	if (op != ARPOP_REQUEST) {
-out:
-		return;
-	}
-	if (itaddr.s_addr == myaddr.s_addr) {
-		/* I am the target */
-		memcpy(ea->arp_tha, ea->arp_sha, sizeof(ea->arp_sha));
-		memcpy(ea->arp_sha, current->t_eth_laddr, sizeof(ea->arp_sha));
-	} else {
-		goto out;
-	}
-	memcpy(ea->arp_tpa, ea->arp_spa, sizeof(ea->arp_spa));
-	memcpy(ea->arp_spa, &itaddr, sizeof(ea->arp_spa));
-	ea->arp_op = htons(ARPOP_REPLY);
-	ea->arp_pro = htons(ETHERTYPE_IP); /* let's be sure! */
-	io_init_tx_packet(&pkt);
-	pkt.pkt.len = sizeof(*eh) +  sizeof(*ea);
-	eh = (struct ether_header *)pkt.pkt.buf;
-	memcpy(eh + 1, ea, sizeof(*ea));
-	memcpy(eh->ether_shost, current->t_eth_laddr, sizeof(eh->ether_shost));
-	memcpy(eh->ether_dhost, ea->arp_tha, sizeof(eh->ether_dhost));
-	eh->ether_type = htons(ETHERTYPE_ARP);
-	io_tx_packet(&pkt);
-}
-
 /* Process a received Ethernet packet; */
 void
 gt_bsd_rx(struct route_if *ifp, void *data, int len)
@@ -166,7 +60,7 @@ gt_bsd_rx(struct route_if *ifp, void *data, int len)
 	NTOHS(eh->ether_type);
 	switch (eh->ether_type) {
 	case ETHERTYPE_IP:
-		ip_input((struct ip *)(eh + 1), len, eth_flags);
+		ip_input(ifp, (struct ip *)(eh + 1), len, eth_flags);
 		break;
 	case ETHERTYPE_ARP:
 		arp_input((struct arphdr *)(eh + 1), len);

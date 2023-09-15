@@ -699,3 +699,98 @@ arp_reply(struct route_if *ifp, struct arp_hdr *ah)
 	arps.arps_txreplies++;
 	route_transmit(ifp, &pkt);
 }
+
+int
+gt_arp_input(struct in_context *in)
+{
+	int i, is_req;
+	be32_t sip, tip;
+	struct route_if_addr *ifa;
+	struct arp_advert adv;
+
+	arps.arps_received++;
+	if (in->in_rem < sizeof(struct arp_hdr)) {
+		arps.arps_toosmall++;
+		return IN_DROP;
+	}
+	in->in_ah = (struct arp_hdr *)in->in_cur;
+	GT_INET_PARSER_SHIFT(in, sizeof(struct arp_hdr));
+	if (in->in_ah->ah_hrd != ARP_HRD_ETH_BE) {
+		arps.arps_badhrd++;
+		return IN_DROP;
+	}
+	if (in->in_ah->ah_pro != ETH_TYPE_IP4_BE) {
+		arps.arps_badpro++;
+		return IN_DROP;
+	}
+	if (in->in_ah->ah_hlen != sizeof(struct eth_addr)) {
+		arps.arps_badhlen++;
+		return IN_DROP;
+	}
+	if (in->in_ah->ah_plen != sizeof(be32_t)) {
+		arps.arps_badplen++;
+		return IN_DROP;
+	}
+	tip = in->in_ah->ah_data.aip_tip;
+	sip = in->in_ah->ah_data.aip_sip;
+	if (ipaddr4_is_loopback(tip)) {
+		arps.arps_badaddr++;
+		return IN_DROP;
+	}
+	if (ipaddr4_is_bcast(tip)) {
+		arps.arps_badaddr++;
+		return IN_DROP;
+	}
+	if (ipaddr4_is_loopback(sip)) {
+		arps.arps_badaddr++;
+		return IN_DROP;
+	}
+	if (ipaddr4_is_bcast(sip)) {
+		arps.arps_badaddr++;
+		return IN_DROP;
+	}
+	ifa = route_ifaddr_get4(tip);
+	if (ifa == NULL) {
+		return IN_BYPASS;
+	}
+	assert(in->in_ifp != NULL);
+	for (i = 0; i < in->in_ifp->rif_n_addrs; ++i) {
+		if (ifa == in->in_ifp->rif_addrs[i]) {
+			break;		
+		}
+	}
+	if (i == in->in_ifp->rif_n_addrs) {
+		arps.arps_filtered++;
+		return IN_BYPASS;
+	}
+	if (sip == 0) {
+		// IP4 duplicate address detection
+		return IN_BYPASS;
+	}
+	switch (in->in_ah->ah_op) {
+	case ARP_OP_REQUEST_BE:
+		arps.arps_rxrequests++;
+		is_req = 1;
+		arp_reply(in->in_ifp, in->in_ah);
+		break;
+	case ARP_OP_REPLY_BE:
+		arps.arps_rxreplies++;
+		is_req = 0;
+		break;
+	default:
+		arps.arps_badop++;
+		return IN_DROP;
+	}
+	adv.arpa_af = AF_INET;
+	adv.arpa_advert = !is_req;
+	adv.arpa_solicited = !is_req;
+	adv.arpa_override = !is_req;
+	adv.arpa_next_hop = in->in_ah->ah_data.aip_sip;
+	adv.arpa_addr = in->in_ah->ah_data.aip_sha;
+	arp_update(&adv);
+	if (is_req) {
+		return IN_DROP;
+	} else {
+		return IN_BYPASS;
+	}
+}

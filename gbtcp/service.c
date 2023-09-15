@@ -189,7 +189,6 @@ service_rssq_rx(struct dev *dev, void *data, int len)
 	current->p_rx_udps = &current->p_udps;
 	current->p_rx_ips = &current->p_ips;
 	current->p_rx_icmps = &current->p_icmps;
-	current->p_rx_arps = &current->p_arps;
 	in = gt_service_rx(ifp, data, len);
 	if (in == IN_BYPASS) {
 		if (current->p_sid == CONTROLLER_SID) {
@@ -224,7 +223,6 @@ service_redirect_dev_rx(struct dev *dev, void *data, int len)
 	struct udp_stat udps;
 	struct ip_stat ips;
 	struct icmp_stat icmps;
-	struct arp_stat arps;
 	struct eth_hdr *eh;
 	struct route_if *ifp;
 	struct service_msg *msg;
@@ -261,7 +259,6 @@ service_redirect_dev_rx(struct dev *dev, void *data, int len)
 		current->p_rx_udps = &udps;
 		current->p_rx_ips = &ips;
 		current->p_rx_icmps = &icmps;
-		current->p_rx_arps = &arps;
 		gt_service_rx(NULL, data, len);
 		break;
 	case SERVICE_MSG_TX:

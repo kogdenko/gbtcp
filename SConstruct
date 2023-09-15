@@ -191,20 +191,20 @@ srcs = [
 
 if HAVE_BSD44:
 	srcs.append([
-		'gbtcp/bsd44/tcp_debug.c',
-		'gbtcp/bsd44/tcp_timer.c',
-		'gbtcp/bsd44/uipc_socket.c',
-		'gbtcp/bsd44/tcp_usrreq.c',
-		'gbtcp/bsd44/if_ether.c',
-		'gbtcp/bsd44/udp_usrreq.c',
+#		'gbtcp/bsd44/tcp_debug.c',
+#		'gbtcp/bsd44/tcp_timer.c',
+#		'gbtcp/bsd44/uipc_socket.c',
+#		'gbtcp/bsd44/tcp_usrreq.c',
+#		'gbtcp/bsd44/if_ether.c',
+#		'gbtcp/bsd44/udp_usrreq.c',
 		'gbtcp/bsd44/ip_input.c',
-		'gbtcp/bsd44/glue.c',
-		'gbtcp/bsd44/in_pcb.c',
+#		'gbtcp/bsd44/glue.c',
+#		'gbtcp/bsd44/in_pcb.c',
 		'gbtcp/bsd44/tcp_input.c',
-		'gbtcp/bsd44/tcp_output.c',
-		'gbtcp/bsd44/ip_output.c',
-		'gbtcp/bsd44/ip_icmp.c',
-		'gbtcp/bsd44/tcp_subr.c',
+#		'gbtcp/bsd44/tcp_output.c',
+#		'gbtcp/bsd44/ip_output.c',
+#		'gbtcp/bsd44/ip_icmp.c',
+#		'gbtcp/bsd44/tcp_subr.c',
 	])
 
 if PLATFORM == "Linux":

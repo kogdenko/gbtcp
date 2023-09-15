@@ -99,6 +99,9 @@ struct ip_socket {
 
 #define TCP_NSTATES     11
 
+#define NTOHS(x) ((x) = ntohs((short)(x)))
+#define NTOHL(x) ((x) = ntohl((long)(x)))
+
 extern uint32_t tcp_now;
 extern u_char etherbroadcastaddr[6];
 extern const char *tcpstates[TCP_NSTATES];

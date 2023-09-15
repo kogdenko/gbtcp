@@ -60,7 +60,6 @@ struct service {
 	struct icmp_stat *p_rx_icmps;
 
 	struct arp_stat p_arps;
-	struct arp_stat *p_rx_arps;
 
 	int p_pid;
 	int p_fd;
