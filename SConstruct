@@ -7,7 +7,7 @@ import subprocess
 HAVE_NETMAP = False
 HAVE_XDP = False
 HAVE_VALE = False
-HAVE_BSD44 = False
+HAVE_BSD44 = True
 
 COMPILER = 'gcc'
 
@@ -157,6 +157,7 @@ g_env.AlwaysBuild('gbtcp/config.h')
 conf = Configure(g_env)
 
 srcs = [
+	'gbtcp/api.c',
 	'gbtcp/epoll.c',
 	'gbtcp/fd_event.c',
 	'gbtcp/file.c',
@@ -171,12 +172,12 @@ srcs = [
 	'gbtcp/route.c',
 	'gbtcp/signal.c',
 	'gbtcp/sockbuf.c',
+	'gbtcp/socket.c',
 	'gbtcp/strbuf.c',
 	'gbtcp/sysctl.c',
 	'gbtcp/timer.c',
 	'gbtcp/controller.c',
 	'gbtcp/preload.c',
-	'gbtcp/api.c',
 	'gbtcp/log.c',
 	'gbtcp/arp.c',
 	'gbtcp/lptree.c',
@@ -190,20 +191,20 @@ srcs = [
 
 if HAVE_BSD44:
 	srcs.append([
-		'bsd44/tcp_debug.c',
-		'bsd44/tcp_timer.c',
-		'bsd44/uipc_socket.c',
-		'bsd44/tcp_usrreq.c',
-		'bsd44/if_ether.c',
-		'bsd44/udp_usrreq.c',
-		'bsd44/ip_input.c',
-		'bsd44/glue.c',
-		'bsd44/in_pcb.c',
-		'bsd44/tcp_input.c',
-		'bsd44/tcp_output.c',
-		'bsd44/ip_output.c',
-		'bsd44/ip_icmp.c',
-		'bsd44/tcp_subr.c',
+		'gbtcp/bsd44/tcp_debug.c',
+		'gbtcp/bsd44/tcp_timer.c',
+		'gbtcp/bsd44/uipc_socket.c',
+		'gbtcp/bsd44/tcp_usrreq.c',
+		'gbtcp/bsd44/if_ether.c',
+		'gbtcp/bsd44/udp_usrreq.c',
+		'gbtcp/bsd44/ip_input.c',
+		'gbtcp/bsd44/glue.c',
+		'gbtcp/bsd44/in_pcb.c',
+		'gbtcp/bsd44/tcp_input.c',
+		'gbtcp/bsd44/tcp_output.c',
+		'gbtcp/bsd44/ip_output.c',
+		'gbtcp/bsd44/ip_icmp.c',
+		'gbtcp/bsd44/tcp_subr.c',
 	])
 
 if PLATFORM == "Linux":

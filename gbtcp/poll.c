@@ -2,8 +2,8 @@
 
 #include "fd_event.h"
 #include "file.h"
-#include "gbtcp/socket.h"
 #include "poll.h"
+#include "socket.h"
 
 struct poll_entry {
 	struct file_aio pe_aio;

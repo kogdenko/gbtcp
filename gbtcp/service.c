@@ -3,9 +3,9 @@
 #include "config.h"
 #include "controller.h"
 #include "fd_event.h"
-#include "gbtcp/socket.h"
 #include "service.h"
 #include "shm.h"
+#include "socket.h"
 #include "subr.h" // FIXME
 #include "pid.h"
 

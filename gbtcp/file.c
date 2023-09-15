@@ -3,10 +3,10 @@
 #include "epoll.h"
 #include "fd_event.h"
 #include "file.h"
-#include "gbtcp/socket.h"
 #include "global.h"
 #include "log.h"
 #include "service.h"
+#include "socket.h"
 
 struct gt_module_file {
 	struct log_scope log_scope;

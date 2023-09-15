@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: LGPL-2.1-only
 
 #include "file.h"
-#include "gbtcp/socket.h"
 #include "global.h"
 #include "log.h"
 #include "mod.h"
 #include "shm.h"
+#include "socket.h"
 
 struct mod mods[MODS_MAX] = {
 	[GT_MODULE_LOG] = {

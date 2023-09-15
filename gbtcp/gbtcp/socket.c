@@ -7,6 +7,7 @@
 #include "../inet.h"
 #include "../mod.h"
 #include "../service.h"
+#include "../socket.h"
 #include "socket.h"
 
 #define so_file so_base.sobase_file
@@ -15,6 +16,10 @@
 #define so_blocked so_file.fl_blocked
 #define so_referenced so_file.fl_referenced
 #define so_sid so_file.fl_sid
+#define so_laddr so_base.sobase_laddr
+#define so_faddr so_base.sobase_faddr
+#define so_lport so_base.sobase_lport
+#define so_fport so_base.sobase_fport
 
 #if 0
 #define TCP_DBG(fmt, ...) \
@@ -49,7 +54,6 @@
 
 struct sock {
 	struct gt_sock so_base;
-//	struct file so_file;
 	union {
 		uint64_t so_flags;
 		struct {
@@ -86,10 +90,6 @@ struct sock {
 			u_int so_nagle_acked : 1;
 		};
 	};
-	be32_t so_laddr;
-	be32_t so_faddr;
-	be32_t so_lport;
-	be32_t so_fport;
 	uint16_t so_lmss;
 	uint16_t so_rmss;
 	struct timer so_timer;
@@ -159,13 +159,6 @@ struct sockbuf_msg {
 	uint16_t sobm_len;
 	be16_t sobm_fport;
 	be32_t sobm_faddr;
-};
-
-struct gt_module_socket {
-	struct log_scope log_scope;
-	uint64_t tcp_fin_timeout;
-	struct htable tbl_connected;
-	struct htable tbl_binded;
 };
 
 #define curmod ((struct gt_module_socket *)gt_module_get(GT_MODULE_SOCKET))
@@ -269,17 +262,12 @@ static int sock_sndbuf_add(struct sock *, const void *, int);
 
 static void sock_sndbuf_drain(struct sock *, int);
 
-static int sysctl_tcp_fin_timeout(const long long *new, long long *old);
-
 #define GT_SOCK_ALIVE(so) ((so)->so_file.fl_mbuf.mb_freed == 0)
 
 #define GT_TCP_FLAG_ADD(val, name) \
 	if (tcp_flags & val) { \
 		strbuf_add_ch(sb, name); \
 	}
-
-#define SO_HASH(faddr, lport, fport) \
-	((faddr) ^ ((faddr) >> 16) ^ ntoh16((lport) ^ (fport)))
 
 static int
 tcps_is_connected(int state)
@@ -302,104 +290,6 @@ static int
 so_get_fd(struct sock *so)
 {
 	return file_get_fd((struct file *)so);
-}
-
-static uint32_t
-so_hash(void *e)
-{
-	struct sock *so;
-	uint32_t hash;
-
-	so = (struct sock *)e;
-	hash = SO_HASH(so->so_faddr, so->so_lport, so->so_fport);
-	return hash;
-}
-
-static int
-sysctl_tcp_fin_timeout(const long long *new, long long *old)
-{
-	*old = curmod->tcp_fin_timeout / NSEC_SEC;
-	if (new != NULL) {
-		curmod->tcp_fin_timeout = (*new) * NSEC_SEC;
-	}
-	return 0;
-}
-
-static void
-sysctl_socket(struct sock *so, struct strbuf *out)
-{
-	struct service *s;
-
-	s = service_get_by_sid(so->so_sid);
-	assert(s->p_pid);
-	strbuf_addf(out, "%d,%d,%d,%d,%x,%hu,%x,%hu",
-		so_get_fd(so),
-		s->p_pid,
-		so->so_ipproto == SO_IPPROTO_TCP ? IPPROTO_TCP : IPPROTO_UDP,
-		so->so_state,
-		ntoh32(so->so_laddr),
-		ntoh16(so->so_lport),
-		ntoh32(so->so_faddr),
-		ntoh16(so->so_fport));
-}
-
-static void
-sysctl_socket_connected(void *udata, const char *new, struct strbuf *out)
-{
-	struct sock *so;
-
-	so = container_of(udata, struct sock, so_connect_list);
-	sysctl_socket(so, out);
-}
-
-static void
-sysctl_socket_binded(void *udata, const char *new, struct strbuf *out)
-{
-	struct sock *so;
-
-	so = container_of(udata, struct sock, so_bind_list);
-	sysctl_socket(so, out);
-}
-
-int
-socket_mod_init(void)
-{
-	int rc;
-
-	rc = gt_module_init(GT_MODULE_SOCKET, sizeof(struct gt_module_socket));
-	if (rc) {
-		return rc;
-	}
-	rc = htable_init(&curmod->tbl_connected, 65536, so_hash, HTABLE_SHARED|HTABLE_POWOF2);
-	if (rc) {
-		socket_mod_deinit();
-		return rc;
-	}
-	rc = htable_init(&curmod->tbl_binded, EPHEMERAL_PORT_MAX, NULL, HTABLE_SHARED);
-	if (rc) {
-		socket_mod_deinit();
-		return rc;
-	}
-	sysctl_add_htable_list(GT_SYSCTL_SOCKET_CONNECTED_LIST, SYSCTL_RD,
-			&curmod->tbl_connected, sysctl_socket_connected);
-	sysctl_add_htable_size(GT_SYSCTL_SOCKET_CONNECTED_SIZE,
-			&curmod->tbl_connected);
-	sysctl_add_htable_list(GT_SYSCTL_SOCKET_BINDED_LIST, SYSCTL_RD,
-			&curmod->tbl_binded, sysctl_socket_binded);
-	curmod->tcp_fin_timeout = NSEC_MINUTE;
-	sysctl_add_intfn(GT_SYSCTL_TCP_FIN_TIMEOUT, SYSCTL_WR,
-			&sysctl_tcp_fin_timeout, 1, 24 * 60 * 60);
-	return 0;
-}
-
-void
-socket_mod_deinit(void)
-{
-	sysctl_del(GT_SYSCTL_SOCKET);
-	sysctl_del(GT_SYSCTL_TCP);
-	htable_deinit(&curmod->tbl_connected);
-	htable_deinit(&curmod->tbl_binded);
-	gt_module_deinit(GT_MODULE_SOCKET);
 }
 
 const char *
@@ -882,7 +772,7 @@ static struct in_context *cur_zerocopy_in;
 
 int
 gt_gbtcp_so_aio_recvfrom(struct file *fp, struct iovec *iov, int flags,
-	struct sockaddr *addr, socklen_t *addrlen)
+		struct sockaddr *addr, socklen_t *addrlen)
 {
 	int rc;
 	struct sock *so;
@@ -1474,7 +1364,7 @@ tcp_timer_set_tcp_fin_timeout(struct sock *so)
 }
 
 void
-socket_mod_timer(struct timer *timer, u_char fn_id)
+gt_gbtcp_so_timer(struct timer *timer, u_char fn_id)
 {
 	struct sock *so;
 
@@ -1610,7 +1500,7 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 	tcp_set_swnd(so);
 	tcp_set_state(so, in, GT_TCPS_SYN_RCVD);
 	tcp_into_sndq(so);
-	h = so_hash(so);
+	h = GT_VSO_HASH(so->so_faddr, so->so_lport, so->so_fport);
 	b = htable_bucket_get(&curmod->tbl_connected, h);
 	HTABLE_BUCKET_LOCK(b);
 	so->so_is_attached = 1;
@@ -2448,27 +2338,6 @@ sock_str(struct strbuf *sb, struct sock *so)
 	return strbuf_cstr(sb);
 }
 
-int
-gt_foreach_binded_socket(gt_foreach_socket_f fn, void *udata)
-{
-	int rc, lport;
-	struct htable_bucket *bucket;
-	struct file *fp;
-	struct gt_sock *so;
-
-	for (lport = 0; lport < EPHEMERAL_PORT_MAX; ++lport) {
-		bucket = htable_bucket_get(&curmod->tbl_binded, lport);
-		DLIST_FOREACH_RCU(so, &bucket->htb_head, sobase_bind_list) {
-			fp = (struct file *)so;
-			rc = (*fn)(fp, udata);
-			if (rc != 0) {
-				return rc;
-			}
-		}
-	}
-	return 0;
-}
-
 static struct sock *
 so_find(struct htable_bucket *b, int so_ipproto,
 		be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
@@ -2533,11 +2402,11 @@ so_bind_ephemeral_port(struct sock *so, struct route_entry *r)
 		if (!rc) {
 			continue;
 		}
-		h = SO_HASH(so->so_faddr, so->so_lport, so->so_fport);
+		h = GT_VSO_HASH(so->so_faddr, so->so_lport, so->so_fport);
 		b = htable_bucket_get(&curmod->tbl_connected, h);
 		HTABLE_BUCKET_LOCK(b);
 		tmp = so_find(b, so->so_ipproto, so->so_laddr, so->so_faddr,
-			      so->so_lport, so->so_fport);
+				so->so_lport, so->so_fport);
 		if (tmp == NULL) {
 			so->so_is_attached = 1;
 			dlist_insert_tail_rcu(&b->htb_head, &so->so_connect_list);
@@ -2647,7 +2516,7 @@ so_unref(struct sock *so, struct in_context *in)
 		so->so_is_attached = 0;
 		b = NULL;
 		if (in == NULL) {
-			h = so_hash(so);
+			h = GT_VSO_HASH(so->so_faddr, so->so_lport, so->so_fport);
 			b = htable_bucket_get(&curmod->tbl_connected, h);
 			HTABLE_BUCKET_LOCK(b);
 		}
@@ -2831,7 +2700,7 @@ so_input(int ipproto, struct in_context *in, be32_t laddr, be32_t faddr,
 	default:
 		return IN_BYPASS;
 	}
-	h = SO_HASH(faddr, lport, fport);
+	h = GT_VSO_HASH(faddr, lport, fport);
 	b = htable_bucket_get(&curmod->tbl_connected, h);
 	HTABLE_BUCKET_LOCK(b);
 	so = so_find(b, so_ipproto, laddr, faddr, lport, fport);

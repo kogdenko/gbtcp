@@ -4,8 +4,8 @@
 #include "fd_event.h"
 #include "file.h"
 #include "service.h"
+#include "socket.h"
 #include "sys.h"
-#include "gbtcp/socket.h"
 
 #define EPOLL_FLAG_ENABLED (1 << 0)
 #define EPOLL_FLAG_ONESHOT (1 << 1)

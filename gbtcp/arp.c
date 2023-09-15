@@ -365,7 +365,7 @@ arp_set_state(struct arp_entry *e, int state)
 
 static int
 arp_entry_add(struct arp_entry **ep, struct htable_bucket *b, be32_t next_hop,
-	int admin, const struct eth_addr *addr)
+		int admin, const struct eth_addr *addr)
 {
 	int rc;
 	struct arp_entry *e;
@@ -593,7 +593,6 @@ arp_update_locked(struct arp_advert *adv, struct htable_bucket *b)
 			}
 		}
 	}
-
 }
 
 void

@@ -2,10 +2,10 @@
 
 #include "dev.h"
 #include "fd_event.h"
-#include "gbtcp/socket.h"
 #include "global.h"
 #include "log.h"
 #include "service.h"
+#include "socket.h"
 #include "subr.h"
 
 // System should periodically RX netmap devices or packets would be lost

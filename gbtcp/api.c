@@ -3,10 +3,10 @@
 #include "api.h"
 #include "epoll.h"
 #include "fd_event.h"
-#include "gbtcp/socket.h"
 #include "global.h"
 #include "poll.h"
 #include "service.h"
+#include "socket.h"
 
 static __thread int api_locked;
 
