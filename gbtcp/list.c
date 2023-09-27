@@ -3,44 +3,44 @@
 #include "list.h"
 
 void
-dlist_init(struct  dlist *head)
+gt_dlist_init(struct  gt_dlist *head)
 {
 	head->dls_next = head->dls_prev = head;
 }
 
 int
-dlist_size(struct dlist *head)
+gt_dlist_size(struct gt_dlist *head)
 {
 	int size;
-	struct dlist *cur;
+	struct gt_dlist *cur;
 
 	size = 0;
-	dlist_foreach(cur, head) {
+	gt_dlist_foreach(cur, head) {
 		size++;
 	}
 	return size;
 }
 
 bool
-dlist_is_empty(struct dlist *head)
+gt_dlist_is_empty(struct gt_dlist *head)
 {
 	return head->dls_next == head;
 }
 
-struct dlist *
-dlist_first(struct dlist *head)
+struct gt_dlist *
+gt_dlist_first(struct gt_dlist *head)
 {
 	return head->dls_next;
 }
 
-struct dlist *
-dlist_last(struct dlist *head)
+struct gt_dlist *
+gt_dlist_last(struct gt_dlist *head)
 {
 	return head->dls_prev;
 }
 
 void
-dlist_insert_head(struct dlist *head, struct dlist *l)
+gt_dlist_insert_head(struct gt_dlist *head, struct gt_dlist *l)
 {
 	l->dls_next = head->dls_next;
 	l->dls_prev = head;
@@ -49,7 +49,7 @@ dlist_insert_head(struct dlist *head, struct dlist *l)
 }
 
 void
-dlist_insert_tail(struct dlist *head, struct dlist *l)
+gt_dlist_insert_tail(struct gt_dlist *head, struct gt_dlist *l)
 {
 	l->dls_next = head;
 	l->dls_prev = head->dls_prev;
@@ -58,7 +58,7 @@ dlist_insert_tail(struct dlist *head, struct dlist *l)
 }
 
 void
-dlist_insert_tail_rcu(struct dlist *head, struct dlist *l)
+gt_dlist_insert_tail_rcu(struct gt_dlist *head, struct gt_dlist *l)
 {
 	l->dls_next = head;
 	l->dls_prev = head->dls_prev;
@@ -67,7 +67,7 @@ dlist_insert_tail_rcu(struct dlist *head, struct dlist *l)
 }
 
 void
-dlist_insert_before(struct dlist *l, struct dlist *b)
+gt_dlist_insert_before(struct gt_dlist *l, struct gt_dlist *b)
 {
 	l->dls_next = b;
 	l->dls_prev = b->dls_prev;
@@ -76,7 +76,7 @@ dlist_insert_before(struct dlist *l, struct dlist *b)
 }
 
 void
-dlist_insert_after(struct dlist *a, struct dlist *l)
+gt_dlist_insert_after(struct gt_dlist *a, struct gt_dlist *l)
 {
 	l->dls_prev = a;
 	l->dls_next = a->dls_next;
@@ -85,21 +85,21 @@ dlist_insert_after(struct dlist *a, struct dlist *l)
 }
 
 void
-dlist_remove(struct dlist *list)
+gt_dlist_remove(struct gt_dlist *list)
 {
 	list->dls_next->dls_prev = list->dls_prev;
 	list->dls_prev->dls_next = list->dls_next;
 }
 
 void
-dlist_remove_rcu(struct dlist *list)
+gt_dlist_remove_rcu(struct gt_dlist *list)
 {
 	list->dls_next->dls_prev = list->dls_prev;
 	WRITE_ONCE(list->dls_prev->dls_next, list->dls_next);
 }
 
 void
-dlist_replace(struct dlist *new, struct dlist *old)
+gt_dlist_replace(struct gt_dlist *new, struct gt_dlist *old)
 {
 	new->dls_next = old->dls_next;
 	new->dls_next->dls_prev = new;
@@ -108,15 +108,15 @@ dlist_replace(struct dlist *new, struct dlist *old)
 }
 
 void
-dlist_replace_init(struct dlist *new, struct dlist *old)
+gt_dlist_replace_init(struct gt_dlist *new, struct gt_dlist *old)
 {
-	dlist_replace(new, old);
-	dlist_init(old);	
+	gt_dlist_replace(new, old);
+	gt_dlist_init(old);	
 }
 
 // prev <-> {list} <-> next
 void
-dlist_splice(struct dlist *prev, struct dlist *next, struct dlist *list)
+gt_dlist_splice(struct gt_dlist *prev, struct gt_dlist *next, struct gt_dlist *list)
 {
 	list->dls_next->dls_prev = prev;
 	prev->dls_next = list->dls_next;
@@ -125,9 +125,9 @@ dlist_splice(struct dlist *prev, struct dlist *next, struct dlist *list)
 }
 
 void
-dlist_splice_tail_init(struct dlist *dst, struct dlist *src)
+gt_dlist_splice_tail_init(struct gt_dlist *dst, struct gt_dlist *src)
 {
-	assert(!dlist_is_empty(src));
-	dlist_splice(dst->dls_prev, dst, src);
-	dlist_init(src);
+	assert(!gt_dlist_is_empty(src));
+	gt_dlist_splice(dst->dls_prev, dst, src);
+	gt_dlist_init(src);
 }

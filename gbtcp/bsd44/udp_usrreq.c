@@ -96,8 +96,8 @@ udp_input(struct ip4_hdr *ip, int iphlen, int eth_flags)
 	}
 
 	// Locate pcb for datagram.
-	so = in_pcblookup(IPPROTO_UDP, ip->ip_dst.s_addr, uh->uh_dport,
-			ip->ip_src.s_addr, uh->uh_sport);
+	so = in_pcblookup(IPPROTO_UDP, ip->ip_dst.s_addr, ip->ip_src.s_addr,
+			uh->uh_dport, uh->uh_sport);
 	if (so == NULL) {
 		udpstat.udps_noport++;
 		if (eth_flags & (M_BCAST | M_MCAST)) {
@@ -191,11 +191,11 @@ udp_output(struct socket *so, const void *dat, int len,	const struct sockaddr_in
 		uh->uh_sum = udp_cksum(ip, sizeof(*uh) + len);
 	}
 	udpstat.udps_opackets++;
-	rc = ip_output(&pkt, ip);
+	ip_output(&pkt, ip);
 //	if (addr) {
 //		in_pcbdisconnect(so);
 //	}
-	return rc;
+	return 0; // ?????
 }
 
 int

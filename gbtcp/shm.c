@@ -39,7 +39,7 @@ check_heap(const char *msg)
 
 	n = 0;
 	dbg("heap> %s", msg);
-	DLIST_FOREACH(m, &shared->shm_heap, mb_list) {
+	GT_DLIST_FOREACH(m, &shared->shm_heap, mb_list) {
 		if (!IS_SHM_ADDR(m)) {
 			dbg("not shm %p", m);
 			assert(0);
@@ -149,9 +149,9 @@ shm_unlock(void)
 static void
 shm_unlock_and_free_garbage(void)
 {
-	struct dlist head;
+	struct gt_dlist head;
 
-	dlist_init(&head);
+	gt_dlist_init(&head);
 	if (current != NULL) {
 		shm_garbage_push(current);
 		shm_garbage_pop(&head, current->p_sid);
@@ -164,27 +164,27 @@ void
 shm_garbage_push(struct service *s)
 {
 	int i;
-	struct dlist *dst, *src;
+	struct gt_dlist *dst, *src;
 
 	for (i = 0; i < s->p_mbuf_garbage_max; ++i) {
 		src = s->p_mbuf_garbage_head + i;
-		if (!dlist_is_empty(src)) {
+		if (!gt_dlist_is_empty(src)) {
 			assert(i != s->p_sid);
 			dst = shared->shm_garbage_head + i;
-			dlist_splice_tail_init(dst, src);
+			gt_dlist_splice_tail_init(dst, src);
 		}
 	}
 	s->p_mbuf_garbage_max = 0;
 }
 
 void
-shm_garbage_pop(struct dlist *dst, u_char sid)
+shm_garbage_pop(struct gt_dlist *dst, u_char sid)
 {
-	struct dlist *src;
+	struct gt_dlist *src;
 
 	src = shared->shm_garbage_head + sid;
-	if (!dlist_is_empty(src)) {
-		dlist_splice_tail_init(dst, src);
+	if (!gt_dlist_is_empty(src)) {
+		gt_dlist_splice_tail_init(dst, src);
 	}
 }
 
@@ -222,12 +222,12 @@ shm_init(void)
 	shared->shm_ns = nanoseconds;
 	shared->shm_base_addr = (uintptr_t)shared;
 	spinlock_init(&shared->shm_lock);
-	dlist_init(&shared->shm_heap);
+	gt_dlist_init(&shared->shm_heap);
 	shared->shm_n_pages = n_pages;
 	shared->shm_size = size;
 	shared->shm_pages = (bitset_word_t *)(shared + 1);
 	for (i = 0; i < GT_SERVICES_MAX; ++i) {
-		dlist_init(shared->shm_garbage_head + i);
+		gt_dlist_init(shared->shm_garbage_head + i);
 	}
 	shared->shm_n_sb_pages = sb_size >> PAGE_SHIFT;
 	for (i = 0; i < shared->shm_n_sb_pages; ++i) {
@@ -391,19 +391,19 @@ shm_merge(struct mbuf *middle)
 	struct mbuf *m, *x;
 
 	m = middle;
-	if (m != DLIST_FIRST(&shared->shm_heap, struct mbuf, mb_list)) {
-		x = DLIST_PREV(m, mb_list);
+	if (m != GT_DLIST_FIRST(&shared->shm_heap, struct mbuf, mb_list)) {
+		x = GT_DLIST_PREV(m, mb_list);
 		if (IS_ADJACENT(x, m)) {
 			x->mb_size += m->mb_size;
-			DLIST_REMOVE(m, mb_list);
+			GT_DLIST_REMOVE(m, mb_list);
 			m = x;
 		}
 	}
-	if (m != DLIST_LAST(&shared->shm_heap, struct mbuf, mb_list)) {
-		x = DLIST_NEXT(m, mb_list);
+	if (m != GT_DLIST_LAST(&shared->shm_heap, struct mbuf, mb_list)) {
+		x = GT_DLIST_NEXT(m, mb_list);
 		if (IS_ADJACENT(m, x)) {
 			m->mb_size += x->mb_size;
-			DLIST_REMOVE(x, mb_list);
+			GT_DLIST_REMOVE(x, mb_list);
 		}
 	}
 }
@@ -420,15 +420,15 @@ shm_free_locked(void *tofree_ptr)
 	assert(tofree_m->mb_magic == SHM_MAGIC);
 	assert(tofree_m->mb_freed == 0);
 	tofree_m->mb_freed = 1;
-	DLIST_FOREACH(m, &shared->shm_heap, mb_list) {
+	GT_DLIST_FOREACH(m, &shared->shm_heap, mb_list) {
 		assert(m->mb_magic == SHM_MAGIC);
 		if ((uintptr_t)tofree_m < (uintptr_t)m) {
-			DLIST_INSERT_BEFORE(tofree_m, m, mb_list);
+			GT_DLIST_INSERT_BEFORE(tofree_m, m, mb_list);
 			shm_merge(tofree_m);
 			return;
 		}
 	}
-	DLIST_INSERT_TAIL(&shared->shm_heap, tofree_m, mb_list);
+	GT_DLIST_INSERT_TAIL(&shared->shm_heap, tofree_m, mb_list);
 	shm_merge(tofree_m);
 }
 
@@ -442,7 +442,7 @@ shm_malloc_locked(size_t mem_size)
 	size = sizeof(struct mbuf) + mem_size;
 	assert(size < INT_MAX);
 	b = NULL;
-	DLIST_FOREACH(m, &shared->shm_heap, mb_list) {
+	GT_DLIST_FOREACH(m, &shared->shm_heap, mb_list) {
 		if (m->mb_size >= size) {
 			if (b == NULL || b->mb_size > m->mb_size) {
 				b = m;
@@ -459,7 +459,7 @@ shm_malloc_locked(size_t mem_size)
 		b->mb_size = new_size;
 	} else {
 		assert(b->mb_freed == 1);
-		DLIST_REMOVE(b, mb_list);
+		GT_DLIST_REMOVE(b, mb_list);
 	}
 	b->mb_freed = 0;
 	if (b->mb_size > size + 128) {

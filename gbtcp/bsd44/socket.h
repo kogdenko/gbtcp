@@ -36,8 +36,9 @@
 
 #include "types.h"
 #include "in_pcb.h"
-#include "../file.h"
-#include "../list.h"
+//#include "../file.h"
+//#include "../list.h"
+#include "../socket.h"
 
 struct file;
 struct socket;
@@ -47,7 +48,7 @@ struct sockbuf {
 	u_int sb_cc; /* actual chars in buffer */
 	u_int sb_hiwat;	/* max actual char count */
 	u_int sb_lowat;	/* low water mark */
-	struct dlist sb_head;
+	struct gt_dlist sb_head;
 };
 
 #define	SB_MAX (256*1024) /* default for max chars in sockbuf */
@@ -58,16 +59,13 @@ struct sockbuf {
  * handle on protocol and pointer to protocol
  * private data and error information.
  */
-#define inp_list so_base.ipso_list
-#define inp_laddr so_base.ipso_laddr
-#define inp_faddr so_base.ipso_faddr
-#define inp_lport so_base.ipso_lport
-#define inp_fport so_base.ipso_fport
+#define inp_laddr so_base.sobase_laddr
+#define inp_faddr so_base.sobase_faddr
+#define inp_lport so_base.sobase_lport
+#define inp_fport so_base.sobase_fport
 
 struct socket {
-	struct file so_file;
-
-	struct ip_socket so_base;
+	struct gt_sock so_base;
 
 	uint32_t so_options;		/* from socket call, see socket.h */
 	u_char	so_proto;
@@ -77,22 +75,18 @@ struct socket {
 	short	so_state;		/* internal state flags SS_*, below */
 
 	struct	socket *so_head;	/* back pointer to accept socket */
-	struct	dlist so_q[2];		/* queue of partial/incoming connections */
+	struct	gt_dlist so_q[2];	/* queue of partial/incoming connections */
 #define so_ql so_q[0]
 
-
 	struct sockbuf so_snd;
+	struct sockbuf so_rcv;
 	int so_rcv_hiwat;
-	void (*so_userfn)(struct socket *, short, struct sockaddr_in *, void *, int);
-	uint64_t so_user;
-	struct dlist so_txlist;
+	struct gt_dlist so_txlist;
 	struct tcpcb inp_ppcb;
 };
 
 #define	sototcpcb(so) (&((so)->inp_ppcb))
 #define tcpcbtoso(tp) container_of(tp, struct socket, inp_ppcb)
-
-extern struct dlist so_txq;
 
 #ifdef __linux__
 #define SO_OPTION(optname) (1 << (optname))
@@ -158,8 +152,7 @@ int sbappend(struct sockbuf *, const u_char *, int);
 void soisdisconnecting(struct socket *so);
 void soisdisconnected(struct socket *so);
 void soqinsque(struct socket *head, struct socket *so, int q);
-void sowakeup(struct socket *, short, struct sockaddr_in *, void *, int);
-#define sowakeup2(so, events) sowakeup(so, events, NULL, NULL, 0)
+void sowakeup(struct socket *, short);
 void sbinit(struct sockbuf *sb, u_long);
 void sbreserve(struct sockbuf *sb, u_long);
 void sbdrop(struct sockbuf *sb, int len);

@@ -1,35 +1,3 @@
-/*
- * Copyright (c) 1982, 1986, 1988, 1990, 1993
- *	The Regents of the University of California.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *	This product includes software developed by the University of
- *	California, Berkeley and its contributors.
- * 4. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- */
 
 #include "types.h"
 #include "socket.h"
@@ -49,32 +17,27 @@
  * necessary when the connection is used.
  */
 void
-tcp_template(struct tcpcb *tp, struct ip *ip, struct bsd_tcp_hdr *th)
+tcp_template(struct socket *so, struct ip4_hdr *ip, struct tcp_hdr *th)
 {
-	struct socket *so;
-
-	ip->ip_hl = sizeof(struct ip) >> 2;
-	ip->ip_v = 4;
-	ip->ip_len = htons(sizeof(struct bsd_tcp_hdr));
-	ip->ip_id = 0;
-	ip->ip_off = 0;
-	ip->ip_p = IPPROTO_TCP;
-	ip->ip_sum = 0;
-	if (tp != NULL) {
-		so = tcpcbtoso(tp);
-		ip->ip_src.s_addr = so->inp_laddr;
-		ip->ip_dst.s_addr = so->inp_faddr;
-		th->th_sport = so->inp_lport;
-		th->th_dport = so->inp_fport;
+	ip->ih_ver_ihl = IP4_VER_IHL;
+	ip->ih_total_len = htons(sizeof(struct tcp_hdr));
+	ip->ih_id = 0;
+	ip->ih_frag_off = 0;
+	ip->ih_proto = IPPROTO_TCP;
+	ip->ih_cksum = 0;
+	if (so != NULL) {	
+		ip->ih_saddr = so->so_base.sobase_laddr;
+		ip->ih_daddr = so->so_base.sobase_faddr;
+		th->th_sport = so->so_base.sobase_lport;
+		th->th_dport = so->so_base.sobase_fport;
 	}
 	th->th_seq = 0;
 	th->th_ack = 0;
-	th->th_x2 = 0;
-	th->th_off = 5;
+	th->th_data_off = 5;
 	th->th_flags = 0;
-	th->th_win = 0;
-	th->th_sum = 0;
-	th->th_urp = 0;
+	th->th_win_size = 0;
+	th->th_cksum = 0;
+	th->th_urgent_ptr = 0;
 }
 
 /*
@@ -91,37 +54,57 @@ tcp_template(struct tcpcb *tp, struct ip *ip, struct bsd_tcp_hdr *th)
  * segment are as specified by the parameters.
  */
 void
-tcp_respond(struct tcpcb *tp, struct ip *ip_rcv, struct bsd_tcp_hdr *th_rcv,
+tcp_respond(struct socket *so, struct ip4_hdr *ip_rcv, struct tcp_hdr *th_rcv,
 		tcp_seq ack, tcp_seq seq, int flags)
 {
-	int win;
-	struct ip *ip;
-	struct bsd_tcp_hdr *th;
-	struct packet pkt;
+	int rc, win;
+	be32_t laddr, faddr;
+	struct ip4_hdr *ip;
+	struct tcp_hdr *th;
+	struct tcpcb *tp;
+	struct dev_pkt pkt;
+	struct route_entry r;
 
-	io_init_tx_packet(&pkt);
-	ip = (struct ip *)(pkt.pkt.buf + sizeof(struct ether_header));
-	th = (struct bsd_tcp_hdr *)(ip + 1);
-	tcp_template(tp, ip, th);
-	if (tp == NULL) {
+	if (so == NULL) {
+		laddr = ip_rcv->ih_daddr;
+		faddr = ip_rcv->ih_saddr;
+	} else {
+		laddr = so->so_base.sobase_laddr;
+		faddr = so->so_base.sobase_faddr;
+	}
+
+	rc = gt_so_route(laddr, faddr, &r);
+	if (rc) {
+		return;
+	}
+	rc = route_get_tx_packet(r.rt_ifp, &pkt, TX_CAN_REDIRECT);
+	if (rc) {
+		return;
+	}
+
+	ip = (struct ip4_hdr *)(pkt.pkt_data + sizeof(struct ether_header));
+	th = (struct tcp_hdr *)(ip + 1);
+	tcp_template(so, ip, th);
+	if (so == NULL) {
 		assert(ip_rcv != NULL && th_rcv != NULL);
-		ip->ip_src = ip_rcv->ip_dst;
-		ip->ip_dst = ip_rcv->ip_src;
+		ip->ih_saddr = ip_rcv->ih_daddr;
+		ip->ih_daddr = ip_rcv->ih_saddr;
 		th->th_sport = th_rcv->th_dport;
 		th->th_dport = th_rcv->th_sport;
 	}
 	th->th_seq = htonl(seq);
 	th->th_ack = htonl(ack);
-	th->th_flags = flags ? flags : TH_ACK;
-	if (tp == NULL) {
-		th->th_win = 0;
+	th->th_flags = flags ? flags : GT_TCPF_ACK;
+	if (so == NULL) {
+		th->th_win_size = 0;
 	} else {
-		win = tcpcbtoso(tp)->so_rcv_hiwat;
-		th->th_win = htons((u_short)(win >> tp->rcv_scale));
+		tp = sototcpcb(so);
+		win = so->so_rcv_hiwat;
+		th->th_win_size = htons((u_short)(win >> tp->rcv_scale));
 	}
-	ip->ip_len = sizeof(*ip) + sizeof(*th);
-	th->th_sum = tcp_cksum(ip, sizeof(*th));
-	ip_output(&pkt, ip);
+	ip->ih_total_len = sizeof(*ip) + sizeof(*th);
+	th->th_cksum = 0;
+	ip_output(&r, &pkt, ip);
 }
 
 /*
@@ -138,10 +121,10 @@ tcp_attach(struct socket *so)
 	memset(tp, 0, sizeof(*tp));
 	tp->t_maxseg = TCP_MSS;
 	tp->t_flags = 0;
-	if (current->t_tcp_do_wscale) {
+	if (1) {//(current->t_tcp_do_wscale) {
 		tp->t_flags |= TF_REQ_SCALE;
 	}
-	if (current->t_tcp_do_timestamps) {
+	if (1) { //(current->t_tcp_do_timestamps) {
 		tp->t_flags |= TF_REQ_TSTMP;
 	}
 	/*
@@ -150,13 +133,13 @@ tcp_attach(struct socket *so)
 	 * reasonable initial retransmit time.
 	 */
 	tp->t_srtt = TCPTV_SRTTBASE;
-	tp->t_rttvar = current->t_tcp_rttdflt * PR_SLOWHZ << 2;
+	tp->t_rttvar = TCPTV_SRTTDFLT / PR_SLOWHZ * PR_SLOWHZ << 2;
 	TCPT_RANGESET(tp->t_rxtcur, 
 	    ((TCPTV_SRTTBASE >> 2) + (TCPTV_SRTTDFLT << 2)) >> 1,
 	    TCPTV_MIN, TCPTV_REXMTMAX);
 	tp->snd_cwnd = TCP_MAXWIN << TCP_MAX_WINSHIFT;
 	tp->snd_ssthresh = TCP_MAXWIN << TCP_MAX_WINSHIFT;
-	tp->t_state = TCPS_CLOSED;
+	tp->t_state = GT_TCPS_CLOSED;
 }
 
 /*
@@ -171,11 +154,11 @@ tcp_drop(struct tcpcb *tp, int e)
 
 	so = tcpcbtoso(tp);
 	if (TCPS_HAVERCVDSYN(tp->t_state)) {
-		tp->t_state = TCPS_CLOSED;
+		tp->t_state = GT_TCPS_CLOSED;
 		tcp_output(tp);
-		counter64_inc(&tcpstat.tcps_drops);
+		tcpstat.tcps_drops++;
 	} else {
-		counter64_inc(&tcpstat.tcps_conndrops);
+		tcpstat.tcps_conndrops++;
 	}
 	if (e == ETIMEDOUT && tp->t_softerror) {
 		e = tp->t_softerror;
@@ -196,12 +179,12 @@ tcp_close(struct tcpcb *tp)
 	struct socket *so;
 
 	so = tcpcbtoso(tp);
-	tp->t_state = TCPS_CLOSED;
+	tp->t_state = GT_TCPS_CLOSED;
 	tcp_canceltimers(tp);
 	soisdisconnected(so);
 	/* clobber input pcb cache if we're closing the cached connection */
 	in_pcbdetach(so);
-	counter64_inc(&tcpstat.tcps_closed);
+	tcpstat.tcps_closed++;
 	return NULL;
 }
 
@@ -224,23 +207,25 @@ tcp_notify(struct socket *so, int error)
 	 * than waiting a long time to establish a connection that
 	 * can never complete.
 	 */
-	if (tp->t_state == TCPS_ESTABLISHED &&
+	if (tp->t_state == GT_TCPS_ESTABLISHED &&
 			(error == EHOSTUNREACH ||
 			error == ENETUNREACH ||
 			error == EHOSTDOWN)) {
 		return;
-	} else if (tp->t_state < TCPS_ESTABLISHED) {
+	} else if (tp->t_state == GT_TCPS_CLOSED ||
+	           tp->t_state == GT_TCPS_SYN_SENT ||
+	           tp->t_state == GT_TCPS_SYN_RCVD) {
 		so->so_error = error;
 	} else {
 		tp->t_softerror = error;
 	}
-	sowakeup(so, POLLERR, NULL, NULL, 0);
+	sowakeup(so, POLLERR);
 }
 
 void
-tcp_ctlinput(int err, int quench, be32_t dst, struct ip *ip)
+tcp_ctlinput(int err, int quench, be32_t dst, struct ip4_hdr *ip)
 {
-	struct bsd_tcp_hdr *th;
+	struct tcp_hdr *th;
 	void (*notify)(struct socket *, int);
 
 	notify = tcp_notify;
@@ -249,9 +234,8 @@ tcp_ctlinput(int err, int quench, be32_t dst, struct ip *ip)
 	} else if (err == 0) {
 		return;
 	}
-	th = (struct bsd_tcp_hdr *)((u_char *)ip + (ip->ip_hl << 2));
-	in_pcbnotify(IPPROTO_TCP, ip->ip_src.s_addr, th->th_sport,
-		dst, th->th_dport, err, notify);
+	th = (struct tcp_hdr *)((u_char *)ip + IP4_HDR_LEN(ip->ih_ver_ihl));
+	in_pcbnotify(IPPROTO_TCP, ip->ih_saddr, th->th_sport, dst, th->th_dport, err, notify);
 }
 
 /*

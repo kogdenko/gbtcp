@@ -12,7 +12,7 @@ struct mbuf_pool;
 struct sock_buf {
 	int sob_max;
 	int sob_len;
-	struct dlist sob_head;
+	struct gt_dlist sob_head;
 };
 
 void sockbuf_init(struct sock_buf *, int);

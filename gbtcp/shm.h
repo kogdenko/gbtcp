@@ -15,7 +15,7 @@
 struct shm_hdr {
 	uintptr_t shm_base_addr;
 	struct spinlock shm_lock;
-	struct dlist shm_heap;
+	struct gt_dlist shm_heap;
 	size_t shm_size;
 	int shm_n_sb_pages;
 	int shm_n_pages;
@@ -25,7 +25,7 @@ struct shm_hdr {
 	void *shm_mods[MODS_MAX];
 	struct service shm_services[GT_SERVICES_MAX];
 	int shm_rss_table[GT_RSS_NQ_MAX];
-	struct dlist shm_garbage_head[GT_SERVICES_MAX];
+	struct gt_dlist shm_garbage_head[GT_SERVICES_MAX];
 	bitset_word_t *shm_pages;
 };
 
@@ -40,7 +40,7 @@ void shm_lock(void);
 void shm_unlock(void);
 
 void shm_garbage_push(struct service *);
-void shm_garbage_pop(struct dlist *, u_char);
+void shm_garbage_pop(struct gt_dlist *, u_char);
 
 void *shm_malloc(size_t);
 void *shm_realloc(void *, size_t);

@@ -481,16 +481,16 @@ tcp_input(struct in_context *in)
 	int rc, len, win;
 	struct tcp_stat *tcps;
 
-	tcps = current->p_rx_tcps;
+	tcps = &current->p_tcps;
 	if (in->in_rem < sizeof(struct tcp_hdr)) {
 		tcps->tcps_rcvshort++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	in->in_th = (struct tcp_hdr *)in->in_cur;
 	in->in_th_len = TCP_HDR_LEN(in->in_th->th_data_off);
 	if (in->in_rem < in->in_th_len) {
 		tcps->tcps_rcvshort++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	GT_INET_PARSER_SHIFT(in, in->in_th_len);
 	win = ntoh16(in->in_th->th_win_size);
@@ -504,13 +504,12 @@ tcp_input(struct in_context *in)
 	in->in_tcp_opts.tcp_opt_flags = 0;
 	if (gt_tcp_validate_cksum(in->in_ih, in->in_th, IP4_L4_LEN(in->in_ih))) {
 		tcps->tcps_rcvbadsum++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	rc = tcp_opts_input(&in->in_tcp_opts, (void *)(in->in_th + 1),
 			in->in_th_len - sizeof(*in->in_th));
 	if (rc) {
 		tcps->tcps_rcvbadoff++;
-		return IN_DROP;
 	}
 	return IN_OK;
 }
@@ -521,10 +520,10 @@ icmp_input(struct in_context *in)
 	int ih_len, type, code;
 	struct icmp_stat *icmps;
 
-	icmps = current->p_rx_icmps;
+	icmps = &current->p_icmps;
 	if (in->in_rem < sizeof(struct icmp4_hdr)) {
 		icmps->icmps_tooshort++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	in->in_icp = (struct icmp4_hdr *)in->in_cur;
 	GT_INET_PARSER_SHIFT(in, sizeof(struct icmp4_hdr));
@@ -556,34 +555,34 @@ icmp_input(struct in_context *in)
 			break;
 		default:
 			icmps->icmps_badcode++;
-			return IN_DROP;
+			return IN_OK;
 		}
 		break;
 	case ICMP_TIMXCEED:
 		if (code > 1) {
 			icmps->icmps_badcode++;
-			return IN_DROP;
+			return IN_OK;
 		}
 		// TODO:
 		break;
 	case ICMP_PARAMPROB:
 		if (code > 1) {
 			icmps->icmps_badcode++;
-			return IN_DROP;
+			return IN_OK;
 		}
 		in->in_errnum = ENOPROTOOPT;
 		break;
 	case ICMP_SOURCEQUENCH:
 		if (code) {
 			icmps->icmps_badcode++;
-			return IN_DROP;
+			return IN_OK;
 		}
 		// TODO:
 		break;
 	case ICMP_REDIRECT:
 		if (code > 3) {
 			icmps->icmps_badcode++;
-			return IN_DROP;
+			return IN_OK;
 		}
 		// TODO:
 		return IN_BYPASS;
@@ -594,13 +593,13 @@ icmp_input(struct in_context *in)
 	in->in_emb_th = NULL;
 	if (in->in_rem < sizeof(*in->in_emb_ih)) {
 		icmps->icmps_badlen++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	in->in_emb_ih = (struct ip4_hdr *)in->in_cur;
 	ih_len = IP4_HDR_LEN(in->in_emb_ih->ih_ver_ihl);
 	if (ih_len < sizeof(*in->in_emb_ih)) {
 		icmps->icmps_badlen++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	GT_INET_PARSER_SHIFT(in, ih_len);
 	in->in_emb_ipproto = in->in_emb_ih->ih_proto;
@@ -608,7 +607,7 @@ icmp_input(struct in_context *in)
 	case IPPROTO_UDP:
 		if (in->in_rem < sizeof(*in->in_emb_uh)) {
 			icmps->icmps_badlen++;
-			return IN_DROP;
+			return IN_OK;
 		}
 		in->in_emb_uh = (struct udp_hdr *)in->in_cur;
 		return IN_OK;
@@ -622,7 +621,7 @@ icmp_input(struct in_context *in)
 	case IPPROTO_ICMP:
 		if (in->in_rem < sizeof(*in->in_emb_icp)) {
 			icmps->icmps_badlen++;
-			return IN_DROP;
+			return IN_OK;
 		}
 		in->in_emb_icp = (struct icmp4_hdr *)in->in_cur;
 		return IN_BYPASS;
@@ -638,12 +637,12 @@ ip_input(struct in_context *in)
 	struct ip_stat *ips;
 	struct udp_stat *udps;
 
-	ips = current->p_rx_ips;
-	udps = current->p_rx_udps;
+	ips = &current->p_ips;
+	udps = &current->p_udps;
 	ips->ips_total++;
 	if (in->in_rem < sizeof(struct ip4_hdr)) {
 		ips->ips_toosmall++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	in->in_ih = (struct ip4_hdr *)(in->in_eh + 1);
 	if (in->in_ih->ih_ttl < 1) {
@@ -659,42 +658,43 @@ ip_input(struct in_context *in)
 	}
 	if (IP4_HDR_VER(in->in_ih->ih_ver_ihl) != GT_IP4_VER) {
 		ips->ips_badvers++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	in->in_ih_len = IP4_HDR_LEN(in->in_ih->ih_ver_ihl);
 	if (in->in_ih_len < sizeof(*in->in_ih)) {
 		ips->ips_badhlen++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	if (in->in_rem < in->in_ih_len) {
 		ips->ips_badhlen++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	GT_INET_PARSER_SHIFT(in, in->in_ih_len);
 	total_len = ntoh16(in->in_ih->ih_total_len);
 	if (total_len > 65535) {
 		ips->ips_toolong++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	if (total_len < in->in_ih_len) {
 		ips->ips_badlen++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	in->in_ip_payload_len = total_len - in->in_ih_len;
 	if (in->in_ip_payload_len > in->in_rem) {
 		ips->ips_tooshort++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	in->in_ipproto = in->in_ih->ih_proto;
 	if (!gt_ip4_validate_cksum(in->in_ih)) {
 		ips->ips_badsum++;
-		return IN_DROP;
+		return IN_OK;
 	}
+	ips->ips_delivered++;
 	switch (in->in_ipproto) {
 	case IPPROTO_UDP:
 		if (in->in_rem < sizeof(struct udp_hdr)) {
 			udps->udps_badlen++;
-			return IN_DROP;
+			return IN_OK;
 		}
 		in->in_uh = (struct udp_hdr *)in->in_cur;
 		GT_INET_PARSER_SHIFT(in, sizeof(struct udp_hdr));

@@ -45,7 +45,7 @@ tcp_dooptions(struct route_if *ifp, struct tcpcb *tp, u_char *cp, int cnt,
 		case TCPOPT_MAXSEG:
 			if (optlen != TCPOLEN_MAXSEG)
 				continue;
-			if (!(th->th_flags & TH_SYN)) {
+			if (!(th->th_flags & GT_TCPF_SYN)) {
 				continue;
 			}
 			memcpy((char *)&mss, (char *)cp + 2, sizeof(mss));
@@ -56,7 +56,7 @@ tcp_dooptions(struct route_if *ifp, struct tcpcb *tp, u_char *cp, int cnt,
 		case TCPOPT_WINDOW:
 			if (optlen != TCPOLEN_WINDOW)
 				continue;
-			if (!(th->th_flags & TH_SYN)) {
+			if (!(th->th_flags & GT_TCPF_SYN)) {
 				continue;
 			}
 			tp->t_flags |= TF_RCVD_SCALE;
@@ -77,7 +77,7 @@ tcp_dooptions(struct route_if *ifp, struct tcpcb *tp, u_char *cp, int cnt,
 			 * A timestamp received in a SYN makes
 			 * it ok to send timestamp requests and replies.
 			 */
-			if (th->th_flags & TH_SYN) {
+			if (th->th_flags & GT_TCPF_SYN) {
 				tp->t_flags |= TF_RCVD_TSTMP;
 				tp->ts_recent = *ts_val;
 				tp->ts_recent_age = tcp_now;
@@ -117,7 +117,7 @@ tcp_xmit_timer(struct tcpcb *tp, short rtt)
 	short delta;
 	struct tcp_stat *tcps;
 
-	tcps = current->p_rx_tcps;
+	tcps = &current->p_tcps;
 	tcps->tcps_rttupdated++;
 	if (tp->t_srtt != 0) {
 		/*
@@ -197,7 +197,7 @@ tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 	struct tcp_hdr *th, save_th;
 	u_char *optp, *dat;
 	int optlen = 0;
-	int win, off, acceptconn, rcv_wnd, datlen;
+	int rc, win, off, acceptconn, rcv_wnd, datlen;
 	struct tcpcb *tp;
 	struct socket *so;
 	int again, todrop, acked, ourfinisacked, needoutput = 0;
@@ -206,7 +206,7 @@ tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 	int flags, ts_present, dropsocket;
 	u_long tiwin;
 
-	tcps = current->p_rx_tcps;
+	tcps = &current->p_tcps;
 	tcps->tcps_rcvtotal++;
 	tp = NULL;
 	so = NULL;
@@ -216,7 +216,7 @@ tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 	th = (struct tcp_hdr *)((u_char *)ip + iphlen);
 	if (ip->ih_total_len < sizeof(struct tcp_hdr)) {
 		tcps->tcps_rcvshort++;
-		return IN_DROP;
+		return IN_OK;
 	}
 
 	/*
@@ -258,7 +258,11 @@ tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 findpcb:
 	again = 0;
 	datlen = 0;
-	so = in_pcblookup(IPPROTO_TCP, ip->ih_daddr, th->th_dport, ip->ih_saddr, th->th_sport);
+	rc = in_pcblookup(&so, IPPROTO_TCP,
+			ip->ih_daddr, ip->ih_saddr, th->th_dport, th->th_sport);
+	if (rc >= 0) {
+		return rc;
+	}
 
 	/*
 	 * If the state is CLOSED (i.e., TCB does not exist) then
@@ -415,13 +419,13 @@ findpcb:
 		if ((flags & GT_TCPF_ACK) && th->th_ack != tp->snd_nxt) {
 			goto dropwithreset;
 		}
-		if (flags & TH_RST) {
+		if (flags & GT_TCPF_RST) {
 			if (flags & GT_TCPF_ACK) {
 				tcp_drop(tp, ECONNREFUSED);
 			}
 			goto drop;
 		}
-		if ((flags & TH_SYN) == 0) {
+		if ((flags & GT_TCPF_SYN) == 0) {
 			goto drop;
 		}
 		if (flags & GT_TCPF_ACK) {
@@ -481,7 +485,7 @@ trimthenstep6:
 	 * RFC 1323 PAWS: If we have a timestamp reply on this segment
 	 * and it's less than ts_recent, drop it.
 	 */
-	if (ts_present && (flags & TH_RST) == 0 && tp->ts_recent &&
+	if (ts_present && (flags & GT_TCPF_RST) == 0 && tp->ts_recent &&
 	    TSTMP_LT(ts_val, tp->ts_recent)) {
 
 		/* Check to see if ts_recent is over 24 days old.  */
@@ -508,8 +512,8 @@ trimthenstep6:
 
 	todrop = tp->rcv_nxt - th->th_seq;
 	if (todrop > 0) {
-		if (flags & TH_SYN) {
-			flags &= ~TH_SYN;
+		if (flags & GT_TCPF_SYN) {
+			flags &= ~GT_TCPF_SYN;
 			th->th_seq++;
 			todrop--;
 		}
@@ -579,7 +583,7 @@ trimthenstep6:
 			 * and start over if the sequence numbers
 			 * are above the previous ones.
 			 */
-			if ((flags & TH_SYN) &&
+			if ((flags & GT_TCPF_SYN) &&
 			    tp->t_state == GT_TCPS_TIME_WAIT &&
 			    SEQ_GT(th->th_seq, tp->rcv_nxt)) {
 				tcp_close(tp);
@@ -603,7 +607,7 @@ trimthenstep6:
 			tcps->tcps_rcvbyteafterwin += todrop;
 		}
 		ip->ih_total_len -= todrop;
-		flags &= ~(TH_PUSH|GT_TCPF_FIN);
+		flags &= ~(GT_TCPF_PSH|GT_TCPF_FIN);
 	}
 
 	/*
@@ -612,7 +616,7 @@ trimthenstep6:
 	 */
 	if (ts_present && SEQ_LEQ(th->th_seq, tp->last_ack_sent) &&
 	    SEQ_LT(tp->last_ack_sent, th->th_seq + ip->ih_total_len +
-		   ((flags & (TH_SYN|GT_TCPF_FIN)) != 0))) {
+		   ((flags & (GT_TCPF_SYN|GT_TCPF_FIN)) != 0))) {
 		tp->ts_recent_age = tcp_now;
 		tp->ts_recent = ts_val;
 	}
@@ -627,7 +631,7 @@ trimthenstep6:
 	 *    CLOSING, LAST_ACK, TIME_WAIT STATES
 	 *	Close the tcb.
 	 */
-	if (flags & TH_RST) {
+	if (flags & GT_TCPF_RST) {
 		switch (tp->t_state) {
 		case GT_TCPS_SYN_RCVD:
 			so->so_error = ECONNREFUSED;
@@ -656,7 +660,7 @@ close:
 	 * If a SYN is in the window, then this is an
 	 * error and we send an RST and drop the connection.
 	 */
-	if (flags & TH_SYN) {
+	if (flags & GT_TCPF_SYN) {
 		tcp_drop(tp, ECONNRESET);
 		goto dropwithreset;
 	}
@@ -834,7 +838,7 @@ close:
 			tp->snd_wnd -= acked;
 			ourfinisacked = 0;
 		}
-		sowakeup2(so, POLLOUT);
+		sowakeup(so, POLLOUT);
 		tp->snd_una = th->th_ack;
 		if (SEQ_LT(tp->snd_nxt, tp->snd_una)) {
 			tp->snd_nxt = tp->snd_una;
@@ -943,7 +947,8 @@ step6:
 			tcps->tcps_rcvbyte += ip->ih_total_len;
 			if (ip->ih_total_len) {
 				datlen = ip->ih_total_len;
-				sowakeup2(so, POLLIN);
+				sbappend(&so->so_rcv, dat, datlen);
+				sowakeup(so, POLLIN);
 			}
 		} else {
 			tcps->tcps_rcvoopack++;
@@ -1013,7 +1018,7 @@ dropafterack:
 	 * Generate an ACK dropping incoming segment if it occupies
 	 * sequence space, where the ACK reflects our state.
 	 */
-	if (flags & TH_RST) {
+	if (flags & GT_TCPF_RST) {
 		goto drop;
 	}
 	tp->t_flags |= TF_ACKNOW;
@@ -1026,14 +1031,14 @@ dropwithreset:
 	 * Make ACK acceptable to originator of segment.
 	 * Don't bother to respond if destination was broadcast/multicast.
 	 */
-	/*if ((flags & TH_RST) || (eth_flags & (M_MCAST|M_BCAST)) ||
+	/*if ((flags & GT_TCPF_RST) || (eth_flags & (M_MCAST|M_BCAST)) ||
 	    IN_MULTICAST(ip->ip_dst.s_addr)) {
 		goto drop;
 	}*/
 	if (flags & GT_TCPF_ACK) {
-		tcp_respond(NULL, ip, th, 0, th->th_ack, TH_RST);
+		tcp_respond(NULL, ip, th, 0, th->th_ack, GT_TCPF_RST);
 	} else {
-		if (flags & TH_SYN) {
+		if (flags & GT_TCPF_SYN) {
 			ip->ih_total_len++;
 		}
 		tcp_respond(NULL, ip, th, th->th_seq + ip->ih_total_len, 0,
@@ -1053,8 +1058,9 @@ unref:
 		if (so->so_options & SO_OPTION(SO_DEBUG)) {
 			tcp_trace(TA_INPUT, ostate, tp, &save_ip, &save_th, 0);
 		}
-		if (so->so_events && so->so_userfn != NULL) {
-			(*so->so_userfn)(so, so->so_events, NULL, dat, datlen);
+		if (so->so_events) {
+			file_wakeup(&so->so_base.sobase_file, so->so_events);
+			so->so_events = 0;
 		}
 		so->so_state &= ~SS_ISPROCESSING;
 		sofree(so);
@@ -1062,6 +1068,8 @@ unref:
 			goto findpcb;
 		}
 	}
+
+	return IN_OK;
 }
 
 /*

@@ -5,7 +5,7 @@
 
 struct lptree_node {
 	struct mbuf lpn_mbuf;
-	struct dlist lpn_rules;
+	struct gt_dlist lpn_rules;
 	struct lptree_rule *lpn_hidden;
 	struct lptree_node *lpn_parent;
 	void *lpn_children[UINT8_MAX];
@@ -59,7 +59,7 @@ static void
 lptree_node_init(struct lptree_node *node, struct lptree_node *parent, int id)
 {
 	memset(node->lpn_children, 0, sizeof(node->lpn_children));
-	dlist_init(&node->lpn_rules);
+	gt_dlist_init(&node->lpn_rules);
 	node->lpn_hidden = NULL;
 	node->lpn_parent = parent;
 	if (parent != NULL) {
@@ -93,7 +93,7 @@ lptree_node_is_empty(struct lptree_node *node)
 {
 	int i;
 
-	if (!dlist_is_empty(&node->lpn_rules)) {
+	if (!gt_dlist_is_empty(&node->lpn_rules)) {
 		return 0;
 	}
 	for (i = 0; i < UINT8_MAX; ++i) {
@@ -278,10 +278,10 @@ lptree_del(struct lptree *tree, struct lptree_rule *rule)
 	struct lptree_node *node, *parent;
 	struct lptree_rule *cur;
 
-	DLIST_REMOVE(rule, lpr_list);
+	GT_DLIST_REMOVE(rule, lpr_list);
 	node = rule->lpr_parent;
 	lptree_rule_unset(tree, rule);
-	DLIST_FOREACH(cur, &node->lpn_rules, lpr_list) {
+	GT_DLIST_FOREACH(cur, &node->lpn_rules, lpr_list) {
 		if (cur->lpr_depth < rule->lpr_depth) {
 			lptree_rule_set(tree, cur);
 		} else {
@@ -353,7 +353,7 @@ lptree_traverse(struct lptree *tree, struct lptree_rule **prule,
 	}
 	after = NULL;
 	rc = 0;
-	DLIST_FOREACH(rule, &parent->lpn_rules, lpr_list) {
+	GT_DLIST_FOREACH(rule, &parent->lpn_rules, lpr_list) {
 		if (rule->lpr_depth == depth && rule->lpr_key == key) {
 			if (*prule == NULL) {
 				*prule = rule;
@@ -376,9 +376,9 @@ lptree_traverse(struct lptree *tree, struct lptree_rule **prule,
 	rule->lpr_parent = parent;
 	lptree_rule_set(tree, rule);
 	if (after == NULL) {
-		DLIST_INSERT_HEAD(&parent->lpn_rules, rule, lpr_list);
+		GT_DLIST_INSERT_HEAD(&parent->lpn_rules, rule, lpr_list);
 	} else {
-		DLIST_INSERT_AFTER(after, rule, lpr_list);
+		GT_DLIST_INSERT_AFTER(after, rule, lpr_list);
 	}
 	return 0;
 }

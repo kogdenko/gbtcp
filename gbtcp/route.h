@@ -17,13 +17,13 @@ struct gt_module_route {
 	struct log_scope log_scope;
 	struct lptree route_lptree;
 	struct mbuf_pool *route_pool;
-	struct dlist route_if_head;
+	struct gt_dlist route_if_head;
 	struct route_entry_long *route_default;
-	struct dlist route_addr_head;
+	struct gt_dlist route_addr_head;
 };
 
 struct route_if_addr {
-	struct dlist ria_list;
+	struct gt_dlist ria_list;
 	struct ipaddr ria_addr;
 	int ria_ref_cnt;
 	uint16_t ria_ephemeral_port;
@@ -32,7 +32,7 @@ struct route_if_addr {
 #define PER_SERVICE(x) x[GT_SERVICE_COUNT_MAX]
 
 struct route_if {
-	struct dlist rif_list;
+	struct gt_dlist rif_list;
 	int rif_index;
 	int rif_flags;
 	int rif_mtu;
@@ -41,7 +41,7 @@ struct route_if {
 	struct route_if_addr **rif_addrs;
 	struct eth_addr rif_hwaddr;
 	u_char rif_rss_key[RSS_KEY_SIZE];
-	struct dlist rif_routes;
+	struct gt_dlist rif_routes;
 	struct dev rif_host_dev;
 	struct dev rif_dev[GT_SERVICES_MAX][GT_RSS_NQ_MAX];
 	counter64_t rif_rx_pkts;
@@ -105,15 +105,15 @@ struct route_msg {
 typedef void (*route_msg_f)(struct route_msg *, void *);
 
 #define ROUTE_IF_FOREACH(ifp) \
-	DLIST_FOREACH(ifp, route_if_head(), rif_list)
+	GT_DLIST_FOREACH(ifp, route_if_head(), rif_list)
 
 #define ROUTE_IF_FOREACH_RCU(ifp) \
-	DLIST_FOREACH_RCU(ifp, route_if_head(), rif_list)
+	GT_DLIST_FOREACH_RCU(ifp, route_if_head(), rif_list)
 
 int route_mod_init(void);
 void route_mod_deinit(void);
 
-struct dlist *route_if_head(void);
+struct gt_dlist *route_if_head(void);
 struct route_if *route_if_get_by_index(int);
 //struct route_if *route_if_get_by_ifname(const char *, int, int);
 

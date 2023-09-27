@@ -15,12 +15,12 @@ struct epoll {
 	struct file ep_file;
 	int ep_fd;
 	struct mbuf_pool *ep_pool;
-	struct dlist ep_triggered;
+	struct gt_dlist ep_triggered;
 };
 
 struct epoll_entry {
 	struct file_aio epe_aio;
-	struct dlist epe_list;
+	struct gt_dlist epe_list;
 	struct epoll *epe_epoll;
 	int epe_fd;
 	short epe_filter;
@@ -38,7 +38,7 @@ epoll_entry_get(struct epoll *ep, struct file *fp)
 	struct mbuf *m;
 	struct epoll_entry *e;
 
-	DLIST_FOREACH(m, &fp->fl_aio_head, mb_list) {
+	GT_DLIST_FOREACH(m, &fp->fl_aio_head, mb_list) {
 		if (ep->ep_pool == mbuf_get_pool(m)) {
 			e = (struct epoll_entry *)m;
 			return e;
@@ -73,7 +73,7 @@ static void
 epoll_entry_relax(struct epoll_entry *e)
 {
 	if (epoll_entry_is_triggered(e)) {
-		DLIST_REMOVE(e, epe_list);
+		GT_DLIST_REMOVE(e, epe_list);
 		e->epe_list.dls_next = NULL;
 	}
 }
@@ -99,7 +99,7 @@ epoll_entry_handler(void *aio_ptr, int fd, short revents)
 		return;
 	} else if (e->epe_revents && !epoll_entry_is_triggered(e)) {
 		ep = e->epe_epoll;
-		DLIST_INSERT_HEAD(&ep->ep_triggered, e, epe_list);
+		GT_DLIST_INSERT_HEAD(&ep->ep_triggered, e, epe_list);
 	}
 
 //	struct sock *so;
@@ -203,7 +203,7 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 	struct epoll_entry *e, *tmp;
 
 	n = 0;
-	DLIST_FOREACH_SAFE(e, &ep->ep_triggered, epe_list, tmp) {
+	GT_DLIST_FOREACH_SAFE(e, &ep->ep_triggered, epe_list, tmp) {
 		if (n == cnt) {
 			break;
 		}
@@ -342,7 +342,7 @@ u_epoll_create(int ep_fd)
 		file_free(fp);
 		return rc;
 	}
-	dlist_init(&ep->ep_triggered);
+	gt_dlist_init(&ep->ep_triggered);
 	fd = file_get_fd(fp);
 	return fd;
 }
@@ -373,8 +373,7 @@ u_epoll_close(struct file *fp)
 }
 
 int
-u_epoll_pwait(int ep_fd, epoll_event_t *events, int m, uint64_t to,
-	const sigset_t *sigmask)
+u_epoll_pwait(int ep_fd, epoll_event_t *events, int m, uint64_t to, const sigset_t *sigmask)
 {
 	int rc, n;
 	struct epoll *ep;

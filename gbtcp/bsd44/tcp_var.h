@@ -138,13 +138,13 @@ int tcp_mss(struct route_if *, struct tcpcb *, u_int);
 struct tcpcb *tcp_newtcpcb(struct socket *);
 void tcp_notify(struct socket *, int);
 void tcp_output(struct tcpcb *);
-int tcp_output_real(struct tcpcb *);
+int tcp_output_real(struct route_entry *r, struct dev_pkt *pkt, struct socket *so);
 void tcp_quench(struct socket *, int);
-void tcp_respond(struct tcpcb *, struct ip4_hdr *, struct tcp_hdr *, tcp_seq, tcp_seq, int);
+void tcp_respond(struct socket *, struct ip4_hdr *, struct tcp_hdr *, tcp_seq, tcp_seq, int);
 void tcp_setpersist(struct tcpcb *);
 void tcp_trace(int, int, struct tcpcb *, struct ip4_hdr *, struct tcp_hdr *, int);
 struct tcpcb *tcp_usrclosed(struct tcpcb *);
-void tcp_template(struct tcpcb *, struct ip4_hdr *, struct tcp_hdr *);
+void tcp_template(struct socket *, struct ip4_hdr *, struct tcp_hdr *);
 int tcp_connect(struct socket *so);
 int tcp_send(struct socket *so, const void *, int);
 int tcp_disconnect(struct socket *so);
@@ -161,20 +161,15 @@ void tcp_PERSIST_timo(struct timer *);
 void tcp_KEEP_timo(struct timer *);
 
 #define	TCPS_HAVERCVDSYN(s) \
-	((s) == GT_TCPS_SYN_RECEIVED || \
-	 (s) == TCPS_ESTABLISHED || \
-	 (s) == TCPS_CLOSE_WAIT || \
-	 (s) == TCPS_FIN_WAIT_1 || \
-	 (s) == TCPS_CLOSING ||  \
-	 (s) == TCPS_LAST_ACK || \
-	 (s) == TCPS_FIN_WAIT_2 || \
-	 (s) == TCPS_TIME_WAIT)
+	((s) == GT_TCPS_SYN_RCVD || \
+	 (s) == GT_TCPS_ESTABLISHED || \
+	 (s) == GT_TCPS_CLOSE_WAIT || \
+	 (s) == GT_TCPS_FIN_WAIT_1 || \
+	 (s) == GT_TCPS_CLOSING ||  \
+	 (s) == GT_TCPS_LAST_ACK || \
+	 (s) == GT_TCPS_FIN_WAIT_2 || \
+	 (s) == GT_TCPS_TIME_WAIT)
 
 #define	TCPS_HAVERCVDFIN(s) ((s) == GT_TCPS_TIME_WAIT)
-
-extern int tcp_do_wscale;
-extern int tcp_do_timestamps;
-extern uint64_t tcp_fintimo;
-extern uint64_t tcp_twtimo;
 
 #endif // GBTCP_BSD44_TCP_VAR_H

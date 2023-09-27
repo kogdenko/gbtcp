@@ -26,8 +26,8 @@ static struct dev service_redirect_dev;
 static int service_rcu_max;
 static int service_signal_guard = 1;
 static bool service_autostart_controller = true;
-static struct dlist service_rcu_active_head;
-static struct dlist service_rcu_shadow_head;
+static struct gt_dlist service_rcu_active_head;
+static struct gt_dlist service_rcu_shadow_head;
 static u_int service_rcu[GT_SERVICES_MAX];
 
 extern struct shm_hdr *shared;
@@ -179,16 +179,9 @@ service_rssq_rx(struct dev *dev, void *data, int len)
 {
 	int in, rc;
 	u_char sid;
-	struct in_context p;
 	struct route_if *ifp;
 
 	ifp = dev->dev_ifp;
-	in_context_init(&p, data, len);
-	p.in_ifp = ifp;
-	current->p_rx_tcps = &current->p_tcps;
-	current->p_rx_udps = &current->p_udps;
-	current->p_rx_ips = &current->p_ips;
-	current->p_rx_icmps = &current->p_icmps;
 	in = gt_service_rx(ifp, data, len);
 	if (in == IN_BYPASS) {
 		if (current->p_sid == CONTROLLER_SID) {
@@ -201,16 +194,14 @@ service_rssq_rx(struct dev *dev, void *data, int len)
 			}
 		}
 	} else if (in >= 0) {
-		current->p_ips.ips_delivered++;
 		sid = in;
 		rc = redirect_dev_transmit5(ifp, SERVICE_MSG_RX, sid, data, len);
 		if (rc) {
 			counter64_inc(&ifp->rif_rx_drop);
 			return;
 		}
-	} else if (in == IN_OK) {
-		current->p_ips.ips_delivered++;
 	}
+	
 	counter64_inc(&ifp->rif_rx_pkts);
 	counter64_add(&ifp->rif_rx_bytes, len);
 }
@@ -219,10 +210,6 @@ static void
 service_redirect_dev_rx(struct dev *dev, void *data, int len)
 {
 	int rc, dst_sid;
-	struct tcp_stat tcps;
-	struct udp_stat udps;
-	struct ip_stat ips;
-	struct icmp_stat icmps;
 	struct eth_hdr *eh;
 	struct route_if *ifp;
 	struct service_msg *msg;
@@ -255,10 +242,6 @@ service_redirect_dev_rx(struct dev *dev, void *data, int len)
 	len -= sizeof(*msg);
 	switch (msg->msg_type) {
 	case SERVICE_MSG_RX:
-		current->p_rx_tcps = &tcps;
-		current->p_rx_udps = &udps;
-		current->p_rx_ips = &ips;
-		current->p_rx_icmps = &icmps;
 		gt_service_rx(NULL, data, len);
 		break;
 	case SERVICE_MSG_TX:
@@ -416,7 +399,7 @@ service_init_shared_redirect_dev(struct service *s)
 	}
 	return rc;
 err:
-	ERR(-rc, "Failed to create device for redirecting packets");
+	GT_ERR(SERVICE, -rc, "Failed to create device for redirecting packets");
 	if (added) {
 		netlink_link_del(ifname[1]);
 	}
@@ -454,8 +437,8 @@ service_init_shared(struct service *s, int pid, int fd)
 
 	assert(current->p_sid == CONTROLLER_SID && "Controller should call this function");
 	s->p_pid = pid;
-	dlist_init(&s->p_dev_head);
-	dlist_init(&s->p_tx_head);
+	gt_dlist_init(&s->p_dev_head);
+	gt_dlist_init(&s->p_tx_head);
 	s->p_sid = s - shared->shm_services;
 	s->p_need_update_rss_bindings = 0;
 	s->p_rss_nq = 0;
@@ -468,7 +451,7 @@ service_init_shared(struct service *s, int pid, int fd)
 	s->p_opkts = 0;
 	assert(s->p_mbuf_garbage_max == 0);
 	for (i = 0; i < GT_SERVICES_MAX; ++i) {
-		dlist_init(s->p_mbuf_garbage_head + i);
+		gt_dlist_init(s->p_mbuf_garbage_head + i);
 	}
 	rc = init_timers(s);
 	if (rc) {
@@ -500,7 +483,7 @@ void
 service_deinit_shared(struct service *s, int full)
 {
 	int i;
-	struct dlist tofree;
+	struct gt_dlist tofree;
 	struct dev *dev;
 	struct route_if *ifp;
 
@@ -513,8 +496,8 @@ service_deinit_shared(struct service *s, int full)
 		}
 	}
 	deinit_files(s);
-	if (current != s && !dlist_is_empty(&s->p_tx_head)) {
-		dlist_splice_tail_init(&current->p_tx_head, &s->p_tx_head);
+	if (current != s && !gt_dlist_is_empty(&s->p_tx_head)) {
+		gt_dlist_splice_tail_init(&current->p_tx_head, &s->p_tx_head);
 	}
 	if (current != s) {
 		migrate_timers(current, s);
@@ -524,7 +507,7 @@ service_deinit_shared(struct service *s, int full)
 		service_deinit_arp(s);
 		deinit_timers(s);
 	}
-	dlist_init(&tofree);
+	gt_dlist_init(&tofree);
 	shm_lock();
 	shm_garbage_push(s);
 	shm_garbage_push(current);
@@ -541,8 +524,8 @@ service_init_private(void)
 {
 	int rc;
 
-	dlist_init(&service_rcu_active_head);
-	dlist_init(&service_rcu_shadow_head);
+	gt_dlist_init(&service_rcu_active_head);
+	gt_dlist_init(&service_rcu_shadow_head);
 	service_rcu_max = 0;
 	memset(service_rcu, 0, sizeof(service_rcu));
 	rc = service_redirect_dev_init(current);
@@ -665,7 +648,7 @@ service_rcu_reload(void)
 	int i;
 	struct service *s;
 
-	dlist_replace_init(&service_rcu_active_head, &service_rcu_shadow_head);
+	gt_dlist_replace_init(&service_rcu_active_head, &service_rcu_shadow_head);
 	for (i = 0; i < GT_SERVICES_MAX; ++i) {
 		s = shared->shm_services + i;
 		if (s != current) {
@@ -683,9 +666,9 @@ service_rcu_reload(void)
 void
 mbuf_free_rcu(struct mbuf *m)
 {
-	DLIST_INSERT_TAIL(&service_rcu_shadow_head, m, mb_list);
+	GT_DLIST_INSERT_TAIL(&service_rcu_shadow_head, m, mb_list);
 	if (service_rcu_max == 0) {
-		assert(dlist_is_empty(&service_rcu_active_head));
+		assert(gt_dlist_is_empty(&service_rcu_active_head));
 		service_rcu_reload();
 	}
 }
@@ -693,13 +676,13 @@ mbuf_free_rcu(struct mbuf *m)
 static void
 service_rcu_free(void)
 {
-	struct dlist *head;
+	struct gt_dlist *head;
 	struct mbuf *m;
 
 	head = &service_rcu_active_head;
-	while (!dlist_is_empty(head)) {
-		m = DLIST_FIRST(head, struct mbuf, mb_list);
-		DLIST_REMOVE(m, mb_list);
+	while (!gt_dlist_is_empty(head)) {
+		m = GT_DLIST_FIRST(head, struct mbuf, mb_list);
+		GT_DLIST_REMOVE(m, mb_list);
 		mbuf_free(m);
 	}
 }
@@ -725,7 +708,7 @@ service_rcu_check(void)
 	service_rcu_max = rcu_max;
 	if (service_rcu_max == 0) {
 		service_rcu_free();
-		if (!dlist_is_empty(&service_rcu_shadow_head)) {
+		if (!gt_dlist_is_empty(&service_rcu_shadow_head)) {
 			service_rcu_reload();
 		}
 	}
@@ -1000,10 +983,10 @@ service_in_child0(void)
 	struct dev *dev;
 	struct child_foreach_binded_socket_udata udata;
 
-	DLIST_FOREACH(dev, &current->p_dev_head, dev_list) {
+	GT_DLIST_FOREACH(dev, &current->p_dev_head, dev_list) {
 		gt_dev_deinit_locked(dev, true);
 	}
-	dlist_init(&current->p_dev_head);
+	gt_dlist_init(&current->p_dev_head);
 
 	udata.parent_sid = current->p_sid;
 	udata.duplicated = 0;

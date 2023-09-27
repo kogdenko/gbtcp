@@ -22,7 +22,7 @@ struct file_aio {
 struct file {
 	struct mbuf fl_mbuf;
 	struct file_aio fl_aio;
-	struct dlist fl_aio_head;
+	struct gt_dlist fl_aio_head;
 	u_char fl_type;
 	u_char fl_referenced;
 	u_char fl_blocked;
@@ -51,7 +51,6 @@ int file_alloc3(struct file **, int, int);
 void file_free(struct file *);
 void file_free_rcu(struct file *);
 void file_close(struct file *);
-void file_clean(struct file *);
 int file_fcntl(struct file *, int, uintptr_t);
 int file_ioctl(struct file *, unsigned long, uintptr_t);
 int file_get(int, struct file **);

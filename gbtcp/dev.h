@@ -53,7 +53,7 @@ struct dev {
 	struct dev_ops *dev_ops;
 	u_char dev_tx_throttled;
 	dev_f dev_fn;
-	struct dlist dev_list;
+	struct gt_dlist dev_list;
 	struct route_if *dev_ifp;
 	int dev_fd;
 	int dev_queue_id;

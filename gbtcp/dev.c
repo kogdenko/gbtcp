@@ -151,7 +151,7 @@ gt_dev_init_locked(struct dev *dev, int transport, const char *ifname, int queue
 	}
 	dev->dev_fd = fd;
 	dev->dev_fn = dev_fn;
-	DLIST_INSERT_TAIL(&current->p_dev_head, dev, dev_list);
+	GT_DLIST_INSERT_TAIL(&current->p_dev_head, dev, dev_list);
 	dev_rx_on(dev);
 	return 0;
 }
@@ -174,7 +174,7 @@ gt_dev_deinit_locked(struct dev *dev, bool cloexec)
 {
 	if (dev_is_inited(dev)) {
 		if (!cloexec) {
-			DLIST_REMOVE(dev, dev_list);
+			GT_DLIST_REMOVE(dev, dev_list);
 			fd_event_del(dev->dev_event);
 			dev->dev_event = NULL;
 			dev->dev_fn = NULL;
@@ -272,7 +272,7 @@ dev_tx_flush(void)
 {
 	struct dev *dev;
 
-	DLIST_FOREACH(dev, &current->p_dev_head, dev_list) {
+	GT_DLIST_FOREACH(dev, &current->p_dev_head, dev_list) {
 		(*dev->dev_ops->dev_tx_flush_op)(dev);
 	}
 }

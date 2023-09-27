@@ -142,6 +142,9 @@ AddOption('--without-vale', action='store_true',
 AddOption('--without-xdp', action='store_true',
 	help="Don't use XDP transport", default=False)
 
+AddOption('--with-bsd44', action='store_true',
+	help="Use BSD 4.4 tcp/ip stack implementation", default=False)
+
 shutil.copy('./tools/pre-commit', '.git/hooks/')
 
 PLATFORM = platform.system()
@@ -189,22 +192,23 @@ srcs = [
 	'gbtcp/dev.c',
 ]
 
-if HAVE_BSD44:
+if GetOption('with_bsd44'):
+	HAVE_BSD44=True
 	srcs.append([
-#		'gbtcp/bsd44/tcp_debug.c',
-#		'gbtcp/bsd44/tcp_timer.c',
-#		'gbtcp/bsd44/uipc_socket.c',
-#		'gbtcp/bsd44/tcp_usrreq.c',
+		'gbtcp/bsd44/tcp_debug.c',
+		'gbtcp/bsd44/tcp_timer.c',
+		'gbtcp/bsd44/uipc_socket.c',
+		'gbtcp/bsd44/tcp_usrreq.c',
 #		'gbtcp/bsd44/if_ether.c',
 #		'gbtcp/bsd44/udp_usrreq.c',
 		'gbtcp/bsd44/ip_input.c',
 #		'gbtcp/bsd44/glue.c',
 #		'gbtcp/bsd44/in_pcb.c',
 		'gbtcp/bsd44/tcp_input.c',
-#		'gbtcp/bsd44/tcp_output.c',
-#		'gbtcp/bsd44/ip_output.c',
+		'gbtcp/bsd44/tcp_output.c',
+		'gbtcp/bsd44/ip_output.c',
 #		'gbtcp/bsd44/ip_icmp.c',
-#		'gbtcp/bsd44/tcp_subr.c',
+		'gbtcp/bsd44/tcp_subr.c',
 	])
 
 if PLATFORM == "Linux":

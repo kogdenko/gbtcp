@@ -50,8 +50,7 @@
 #define TCP_OPT_MAX 9
 
 #define IN_OK -1
-#define IN_DROP -2
-#define IN_BYPASS -3
+#define IN_BYPASS -2
 
 #define GT_INET_PARSER_SHIFT(in, size) \
 	do { \

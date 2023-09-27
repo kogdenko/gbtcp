@@ -384,14 +384,14 @@ arp_entry_add(struct arp_entry **ep, struct htable_bucket *b, be32_t next_hop,
 	}
 	timer_init(&e->ae_timer);
 	e->ae_next_hop = next_hop;
-	dlist_insert_tail_rcu(&b->htb_head, &e->ae_list);
+	gt_dlist_insert_tail_rcu(&b->htb_head, &e->ae_list);
 	return 0;
 }
 
 static void
 arp_entry_del(struct arp_entry *e)
 {
-	dlist_remove_rcu(&e->ae_list);
+	gt_dlist_remove_rcu(&e->ae_list);
 	timer_cancel(&e->ae_timer);
 	arp_set_state(e, ARP_NONE);
 	mbuf_free(&e->ae_incomplete_q->pkt_mbuf);
@@ -403,7 +403,7 @@ arp_entry_get(struct htable_bucket *b, be32_t next_hop)
 {
 	struct arp_entry *e;
 
-	DLIST_FOREACH(e, &b->htb_head, ae_list) {
+	GT_DLIST_FOREACH(e, &b->htb_head, ae_list) {
 		if (e->ae_next_hop == next_hop) {
 			return e;
 		}
@@ -456,7 +456,7 @@ arp_resolve_slow(struct route_if *ifp, struct htable_bucket *b,
 	int rc;
 	struct arp_entry *e, *tmp;	
 
-	DLIST_FOREACH_SAFE(e, &b->htb_head, ae_list, tmp) {
+	GT_DLIST_FOREACH_SAFE(e, &b->htb_head, ae_list, tmp) {
 		if (e->ae_state == ARP_REACHABLE &&
 		    arp_is_reachable_timeouted(e)) {
 			arp_set_state(e, ARP_STALE);
@@ -505,10 +505,9 @@ arp_resolve(struct route_entry *r, struct dev_pkt *pkt)
 	h = arp_hash(next_hop);
 	b = htable_bucket_get(&mod->arp_htable, h);
 	// Fast path
-	DLIST_FOREACH_RCU(e, &b->htb_head, ae_list) {
+	GT_DLIST_FOREACH_RCU(e, &b->htb_head, ae_list) {
 		state = READ_ONCE(e->ae_state);
-		if (state == ARP_REACHABLE &&
-		    arp_is_reachable_timeouted(e)) {
+		if (state == ARP_REACHABLE && arp_is_reachable_timeouted(e)) {
 			break;
 		}
 		if (e->ae_next_hop != next_hop) {
@@ -711,43 +710,43 @@ gt_arp_input(struct in_context *in)
 	arps.arps_received++;
 	if (in->in_rem < sizeof(struct arp_hdr)) {
 		arps.arps_toosmall++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	in->in_ah = (struct arp_hdr *)in->in_cur;
 	GT_INET_PARSER_SHIFT(in, sizeof(struct arp_hdr));
 	if (in->in_ah->ah_hrd != ARP_HRD_ETH_BE) {
 		arps.arps_badhrd++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	if (in->in_ah->ah_pro != ETH_TYPE_IP4_BE) {
 		arps.arps_badpro++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	if (in->in_ah->ah_hlen != sizeof(struct eth_addr)) {
 		arps.arps_badhlen++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	if (in->in_ah->ah_plen != sizeof(be32_t)) {
 		arps.arps_badplen++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	tip = in->in_ah->ah_data.aip_tip;
 	sip = in->in_ah->ah_data.aip_sip;
 	if (ipaddr4_is_loopback(tip)) {
 		arps.arps_badaddr++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	if (ipaddr4_is_bcast(tip)) {
 		arps.arps_badaddr++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	if (ipaddr4_is_loopback(sip)) {
 		arps.arps_badaddr++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	if (ipaddr4_is_bcast(sip)) {
 		arps.arps_badaddr++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	ifa = route_ifaddr_get4(tip);
 	if (ifa == NULL) {
@@ -779,7 +778,7 @@ gt_arp_input(struct in_context *in)
 		break;
 	default:
 		arps.arps_badop++;
-		return IN_DROP;
+		return IN_OK;
 	}
 	adv.arpa_af = AF_INET;
 	adv.arpa_advert = !is_req;
@@ -789,7 +788,7 @@ gt_arp_input(struct in_context *in)
 	adv.arpa_addr = in->in_ah->ah_data.aip_sha;
 	arp_update(&adv);
 	if (is_req) {
-		return IN_DROP;
+		return IN_OK;
 	} else {
 		return IN_BYPASS;
 	}

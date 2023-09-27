@@ -21,7 +21,7 @@ file_init(struct file *fp, int type)
 	fp->fl_blocked = 1;
 	fp->fl_sid = current->p_sid;
 	file_aio_init(&fp->fl_aio);
-	dlist_init(&fp->fl_aio_head);
+	gt_dlist_init(&fp->fl_aio_head);
 }
 
 static void
@@ -79,7 +79,8 @@ deinit_files(struct service *s)
 
 	if (s->p_file_pool != NULL) {
 		FILE_FOREACH_SAFE3(s, fp, tmp_fd) {
-			file_clean(fp);
+			gt_dlist_init(&fp->fl_aio_head);
+			file_close(fp);
 		}
 		mbuf_pool_free(s->p_file_pool);
 		s->p_file_pool = NULL;
@@ -189,13 +190,6 @@ file_close(struct file *fp)
 	}
 }
 
-void
-file_clean(struct file *fp)
-{
-	dlist_init(&fp->fl_aio_head);
-	file_close(fp);
-}
-
 int
 file_fcntl(struct file *fp, int cmd, uintptr_t arg)
 {
@@ -268,7 +262,7 @@ file_wakeup(struct file *fp, short revents)
 
 	assert(revents);
 	fd = file_get_fd(fp);
-	DLIST_FOREACH_SAFE(aio, &fp->fl_aio_head, faio_list, tmp) {
+	GT_DLIST_FOREACH_SAFE(aio, &fp->fl_aio_head, faio_list, tmp) {
 		file_aio_call(aio, fd, revents);
 	}
 }
@@ -330,7 +324,7 @@ file_aio_add(struct file *fp, struct file_aio *aio, gt_aio_f fn)
 	if (!file_aio_is_added(aio)) {
 		fd = file_get_fd(fp);
 		aio->faio_fn = fn;
-		DLIST_INSERT_HEAD(&fp->fl_aio_head, aio, faio_list);
+		GT_DLIST_INSERT_HEAD(&fp->fl_aio_head, aio, faio_list);
 		revents = file_get_events(fp);
 		if (revents) {
 			file_aio_call(aio, fd, revents);
@@ -343,6 +337,6 @@ file_aio_cancel(struct file_aio *aio)
 {
 	if (file_aio_is_added(aio)) {
 		aio->faio_fn = NULL;
-		DLIST_REMOVE(aio, faio_list);
+		GT_DLIST_REMOVE(aio, faio_list);
 	}
 }

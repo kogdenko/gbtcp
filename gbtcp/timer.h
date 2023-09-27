@@ -22,7 +22,7 @@
 struct service;
 
 struct timer {
-	struct dlist tm_list;
+	struct gt_dlist tm_list;
 	u_char tm_sid;
 	u_char tm_ring_id;
 	u_short tm_seg_id;

@@ -61,14 +61,14 @@ deinit_timers(struct service *s)
 }
 
 static void
-call_timers(struct dlist *queue)
+call_timers(struct gt_dlist *queue)
 {
 	struct timer *timer;
 	void (*fn)(struct timer *, u_char);
 
-	while (!dlist_is_empty(queue)) {
-		timer = DLIST_FIRST(queue, struct timer, tm_list);
-		DLIST_REMOVE(timer, tm_list);
+	while (!gt_dlist_is_empty(queue)) {
+		timer = GT_DLIST_FIRST(queue, struct timer, tm_list);
+		GT_DLIST_REMOVE(timer, tm_list);
 		timer->tm_ring_id = TIMER_RING_POISON;
 		assert(timer->tm_module_id < MODS_MAX);
 		fn = mods[timer->tm_module_id].mod_timer;
@@ -78,7 +78,7 @@ call_timers(struct dlist *queue)
 }
 
 static void
-run_ring_timers(struct timer_ring *ring, uint64_t t, struct dlist *queue)
+run_ring_timers(struct timer_ring *ring, uint64_t t, struct gt_dlist *queue)
 {
 	int i;
 	uint64_t pos;
@@ -91,10 +91,10 @@ run_ring_timers(struct timer_ring *ring, uint64_t t, struct dlist *queue)
 	for (i = 0; pos <= ring->tmr_cur && i < TIMER_RING_SIZE; ++pos, ++i) {
 		seg = ring->tmr_segs + (pos & TIMER_RING_MASK);
 		SEG_LOCK(seg);
-		while (!dlist_is_empty(&seg->htb_head)) {
-			timer = DLIST_FIRST(&seg->htb_head, struct timer, tm_list);
-			DLIST_REMOVE(timer, tm_list);
-			DLIST_INSERT_HEAD(queue, timer, tm_list);
+		while (!gt_dlist_is_empty(&seg->htb_head)) {
+			timer = GT_DLIST_FIRST(&seg->htb_head, struct timer, tm_list);
+			GT_DLIST_REMOVE(timer, tm_list);
+			GT_DLIST_INSERT_HEAD(queue, timer, tm_list);
 		}
 		SEG_UNLOCK(seg);
 	}
@@ -106,7 +106,7 @@ run_timers(void)
 	int i;
 	uint64_t t;
 	static uint64_t t_saved;
-	struct dlist queue;
+	struct gt_dlist queue;
 	struct timer_ring *ring;
 
 	t = shared_ns();
@@ -114,7 +114,7 @@ run_timers(void)
 		return;
 	}
 	t_saved = t;
-	dlist_init(&queue);
+	gt_dlist_init(&queue);
 	for (i = 0; i < TIMER_N_RINGS; ++i) {
 		ring = current->p_timer_rings[i];
 		run_ring_timers(ring, t, &queue);
@@ -127,12 +127,12 @@ migrate_timers_in_seg(u_char sid, timer_seg_t *dst_seg, timer_seg_t *src_seg)
 {
 	struct timer *timer;
 
-	while (!dlist_is_empty(&src_seg->htb_head)) {
-		timer = DLIST_FIRST(&src_seg->htb_head, struct timer, tm_list);
-		DLIST_REMOVE(timer, tm_list);
+	while (!gt_dlist_is_empty(&src_seg->htb_head)) {
+		timer = GT_DLIST_FIRST(&src_seg->htb_head, struct timer, tm_list);
+		GT_DLIST_REMOVE(timer, tm_list);
 		// timer_cancel() can be executed while migrate_timers()
 		WRITE_ONCE(timer->tm_sid, sid);
-		DLIST_INSERT_TAIL(&dst_seg->htb_head, timer, tm_list);
+		GT_DLIST_INSERT_TAIL(&dst_seg->htb_head, timer, tm_list);
 	}
 }
 
@@ -175,7 +175,7 @@ uint64_t
 timer_timeout(struct timer *timer)
 {
 	uint64_t e, b, dist;
-	struct dlist *list;
+	struct gt_dlist *list;
 	struct timer_ring *ring;
 
 	if (!timer_is_running(timer)) {
@@ -233,7 +233,7 @@ timer_set(struct timer *timer, uint64_t expire, u_char module_id, u_char fn_id)
 	timer->tm_module_id = module_id;
 	timer->tm_fn_id = fn_id;
 	SEG_LOCK(seg);
-	DLIST_INSERT_HEAD(&seg->htb_head, timer, tm_list);
+	GT_DLIST_INSERT_HEAD(&seg->htb_head, timer, tm_list);
 	SEG_UNLOCK(seg);
 }
 
@@ -258,7 +258,7 @@ restart:
 			SEG_UNLOCK(seg);
 			goto restart;
 		}
-		DLIST_REMOVE(timer, tm_list);
+		GT_DLIST_REMOVE(timer, tm_list);
 		SEG_UNLOCK(seg);
 		timer->tm_ring_id = TIMER_RING_POISON;
 	}

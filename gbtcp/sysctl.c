@@ -31,8 +31,8 @@ struct sysctl_list_udata {
 };
 
 struct sysctl_node {
-	struct dlist scn_list;
-	struct dlist scn_children;
+	struct gt_dlist scn_list;
+	struct gt_dlist scn_children;
 	struct sysctl_node *scn_parent;
 	u_char scn_mode;
 	u_char scn_is_added;
@@ -288,10 +288,10 @@ sysctl_node_alloc(struct sysctl_node *parent, const char *name, int name_len)
 	node->scn_name_len = name_len;
 	memcpy(node->scn_name, name, name_len);
 	node->scn_name[name_len] = '\0';
-	dlist_init(&node->scn_children);
+	gt_dlist_init(&node->scn_children);
 	node->scn_parent = parent;
 	if (parent != NULL) {
-		DLIST_INSERT_TAIL(&parent->scn_children, node, scn_list);
+		GT_DLIST_INSERT_TAIL(&parent->scn_children, node, scn_list);
 	}
 	return node;
 }
@@ -302,7 +302,7 @@ sysctl_node_find_child(struct sysctl_node *node, const char *name,
 {
 	struct sysctl_node *child;
 
-	DLIST_FOREACH(child, &node->scn_children, scn_list) {
+	GT_DLIST_FOREACH(child, &node->scn_children, scn_list) {
 		if (child->scn_name_len == name_len &&
 		    !memcmp(child->scn_name, name, name_len)) {
 			return child;
@@ -409,14 +409,13 @@ sysctl_node_del(struct sysctl_node *node)
 	if (node == NULL) {
 		return;
 	}
-	while (!dlist_is_empty(&node->scn_children)) {
-		child = DLIST_FIRST(&node->scn_children,
-		                    struct sysctl_node, scn_list);
+	while (!gt_dlist_is_empty(&node->scn_children)) {
+		child = GT_DLIST_FIRST(&node->scn_children, struct sysctl_node, scn_list);
 		sysctl_node_del(child);
 	}
 	if (node->scn_parent != NULL) {
 		node->scn_parent = NULL;
-		DLIST_REMOVE(node, scn_list);
+		GT_DLIST_REMOVE(node, scn_list);
 	}
 	if (node->scn_free_fn != NULL) {
 		(*node->scn_free_fn)(node->scn_udata);
@@ -473,7 +472,7 @@ sysctl_process_node(struct sysctl_conn *cp,
 
 static int
 sysctl_list_handler(struct sysctl_node *node, const char *tail,
-	const char *new, struct strbuf *out)
+		const char *new, struct strbuf *out)
 {
 	int rc, tail_len;
 	struct sysctl_list_udata *udata;
@@ -500,11 +499,11 @@ sysctl_branch_handler(struct sysctl_node *node, const char *tail,
 	int tail_len;
 	struct sysctl_node *x, *first, *last;
 
-	if (dlist_is_empty(&node->scn_children)) {
+	if (gt_dlist_is_empty(&node->scn_children)) {
 		return 0;
 	}
-	first = DLIST_FIRST(&node->scn_children, struct sysctl_node, scn_list);
-	last = DLIST_LAST(&node->scn_children, struct sysctl_node, scn_list);
+	first = GT_DLIST_FIRST(&node->scn_children, struct sysctl_node, scn_list);
+	last = GT_DLIST_LAST(&node->scn_children, struct sysctl_node, scn_list);
 	tail_len = strzlen(tail);
 	if (tail_len == 0) {
 		x = first;
@@ -515,7 +514,7 @@ sysctl_branch_handler(struct sysctl_node *node, const char *tail,
 		if (x == NULL || x == last) {
 			return 0;
 		}
-		x = DLIST_NEXT(x, scn_list);
+		x = GT_DLIST_NEXT(x, scn_list);
 	}
 	strbuf_addf(out, ",%s", x->scn_name);
 	return 0;

@@ -163,29 +163,10 @@ bsd_get_so_info(void *e, struct socket_info *x)
 	snprintf(x->soi_debug, sizeof(x->soi_debug), "0x%x", so->so_state);
 }
 
-struct socket *
-in_pcblookup(int proto, be32_t laddr, be16_t lport, be32_t faddr, be16_t fport)
+int
+in_pcblookup(struct socket **pso,
+		int proto, be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
-	int i;
-	uint32_t h;
-	struct dlist *b;
-	struct socket *so;
-
-	h = SO_HASH(faddr, lport, fport);
-	b = htable_bucket_get(&current->t_in_htable, h);
-	DLIST_FOREACH(so, b, inp_list) {	
-		if (so->so_proto == proto &&
-		    so->inp_laddr == laddr &&
-		    so->inp_lport == lport &&
-		    so->inp_faddr == faddr &&
-		    so->inp_fport == fport) {
-			return so;
-		}
-	}
-	i = ntohs(lport);
-	if (i < EPHEMERAL_MIN) {
-		return current->t_in_binded[i];
-	} else {
-		return NULL;
-	}
+	gt_so_lookup
+	return NULL;
 }

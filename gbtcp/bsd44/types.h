@@ -48,18 +48,6 @@
 typedef unsigned char u_char;
 typedef unsigned short u_short;
 
-struct ip_socket {
-	struct dlist ipso_list;
-	union {
-		struct ip_socket *ipso_cache;	// FIXME: ????
-		uint32_t ipso_hash;		// FIXME: ????
-	};
-	be32_t ipso_laddr;
-	be32_t ipso_faddr;
-	be16_t ipso_lport;
-	be16_t ipso_fport;
-};
-
 #define	M_BCAST                 0x0100 /* send/received as link-level broadcast */
 #define	M_MCAST	                0x0200 /* send/received as link-level multicast */
 

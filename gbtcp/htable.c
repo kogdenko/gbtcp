@@ -12,7 +12,7 @@ struct htable_id {
 void
 htable_bucket_init(struct htable_bucket *b)
 {
-	dlist_init(&b->htb_head);
+	gt_dlist_init(&b->htb_head);
 	spinlock_init(&b->htb_lock);
 }
 
@@ -123,7 +123,7 @@ static int
 sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 {
 	int rc, lo;
-	struct dlist *e;
+	struct gt_dlist *e;
 	struct htable *t;
 	struct htable_id id;
 	struct htable_bucket *b;
@@ -141,7 +141,7 @@ sysctl_htable_list_next(void *udata, const char *ident, struct strbuf *out)
 		b = t->ht_array + id.hi;
 		lo = 0;
 		HTABLE_BUCKET_LOCK(b);
-		dlist_foreach(e, &b->htb_head) {
+		gt_dlist_foreach(e, &b->htb_head) {
 			if (lo == id.lo) {
 				HTABLE_BUCKET_UNLOCK(b);
 				strbuf_addf(out, "%d.%d", id.hi, id.lo);
@@ -159,7 +159,7 @@ static int
 sysctl_htable_list(void *udata, const char *ident, const char *new, struct strbuf *out)
 {
 	int rc, lo;
-	struct dlist *e;
+	struct gt_dlist *e;
 	struct htable *t;
 	struct htable_id id;
 	struct htable_bucket *b;
@@ -176,7 +176,7 @@ sysctl_htable_list(void *udata, const char *ident, const char *new, struct strbu
 	b = t->ht_array + id.hi;
 	lo = 0;
 	HTABLE_BUCKET_LOCK(b);
-	dlist_foreach(e, &b->htb_head) {
+	gt_dlist_foreach(e, &b->htb_head) {
 		if (lo == id.lo) {
 			(*t->ht_sysctl_fn)(e, new, out);
 			break;

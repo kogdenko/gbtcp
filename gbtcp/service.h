@@ -28,10 +28,11 @@ do { \
 #define SERVICE_UNLOCK \
 	service_unlock()
 
+#define ipstat current->p_ips
 
 struct service {
 	struct spinlock p_lock;
-	struct dlist p_tx_head;	
+	struct gt_dlist p_tx_head;	
 	u_char p_inited;
 	u_char p_sid;
 	u_char p_need_update_rss_bindings;
@@ -48,28 +49,20 @@ struct service {
 	struct mbuf_pool *p_sockbuf_pool;
 
 	struct tcp_stat p_tcps;
-	struct tcp_stat *p_rx_tcps;
-
 	struct udp_stat p_udps;
-	struct udp_stat *p_rx_udps;
-
 	struct ip_stat p_ips;
-	struct ip_stat *p_rx_ips;
-
 	struct icmp_stat p_icmps;
-	struct icmp_stat *p_rx_icmps;
-
 	struct arp_stat p_arps;
 
 	int p_pid;
 	int p_fd;
 	uint64_t p_start_time;
 	int p_mbuf_garbage_max;
-	struct dlist p_dev_head;
+	struct gt_dlist p_dev_head;
 #ifndef HABE_VALE
 	struct dev p_veth_peer;
 #endif
-	struct dlist p_mbuf_garbage_head[GT_SERVICES_MAX];
+	struct gt_dlist p_mbuf_garbage_head[GT_SERVICES_MAX];
 };
 
 #define service_load_epoch(s) \

@@ -67,7 +67,7 @@ sockbuf_chunk_alloc(struct mbuf_pool *p, struct sock_buf *b)
 	if (rc == 0) {
 		chunk->ch_len = 0;
 		chunk->ch_off = 0;
-		DLIST_INSERT_TAIL(&b->sob_head, chunk, ch_list);
+		GT_DLIST_INSERT_TAIL(&b->sob_head, chunk, ch_list);
 	}
 	return chunk;
 }
@@ -77,7 +77,7 @@ sockbuf_init(struct sock_buf *b, int max)
 {
 	b->sob_len = 0;
 	b->sob_max = max;
-	dlist_init(&b->sob_head);
+	gt_dlist_init(&b->sob_head);
 }
 
 int
@@ -92,9 +92,9 @@ sockbuf_free(struct sock_buf *b)
 	struct sbchunk *chunk;
 
 	b->sob_len = 0;
-	while (!dlist_is_empty(&b->sob_head)) {
-		chunk = DLIST_FIRST(&b->sob_head, struct sbchunk, ch_list);
-		DLIST_REMOVE(chunk, ch_list);
+	while (!gt_dlist_is_empty(&b->sob_head)) {
+		chunk = GT_DLIST_FIRST(&b->sob_head, struct sbchunk, ch_list);
+		GT_DLIST_REMOVE(chunk, ch_list);
 		mbuf_free(&chunk->ch_mbuf);
 	}
 }
@@ -112,9 +112,9 @@ sockbuf_free_n(struct sock_buf *b, int nr_chunks)
 	struct sbchunk *chunk;
 
 	for (i = 0; i < nr_chunks; ++i) {
-		assert(!dlist_is_empty(&b->sob_head));
-		chunk = DLIST_LAST(&b->sob_head, struct sbchunk, ch_list);
-		DLIST_REMOVE(chunk, ch_list);
+		assert(!gt_dlist_is_empty(&b->sob_head));
+		chunk = GT_DLIST_LAST(&b->sob_head, struct sbchunk, ch_list);
+		GT_DLIST_REMOVE(chunk, ch_list);
 		mbuf_free(&chunk->ch_mbuf);
 	}
 }
@@ -135,7 +135,7 @@ sockbuf_write(struct sock_buf *b, struct sbchunk *pos,
 
 	ptr = src;
 	rem = cnt;
-	DLIST_FOREACH_CONTINUE(pos, &b->sob_head, ch_list) {
+	GT_DLIST_FOREACH_CONTINUE(pos, &b->sob_head, ch_list) {
 		assert(rem > 0);
 		space = sockbuf_chunk_space(pos);
 		n = MIN(rem, space);
@@ -163,14 +163,14 @@ sockbuf_add(struct mbuf_pool *p, struct sock_buf *b, const void *buf, int cnt)
 		return 0;
 	}
 	n = 0;
-	if (dlist_is_empty(&b->sob_head)) {
+	if (gt_dlist_is_empty(&b->sob_head)) {
 		chunk = sockbuf_chunk_alloc(p, b);
 		if (chunk == NULL) {
 			return -ENOMEM;
 		}
 		n++;
 	} else {
-		chunk = DLIST_LAST(&b->sob_head, struct sbchunk, ch_list);
+		chunk = GT_DLIST_LAST(&b->sob_head, struct sbchunk, ch_list);
 	}
 	pos = chunk;
 	rem = added;
@@ -197,14 +197,14 @@ sockbuf_copy(struct sock_buf *b, int off, u_char *dst, int cnt)
 	size_t n;
 	struct sbchunk *chunk;
 
-	DLIST_FOREACH(chunk, &b->sob_head, ch_list) {
+	GT_DLIST_FOREACH(chunk, &b->sob_head, ch_list) {
 		assert(chunk->ch_len);
 		if (off < chunk->ch_len) {
 			break;
 		}
 		off -= chunk->ch_len;
 	}
-	for (; cnt != 0; chunk = DLIST_NEXT(chunk, ch_list)) {
+	for (; cnt != 0; chunk = GT_DLIST_NEXT(chunk, ch_list)) {
 		assert(&chunk->ch_list != &b->sob_head);
 		n = MIN(cnt, chunk->ch_len - off);
 		data = sockbuf_chunk_data(chunk);
@@ -227,7 +227,7 @@ sockbuf_readv(struct sock_buf *b, const struct iovec *iov, int iovcnt, int accum
 	uio.uio_iovcnt = iovcnt;
 	uio.uio_off = 0;
 	off = 0;
-	DLIST_FOREACH_SAFE(pos, &b->sob_head, ch_list, tmp) {
+	GT_DLIST_FOREACH_SAFE(pos, &b->sob_head, ch_list, tmp) {
 		assert(pos->ch_len);
 		assert(b->sob_len >= pos->ch_len);
 		ptr = sockbuf_chunk_data(pos);
@@ -245,7 +245,7 @@ sockbuf_readv(struct sock_buf *b, const struct iovec *iov, int iovcnt, int accum
 		if (peek == 0) {
 			b->sob_len -= n;
 			if (pos->ch_len == n) {
-				DLIST_REMOVE(pos, ch_list);
+				GT_DLIST_REMOVE(pos, ch_list);
 				mbuf_free(&pos->ch_mbuf);
 			} else {
 				pos->ch_len -= n;
@@ -262,10 +262,10 @@ sockbuf_read_zerocopy(struct sock_buf *b, void **pbuf)
 {
 	struct sbchunk *c;
 
-	if (dlist_is_empty(&b->sob_head)) {
+	if (gt_dlist_is_empty(&b->sob_head)) {
 		return 0;
 	}
-	c = DLIST_FIRST(&b->sob_head, struct sbchunk, ch_list);
+	c = GT_DLIST_FIRST(&b->sob_head, struct sbchunk, ch_list);
 	assert(c->ch_len);
 	*pbuf = sockbuf_chunk_data(c);
 	return c->ch_len;
@@ -299,7 +299,7 @@ sockbuf_drain(struct sock_buf *b, int cnt)
 	struct sbchunk *pos, *tmp;
 
 	off = 0;
-	DLIST_FOREACH_SAFE(pos, &b->sob_head, ch_list, tmp) {
+	GT_DLIST_FOREACH_SAFE(pos, &b->sob_head, ch_list, tmp) {
 		assert(pos->ch_len);
 		assert(b->sob_len >= pos->ch_len);
 		n = pos->ch_len;
@@ -310,7 +310,7 @@ sockbuf_drain(struct sock_buf *b, int cnt)
 		pos->ch_off += n;
 		pos->ch_len -= n;
 		if (pos->ch_len == 0) {
-			DLIST_REMOVE(pos, ch_list);
+			GT_DLIST_REMOVE(pos, ch_list);
 			mbuf_free(&pos->ch_mbuf);
 		}
 		off += n;
@@ -329,7 +329,7 @@ sockbuf_rewrite(struct sock_buf *b, const void *dst, int cnt)
 	struct sbchunk *chunk;
 
 	pos = 0;
-	DLIST_FOREACH(chunk, &b->sob_head, ch_list) {
+	GT_DLIST_FOREACH(chunk, &b->sob_head, ch_list) {
 		assert(chunk->ch_len);
 		assert(b->sob_len <= chunk->ch_len);
 		n = MIN(cnt - pos, chunk->ch_len);
