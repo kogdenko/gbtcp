@@ -69,6 +69,9 @@ class Application:
 
 
 	def read_netstat(self):
+		if not self.proc:
+			return None
+
 		netstat = self.create_netstat()
 		netstat.read(self) 
 		return netstat
@@ -82,9 +85,14 @@ class Application:
 
 
 	def read_ifstat(self):
+		if not self.proc:
+			return None
+
 		ifstat = self.create_ifstat()
-		ifstat.read(self)
-		return ifstat
+		if ifstat.read(self):
+			return ifstat
+		else:
+			return None
 
 
 	def configure_network(self, onoff, network, mode, concurrency, cpus):
@@ -101,14 +109,22 @@ class Application:
 
 	def before_stop(self):
 		netstat = self.read_netstat()
-		self.netstat = netstat - self.initial_netstat
+		if netstat:
+			self.netstat = netstat - self.initial_netstat
 		self.repo = None
 
 
 	def wait_process(self):
+		if not self.proc:
+			return -1, None
 		res = wait_process(self.proc)
 		self.proc = None
 		return res
+
+
+	def send_signal(self, signum):
+		if self.proc:
+			self.proc.send_signal(signum)
 
 
 	@staticmethod
@@ -215,7 +231,7 @@ class gbtcp_base_helloworld(Application):
 
 	def stop(self):
 		self.before_stop()
-		self.proc.send_signal(signal.SIGUSR1)
+		self.send_signal(signal.SIGUSR1)
 		return self.wait_process()
 
 
@@ -326,5 +342,5 @@ class con_gen(Application, Application.Registered):
 
 	def stop(self):
 		self.before_stop()
-		self.proc.send_signal(signal.SIGINT)
+		self.send_signal(signal.SIGINT)
 		return self.wait_process()

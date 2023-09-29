@@ -187,12 +187,10 @@ struct arp_stat {
 #undef ARP_STAT_DECLARE
 
 struct in_context {
-	struct route_if *in_ifp;
 	u_char *in_cur;
 	int in_rem;
 	int in_errnum;
 	struct eth_hdr *in_eh;
-	struct arp_hdr *in_ah;
 	struct ip4_hdr *in_ih;
 	int in_ih_len;
 	uint16_t in_ip_payload_len;
@@ -221,16 +219,17 @@ struct in_context {
 };
 
 #define IP4_HDR_LEN(ver_ihl) (((ver_ihl) & 0x0f) << 2)
-#define IP4_HDR_VER(ver_ihl) ((ver_ihl) & 0xf0)
+#define IP4_HDR_VER(ver_ihl) (((ver_ihl) & 0xf0) >> 4)
 
 #define TCP_HDR_LEN(data_off) ((data_off & 0xf0) >> 2)
 
 int inet_mod_init(void);
 
 void in_context_init(struct in_context *, void *, int);
-int eth_input(struct in_context *);
+int eth_input(struct route_if *, struct in_context *);
 void ip4_set_cksum(struct ip4_hdr *, void *);
 int gt_ip4_validate_cksum(struct ip4_hdr *);
+int gt_udp_validate_cksum(struct ip4_hdr *, struct udp_hdr *, int);
 int gt_tcp_validate_cksum(struct ip4_hdr *, struct tcp_hdr *, int);
 int tcp_opts_fill(struct tcp_opts *, void *);
 int tcp_opts_len(struct tcp_opts *);

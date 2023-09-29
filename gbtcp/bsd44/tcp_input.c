@@ -115,10 +115,8 @@ static void
 tcp_xmit_timer(struct tcpcb *tp, short rtt)
 {
 	short delta;
-	struct tcp_stat *tcps;
 
-	tcps = &current->p_tcps;
-	tcps->tcps_rttupdated++;
+	tcpstat.tcps_rttupdated++;
 	if (tp->t_srtt != 0) {
 		/*
 		 * srtt is stored as fixed point with 3 bits after the
@@ -192,7 +190,6 @@ tcp_xmit_timer(struct tcpcb *tp, short rtt)
 int
 tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 {
-	struct tcp_stat *tcps;
 	struct ip4_hdr save_ip;
 	struct tcp_hdr *th, save_th;
 	u_char *optp, *dat;
@@ -206,8 +203,7 @@ tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 	int flags, ts_present, dropsocket;
 	u_long tiwin;
 
-	tcps = &current->p_tcps;
-	tcps->tcps_rcvtotal++;
+	tcpstat.tcps_rcvtotal++;
 	tp = NULL;
 	so = NULL;
 	ts_present = 0;
@@ -215,7 +211,7 @@ tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 	optp = NULL;
 	th = (struct tcp_hdr *)((u_char *)ip + iphlen);
 	if (ip->ih_total_len < sizeof(struct tcp_hdr)) {
-		tcps->tcps_rcvshort++;
+		tcpstat.tcps_rcvshort++;
 		return IN_OK;
 	}
 
@@ -223,7 +219,7 @@ tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 	 * Checksum extended TCP header and data.
 	 */
 	if (!gt_tcp_validate_cksum(ip, th, ip->ih_total_len)) {
-		tcps->tcps_rcvbadsum++;
+		tcpstat.tcps_rcvbadsum++;
 		goto drop;
 	}
 
@@ -233,7 +229,7 @@ tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 	 */
 	off = th->th_data_off << 2;
 	if (off < sizeof(struct tcp_hdr) || off > ip->ih_total_len) {
-		tcps->tcps_rcvbadoff++;
+		tcpstat.tcps_rcvbadoff++;
 		goto drop;
 	}
 	ip->ih_total_len -= off;
@@ -299,7 +295,7 @@ findpcb:
 		so->so_state &= ~SS_ISPROCESSING;
 		so = sonewconn(so);
 		if (so == NULL) {
-			tcps->tcps_listendrop++;
+			tcpstat.tcps_listendrop++;
 			goto drop;
 		}
 		so->so_state |= SS_ISPROCESSING;
@@ -400,7 +396,7 @@ findpcb:
 		tp->t_state = GT_TCPS_SYN_RCVD;
 		tcp_setslowtimer(tp, TCPT_KEEP, TCPTV_KEEP_INIT);
 		dropsocket = 0;		/* committed to socket */
-		tcps->tcps_accepts++;
+		tcpstat.tcps_accepts++;
 		goto trimthenstep6;
 
 	/*
@@ -437,7 +433,7 @@ findpcb:
 		tcp_rcvseqinit(tp, th->th_seq);
 		tp->t_flags |= TF_ACKNOW;
 		if ((flags & GT_TCPF_ACK)) {
-			tcps->tcps_connects++;
+			tcpstat.tcps_connects++;
 			soisconnected(so);
 			tp->t_state = GT_TCPS_ESTABLISHED;
 			/* Do window scaling on this connection? */
@@ -468,8 +464,8 @@ trimthenstep6:
 			todrop = ip->ih_total_len - rcv_wnd;
 			ip->ih_total_len = rcv_wnd;
 			flags &= ~GT_TCPF_FIN;
-			tcps->tcps_rcvpackafterwin++;
-			tcps->tcps_rcvbyteafterwin += todrop;
+			tcpstat.tcps_rcvpackafterwin++;
+			tcpstat.tcps_rcvbyteafterwin += todrop;
 		}
 		tp->snd_wl1 = th->th_seq - 1;
 		goto step6;
@@ -503,9 +499,9 @@ trimthenstep6:
 			 */
 			tp->ts_recent = 0;
 		} else {
-			tcps->tcps_rcvduppack++;
-			tcps->tcps_rcvdupbyte += ip->ih_total_len;
-			tcps->tcps_pawsdrop++;
+			tcpstat.tcps_rcvduppack++;
+			tcpstat.tcps_rcvdupbyte += ip->ih_total_len;
+			tcpstat.tcps_pawsdrop++;
 			goto dropafterack;
 		}
 	}
@@ -518,8 +514,8 @@ trimthenstep6:
 			todrop--;
 		}
 		if (todrop >= ip->ih_total_len) {
-			tcps->tcps_rcvduppack++;
-			tcps->tcps_rcvdupbyte += ip->ih_total_len;
+			tcpstat.tcps_rcvduppack++;
+			tcpstat.tcps_rcvdupbyte += ip->ih_total_len;
 			/*
 			 * If segment is just one to the left of the window,
 			 * check two special cases:
@@ -545,8 +541,8 @@ trimthenstep6:
 				}
 			}
 		} else {
-			tcps->tcps_rcvpartduppack++;
-			tcps->tcps_rcvpartdupbyte += todrop;
+			tcpstat.tcps_rcvpartduppack++;
+			tcpstat.tcps_rcvpartdupbyte += todrop;
 		}
 		dat += todrop;
 		th->th_seq += todrop;
@@ -564,7 +560,7 @@ trimthenstep6:
 			 tp->t_state == GT_TCPS_FIN_WAIT_2 ||
 			 tp->t_state == GT_TCPS_TIME_WAIT)) {
 		tcp_close(tp);
-		tcps->tcps_rcvafterclose++;
+		tcpstat.tcps_rcvafterclose++;
 		goto dropwithreset;
 	}
 
@@ -574,9 +570,9 @@ trimthenstep6:
 	 */
 	todrop = (th->th_seq + ip->ih_total_len) - (tp->rcv_nxt + rcv_wnd);
 	if (todrop > 0) {
-		tcps->tcps_rcvpackafterwin++;
+		tcpstat.tcps_rcvpackafterwin++;
 		if (todrop >= ip->ih_total_len) {
-			tcps->tcps_rcvbyteafterwin += ip->ih_total_len;
+			tcpstat.tcps_rcvbyteafterwin += ip->ih_total_len;
 			/*
 			 * If a new connection request is received
 			 * while in TIME_WAIT, drop the old connection
@@ -599,12 +595,12 @@ trimthenstep6:
 			 */
 			if (rcv_wnd == 0 && th->th_seq == tp->rcv_nxt) {
 				tp->t_flags |= TF_ACKNOW;
-				tcps->tcps_rcvwinprobe++;
+				tcpstat.tcps_rcvwinprobe++;
 			} else {
 				goto dropafterack;
 			}
 		} else {
-			tcps->tcps_rcvbyteafterwin += todrop;
+			tcpstat.tcps_rcvbyteafterwin += todrop;
 		}
 		ip->ih_total_len -= todrop;
 		flags &= ~(GT_TCPF_PSH|GT_TCPF_FIN);
@@ -644,7 +640,7 @@ trimthenstep6:
 			so->so_error = ECONNRESET;
 close:
 			tp->t_state = GT_TCPS_CLOSED;
-			tcps->tcps_drops++;
+			tcpstat.tcps_drops++;
 			tcp_close(tp);
 			goto drop;
 
@@ -686,7 +682,7 @@ close:
 		    SEQ_GT(th->th_ack, tp->snd_max)) {
 			goto dropwithreset;
 		}
-		tcps->tcps_connects++;
+		tcpstat.tcps_connects++;
 		soisconnected(so);
 		tp->t_state = GT_TCPS_ESTABLISHED;
 		/* Do window scaling? */
@@ -717,7 +713,7 @@ close:
 			if (ip->ih_total_len == 0 &&
 			    (flags & GT_TCPF_FIN) == 0 &&
 			    tiwin == tp->snd_wnd) {
-				tcps->tcps_rcvdupack++;
+				tcpstat.tcps_rcvdupack++;
 				/*
 				 * If we have outstanding data (other than
 				 * a window probe), this is a completely
@@ -778,12 +774,12 @@ close:
 		}
 		tp->t_dupacks = 0;
 		if (SEQ_GT(th->th_ack, tp->snd_max)) {
-			tcps->tcps_rcvacktoomuch++;
+			tcpstat.tcps_rcvacktoomuch++;
 			goto dropafterack;
 		}
 		acked = th->th_ack - tp->snd_una;
-		tcps->tcps_rcvackpack++;
-		tcps->tcps_rcvackbyte += acked;
+		tcpstat.tcps_rcvackpack++;
+		tcpstat.tcps_rcvackbyte += acked;
 
 		/*
 		 * If we have a timestamp reply, update smoothed
@@ -916,7 +912,7 @@ step6:
 	    tiwin > tp->snd_wnd) {
 		/* keep track of pure window updates */
 		if (ip->ih_total_len == 0 && tp->snd_wl2 == th->th_ack) {
-			tcps->tcps_rcvwinupd++;
+			tcpstat.tcps_rcvwinupd++;
 		}
 		tp->snd_wnd = tiwin;
 		tp->snd_wl1 = th->th_seq;
@@ -943,16 +939,16 @@ step6:
 			}
 			tp->rcv_nxt += ip->ih_total_len;
 			flags = flags & GT_TCPF_FIN;
-			tcps->tcps_rcvpack++;
-			tcps->tcps_rcvbyte += ip->ih_total_len;
+			tcpstat.tcps_rcvpack++;
+			tcpstat.tcps_rcvbyte += ip->ih_total_len;
 			if (ip->ih_total_len) {
 				datlen = ip->ih_total_len;
 				sbappend(&so->so_rcv, dat, datlen);
 				sowakeup(so, POLLIN);
 			}
 		} else {
-			tcps->tcps_rcvoopack++;
-			tcps->tcps_rcvoobyte += ip->ih_total_len;
+			tcpstat.tcps_rcvoopack++;
+			tcpstat.tcps_rcvoobyte += ip->ih_total_len;
 			tp->t_flags |= TF_ACKNOW;
 		}
 	} else {
@@ -1048,9 +1044,9 @@ dropwithreset:
 drop:
 	/* destroy temporarily created socket */
 	if (dropsocket) {
-		tcps->tcps_badsyn++;
+		tcpstat.tcps_badsyn++;
 		tcp_drop(tp, ECONNABORTED);
-		tcps->tcps_closed++; /* socket was temporary */
+		tcpstat.tcps_closed++; /* socket was temporary */
 	}
 
 unref:

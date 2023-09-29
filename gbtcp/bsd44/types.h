@@ -90,10 +90,10 @@ typedef unsigned short u_short;
 #define NTOHS(x) ((x) = ntohs((short)(x)))
 #define NTOHL(x) ((x) = ntohl((long)(x)))
 
+#define so_state so_base.sobase_state
+
 extern uint32_t tcp_now;
 extern u_char etherbroadcastaddr[6];
 extern const char *tcpstates[TCP_NSTATES];
-
-#define tcpstat current->p_tcps
 
 #endif // GBTCP_BSD44_TYPES_H

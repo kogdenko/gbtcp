@@ -16,8 +16,6 @@
 #define ARP_MIN_RANDOM_FACTOR 0.5
 #define ARP_MAX_RANDOM_FACTOR 1.5
 
-#define arps current->p_arps
-
 struct gt_module_arp {
 	struct log_scope log_scope;
 	struct htable arp_htable;
@@ -78,12 +76,12 @@ arp_entry_add_incomplete(struct arp_entry *e, struct dev_pkt *pkt)
 	if (e->ae_incomplete_q != NULL) {
 		cp = e->ae_incomplete_q;
 		e->ae_incomplete_q = NULL;
-		arps.arps_dropped++;
+		arpstat.arps_dropped++;
 	} else {
 		rc = mbuf_alloc(current->p_arp_incomplete_pool,
 		                (struct mbuf **)&cp);
 		if (rc) {
-			arps.arps_dropped++;
+			arpstat.arps_dropped++;
 			return;
 		}
 	}
@@ -131,7 +129,7 @@ arp_tx_incomplete_q(struct arp_entry *e)
 	return;
 err:
 	mbuf_free(&x->pkt_mbuf);
-	arps.arps_dropped++;
+	arpstat.arps_dropped++;
 }
 
 static int
@@ -187,7 +185,7 @@ arp_probe(struct arp_entry *e)
 	}
 	pkt.pkt_len = len;
 	route_transmit(route.rt_ifp, &pkt);
-	arps.arps_txrequests++;
+	arpstat.arps_txrequests++;
 }
 
 static uint32_t
@@ -352,7 +350,7 @@ service_deinit_arp(struct service *s)
 static inline void
 arp_set_state(struct arp_entry *e, int state)
 {
-	GT_INFO(0, "Set arp entry state; state=%s->%s, next_hop=%s",
+	GT_INFO(ARP, 0, "Set arp entry state; state=%s->%s, next_hop=%s",
 			arp_state_str(e->ae_state), arp_state_str(state),
 			log_add_ipaddr(AF_INET, &e->ae_next_hop));
 	WRITE_ONCE(e->ae_state, state);
@@ -420,7 +418,7 @@ arp_mod_timer(struct timer *timer, u_char fn_id)
 	struct gt_module_arp *mod;
 
 	mod = gt_module_get(GT_MODULE_ARP);
-	arps.arps_timeouts++;
+	arpstat.arps_timeouts++;
 	e = container_of(timer, struct arp_entry, ae_timer);
 	h = arp_entry_hash(e);
 	b = htable_bucket_get(&mod->arp_htable, h);
@@ -602,7 +600,7 @@ arp_update(struct arp_advert *adv)
 	struct gt_module_arp *mod;
 
 	mod = gt_module_get(GT_MODULE_ARP);
-	GT_INFO(0, "Update arp entry; next_hop=%s",
+	GT_INFO(ARP, 0, "Update arp entry; next_hop=%s",
 			log_add_ipaddr(AF_INET, &adv->arpa_next_hop));
 	if (!eth_addr_is_ucast(adv->arpa_addr.ea_bytes)) {
 		return;
@@ -677,7 +675,7 @@ arp_reply(struct route_if *ifp, struct arp_hdr *ah)
 	rc = route_get_tx_packet(ifp, &pkt, TX_CAN_REDIRECT);
 	if (rc) {
 		counter64_inc(&ifp->rif_tx_drop);
-		arps.arps_txrepliesdropped++;
+		arpstat.arps_txrepliesdropped++;
 		return;
 	}
 	pkt.pkt_len = sizeof(struct eth_hdr) + sizeof(struct arp_hdr);
@@ -695,97 +693,96 @@ arp_reply(struct route_if *ifp, struct arp_hdr *ah)
 	ah_rpl->ah_data.aip_sip = ah->ah_data.aip_tip;
 	ah_rpl->ah_data.aip_tha = ah->ah_data.aip_sha;
 	ah_rpl->ah_data.aip_tip = ah->ah_data.aip_sip;
-	arps.arps_txreplies++;
+	arpstat.arps_txreplies++;
 	route_transmit(ifp, &pkt);
 }
 
 int
-gt_arp_input(struct in_context *in)
+gt_arp_input(struct route_if *ifp, void *dat, int datlen)
 {
 	int i, is_req;
 	be32_t sip, tip;
 	struct route_if_addr *ifa;
+	struct arp_hdr *ah;
 	struct arp_advert adv;
 
-	arps.arps_received++;
-	if (in->in_rem < sizeof(struct arp_hdr)) {
-		arps.arps_toosmall++;
+	arpstat.arps_received++;
+	if (datlen < sizeof(struct arp_hdr)) {
+		arpstat.arps_toosmall++;
 		return IN_OK;
 	}
-	in->in_ah = (struct arp_hdr *)in->in_cur;
-	GT_INET_PARSER_SHIFT(in, sizeof(struct arp_hdr));
-	if (in->in_ah->ah_hrd != ARP_HRD_ETH_BE) {
-		arps.arps_badhrd++;
+	ah = (struct arp_hdr *)dat;
+	if (ah->ah_hrd != ARP_HRD_ETH_BE) {
+		arpstat.arps_badhrd++;
 		return IN_OK;
 	}
-	if (in->in_ah->ah_pro != ETH_TYPE_IP4_BE) {
-		arps.arps_badpro++;
+	if (ah->ah_pro != ETH_TYPE_IP4_BE) {
+		arpstat.arps_badpro++;
 		return IN_OK;
 	}
-	if (in->in_ah->ah_hlen != sizeof(struct eth_addr)) {
-		arps.arps_badhlen++;
+	if (ah->ah_hlen != sizeof(struct eth_addr)) {
+		arpstat.arps_badhlen++;
 		return IN_OK;
 	}
-	if (in->in_ah->ah_plen != sizeof(be32_t)) {
-		arps.arps_badplen++;
+	if (ah->ah_plen != sizeof(be32_t)) {
+		arpstat.arps_badplen++;
 		return IN_OK;
 	}
-	tip = in->in_ah->ah_data.aip_tip;
-	sip = in->in_ah->ah_data.aip_sip;
+	tip = ah->ah_data.aip_tip;
+	sip = ah->ah_data.aip_sip;
 	if (ipaddr4_is_loopback(tip)) {
-		arps.arps_badaddr++;
+		arpstat.arps_badaddr++;
 		return IN_OK;
 	}
 	if (ipaddr4_is_bcast(tip)) {
-		arps.arps_badaddr++;
+		arpstat.arps_badaddr++;
 		return IN_OK;
 	}
 	if (ipaddr4_is_loopback(sip)) {
-		arps.arps_badaddr++;
+		arpstat.arps_badaddr++;
 		return IN_OK;
 	}
 	if (ipaddr4_is_bcast(sip)) {
-		arps.arps_badaddr++;
+		arpstat.arps_badaddr++;
 		return IN_OK;
 	}
 	ifa = route_ifaddr_get4(tip);
 	if (ifa == NULL) {
 		return IN_BYPASS;
 	}
-	assert(in->in_ifp != NULL);
-	for (i = 0; i < in->in_ifp->rif_n_addrs; ++i) {
-		if (ifa == in->in_ifp->rif_addrs[i]) {
+	for (i = 0; i < ifp->rif_n_addrs; ++i) {
+		if (ifa == ifp->rif_addrs[i]) {
 			break;		
 		}
 	}
-	if (i == in->in_ifp->rif_n_addrs) {
-		arps.arps_filtered++;
+	if (i == ifp->rif_n_addrs) {
+		arpstat.arps_filtered++;
 		return IN_BYPASS;
 	}
 	if (sip == 0) {
 		// IP4 duplicate address detection
 		return IN_BYPASS;
 	}
-	switch (in->in_ah->ah_op) {
+	switch (ah->ah_op) {
 	case ARP_OP_REQUEST_BE:
-		arps.arps_rxrequests++;
+		arpstat.arps_rxrequests++;
 		is_req = 1;
-		arp_reply(in->in_ifp, in->in_ah);
+		arp_reply(ifp, ah);
 		break;
 	case ARP_OP_REPLY_BE:
-		arps.arps_rxreplies++;
+		arpstat.arps_rxreplies++;
 		is_req = 0;
 		break;
 	default:
-		arps.arps_badop++;
+		arpstat.arps_badop++;
 		return IN_OK;
 	}
 	adv.arpa_af = AF_INET;
 	adv.arpa_advert = !is_req;
 	adv.arpa_solicited = !is_req;
 	adv.arpa_override = !is_req;
-	adv.arpa_next_hop = in->in_ah->ah_data.aip_sip;
-	adv.arpa_addr = in->in_ah->ah_data.aip_sha;
+	adv.arpa_next_hop = ah->ah_data.aip_sip;
+	adv.arpa_addr = ah->ah_data.aip_sha;
 	arp_update(&adv);
 	if (is_req) {
 		return IN_OK;

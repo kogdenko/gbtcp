@@ -38,13 +38,13 @@ do { \
 		GT_UNUSED(errnum); \
 	} while (0)
 #define GT_INFO GT_DBG
-#else /*NDEBUG */
-#define GT_DBG(MODULE_NAME, err, ...) \
+#else // NDEBUG
+#define GT_DBG(MODULE_NAME, errnum, ...) \
 	GT_LOGF(MODULE_NAME, LOG_DEBUG, errnum, __VA_ARGS__)
 
-#define GT_INFO(MODULE_NAME, err, ...) \
+#define GT_INFO(MODULE_NAME, errnum, ...) \
 	GT_LOGF(MODULE_NAME, LOG_INFO, errnum, __VA_ARGS__)
-#endif /* NDEBUG */
+#endif // NDEBUG
 
 #define GT_DIE(errnum, fmt, ...) \
 do { \

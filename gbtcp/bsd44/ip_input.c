@@ -21,29 +21,27 @@ int
 ip_input(struct route_if *ifp, struct ip4_hdr *ip, int len, int eth_flags)
 {
 	int hlen;
-	struct ip_stat *ips;
 
-	ips = &current->p_ips;
-	ips->ips_total++;
+	ipstat.ips_total++;
 	if (len < sizeof(*ip)) {
-		ips->ips_toosmall++;
+		ipstat.ips_toosmall++;
 		return IN_OK;
 	}
 	if (IP4_HDR_VER(ip->ih_ver_ihl) != IPVERSION) {
-		ips->ips_badvers++;
+		ipstat.ips_badvers++;
 		return IN_OK;
 	}
 	hlen = IP4_HDR_LEN(ip->ih_ver_ihl);
 	if (hlen < sizeof(*ip)) {	/* minimum header length */
-		ips->ips_badhlen++;
+		ipstat.ips_badhlen++;
 		return IN_OK;
 	}
 	if (hlen > len) {
-		ips->ips_badhlen++;
+		ipstat.ips_badhlen++;
 		return IN_OK;
 	}
 	if (!gt_ip4_validate_cksum(ip)) {
-		ips->ips_badsum++;
+		ipstat.ips_badsum++;
 		return IN_OK;
 	}
 
@@ -52,7 +50,7 @@ ip_input(struct route_if *ifp, struct ip4_hdr *ip, int len, int eth_flags)
 	 */
 	NTOHS(ip->ih_total_len);
 	if (ip->ih_total_len < hlen) {
-		ips->ips_badlen++;
+		ipstat.ips_badlen++;
 		return IN_OK;
 	}
 	NTOHS(ip->ih_id);
@@ -64,16 +62,16 @@ ip_input(struct route_if *ifp, struct ip4_hdr *ip, int len, int eth_flags)
 	 * Drop packet if shorter than we expect.
 	 */
 	if (len < ip->ih_total_len) {
-		ips->ips_tooshort++;
+		ipstat.ips_tooshort++;
 		return IN_OK;
 	}
 
 	if (ip->ih_frag_off &~ IP_DF) {
-		ips->ips_fragments++;
+		ipstat.ips_fragments++;
 		return IN_BYPASS;
 	}
 	ip->ih_total_len -= hlen;
-	ips->ips_delivered++;
+	ipstat.ips_delivered++;
 	switch (ip->ih_proto) {
 	case IPPROTO_TCP:
 		return tcp_input(ifp, ip, hlen, eth_flags);

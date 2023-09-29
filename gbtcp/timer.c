@@ -213,7 +213,7 @@ timer_set(struct timer *timer, uint64_t expire, u_char module_id, u_char fn_id)
 
 	assert(expire >= TIMER_EXPIRE_MIN);
 	assert(expire <= TIMER_EXPIRE_MAX);
-	assert(mod_id > 0 && mod_id < MODS_MAX);
+	assert((u_int)module_id < MODS_MAX);
 	timer_cancel(timer);
 	if (expire < 2*TIMER_RING1_SEG) {
 		ring_id = 0;

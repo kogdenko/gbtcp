@@ -55,7 +55,7 @@ u_poll(struct pollfd *pfds, int npfds, uint64_t to, const sigset_t *sigmask)
 		e->pe_revents = 0;
 		e->pe_filter = pfd->events;
 		e->pe_n_triggered = NULL;
-		rc = gt_vso_get(pfd->fd, &fp);
+		rc = gt_so_get(pfd->fd, &fp);
 		if (rc == 0) {
 			// gbtcp fd
 			fd = -1;

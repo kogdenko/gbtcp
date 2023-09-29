@@ -1,35 +1,4 @@
-/*
- * Copyright (c) 1982, 1986, 1988, 1993
- *	The Regents of the University of California.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *	This product includes software developed by the University of
- *	California, Berkeley and its contributors.
- * 4. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-4-Clause
 
 #include "socket.h"
 #include "ip.h"
@@ -51,7 +20,7 @@ int icmpprintfs = 0;
 static be32_t
 icmp_reflectsrc(be32_t dst)
 {
-	uint32_t ia;
+	/*uint32_t ia;
 
 	for (ia = current->t_ip_laddr_min;
 	     ia <= current->t_ip_laddr_max; ++ia) {
@@ -59,66 +28,58 @@ icmp_reflectsrc(be32_t dst)
 			return dst;
 		}
 	}
-	return htonl(current->t_ip_laddr_min);
+	return htonl(current->t_ip_laddr_min);*/
+	return dst;
 }
 
 // Send an icmp packet back to the ip level,
 // after supplying a checksum.
-void
-icmp_send(struct packet *pkt, struct ip *ip)
+static void
+icmp_send(struct route_entry *r, struct dev_pkt *pkt, struct ip4_hdr *ip)
 {
-	struct icmp *icp;
-
 	if (icmpprintfs) {
-		printf("icmp_send dst %x src %x\n", ip->ip_dst.s_addr, ip->ip_src.s_addr);
+		printf("icmp_send dst %x src %x\n", ip->ih_daddr, ip->ih_saddr);
 	}
-	icp = (struct icmp *)(ip + 1);
-	icp->icmp_cksum = 0;
-	icp->icmp_cksum = in_cksum(icp, ip->ip_len - sizeof(*ip));
-
-	ip_output(pkt, ip);
+	ip_output(r, pkt, ip);
 }
 
 // Generate an error packet of type error
 // in response to bad packet ip.
 void
-icmp_error(struct ip *oip, int type, int code, be32_t dest)
+icmp_error(struct ip4_hdr *oip, int type, int code, be32_t dest)
 {
 	struct ip *eip, *nip;
 	unsigned oiplen;
-	struct icmp *icp;
+	struct icmp4_hdr *icp;
 	unsigned icmplen;
 	be32_t t;
-	struct packet pkt;
+	struct dev_pkt pkt;
 
-	oiplen = oip->ip_hl << 2;
+	oiplen = IP4_HDR_LEN(oip->ih_ver_ihl);
 
 	if (icmpprintfs) {
 		printf("icmp_error(%d, %d)\n", type, code);
 	}
 
 	if (type != ICMP_REDIRECT) {
-		counter64_inc(&icmpstat.icps_error);
+		icmpstat.icmps_error++;
 	}
 	/*
 	 * Don't send error if not the first fragment of message.
 	 * Don't error if the old packet protocol was ICMP
 	 * error message, only known informational types.
 	 */
-	if (oip->ip_off &~ (IP_MF|IP_DF)) {
+	if (oip->ih_frag_off &~ (IP_MF|IP_DF)) {
 		return;
 	}
 	/*
 	 * First, formulate icmp message
 	 */
-	io_init_tx_packet(&pkt);
 	nip = (struct ip *)(pkt.pkt.buf + sizeof(struct ether_header));
 	icmplen = oiplen + MIN(8, oip->ip_len);
 	icp = (struct icmp *)(nip + 1);
-	if ((u_int)type > ICMP_MAXTYPE) {
-		panic(0, "icmp_error");
-	}
-	counter64_inc(icmpstat.icps_outhist + type);
+	assert((u_int)type < ICMP_MAXTYPE);
+	icmpstat.icps_outhist[type]++;
 	icp->icmp_type = type;
 	if (type == ICMP_REDIRECT) {
 		icp->icmp_gwaddr.s_addr = dest;

@@ -92,7 +92,7 @@ gt_socket(int domain, int type, int proto)
 	GT_INFO(API, 0, "gt_socket('%s', '%s')",
 			log_add_socket_type(type_noflags),
 			log_add_socket_flags(flags));
-	rc = gt_vso_socket(&fp, domain, type_noflags, flags, proto);
+	rc = gt_so_socket(&fp, domain, type_noflags, flags, proto);
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_socket('%s', '%s') failed",
 				log_add_socket_type(type_noflags),
@@ -121,19 +121,19 @@ gt_connect_locked(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	if (addrlen < sizeof(*faddr_in)) {
 		return -EINVAL;
 	}
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
 	faddr_in = (const struct sockaddr_in *)addr;
-	rc = gt_vso_connect(fp, faddr_in, &laddr_in);
+	rc = gt_so_connect(fp, faddr_in, &laddr_in);
 restart:
 	if (rc == -EINPROGRESS && fp->fl_blocked) {
 		file_wait(fp, POLLOUT);
-		rc = gt_vso_get(fd, &fp);
+		rc = gt_so_get(fd, &fp);
 		if (rc == 0) {
 			optlen = sizeof(error);
-			rc = gt_vso_getsockopt(fp, SOL_SOCKET, SO_ERROR, &error, &optlen);
+			rc = gt_so_getsockopt(fp, SOL_SOCKET, SO_ERROR, &error, &optlen);
 			assert(rc == 0 && "so_getsockopt");
 			rc = -error;
 			goto restart;
@@ -177,12 +177,12 @@ gt_bind_locked(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	if (addrlen < sizeof(*addr_in)) {
 		return -EINVAL;
 	}
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
 	addr_in = (const struct sockaddr_in *)addr;
-	rc = gt_vso_bind(fp, addr_in);
+	rc = gt_so_bind(fp, addr_in);
 	return rc;
 }
 
@@ -213,9 +213,9 @@ gt_listen(int fd, int backlog)
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_listen(lfd=%d)", fd);
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
-		rc = gt_vso_listen(fp, backlog);
+		rc = gt_so_listen(fp, backlog);
 	}
 	if (rc < 0) {
 		GT_INFO(API, rc, "gt_listen(lfd=%d) failed", fd);
@@ -232,15 +232,15 @@ gt_accept4_locked(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 	int rc;
 	struct file *fp, *lfp;
 
-	rc = gt_vso_get(lfd, &lfp);
+	rc = gt_so_get(lfd, &lfp);
 	if (rc) {
 		return rc;
 	}
 restart:
-	rc = gt_vso_accept(&fp, lfp, addr, addrlen, flags);
+	rc = gt_so_accept(&fp, lfp, addr, addrlen, flags);
 	if (rc == -EAGAIN && lfp->fl_blocked) {
 		file_wait(lfp, POLLIN);
-		rc = gt_vso_get(lfd, &lfp);
+		rc = gt_so_get(lfd, &lfp);
 		if (rc == 0) {
 			goto restart;
 		}
@@ -323,15 +323,15 @@ gt_recvfrom_locked(int fd, const struct iovec *iov, int iovcnt, int flags,
 	ssize_t rc;
 	struct file *fp;
 
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
 restart:
-	rc = gt_vso_recvfrom(fp, iov, iovcnt, flags, addr, addrlen);
+	rc = gt_so_recvfrom(fp, iov, iovcnt, flags, addr, addrlen);
 	if (rc == -EAGAIN && fp->fl_blocked) {
 		file_wait(fp, POLLIN);
-		rc = gt_vso_get(fd, &fp);
+		rc = gt_so_get(fd, &fp);
 		if (rc == 0) {
 			goto restart;
 		}
@@ -413,7 +413,7 @@ gt_send_locked(int fd, const struct iovec *iov, int iovcnt, int flags,
 	const struct sockaddr_in *addr_in;
 	struct file *fp;
 
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
@@ -426,10 +426,10 @@ gt_send_locked(int fd, const struct iovec *iov, int iovcnt, int flags,
 		fport = 0;
 	}
 restart:
-	rc = gt_vso_sendto(fp, iov, iovcnt, flags, faddr, fport);
+	rc = gt_so_sendto(fp, iov, iovcnt, flags, faddr, fport);
 	if (rc == -EAGAIN && fp->fl_blocked) {
 		file_wait(fp, POLLOUT);
-		rc = gt_vso_get(fd, &fp);
+		rc = gt_so_get(fd, &fp);
 		if (rc == 0) {
 			goto restart;
 		}
@@ -524,9 +524,9 @@ gt_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
 	GT_INFO(API, 0, "gt_getsockopt(fd=%d, '%s', '%s')",
 			fd, log_add_sockopt_level(level),
 			log_add_sockopt_optname(level, optname));
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
-		rc = gt_vso_getsockopt(fp, level, optname, optval, optlen);
+		rc = gt_so_getsockopt(fp, level, optname, optval, optlen);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_getsockopt(fd=%d, '%s', '%s') failed",
@@ -555,9 +555,9 @@ gt_setsockopt(int fd, int level, int optname, const void *optval, socklen_t optl
 	GT_INFO(API, 0, "gt_setsockopt(fd=%d, '%s', '%s')",
 			fd, log_add_sockopt_level(level),
 			log_add_sockopt_optname(level, optname));
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
-		rc = gt_vso_setsockopt(fp, level, optname, optval, optlen);
+		rc = gt_so_setsockopt(fp, level, optname, optval, optlen);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_setsockopt(fd=%d, '%s', '%s') failed",
@@ -580,9 +580,9 @@ gt_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_getpeername(fd=%d)", fd);
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
-		rc = gt_vso_getpeername(fp, addr, addrlen);
+		rc = gt_so_getpeername(fp, addr, addrlen);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_getpeername(fd=%d) failed", fd);
@@ -740,7 +740,7 @@ gt_aio_cancel(int fd)
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_aio_cancel(fd=%d)", fd);
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
 		file_aio_cancel(&fp->fl_aio);
 	}
@@ -761,7 +761,7 @@ gt_aio_set(int fd, gt_aio_f fn)
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_aio_set(fd=%d)", fd);
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
 		file_aio_add(fp, &fp->fl_aio, fn);
 	}
@@ -782,9 +782,9 @@ gt_aio_recvfrom(int fd, struct iovec *iov, int flags, struct sockaddr *addr, soc
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_aio_recvfrom(fd=%d)", fd);
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
-		rc = gt_vso_aio_recvfrom(fp, iov, flags, addr, addrlen);
+		rc = gt_so_aio_recvfrom(fp, iov, flags, addr, addrlen);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_aio_recvfrom(fd=%d) failed", fd);
@@ -803,9 +803,9 @@ gt_recvdrain(int fd, size_t cnt)
 
 	API_LOCK;
 	GT_INFO(API, 0, "gt_aio_recvfrain(fd=%d)", fd);
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
-		rc = gt_vso_recvdrain(fp, cnt);
+		rc = gt_so_recvdrain(fp, cnt);
 	}
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_aio_recvdrain(fd=%d) failed", fd);

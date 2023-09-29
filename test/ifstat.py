@@ -77,8 +77,7 @@ class Ifstat:
 
 
 	def read(self, app):
-		ok = self.vread(app)
-		assert(ok)
+		return self.vread(app)
 
 
 class LinuxIfstat(Ifstat):
@@ -142,9 +141,12 @@ class CongenIfstat(Ifstat):
 
 	def vread(self, app):
 		self.reset_counters()
-		sock = Socket(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM))
+		sock = Socket(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM), "ifstat")
 
-		assert(app.is_running())
+		if not app.is_running():
+			log_err(None, "Cannot read ifstat: '%s' died" % app.get_name())
+			app.wait_process()
+			return False
 
 		sun_path = "/var/run/con-gen.%d.sock" % app.proc.pid
 		sock.connect(sun_path)

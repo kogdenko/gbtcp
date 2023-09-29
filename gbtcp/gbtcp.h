@@ -168,6 +168,7 @@
 	x(checksum) \
 	x(badlen) \
 	x(reflect) \
+	x(error) \
 
 #define GT_X_ARP_STAT(x) \
 	x(txrequests) \

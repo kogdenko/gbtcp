@@ -139,34 +139,6 @@ srv_accept(struct socket *so, short events, struct sockaddr_in *addr, void *dat,
 	} while (rc != -EWOULDBLOCK);
 }
 
-void
-bsd_server_listen(int proto)
-{
-	int rc;
-	struct socket *so;
-
-	rc = bsd_socket(proto, &so);
-	if (rc < 0) {
-		panic(-rc, "bsd_socket() failed");
-	}
-	if (current->t_so_debug) {
-		sosetopt(so, SO_DEBUG);
-	}
-	assert(proto == IPPROTO_TCP);
-	so->so_userfn = srv_accept;
-	so->so_user = 0;
-	rc = bsd_bind(so, current->t_port);
-	if (rc) {
-		panic(-rc, "bsd_bind(%u) failed", ntohs(current->t_port));
-	}
-	if (proto == IPPROTO_TCP) {
-		rc = bsd_listen(so);
-		if (rc) {
-			panic(-rc, "bsd_listen() failed");
-		}
-	}
-}
-
 static void
 con_close(void)
 {

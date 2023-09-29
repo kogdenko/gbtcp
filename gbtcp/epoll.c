@@ -165,7 +165,7 @@ epoll_get_event(struct epoll_entry *e, struct file *fp, epoll_event_t *event)
 	}
 	if (x & POLLERR) {
 		flags |= EV_ERROR;
-		data = gt_vso_get_errnum(fp);
+		data = gt_so_get_errnum(fp);
 	}
 	assert(filter || flags);
 	event->filter = filter;
@@ -210,7 +210,7 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 		if ((e->epe_flags & EPOLL_FLAG_ENABLED) == 0) {
 			continue;
 		}
-		gt_vso_get(e->epe_fd, &fp);
+		gt_so_get(e->epe_fd, &fp);
 		if (e->epe_revents == 0) {
 			revents = file_get_events(fp);
 			e->epe_revents = revents & e->epe_filter;
@@ -431,7 +431,7 @@ u_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 	if (rc) {
 		return rc;
 	}
-	rc = gt_vso_get(fd, &fp);
+	rc = gt_so_get(fd, &fp);
 	if (rc) {
 		rc = sys_epoll_ctl(ep->ep_fd, op, fd, event);
 		return rc;
@@ -507,7 +507,7 @@ u_kevent(int kq, const struct kevent *changelist, int nchanges,
 	}
 	for (i = 0; i < nchanges; ++i) {
 		event = (struct kevent *)changelist + i;
-		rc = gt_vso_get(event->ident, &fp);
+		rc = gt_so_get(event->ident, &fp);
 		if (rc) {
 			rc = sys_kevent(ep->ep_fd, event, 1, NULL, 0, NULL);
 		} else {

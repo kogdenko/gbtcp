@@ -28,7 +28,11 @@ do { \
 #define SERVICE_UNLOCK \
 	service_unlock()
 
-#define ipstat current->p_ips
+#define tcpstat current->p_tcpstat
+#define udpstat current->p_udpstat
+#define ipstat current->p_ipstat
+#define icmpstat current->p_icmpstat
+#define arpstat current->p_arpstat
 
 struct service {
 	struct spinlock p_lock;
@@ -48,11 +52,11 @@ struct service {
 	struct mbuf_pool *p_file_pool;
 	struct mbuf_pool *p_sockbuf_pool;
 
-	struct tcp_stat p_tcps;
-	struct udp_stat p_udps;
-	struct ip_stat p_ips;
-	struct icmp_stat p_icmps;
-	struct arp_stat p_arps;
+	struct tcp_stat p_tcpstat;
+	struct udp_stat p_udpstat;
+	struct ip_stat p_ipstat;
+	struct icmp_stat p_icmpstat;
+	struct arp_stat p_arpstat;
 
 	int p_pid;
 	int p_fd;
@@ -95,7 +99,7 @@ void service_account_opkt(void);
 
 void service_update_rss_bindings(void);
 
-int service_can_connect(struct route_if *, be32_t, be32_t, be16_t, be16_t);
+int service_validate_rss(struct route_if *, be32_t, be32_t, be16_t, be16_t);
 
 int redirect_dev_get_tx_packet(struct route_if *, struct dev_pkt *);
 void redirect_dev_transmit(struct route_if *, int, struct dev_pkt *);

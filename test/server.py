@@ -43,11 +43,14 @@ class Server:
 		opps = []
 				
 		while True:
+			# Wait 'stop' message
 			timedout = self.sock.recv_lines(1)[0]
 			if not timedout:
 				break
 			ms_new = milliseconds()
 			ifstat_new = app.read_ifstat()
+			if not ifstat_new:
+				continue
 			if ifstat_old:
 				ifstat_rate = (ifstat_new - ifstat_old) / ((ms_new - ms_old) / 1000)
 				ipps.append(ifstat_rate.ipackets)
@@ -58,18 +61,19 @@ class Server:
 		top.join()
 
 		rc = app.stop()[0]
-		self.sock.send_string("ok")
+		self.sock.send_string("stopped")
 
 		print_report(app, top.load, rc)
 		if rc == 0:
-			reply = ""
+			reply = "ok\n"
 			reply += str(int(numpy.mean(ipps))) + "\n"
 			reply += str(int(numpy.mean(opps))) + "\n" 
 			reply += app.netstat.get_name() + "\n"
 			reply += repr(app.netstat)
-			return reply
 		else:
-			return None
+			reply = "failed\n"
+
+		self.sock.send_string(reply)
 
 	
 	def process_client(self):
@@ -85,14 +89,10 @@ class Server:
 				if header == 'hello':
 					process_hello(self.network, lines) 
 					reply = make_hello(self.network, self.cpus)
+					self.sock.send_string(reply)
 				elif header == 'run':
-					reply = self.process_req(lines)
-				else:
-					break
+					self.process_req(lines)
 
-				if reply == None:
-					break
-				self.sock.send_string(reply)
 		except Exception as exc:
 			log_err(exc, "Client message caused error")
 
@@ -113,7 +113,7 @@ class Server:
 		listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
 		while True:
-			self.sock = Socket(listen_sock.accept()[0])
+			self.sock = Socket(listen_sock.accept()[0], "client")
 			self.process_client()
 
 

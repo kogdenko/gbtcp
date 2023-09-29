@@ -7,12 +7,12 @@
 #include "gbtcp.h"
 
 #ifdef __linux__
-#define GT_POLLRDHUP POLLRDHUP
-#define GT_TCP_CORK TCP_CORK
-#define gt_qsort_r qsort_r
+  #define GT_POLLRDHUP POLLRDHUP
+  #define GT_TCP_CORK TCP_CORK
+  #define gt_qsort_r qsort_r
 #else // __linux__
-#define GT_POLLRDHUP 0
-#define GT_TCP_CORK TCP_NOPUSH
+  #define GT_POLLRDHUP 0
+  #define GT_TCP_CORK TCP_NOPUSH
 typedef cpuset_t cpu_set_t;
 void gt_qsort_r(void *, size_t, size_t, int (*compar)(const void *, const void *, void *), void *);
 #endif // __linux__
@@ -39,6 +39,12 @@ void gt_qsort_r(void *, size_t, size_t, int (*compar)(const void *, const void *
 #define IP6ADDR_LEN 16
 
 #define RSS_KEY_SIZE 40
+
+#ifdef __32BIT__
+#define GT_PTR_STRLEN 10
+#else
+#define GT_PTR_STRLEN 18
+#endif
 
 #define GT_PREFIX "/usr/local/gbtcp"
 
@@ -250,6 +256,8 @@ extern uint64_t mHZ;
 int eth_addr_aton(struct eth_addr *, const char *);
 int eth_addr_is_mcast(const u_char *);
 int eth_addr_is_ucast(const u_char *);
+int eth_addr_is_bcast(const u_char *);
+
 void eth_addr_make_ip6_mcast(struct eth_addr *, const u_char *);
 
 void bitset_set(bitset_word_t *, int);

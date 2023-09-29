@@ -374,7 +374,7 @@ class CongenNetstat(BSDNetstat, Netstat.Registered):
 
 
 	def read(self, app):
-		sock = Socket(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM))
+		sock = Socket(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM), "netstat")
 
 		assert(app.is_running())
 

@@ -53,6 +53,13 @@ eth_addr_is_ucast(const u_char *addr)
 	return !eth_addr_is_mcast(addr);
 }
 
+int
+eth_addr_is_bcast(const u_char *addr)
+{
+	static u_char bcast[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+	return !memcmp(addr, bcast, sizeof(bcast));
+}
+
 void
 eth_addr_make_ip6_mcast(struct eth_addr *addr, const u_char *ip6) 
 {   

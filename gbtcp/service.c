@@ -171,7 +171,7 @@ redirect_dev_transmit5(struct route_if *ifp, int msg_type, u_char sid, const voi
 static int
 gt_service_rx(struct route_if *ifp, void *data, int len)
 {
-	return gt_vso_rx(ifp, data, len);
+	return gt_so_rx(ifp, data, len);
 }
 
 static void
@@ -786,8 +786,9 @@ service_update_rss_bindings(void)
 	current->p_need_update_rss_bindings = 0;
 }
 
+// TODO: What if service have no rssq under control???
 int
-service_can_connect(struct route_if *ifp, be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
+service_validate_rss(struct route_if *ifp, be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
 	int i, sid, rss_qid;
 	uint32_t h;
@@ -903,17 +904,17 @@ service_dup_so(struct file *oldso)
 
 	fd = file_get_fd(oldso);
 	flags = oldso->fl_blocked ? SOCK_NONBLOCK : 0;
-	rc = gt_vso_socket6(&newso, fd, AF_INET, SOCK_STREAM, flags, 0);
+	rc = gt_so_socket6(&newso, fd, AF_INET, SOCK_STREAM, flags, 0);
 	if (rc < 0) {
 		return rc;
 	}
 	addrlen = sizeof(addr);
-	gt_vso_getsockname(oldso, (struct sockaddr *)&addr, &addrlen);
-	rc = gt_vso_bind(newso, &addr);
+	gt_so_getsockname(oldso, (struct sockaddr *)&addr, &addrlen);
+	rc = gt_so_bind(newso, &addr);
 	if (rc) {
 		goto err;
 	}
-	rc = gt_vso_listen(newso, 0);
+	rc = gt_so_listen(newso, 0);
 	if (rc) {
 		goto err;
 	}
@@ -922,7 +923,7 @@ service_dup_so(struct file *oldso)
 	return 0;
 err:
 	GT_WARN(SERVICE, -rc, "service: Failed to duplicate socket, fd=%d", fd);
-	gt_vso_close(newso);
+	gt_so_close(newso);
 	return rc;
 }
 
@@ -951,7 +952,7 @@ child_foreach_binded_socket(struct file *fp, void *udata_raw)
 		return 0;
 	}
 	optlen = sizeof(proto);
-	rc = gt_vso_getsockopt(fp, SOL_SOCKET, SO_PROTOCOL, &proto, &optlen);
+	rc = gt_so_getsockopt(fp, SOL_SOCKET, SO_PROTOCOL, &proto, &optlen);
 	if (rc) {
 		return 0;
 	}
@@ -959,7 +960,7 @@ child_foreach_binded_socket(struct file *fp, void *udata_raw)
 		return 0;
 	}
 	optlen = sizeof(tcpi);
-	rc = gt_vso_getsockopt(fp, IPPROTO_TCP, TCP_INFO, &tcpi, &optlen);
+	rc = gt_so_getsockopt(fp, IPPROTO_TCP, TCP_INFO, &tcpi, &optlen);
 	if (rc) {
 		return 0;
 	}

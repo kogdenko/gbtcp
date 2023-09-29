@@ -997,17 +997,22 @@ sys_malloc(size_t size)
 }
 
 void *
-sys_realloc(void *old_ptr, size_t size)
+sys_realloc(void *old, size_t size)
 {
-	void *new_ptr;
+	void *new;
+	char oldbuf[GT_PTR_STRLEN + 1];
 
-	new_ptr = realloc(old_ptr, size);
-	if (new_ptr == NULL) {
-		GT_ERR(SYS, 0, "realloc(%p, %zu) failed", old_ptr, size);
+	// To suppress -Werror=use-after-free 
+	snprintf(oldbuf, sizeof(oldbuf), "%p", old);
+	GT_UNUSED(oldbuf);
+
+	new = realloc(old, size);
+	if (new == NULL) {
+		GT_ERR(SYS, 0, "realloc(%p, %zu) failed", old, size);
 	} else {
-		GT_INFO(SYS, 0, "realloc(%p, %zu) return %p", old_ptr, size, new_ptr);
+		GT_INFO(SYS, 0, "realloc(%s, %zu) return %p", oldbuf, size, new);
 	}
-	return new_ptr;
+	return new;
 }
 
 int

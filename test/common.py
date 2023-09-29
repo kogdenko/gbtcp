@@ -177,8 +177,9 @@ class mac_address:
 
 
 class Socket:
-	def __init__(self, sock):
+	def __init__(self, sock, name):
 		self.sock = sock
+		self.name = name
 		self.recv_buffer = []
 
 
@@ -235,7 +236,7 @@ class Socket:
 		while True:
 			timedout, data = self.recv_timed(1024, timeout)
 			if timedout:
-				log_debug("recv Timeouted")
+				log_debug("recvfrom %s Timeouted" % self.name)
 				return True, None
 
 			s = data.decode('utf-8')
@@ -246,7 +247,7 @@ class Socket:
 			assert(len(self.recv_buffer) > 0)
 			if len(self.recv_buffer) > 1 or s == "":
 				message = self.pop_recv_buffer()
-				log_debug("recv: %s" % message)
+				log_debug("recvfrom %s\n%s" % (self.name, message))
 				return self.split_lines(message)
 
 
@@ -256,7 +257,7 @@ class Socket:
 		data = (s + "\n\n").encode('utf-8')
 		rc = self.sock.send(data)
 		assert(rc == len(data))
-		log_debug("send: %s" % s)
+		log_debug("sendto %s:\n%s" % (self.name, s))
 
 
 def argparse_ip_address(s):
@@ -598,8 +599,11 @@ def wait_process(proc):
 				break
 			lines.append(line.decode('utf-8').strip())
 
-	log_info("$ [pid=%d] Done + %d" % (proc.pid, proc.returncode))
-	log_debug('\n'.join(lines))
+	log = "$ [pid=%d] Done + %d\n%s" % (proc.pid, proc.returncode, '\n'.join(lines))
+	if proc.returncode == 0:
+		log_debug(log)
+	else:
+		log_info(log)
 
 	return proc.returncode, lines
 

@@ -82,12 +82,12 @@ sysctl_add_inet_stat_tcp(void)
 	char name[64];
 
 #define SYSCTL_ADD_TCP_STAT(x) \
-	sysctl_add_inet_stat("tcp", #x, field_off(struct service, p_tcps.tcps_##x));
+	sysctl_add_inet_stat("tcp", #x, field_off(struct service, p_tcpstat.tcps_##x));
 	GT_X_TCP_STAT(SYSCTL_ADD_TCP_STAT)
 #undef SYSCTL_ADD_TCP_STAT
 	for (i = 0; i < GT_TCPS_MAX_STATES; ++i) {
 		snprintf(name, sizeof(name), "states.%d", i);
-		off = field_off(struct service, p_tcps.tcps_states[i]);
+		off = field_off(struct service, p_tcpstat.tcps_states[i]);
 		sysctl_add_inet_stat("tcp", name, off);
 	}
 }
@@ -96,7 +96,7 @@ static void
 sysctl_add_inet_stat_udp(void)
 {
 #define SYSCTL_ADD_UDP_STAT(x) \
-	sysctl_add_inet_stat("udp", #x, field_off(struct service, p_udps.udps_##x));
+	sysctl_add_inet_stat("udp", #x, field_off(struct service, p_udpstat.udps_##x));
 	GT_X_UDP_STAT(SYSCTL_ADD_UDP_STAT)
 #undef SYSCTL_ADD_UDP_STAT
 }
@@ -105,7 +105,7 @@ static void
 sysctl_add_inet_stat_ip(void)
 {
 #define SYSCTL_ADD_IP_STAT(x) \
-	sysctl_add_inet_stat("ip", #x, field_off(struct service, p_ips.ips_##x));
+	sysctl_add_inet_stat("ip", #x, field_off(struct service, p_ipstat.ips_##x));
 	GT_X_IP_STAT(SYSCTL_ADD_IP_STAT)
 #undef SYSCTL_ADD_IP_STAT
 }
@@ -114,7 +114,7 @@ static void
 sysctl_add_inet_stat_arp(void)
 {
 #define SYSCTL_ADD_ARP_STAT(x) \
-	sysctl_add_inet_stat("arp", #x, field_off(struct service, p_arps.arps_##x));
+	sysctl_add_inet_stat("arp", #x, field_off(struct service, p_arpstat.arps_##x));
 	GT_X_ARP_STAT(SYSCTL_ADD_ARP_STAT)
 #undef SYSCTL_ADD_ARP_STAT
 }
@@ -144,7 +144,6 @@ inet_mod_init(void)
 void
 in_context_init(struct in_context *in, void *data, int len)
 {
-	in->in_ifp = NULL;
 	in->in_cur = data;
 	in->in_rem = len;
 	in->in_errnum = 0;
@@ -332,14 +331,25 @@ ip4_set_cksum(struct ip4_hdr *ih, void *l4h)
 	struct udp_hdr *uh;
 	struct tcp_hdr *th;
 
-	if (curmod->inet_cksum_offload_tx) {
-		ip4_cksum = 0;
-		udp_cksum = 0;
-	} else {
-		ip4_cksum = ip4_calc_cksum(ih);
-		udp_cksum = ip4_udp_calc_cksum(ih, l4h, IP4_L4_LEN(ih));
+	switch (ih->ih_proto) {
+	case IPPROTO_UDP:
+	case IPPROTO_TCP:
+		if (curmod->inet_cksum_offload_tx) {
+			ip4_cksum = 0;
+			udp_cksum = 0;
+		} else {
+			ip4_cksum = ip4_calc_cksum(ih);
+			udp_cksum = ip4_udp_calc_cksum(ih, l4h, IP4_L4_LEN(ih));
+		}
+		break;
+	case IPPROTO_ICMP:
+		assert(0);
+	default:
+		return;
 	}
+
 	ih->ih_cksum = ip4_cksum;
+
 	switch (ih->ih_proto) {
 	case IPPROTO_UDP:
 		uh = l4h;
@@ -348,6 +358,9 @@ ip4_set_cksum(struct ip4_hdr *ih, void *l4h)
 	case IPPROTO_TCP:
 		th = l4h;
 		th->th_cksum = udp_cksum;
+		break;
+	case IPPROTO_ICMP:
+		assert(0);
 		break;
 	}
 }
@@ -366,6 +379,23 @@ gt_ip4_validate_cksum(struct ip4_hdr *ih)
 		}
 	}
 	ih->ih_cksum = cksum;
+	return valid;
+}
+
+int
+gt_udp_validate_cksum(struct ip4_hdr *ih, struct udp_hdr *uh, int l4_len)
+{
+	int cksum, valid;
+
+	cksum = uh->uh_cksum;
+	uh->uh_cksum = 0;
+	valid = 1;
+	if (curmod->inet_cksum_offload_rx == 0) {
+		if (cksum != ip4_udp_calc_cksum(ih, uh, l4_len)) {
+			valid = 0;
+		}
+	}
+	uh->uh_cksum = cksum;
 	return valid;
 }
 
@@ -398,19 +428,6 @@ tcp_opt_len(int kind)
 	}
 	return 0;
 }
-
-
-/*int
-gt_arp_input(struct route_if *ifp, void *data, int len)
-{
-	int rc;
-	struct in_context in;
-
-	in_context_init(&in, data, len);
-	in.in_ifp = ifp;
-
-	rc = eth_input(p);
-}*/
 
 static int
 tcp_opts_input(struct tcp_opts *opts, u_char *opts_buf, int opts_len)
@@ -479,17 +496,15 @@ static int
 tcp_input(struct in_context *in)
 {
 	int rc, len, win;
-	struct tcp_stat *tcps;
 
-	tcps = &current->p_tcps;
 	if (in->in_rem < sizeof(struct tcp_hdr)) {
-		tcps->tcps_rcvshort++;
+		tcpstat.tcps_rcvshort++;
 		return IN_OK;
 	}
 	in->in_th = (struct tcp_hdr *)in->in_cur;
 	in->in_th_len = TCP_HDR_LEN(in->in_th->th_data_off);
 	if (in->in_rem < in->in_th_len) {
-		tcps->tcps_rcvshort++;
+		tcpstat.tcps_rcvshort++;
 		return IN_OK;
 	}
 	GT_INET_PARSER_SHIFT(in, in->in_th_len);
@@ -503,13 +518,13 @@ tcp_input(struct in_context *in)
 	in->in_payload = (u_char *)in->in_th + in->in_th_len;
 	in->in_tcp_opts.tcp_opt_flags = 0;
 	if (gt_tcp_validate_cksum(in->in_ih, in->in_th, IP4_L4_LEN(in->in_ih))) {
-		tcps->tcps_rcvbadsum++;
+		tcpstat.tcps_rcvbadsum++;
 		return IN_OK;
 	}
 	rc = tcp_opts_input(&in->in_tcp_opts, (void *)(in->in_th + 1),
 			in->in_th_len - sizeof(*in->in_th));
 	if (rc) {
-		tcps->tcps_rcvbadoff++;
+		tcpstat.tcps_rcvbadoff++;
 	}
 	return IN_OK;
 }
@@ -518,11 +533,9 @@ static int
 icmp_input(struct in_context *in)
 {
 	int ih_len, type, code;
-	struct icmp_stat *icmps;
 
-	icmps = &current->p_icmps;
 	if (in->in_rem < sizeof(struct icmp4_hdr)) {
-		icmps->icmps_tooshort++;
+		icmpstat.icmps_tooshort++;
 		return IN_OK;
 	}
 	in->in_icp = (struct icmp4_hdr *)in->in_cur;
@@ -532,7 +545,7 @@ icmp_input(struct in_context *in)
 	if (type > ICMP_MAXTYPE) {
 		return IN_BYPASS;
 	}
-	icmps->icmps_inhist[type]++;
+	icmpstat.icmps_inhist[type]++;
 	switch (type) {
 	case ICMP_UNREACH:
 		switch (code) {
@@ -554,34 +567,34 @@ icmp_input(struct in_context *in)
 			in->in_errnum = EMSGSIZE;
 			break;
 		default:
-			icmps->icmps_badcode++;
+			icmpstat.icmps_badcode++;
 			return IN_OK;
 		}
 		break;
 	case ICMP_TIMXCEED:
 		if (code > 1) {
-			icmps->icmps_badcode++;
+			icmpstat.icmps_badcode++;
 			return IN_OK;
 		}
 		// TODO:
 		break;
 	case ICMP_PARAMPROB:
 		if (code > 1) {
-			icmps->icmps_badcode++;
+			icmpstat.icmps_badcode++;
 			return IN_OK;
 		}
 		in->in_errnum = ENOPROTOOPT;
 		break;
 	case ICMP_SOURCEQUENCH:
 		if (code) {
-			icmps->icmps_badcode++;
+			icmpstat.icmps_badcode++;
 			return IN_OK;
 		}
 		// TODO:
 		break;
 	case ICMP_REDIRECT:
 		if (code > 3) {
-			icmps->icmps_badcode++;
+			icmpstat.icmps_badcode++;
 			return IN_OK;
 		}
 		// TODO:
@@ -592,13 +605,13 @@ icmp_input(struct in_context *in)
 	in->in_emb_ih = NULL;
 	in->in_emb_th = NULL;
 	if (in->in_rem < sizeof(*in->in_emb_ih)) {
-		icmps->icmps_badlen++;
+		icmpstat.icmps_badlen++;
 		return IN_OK;
 	}
 	in->in_emb_ih = (struct ip4_hdr *)in->in_cur;
 	ih_len = IP4_HDR_LEN(in->in_emb_ih->ih_ver_ihl);
 	if (ih_len < sizeof(*in->in_emb_ih)) {
-		icmps->icmps_badlen++;
+		icmpstat.icmps_badlen++;
 		return IN_OK;
 	}
 	GT_INET_PARSER_SHIFT(in, ih_len);
@@ -606,21 +619,21 @@ icmp_input(struct in_context *in)
 	switch (in->in_emb_ipproto) {
 	case IPPROTO_UDP:
 		if (in->in_rem < sizeof(*in->in_emb_uh)) {
-			icmps->icmps_badlen++;
+			icmpstat.icmps_badlen++;
 			return IN_OK;
 		}
 		in->in_emb_uh = (struct udp_hdr *)in->in_cur;
 		return IN_OK;
 	case IPPROTO_TCP:
 		if (in->in_rem < sizeof(*in->in_emb_th)) {
-			icmps->icmps_badlen++;
+			icmpstat.icmps_badlen++;
 			return IN_BYPASS;
 		}
 		in->in_emb_th = (struct tcp_hdr *)in->in_cur;
 		return IN_OK;
 	case IPPROTO_ICMP:
 		if (in->in_rem < sizeof(*in->in_emb_icp)) {
-			icmps->icmps_badlen++;
+			icmpstat.icmps_badlen++;
 			return IN_OK;
 		}
 		in->in_emb_icp = (struct icmp4_hdr *)in->in_cur;
@@ -634,14 +647,10 @@ static int
 ip_input(struct in_context *in)
 {
 	int rc, total_len;
-	struct ip_stat *ips;
-	struct udp_stat *udps;
 
-	ips = &current->p_ips;
-	udps = &current->p_udps;
-	ips->ips_total++;
+	ipstat.ips_total++;
 	if (in->in_rem < sizeof(struct ip4_hdr)) {
-		ips->ips_toosmall++;
+		ipstat.ips_toosmall++;
 		return IN_OK;
 	}
 	in->in_ih = (struct ip4_hdr *)(in->in_eh + 1);
@@ -657,43 +666,43 @@ ip_input(struct in_context *in)
 		return IN_BYPASS;
 	}
 	if (IP4_HDR_VER(in->in_ih->ih_ver_ihl) != GT_IP4_VER) {
-		ips->ips_badvers++;
+		ipstat.ips_badvers++;
 		return IN_OK;
 	}
 	in->in_ih_len = IP4_HDR_LEN(in->in_ih->ih_ver_ihl);
 	if (in->in_ih_len < sizeof(*in->in_ih)) {
-		ips->ips_badhlen++;
+		ipstat.ips_badhlen++;
 		return IN_OK;
 	}
 	if (in->in_rem < in->in_ih_len) {
-		ips->ips_badhlen++;
+		ipstat.ips_badhlen++;
 		return IN_OK;
 	}
 	GT_INET_PARSER_SHIFT(in, in->in_ih_len);
 	total_len = ntoh16(in->in_ih->ih_total_len);
 	if (total_len > 65535) {
-		ips->ips_toolong++;
+		ipstat.ips_toolong++;
 		return IN_OK;
 	}
 	if (total_len < in->in_ih_len) {
-		ips->ips_badlen++;
+		ipstat.ips_badlen++;
 		return IN_OK;
 	}
 	in->in_ip_payload_len = total_len - in->in_ih_len;
 	if (in->in_ip_payload_len > in->in_rem) {
-		ips->ips_tooshort++;
+		ipstat.ips_tooshort++;
 		return IN_OK;
 	}
 	in->in_ipproto = in->in_ih->ih_proto;
 	if (!gt_ip4_validate_cksum(in->in_ih)) {
-		ips->ips_badsum++;
+		ipstat.ips_badsum++;
 		return IN_OK;
 	}
-	ips->ips_delivered++;
+	ipstat.ips_delivered++;
 	switch (in->in_ipproto) {
 	case IPPROTO_UDP:
 		if (in->in_rem < sizeof(struct udp_hdr)) {
-			udps->udps_badlen++;
+			udpstat.udps_badlen++;
 			return IN_OK;
 		}
 		in->in_uh = (struct udp_hdr *)in->in_cur;
@@ -716,7 +725,7 @@ ip_input(struct in_context *in)
 }
 
 int
-eth_input(struct in_context *in)
+eth_input(struct route_if *ifp, struct in_context *in)
 {
 	int rc;
 
@@ -728,7 +737,7 @@ eth_input(struct in_context *in)
 		rc = ip_input(in);
 		break;
 	case ETH_TYPE_ARP_BE:
-		rc = gt_arp_input(in);
+		rc = gt_arp_input(ifp, in->in_cur, in->in_rem);
 		break;
 	default:
 		rc = IN_BYPASS;

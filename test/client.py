@@ -38,6 +38,7 @@ COOLING_DEFAULT = 20
 class Status(Enum):
 	PASSED = "Passed"
 	FAILED = "Failed"
+	ERROR = "Error"
 	SKIPPED = "Skipped"
 	CALIBRATION = "Calibration"
 
@@ -49,12 +50,15 @@ def get_peer_mode(mode):
 		return Mode.SERVER
 
 
-def print_report(test_id, rep, app, concurrency, cpu_load):
-	pps = rep.ipps + rep.opps
-
+def print_report(status, rep, app, concurrency, cpu_load):
 	report = ""
-	if test_id != None:
-		report += "%d/%d: " % (test_id, rep.id)
+
+	if rep:
+		pps = rep.ipps + rep.opps
+		if rep.test_id:
+			report += "%d/%d: " % (rep.test_id, rep.id)
+	else:
+		pps = 0
 
 	report += ("%s/%s: c=%d, CPU=%s, %.2f mpps ... %s " % (
 			app.transport.value,
@@ -62,7 +66,7 @@ def print_report(test_id, rep, app, concurrency, cpu_load):
 			concurrency,
 			str(cpu_load),
 			pps/1000000,
-			rep.status.value))
+			status.value))
 
 	log_notice(report)
 
@@ -104,7 +108,7 @@ class Client:
 
 
 	def __init__(self, interface, server_address): 
-		self.max_pps = None
+		self.calibration_pps = None
 		self.tests_passed = 0
 		self.tests_failed = 0
 		self.tests_skipped = 0
@@ -141,12 +145,14 @@ class Client:
 		self.repo.set_interface(self.interface)
 
 		self.database = Database("")
-
+		
 		if server_address:
-			self.sock = Socket(socket.create_connection(server_address, 9999))
+			sock = socket.create_connection(server_address, 9999)
 		else:
-			self.sock = Socket(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM))
-			self.sock.connect(SUN_PATH)
+			sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+			sock.connect(SUN_PATH)
+
+		self.sock = Socket(sock, "server")
 		self.sock.settimeout(10)
 
 		self.send_hello()
@@ -159,7 +165,7 @@ class Client:
 	def send_hello(self):			   
 		hello = make_hello(self.network, self.cpus)
 		self.sock.send_string(hello)
-		lines = self.sock.recv_lines()[1]
+		lines = self.recv_reply()
 		hello = process_hello(self.network, lines)
 		self.remote_os = hello[0]
 		self.remote_driver = hello[1]
@@ -186,7 +192,18 @@ class Client:
 
 
 	def recv_reply(self):
-		return self.sock.recv_lines()[1]
+		lines = self.sock.recv_lines()[1]
+		if lines == None or not len(lines):
+			die(None, "Server seems died. Quitting...")
+		return lines
+
+
+	def is_linerate_limited(self, pps):
+		if self.calibration_pps == None or self.calibration_pps == 0:
+			return False
+		if pps > self.calibration_pps:
+			return True
+		return self.calibration_pps - pps < self.calibration_pps * 0.1
 
 
 	def do_rep(self, local, test_id, cpus):
@@ -220,54 +237,63 @@ class Client:
 
 		if self.mode == Mode.CLIENT:
 			local.stop()
-			self.sock.send_string("ok")
-			self.sock.recv_lines()
+			self.sock.send_string("stop")
+			# Wait 'stopped' message
+			self.recv_reply()
 		else:
-			self.sock.send_string("ok")
-			self.sock.recv_lines()
+			self.sock.send_string("stop")
+			# Wait 'stopped' message
+			self.recv_reply()
 			local.stop()
 
-		rep = Database.Rep()
-		rep.test_id = test_id
-		rep.duration = self.duration
-		rep.cpu_load = int(numpy.mean(top.load))
-
 		lines = self.recv_reply()
-		assert(len(lines) > 3)
-		rep.ipps = int(lines[0])
-		rep.opps = int(lines[1])
-		remote_netstat = netstat.create(lines[2])
-		remote_netstat.create_from_lines(lines[3:])
+		assert(len(lines) > 0)
+		if lines[0] == "ok":
+			rep = Database.Rep()
+			rep.test_id = test_id
+			rep.duration = self.duration
+			rep.cpu_load = int(numpy.mean(top.load))
+			rep.ipps = int(lines[1])
+			rep.opps = int(lines[2])
+			remote_netstat = netstat.create(lines[3])
+			remote_netstat.create_from_lines(lines[4:])
 
-		local_netstat = local.netstat
+			local_netstat = local.netstat
+
+			if rep.test_id != None:
+				self.database.insert_into_rep(rep)
+				local_netstat.insert_into_database(self.database, rep.id, True)
+				remote_netstat.insert_into_database(self.database, rep.id, False) 
+
+			pps = rep.ipps + rep.opps
+			if self.calibration_pps == 0:
+				rep.status = Status.CALIBRATION
+				self.calibration_pps = pps
+			else:
+				if rep.cpu_load < CPU_LOAD_THRESHOLD:
+					if self.is_linerate_limited(pps):
+						rep.status = Status.SKIPPED
+						self.tests_skipped += 1
+					else:
+						rep.status = Status.FAILED
+						self.tests_failed += 1
+					
+					self.skipped[skipped_key] = len(cpus)
+				else:
+					rep.status = Status.PASSED
+					self.tests_passed += 1
+
+			status = rep.status
+		else:
+			self.tests_failed += 1
+			rep = None
+			status = Status.ERROR
+
+		print_report(status, rep, local, self.concurrency, top.load)
 
 		self.start_cooling()
 
-		if test_id != None:
-			self.database.insert_into_rep(rep)
-			local_netstat.insert_into_database(self.database, rep.id, True)
-			remote_netstat.insert_into_database(self.database, rep.id, False) 
-
-		pps = rep.ipps + rep.opps
-		if self.max_pps == None:
-			rep.status = Status.CALIBRATION
-			self.max_pps = pps
-		else:
-			if rep.cpu_load < CPU_LOAD_THRESHOLD:
-				if abs(self.max_pps - pps) > self.max_pps * 0.1:
-					rep.status = Status.FAILED
-					self.tests_failed += 1
-				else:
-					rep.status = Status.SKIPPED
-					self.tests_skipped += 1
-				self.skipped[skipped_key] = len(cpus)
-			else:
-				rep.status = Status.PASSED
-				self.tests_passed += 1
-
-		print_report(test_id, rep, local, self.concurrency, top.load)
-
-		return rep.status
+		return status
 
 
 	def do_run(self):
@@ -317,6 +343,7 @@ class Client:
 
 def calibration(c):
 	dry_run = c.dry_run
+	c.calibration_pps = 0
 	c.dry_run = True
 
 	c.n_reps = 1
@@ -336,6 +363,9 @@ def calibration(c):
 
 
 def bronze(c):
+
+	#calibration(c)
+
 	c.n_reps = 1
 	c.n_tries = 3
 	c.cooling = 10
@@ -354,7 +384,7 @@ def bronze(c):
 
 
 def custom(c):
-	c.n_reps = 10
+	c.n_reps = 1
 	c.cooling = 10
 	c.duration = 10
 
@@ -363,7 +393,8 @@ def custom(c):
 	c.mode = Mode.SERVER
 	c.remote = CON_GEN #EPOLL_HELLOWORLD
 	c.concurrency = 5000
-	for app in [CON_GEN]:
+	app = EPOLL_HELLOWORLD
+	for mode in [Mode.SERVER, Mode.CLIENT]:
 		c.local = app
 		for i in range(1, len(c.cpus)):
 			c.n_cpus = i
@@ -404,8 +435,6 @@ def main():
 	c = Client(args.i, args.connect)
 
 	c.set_cpus(args.cpu)
-
-	calibration(c)
 
 	if args.custom:
 		custom(c)

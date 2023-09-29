@@ -72,7 +72,6 @@ struct socket {
 	short   so_events;
 	u_short	so_error;		/* error affecting connection */
 	short	so_linger;		/* time to linger while closing */
-	short	so_state;		/* internal state flags SS_*, below */
 
 	struct	socket *so_head;	/* back pointer to accept socket */
 	struct	gt_dlist so_q[2];	/* queue of partial/incoming connections */
@@ -169,7 +168,6 @@ int bsd_socket(int, struct socket **);
 int bsd_connect(struct socket *);
 int bsd_sendto(struct socket *, const void *, int, int,
 	const struct sockaddr_in *);
-int bsd_bind(struct socket *so, be16_t port);
 int bsd_listen(struct socket *so);
 int bsd_accept(struct socket *, struct socket **);
 int bsd_close(struct socket *);

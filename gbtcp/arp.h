@@ -7,7 +7,6 @@
 
 struct arp_hdr;
 struct dev_pkt;
-struct in_context;
 struct route_entry;
 struct route_if;
 struct service;
@@ -34,7 +33,6 @@ void arp_update(struct arp_advert *);
 int arp_add(be32_t, struct eth_addr *);
 int arp_del(be32_t);
 void arp_reply(struct route_if *, struct arp_hdr *);
-int gt_arp_input(struct in_context *);
-
+int gt_arp_input(struct route_if *, void *, int);
 
 #endif // GBTCP_ARP_H
