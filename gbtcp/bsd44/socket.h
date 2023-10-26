@@ -157,7 +157,7 @@ void sbreserve(struct sockbuf *sb, u_long);
 void sbdrop(struct sockbuf *sb, int len);
 void sbcopy(struct sockbuf *, int, int, u_char *);
 void soabort(struct socket *so);
-int sosend(struct socket *, const void *, int, const struct sockaddr_in *, int);
+int sosend(struct socket *, const struct iovec *, int, const struct sockaddr_in *);
 void sbdroprecord(struct sockbuf *sb);
 void socantrcvmore(struct socket *so);
 int sbappendaddr(struct sockbuf *, struct sockaddr *, const void *, int);

@@ -1,49 +1,37 @@
-/*
- * Copyright (c) 1982, 1986, 1988, 1990, 1993
- *	The Regents of the University of California.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *	This product includes software developed by the University of
- *	California, Berkeley and its contributors.
- * 4. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-4-Clause
 
 #include "../list.h"
+#include "../shm.h"
 #include "socket.h"
 #include "tcp_var.h"
 #include "udp_var.h"
 
+uint32_t tcp_now = 1;
+
 static struct socket *
-somalloc(void)
+gt_fptoso(struct file *fp)
+{
+	struct socket *so;
+
+	so = container_of(fp, struct socket, so_base.sobase_file);
+
+	return so;
+}
+
+static struct file *
+gt_sotofp(struct socket *so)
+{
+	return &so->so_base.sobase_file;
+}
+
+static struct socket *
+somalloc(int fd)
 {
 	int rc;
 	struct file *fp;
 	struct socket *so;
 
-	rc = file_alloc3(&fp, 0, FILE_SOCK);
+	rc = file_alloc3(&fp, fd, FILE_SOCK);
 	if (rc) {
 		return NULL;
 	}
@@ -78,11 +66,11 @@ somfree(struct socket *so)
  * switching out to the protocol specific routines.
  */
 int
-bsd_socket(int proto, struct socket **aso)
+gt_bsd44_so_socket(struct file **fpp, int fd, int domain, int type, int proto)
 {
 	struct socket *so;
 
-	so = somalloc();
+	so = somalloc(fd);
 	if (so == NULL) {
 		return -ENOMEM;
 	}
@@ -93,23 +81,17 @@ bsd_socket(int proto, struct socket **aso)
 	if (so->so_proto == IPPROTO_TCP) {
 		tcp_attach(so);
 	}
-	*aso = so;
+	*fpp = gt_sotofp(so);
 	return 0;
 }
 
 int
-bsd_bind(struct socket *so, be16_t port)
+gt_bsd44_so_listen(struct file *fp, int backlog)
 {
 	int error;
+	struct socket *so;
 
-	error = in_pcbbind(so, port);
-	return -error;
-}
-
-int
-bsd_listen(struct socket *so)
-{
-	int error;
+	so = gt_fptoso(fp);
 
 	if (so->so_proto == IPPROTO_TCP) {
 		error = tcp_listen(so);
@@ -174,17 +156,19 @@ sofree(struct socket *so)
  * Free socket when disconnect complete.
  */
 int
-bsd_close(struct socket *so)
+gt_bsd44_so_close(struct file *fp)
 {
-	int i, error;
+	int i, rc;
 	struct gt_dlist *head;
-	struct socket *aso;
+	struct socket *so, *aso;
+
+	so = gt_fptoso(fp);
 
 	if (so->so_state & SS_NOFDREF) {
 		return -EINVAL;
 	}
 	so->so_state |= SS_NOFDREF;
-	error = 0;
+
 	if (so->so_options & SO_OPTION(SO_ACCEPTCONN)) {
 		for (i = 0; i < ARRAY_SIZE(so->so_q); ++i) {
 			head = so->so_q + i;
@@ -194,13 +178,16 @@ bsd_close(struct socket *so)
 			}
 		}
 	}
+
 	if (so->so_proto == IPPROTO_TCP) {
-		error = tcp_disconnect(so);
+		rc = tcp_disconnect(so);
 	} else {
-		error = udp_disconnect(so);
+		rc = -ENOTSUP;//udp_disconnect(so);
 	}
+
 	sofree(so);
-	return -error;
+
+	return rc;
 }
 
 void
@@ -225,9 +212,12 @@ soaccept(struct socket *so)
 }
 
 int
-bsd_connect(struct socket *so)
+gt_bsd44_so_connect(struct file *fp, const struct sockaddr_in *faddr_in)
 {
 	int rc;
+	struct socket *so;
+
+	so = (struct socket *)fp;
 
 	if (so->so_options & SO_OPTION(SO_ACCEPTCONN)) {
 		return -EOPNOTSUPP;
@@ -243,9 +233,10 @@ bsd_connect(struct socket *so)
 		rc = -EISCONN;
 	} else {
 		if (so->so_proto == IPPROTO_TCP) {
-			rc = tcp_connect(so);
+			rc = tcp_connect(so, faddr_in);
 		} else {
-			rc = udp_connect(so);
+			//rc = udp_connect(so);
+			rc = -ENOTSUP;
 		}
 	}
 	return rc;
@@ -267,9 +258,10 @@ bsd_connect(struct socket *so)
 // must check for short counts if EINTR/ERESTART are returned.
 // Data and control buffers are freed on return.
 int
-sosend(struct socket *so, const void *dat, int datlen, const struct sockaddr_in *addr, int flags)
+sosend(struct socket *so, const struct iovec *iov, int iovcnt,
+		const struct sockaddr_in *dest_addr)
 {
-	int rc, atomic, space;
+	int i, rc, atomic, space, datlen;
 
 	atomic = sosendallatonce(so);
 	
@@ -282,21 +274,31 @@ sosend(struct socket *so, const void *dat, int datlen, const struct sockaddr_in 
 	if ((so->so_state & SS_ISCONNECTED) == 0) {
 		if (so->so_proto == IPPROTO_TCP) {
 			return -ENOTCONN;
-		} else if (addr == NULL) {
+		} else if (dest_addr == NULL) {
 			return -EDESTADDRREQ;
 		}
 	}
-	space = sbspace(&so->so_snd);
-	if (atomic && (datlen > so->so_snd.sb_hiwat)) {
-		return -EMSGSIZE;
-	}
-	if (atomic && space < datlen) {
-		return -EWOULDBLOCK;
+	if (atomic) {
+		space = sbspace(&so->so_snd);
+
+		datlen = 0;
+		for (i = 0; i < iovcnt; ++i) {
+			datlen += iov[i].iov_len;			
+		}
+
+		if (datlen > so->so_snd.sb_hiwat) {
+			return -EMSGSIZE;
+		}
+
+		if (space < datlen) {
+			return -EWOULDBLOCK;
+		}
 	}
 	if (so->so_proto == IPPROTO_TCP) {
-		rc = tcp_send(so, dat, datlen);
+		rc = tcp_send(so, iov, iovcnt);
 	} else {
-		rc = udp_send(so, dat, datlen, addr);
+		//rc = udp_send(so, dat, datlen, addr);
+		rc = -ENOTSUP;
 	}
 	return rc;
 }
@@ -324,16 +326,18 @@ sorflush(struct socket *so)
 }
 
 int
-bsd_setsockopt(struct socket *so, int level, int optname,
-	void *optval, int optlen)
+gt_bsd44_so_setsockopt(struct file *fp, int level, int optname,
+		const void *optval, socklen_t optlen)
 {
 	int rc;
-	struct linger *linger;
+	const struct linger *linger;
+	struct socket *so;
+
+	so = gt_fptoso(fp);
 
 	if (level != SOL_SOCKET) {
 		if (so->so_proto == IPPROTO_TCP) {
-			rc = tcp_ctloutput(PRCO_SETOPT, so, level, optname,
-			                   optval, &optlen);
+			rc = tcp_ctloutput(PRCO_SETOPT, so, level, optname, optval, &optlen);
 		} else {
 			rc = -ENOPROTOOPT;	
 		}
@@ -342,32 +346,32 @@ bsd_setsockopt(struct socket *so, int level, int optname,
 	if (optlen < sizeof(int)) {
 		return -EINVAL;
 	}
-	switch (optname) {
 
+	switch (optname) {
 	case SO_LINGER:
 		if (optlen < sizeof(struct linger)) {
 			return -EINVAL;
 		}
-		linger = (struct linger *)optval;
+		linger = optval;
 		so->so_linger = linger->l_linger;
 		somodopt(so, optname, linger->l_onoff);
 		break;
 
 	case SO_DEBUG:
 	case SO_KEEPALIVE:
-		somodopt(so, optname, *((int *)optval));
+		somodopt(so, optname, *((const int *)optval));
 		break;
 
 	case SO_SNDBUF:
-		sbreserve(&so->so_snd, *(int *)optval);
+		sbreserve(&so->so_snd, *(const int *)optval);
 		break;
 
 	case SO_RCVBUF:
-		so->so_rcv_hiwat = *((int *)optval);
+		so->so_rcv_hiwat = *((const int *)optval);
 		break;
 
 	case SO_SNDLOWAT:
-		so->so_snd.sb_lowat = *((int *)optval);
+		so->so_snd.sb_lowat = *((const int *)optval);
 		break;
 
 	case SO_RCVLOWAT:
@@ -376,20 +380,22 @@ bsd_setsockopt(struct socket *so, int level, int optname,
 	default:
 		return -ENOPROTOOPT;
 	}
+
 	return 0;
 }
 
 int
-bsd_getsockopt(struct socket *so, int level, int optname,
-	void *optval, int *optlen)
+gt_bsd44_so_getsockopt(struct file *fp, int level, int optname, void *optval, socklen_t *optlen)
 {
 	int rc;
 	struct linger *linger;
+	struct socket *so;
+
+	so = gt_fptoso(fp);
 
 	if (level != SOL_SOCKET) {
 		if (so->so_proto == IPPROTO_TCP) {
-			rc = tcp_ctloutput(PRCO_GETOPT, so, level, optname,
-			                   optval, optlen);
+			rc = tcp_ctloutput(PRCO_GETOPT, so, level, optname, optval, optlen);
 		} else {
 			rc = -ENOPROTOOPT;
 		}
@@ -588,7 +594,7 @@ sonewconn(struct socket *head)
 {
 	struct socket *so;
 
-	so = somalloc();
+	so = somalloc(0);
 	if (so == NULL) {
 		return NULL;
 	}
@@ -704,7 +710,7 @@ sbfree_n(struct sockbuf *sb, int n)
 	struct sockbuf_chunk *ch;
 
 	for (i = 0; i < n; ++i) {
-		assert(!dlist_is_empty(&sb->sb_head));
+		assert(!gt_dlist_is_empty(&sb->sb_head));
 		ch = GT_DLIST_LAST(&sb->sb_head, struct sockbuf_chunk, sbc_list);
 		GT_DLIST_REMOVE(ch, sbc_list);
 		sbchfree(ch);
@@ -850,40 +856,181 @@ sbcopy(struct sockbuf *sb, int off, int len, u_char *dst)
 }
 
 int
-bsd_accept(struct socket *so, struct socket **paso)
+gt_bsd44_so_accept(struct file **fpp, struct file *lfp)
 {
 	int error;
-	struct socket *aso;
+	struct socket *lso, *aso;
 
-	if ((so->so_options & SO_OPTION(SO_ACCEPTCONN)) == 0) {
+	lso = gt_fptoso(lfp);
+
+	if ((lso->so_options & SO_OPTION(SO_ACCEPTCONN)) == 0) {
 		return -EINVAL;
 	}
-	if (gt_dlist_is_empty(so->so_q + 1)) {
+
+	if (gt_dlist_is_empty(lso->so_q + 1)) {
 		return -EWOULDBLOCK;
 	}
-	if (so->so_error) {
-		error = so->so_error;
-		so->so_error = 0;
+
+	if (lso->so_error) {
+		error = lso->so_error;
+		lso->so_error = 0;
 		return -error;
 	}
-	aso = GT_DLIST_FIRST(so->so_q + 1, struct socket, so_ql);
+
+	aso = GT_DLIST_FIRST(lso->so_q + 1, struct socket, so_ql);
 	soaccept(aso);
-	*paso = aso;
+
+	*fpp = gt_sotofp(aso);
+
 	return 0;
 }
 
 int
-bsd_sendto(struct socket *so, const void *buf, int len, int flags, const struct sockaddr_in *nam)
+gt_bsd44_so_sendto(struct file *fp, const struct iovec *iov, int iovcnt, int flags,
+		const struct sockaddr_in *dest_addr)
 {
 	int rc;
+	struct socket *so;
 
-	rc = sosend(so, buf, len, nam, flags);
-	if (rc < 0) {
-		if (rc == -EPIPE) {
-			if ((flags & MSG_NOSIGNAL) == 0) {
-				raise(SIGPIPE);
+	so = gt_fptoso(fp);
+
+	rc = sosend(so, iov, iovcnt, dest_addr);
+
+	return rc;
+}
+
+int
+gt_bsd44_so_timer(struct timer *timer, u_char fn_id)
+{
+	switch (fn_id) {
+	case TCPT_REXMT:
+		tcp_REXMT_timo(timer);
+		break;
+
+	case TCPT_PERSIST:
+		tcp_PERSIST_timo(timer);
+		break;
+
+	case TCPT_KEEP:
+		tcp_KEEP_timo(timer);
+		break;
+
+	case TCPT_2MSL:
+		tcp_2MSL_timo(timer);
+		break;
+
+	case TCPT_DELACK:
+		tcp_DELACK_timo(timer);
+		break;
+
+	default:
+		assert(0);
+		break;
+	}
+
+	return 0;
+}
+
+int
+gt_bsd44_so_get_err(struct file *fp)
+{
+	struct socket *so;
+
+	so = gt_fptoso(fp);
+	return so->so_error;
+}
+
+int
+gt_bsd44_so_getsockname(struct file *, struct sockaddr *, socklen_t *)
+{
+	assert(0);
+	return -ENOTSUP;
+}
+
+int
+gt_bsd44_so_getpeername(struct file *, struct sockaddr *, socklen_t *)
+{
+	assert(0);
+	return -ENOTSUP;
+}
+
+int
+gt_bsd44_so_tx_flush(void)
+{
+	int rc;
+	struct dev_pkt pkt;
+	struct route_entry r;
+	struct socket *so;
+	struct gt_dlist *tx_head;
+
+	// TODO: optimize - without division
+	tcp_now = 1 + shared_ns() / (NSEC_SEC/PR_SLOWHZ);
+
+	tx_head = &current->p_tx_head;
+	while (!gt_dlist_is_empty(tx_head)) {
+		so = GT_DLIST_FIRST(tx_head, struct socket, so_txlist);
+		rc = gt_so_route(so->so_base.sobase_laddr, so->so_base.sobase_faddr, &r);
+		assert(rc == 0);
+		for (;;) {
+			rc = route_get_tx_packet(r.rt_ifp, &pkt, TX_CAN_REDIRECT);
+			if (rc) {
+				return;
+			}
+			rc = tcp_output_real(&r, &pkt, so);
+			if (rc >= 0) {
+				dev_put_tx_packet(&pkt);
+			}
+			if (rc <= 0) {
+				GT_DLIST_REMOVE(so, so_txlist);
+				so->so_state &= ~SS_ISTXPENDING;
+				sofree(so);
+				break;
 			}
 		}
 	}
-	return rc;
+
+	return 0;
+}
+
+short
+gt_bsd44_so_get_events(struct file *fp)
+{
+	assert(0);
+	return 0;
+}
+
+int
+gt_bsd44_so_nread(struct file *fp)
+{
+	assert(0);
+	return 0;
+}
+
+int
+gt_bsd44_so_recvfrom(struct file *fp, const struct iovec *iov, int iovcnt,
+		int flags, struct sockaddr *addr, socklen_t *addrlen)
+{
+	assert(0);
+	return 0;
+}
+
+int
+gt_bsd44_so_aio_recvfrom(struct file *fp, struct iovec *iov, int flags,
+		struct sockaddr *addr, socklen_t *addrlen)
+{
+	assert(0);
+	return 0;
+}
+
+int
+gt_bsd44_so_recvdrain(struct file *fp, int len)
+{
+	assert(0);
+	return 0;
+}
+
+int
+gt_bsd44_so_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
+{
+	return -ENOTSUP;
 }

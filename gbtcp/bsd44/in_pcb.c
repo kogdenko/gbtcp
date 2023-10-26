@@ -8,21 +8,18 @@
 int
 in_pcbattach(struct socket *so, uint32_t *ph)
 {
-	int rc;
-
 	if (so->so_state & SS_ISATTACHED) {
 		return -EALREADY;
 	}
-	gt_so_bind_ephemeral();
-	rc = ip_connect(&so->so_base, ph);
-	if (rc == 0) {
-		so->so_state |= SS_ISATTACHED;
-	}
-	return rc;
+
+	gt_so_addto_connected(&so->so_base, ph);
+	so->so_state |= SS_ISATTACHED;
+	
+	return 0;
 }
 
 int
-in_pcbconnect(struct socket *so, uint32_t *ph)
+in_pcbconnect(struct socket *so, const struct sockaddr_in *faddr_in, uint32_t *ph)
 {
 	int rc;
 
@@ -42,7 +39,7 @@ in_pcbconnect(struct socket *so, uint32_t *ph)
 	if (so->so_state & SS_ISATTACHED) {
 		return -EISCONN;
 	}
-	rc = ip_connect(&so->so_base, ph);
+	rc = gt_so_bind_ephemeral(&so->so_base, faddr_in->sin_addr.s_addr, faddr_in->sin_port);
 	if (rc == 0) {
 		so->so_state |= SS_ISATTACHED;
 	}
@@ -52,19 +49,14 @@ in_pcbconnect(struct socket *so, uint32_t *ph)
 int
 in_pcbdetach(struct socket *so)
 {
-	int lport;
+	gt_so_rmfrom_binded(&so->so_base);
 
-	lport = ntohs(so->inp_lport);
-	if (lport < EPHEMERAL_MIN) {
-		if (current->t_in_binded[lport] == so) {
-			current->t_in_binded[lport] = NULL;
-		}
-	}
 	if (so->so_state & SS_ISATTACHED) {
 		so->so_state &= ~SS_ISATTACHED;
-		ip_disconnect(&so->so_base);
+		gt_so_rmfrom_connected(&so->so_base);
 		sofree(so);
 	}
+
 	return 0;
 }
 
@@ -76,13 +68,14 @@ in_pcbdisconnect(struct socket *so)
 }
 
 void
-in_pcbnotify(int proto, be32_t laddr, be16_t lport, be32_t faddr, be16_t fport,
+in_pcbnotify(int proto, be32_t laddr, be32_t faddr, be16_t lport, be16_t fport,
 		int err, void (*notify)(struct socket *, int))
 {
+	int rc;
 	struct socket *so;
 
-	so = in_pcblookup(proto, laddr, lport, faddr, fport);
-	if (so != NULL) {
+	rc = in_pcblookup(&so, proto, laddr, lport, faddr, fport);
+	if (rc == IN_OK && so != NULL) {
 		(*notify)(so, err);
 	}
 }
@@ -91,6 +84,9 @@ int
 in_pcblookup(struct socket **pso,
 		int proto, be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
-	gt_so_lookup
-	return NULL;
+	int rc;
+
+	rc = gt_so_lookup((struct gt_sock **)pso, proto, laddr, faddr, lport, fport);
+
+	return rc;
 }

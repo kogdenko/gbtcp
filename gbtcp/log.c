@@ -90,6 +90,9 @@ log_is_enabled(int module_id, int level, int debug)
 			thresh = scope->lgs_level;
 		}
 	}
+	if (!(level <= thresh)) {
+		printf("logdiabled\n");
+	}
 	return level <= thresh;
 }
 

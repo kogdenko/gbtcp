@@ -396,7 +396,7 @@ def custom(c):
 	app = EPOLL_HELLOWORLD
 	for mode in [Mode.SERVER, Mode.CLIENT]:
 		c.local = app
-		for i in range(1, len(c.cpus)):
+		for i in range(1, len(c.cpus) - 1):
 			c.n_cpus = i
 			c.do_run()
 

@@ -238,7 +238,7 @@ tcp_output_real(struct route_entry *r, struct dev_pkt *pkt, struct socket *so)
 	/*
 	 * No reason to send a segment, just return.
 	 */
-	return 0;
+	return -ENOBUFS;
 
 send:
 	/*

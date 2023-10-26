@@ -6,7 +6,7 @@
 #include "tcp_var.h"
 
 int in_pcbbind(struct socket *, be16_t);
-int in_pcbconnect(struct socket *, uint32_t *);
+int in_pcbconnect(struct socket *, const struct sockaddr_in *, uint32_t *);
 int in_pcbattach(struct socket *, uint32_t *);
 int in_pcbdetach(struct socket *);
 void in_pcbdisconnect(struct socket *);

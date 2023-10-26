@@ -17,23 +17,23 @@ int gt_gbtcp_so_get_err(struct file *);
 
 short gt_gbtcp_so_get_events(struct file *);
 
-void gt_gbtcp_so_timer(struct timer *timer, u_char fn_id);
+int gt_gbtcp_so_timer(struct timer *timer, u_char fn_id);
 
 int gt_gbtcp_so_nread(struct file *);
 
-void gt_gbtcp_so_tx_flush(void);
+int gt_gbtcp_so_tx_flush(void);
 
-int gt_gbtcp_so_socket6(struct file **, int, int, int, int, int);
+int gt_gbtcp_so_socket(struct file **, int, int, int, int);
 
-int gt_gbtcp_so_connect(struct file *, const struct sockaddr_in *, struct sockaddr_in *);
+int gt_gbtcp_so_connect(struct file *, const struct sockaddr_in *);
 
 int gt_gbtcp_so_bind(struct file *, const struct sockaddr_in *);
 
 int gt_gbtcp_so_listen(struct file *, int);
 
-int gt_gbtcp_so_accept(struct file **, struct file *, struct sockaddr *, socklen_t *, int);
+int gt_gbtcp_so_accept(struct file **, struct file *);
 
-void gt_gbtcp_so_close(struct file *);
+int gt_gbtcp_so_close(struct file *);
 
 int gt_gbtcp_so_recvfrom(struct file *, const struct iovec *, int, int,
 		struct sockaddr *, socklen_t *);
@@ -42,7 +42,8 @@ int gt_gbtcp_so_aio_recvfrom(struct file *, struct iovec *, int, struct sockaddr
 
 int gt_gbtcp_so_recvdrain(struct file *, int);
 
-int gt_gbtcp_so_sendto(struct file *, const struct iovec *, int, int, be32_t, be16_t);
+int gt_gbtcp_so_sendto(struct file *, const struct iovec *, int, int,
+		const struct sockaddr_in *);
 
 int gt_gbtcp_so_ioctl(struct file *, unsigned long, uintptr_t);
 

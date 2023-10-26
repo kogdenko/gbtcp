@@ -368,51 +368,66 @@ ip4_set_cksum(struct ip4_hdr *ih, void *l4h)
 int
 gt_ip4_validate_cksum(struct ip4_hdr *ih)
 {
-	int cksum, valid;
+	int valid;
+	uint16_t save_cksum, cksum;
 
-	cksum = ih->ih_cksum;
+	save_cksum = ih->ih_cksum;
 	ih->ih_cksum = 0;
+
 	valid = 1;
 	if (curmod->inet_cksum_offload_rx == 0) {
-		if (cksum != ip4_calc_cksum(ih)) {
+		cksum = ip4_calc_cksum(ih);
+		if (cksum != save_cksum) {
 			valid = 0;
 		}
 	}
-	ih->ih_cksum = cksum;
+
+	ih->ih_cksum = save_cksum;
+
 	return valid;
 }
 
 int
 gt_udp_validate_cksum(struct ip4_hdr *ih, struct udp_hdr *uh, int l4_len)
 {
-	int cksum, valid;
+	int valid;
+	uint16_t save_cksum, cksum;
 
-	cksum = uh->uh_cksum;
+	save_cksum = uh->uh_cksum;
 	uh->uh_cksum = 0;
+
 	valid = 1;
 	if (curmod->inet_cksum_offload_rx == 0) {
-		if (cksum != ip4_udp_calc_cksum(ih, uh, l4_len)) {
+		cksum = ip4_udp_calc_cksum(ih, uh, l4_len);
+		if (cksum != save_cksum) {
 			valid = 0;
 		}
 	}
-	uh->uh_cksum = cksum;
+
+	uh->uh_cksum = save_cksum;
+
 	return valid;
 }
 
 int
 gt_tcp_validate_cksum(struct ip4_hdr *ih, struct tcp_hdr *th, int l4_len)
 {
-	int cksum, valid;
+	uint16_t cksum, save_cksum;
+	int valid;
 
-	cksum = th->th_cksum;
+	save_cksum = th->th_cksum;
 	th->th_cksum = 0;
+
 	valid = 1;
 	if (curmod->inet_cksum_offload_rx == 0) {
-		if (cksum != ip4_udp_calc_cksum(ih, th, l4_len)) {
+		cksum = ip4_udp_calc_cksum(ih, th, l4_len);
+		if (cksum != save_cksum) {
 			valid = 0;
 		}
 	}
-	th->th_cksum = cksum;
+
+	th->th_cksum = save_cksum;
+
 	return valid;
 }
 
@@ -517,7 +532,7 @@ tcp_input(struct in_context *in)
 	in->in_tcp_ack = ntoh32(in->in_th->th_ack);
 	in->in_payload = (u_char *)in->in_th + in->in_th_len;
 	in->in_tcp_opts.tcp_opt_flags = 0;
-	if (gt_tcp_validate_cksum(in->in_ih, in->in_th, IP4_L4_LEN(in->in_ih))) {
+	if (!gt_tcp_validate_cksum(in->in_ih, in->in_th, IP4_L4_LEN(in->in_ih))) {
 		tcpstat.tcps_rcvbadsum++;
 		return IN_OK;
 	}
@@ -731,16 +746,20 @@ eth_input(struct route_if *ifp, struct in_context *in)
 
 	in->in_eh = (struct eth_hdr *)in->in_cur;
 	GT_INET_PARSER_SHIFT(in, sizeof(struct eth_hdr));
+
 	switch (in->in_eh->eh_type) {
 	case ETH_TYPE_IP4_BE:
 		in->in_ipproto = IPPROTO_IP;
 		rc = ip_input(in);
 		break;
+
 	case ETH_TYPE_ARP_BE:
 		rc = gt_arp_input(ifp, in->in_cur, in->in_rem);
 		break;
+
 	default:
 		rc = IN_BYPASS;
 	}
+
 	return rc;
 }

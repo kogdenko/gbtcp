@@ -212,7 +212,7 @@ tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 	th = (struct tcp_hdr *)((u_char *)ip + iphlen);
 	if (ip->ih_total_len < sizeof(struct tcp_hdr)) {
 		tcpstat.tcps_rcvshort++;
-		return IN_OK;
+		return IN_DROP;
 	}
 
 	/*
@@ -1065,7 +1065,7 @@ unref:
 		}
 	}
 
-	return IN_OK;
+	return dropsocket ? IN_DROP : IN_OK;
 }
 
 /*

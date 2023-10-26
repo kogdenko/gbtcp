@@ -13,7 +13,7 @@
 // Start keep-alive timer, and seed output sequence space.
 // Send initial segment on connection.
 int
-tcp_connect(struct socket *so)
+tcp_connect(struct socket *so, const struct sockaddr_in *faddr_in)
 {
 	struct tcpcb *tp;
 	uint32_t h;
@@ -22,13 +22,13 @@ tcp_connect(struct socket *so)
 	tp = sototcpcb(so);
 	ostate = tp->t_state;
 
-	rc = in_pcbconnect(so, &h);
+	rc = in_pcbconnect(so, faddr_in, &h);
 	if (rc) {
 		goto out;
 	}
 	/* Compute window scaling to request.  */
 	while (tp->request_r_scale < TCP_MAX_WINSHIFT &&
-	    (TCP_MAXWIN << tp->request_r_scale) < so->so_rcv_hiwat) {
+			(TCP_MAXWIN << tp->request_r_scale) < so->so_rcv_hiwat) {
 		tp->request_r_scale++;
 	}
 	soisconnecting(so);
@@ -37,6 +37,7 @@ tcp_connect(struct socket *so)
 	tcp_setslowtimer(tp, TCPT_KEEP, TCPTV_KEEP_INIT);
 	tcp_sendseqinit(tp, h);
 	tcp_output(tp);
+
 out:
 	if ((so->so_options & SO_OPTION(SO_DEBUG))) {
 		tcp_trace(TA_USER, ostate, tp, NULL, NULL, PRU_CONNECT);
@@ -127,22 +128,35 @@ tcp_accept(struct socket *so)
  * Possibly send more data.
  */
 int
-tcp_send(struct socket *so, const void *dat, int datalen)
+tcp_send(struct socket *so, const struct iovec *iov, int iovcnt)
 {
-	int rc, ostate;
+	int i, rc, len, ostate;
 	struct tcpcb *tp;
 
 	tp = sototcpcb(so);
 	ostate = tp->t_state;
 
-	rc = sbappend(&so->so_snd, dat, datalen);
-	if (rc > 0) {
+	len = 0;
+	for (i = 0; i < iovcnt; ++i) {
+		rc = sbappend(&so->so_snd, iov[i].iov_base, iov[i].iov_len);
+		if (rc < 0) {
+			if (!len) {
+				return rc;
+			}
+			break;
+		}
+		len += rc;
+	}
+
+	if (len > 0) {
 		tcp_output(tp);
 	}
+
 	if ((so->so_options & SO_OPTION(SO_DEBUG))) {
 		tcp_trace(TA_USER, ostate, tp, NULL, NULL, PRU_SEND);
 	}
-	return rc;
+
+	return len;
 }
 
 
@@ -179,7 +193,7 @@ tcp_abort(struct socket *so)
 
 int
 tcp_ctloutput(int op, struct socket *so, int level, int optname,
-	void *optval, int *optlen)
+		const void *optval, socklen_t *optlen)
 {
 	struct tcpcb *tp;
 	int i;

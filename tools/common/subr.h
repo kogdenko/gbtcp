@@ -35,7 +35,7 @@ typedef cpu_set_t cpuset_t;
 #endif // __linux__
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
-#define UNUSED(x) ((void)(x))
+#define GT_UNUSED(x) ((void)(x))
 
 #define dbg(fmt, ...) do { \
 	printf("%-20s %-5d %-20s: ", __FILE__, __LINE__, __func__); \

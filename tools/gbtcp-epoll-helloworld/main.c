@@ -318,6 +318,7 @@ on_event(struct worker *worker, int eq_fd, const union connection *cp, short rev
 			worker->wrk_conns++;
 		}
 		break;
+
 	case STATE_SERVER:
 		fin = 0;
 		len = 0;
@@ -343,6 +344,7 @@ on_event(struct worker *worker, int eq_fd, const union connection *cp, short rev
 			worker->wrk_conns--;
 		}
 		break;
+
 	case STATE_CONNECT:
 		if (revents & POLLERR) {
 			connect_failed(0, &g_addr);
@@ -360,6 +362,7 @@ on_event(struct worker *worker, int eq_fd, const union connection *cp, short rev
 			event_queue_ctl(eq_fd, 0, &new_conn, 0);
 		}
 		break;
+
 	case STATE_CLIENT:
 		closed = 0;
 		if (revents & POLLERR) {
@@ -377,6 +380,7 @@ on_event(struct worker *worker, int eq_fd, const union connection *cp, short rev
 			clientn(worker, eq_fd);
 		}
 		break;
+
 	default:
 		assert(0);
 	}

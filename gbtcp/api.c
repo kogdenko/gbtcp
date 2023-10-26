@@ -405,28 +405,29 @@ gt_write(int fd, const void *buf, size_t count)
 
 int
 gt_send_locked(int fd, const struct iovec *iov, int iovcnt, int flags,
-		const void *name, int namelen)
+		const struct sockaddr *dest_addr, socklen_t addrlen)
 {
 	int rc;
-	be32_t faddr;
-	be16_t fport;
-	const struct sockaddr_in *addr_in;
+	const struct sockaddr_in *nam;
 	struct file *fp;
 
 	rc = gt_so_get(fd, &fp);
 	if (rc) {
 		return rc;
 	}
-	if (namelen >= sizeof(*addr_in)) {
-		addr_in = name;
-		faddr = addr_in->sin_addr.s_addr;
-		fport = addr_in->sin_port;
+
+	if (addrlen >= sizeof(*nam)) {
+		if (dest_addr->sa_family != AF_INET) {
+			return -EINVAL;
+		}
+	} else if (addrlen != 0) {
+		return -EINVAL;
 	} else {
-		faddr = 0;
-		fport = 0;
+		dest_addr = NULL;
 	}
+
 restart:
-	rc = gt_so_sendto(fp, iov, iovcnt, flags, faddr, fport);
+	rc = gt_so_sendto(fp, iov, iovcnt, flags, (const struct sockaddr_in *)dest_addr);
 	if (rc == -EAGAIN && fp->fl_blocked) {
 		file_wait(fp, POLLOUT);
 		rc = gt_so_get(fd, &fp);
@@ -467,7 +468,7 @@ gt_send(int fd, const void *buf, size_t cnt, int flags)
 
 ssize_t
 gt_sendto(int fd, const void *buf, size_t len, int flags,
-		const struct sockaddr *addr, socklen_t addrlen)
+		const struct sockaddr *dest_addr, socklen_t addrlen)
 {
 	ssize_t rc;
 	struct iovec iov;
@@ -476,7 +477,7 @@ gt_sendto(int fd, const void *buf, size_t len, int flags,
 	iov.iov_len = len;
 	API_LOCK;
 	GT_INFO(API, 0, "gt_sendto(fd=%d, %zu)", fd, len);
-	rc = gt_send_locked(fd, &iov, 1, flags, addr, addrlen);
+	rc = gt_send_locked(fd, &iov, 1, flags, dest_addr, addrlen);
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_sendto(fd=%d, %zu) failed", fd, len);
 	} else {

@@ -7,7 +7,7 @@ import subprocess
 HAVE_NETMAP = False
 HAVE_XDP = False
 HAVE_VALE = False
-HAVE_BSD44 = True
+HAVE_BSD44 = False
 
 COMPILER = 'gcc'
 
@@ -57,6 +57,15 @@ def get_gbtcp_git_tag():
 #	 #target.append(str(target[0]))
 #	 return target, source
 
+def add_have(var, varname):
+	s = "#define " + varname + " "
+	if var:
+		s += "1"
+	else:
+		s += "0"
+	s += "\n"
+	return s
+
 def configure(target, source, env):
 	git_tag = get_gbtcp_git_tag()
 
@@ -66,15 +75,10 @@ def configure(target, source, env):
 	s += "#define GBTCP_CONFIG_H\n"
 	s += "\n"
 	s += ("#define GT_GIT_TAG \"%s\"\n" % git_tag)
-	if HAVE_XDP:
-		s += "#define GT_HAVE_XDP\n"
-	if HAVE_NETMAP:
-		s += "#define GT_HAVE_NETMAP\n"
-	if HAVE_VALE:
-		s += "#define GT_HAVE_VALE\n"
-	if HAVE_BSD44:
-		s += "#define GT_HAVE_BSD44\n"
-
+	s += add_have(HAVE_XDP, "GT_HAVE_XDP")
+	s += add_have(HAVE_NETMAP, "GT_HAVE_NETMAP")
+	s += add_have(HAVE_VALE, "GT_HAVE_VALE")
+	s += add_have(HAVE_BSD44, "GT_HAVE_BSD44")
 	s += "\n"
 	s += "#endif // GBTCP_CONFIG_H\n"
 	f.write(s)

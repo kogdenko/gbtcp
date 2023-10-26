@@ -709,42 +709,42 @@ gt_arp_input(struct route_if *ifp, void *dat, int datlen)
 	arpstat.arps_received++;
 	if (datlen < sizeof(struct arp_hdr)) {
 		arpstat.arps_toosmall++;
-		return IN_OK;
+		return IN_DROP;
 	}
 	ah = (struct arp_hdr *)dat;
 	if (ah->ah_hrd != ARP_HRD_ETH_BE) {
 		arpstat.arps_badhrd++;
-		return IN_OK;
+		return IN_DROP;
 	}
 	if (ah->ah_pro != ETH_TYPE_IP4_BE) {
 		arpstat.arps_badpro++;
-		return IN_OK;
+		return IN_DROP;
 	}
 	if (ah->ah_hlen != sizeof(struct eth_addr)) {
 		arpstat.arps_badhlen++;
-		return IN_OK;
+		return IN_DROP;
 	}
 	if (ah->ah_plen != sizeof(be32_t)) {
 		arpstat.arps_badplen++;
-		return IN_OK;
+		return IN_DROP;
 	}
 	tip = ah->ah_data.aip_tip;
 	sip = ah->ah_data.aip_sip;
 	if (ipaddr4_is_loopback(tip)) {
 		arpstat.arps_badaddr++;
-		return IN_OK;
+		return IN_DROP;
 	}
 	if (ipaddr4_is_bcast(tip)) {
 		arpstat.arps_badaddr++;
-		return IN_OK;
+		return IN_DROP;
 	}
 	if (ipaddr4_is_loopback(sip)) {
 		arpstat.arps_badaddr++;
-		return IN_OK;
+		return IN_DROP;
 	}
 	if (ipaddr4_is_bcast(sip)) {
 		arpstat.arps_badaddr++;
-		return IN_OK;
+		return IN_DROP;
 	}
 	ifa = route_ifaddr_get4(tip);
 	if (ifa == NULL) {

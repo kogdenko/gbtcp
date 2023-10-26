@@ -11,7 +11,7 @@ struct route_entry;
 struct route_if;
 struct timer;
 
-#define GT_VSO_HASH(faddr, lport, fport) \
+#define GT_SO_HASH(faddr, lport, fport) \
 	((faddr) ^ ((faddr) >> 16) ^ ntoh16((lport) ^ (fport)))
 
 struct gt_sock {
@@ -39,15 +39,25 @@ int socket_mod_init(void);
 void socket_mod_deinit(void);
 void socket_mod_timer(struct timer *, u_char);
 
+int gt_set_sockaddr(struct sockaddr *, socklen_t *, be32_t, be16_t);
+
 int gt_so_route(be32_t, be32_t, struct route_entry *);
 
 typedef int (*gt_foreach_socket_f)(struct file *, void *);
 int gt_foreach_binded_socket(gt_foreach_socket_f, void *);
 
-struct gt_sock *gt_so_lookup_connected(struct htable_bucket *,
-		int, be32_t, be32_t, be16_t, be16_t);
+void gt_so_rmfrom_binded(struct gt_sock *);
+
 struct gt_sock *gt_so_lookup_binded(struct htable_bucket *,
 		int, be32_t, be32_t, be16_t, be16_t);
+
+void gt_so_addto_connected(struct gt_sock *, uint32_t *);
+void gt_so_rmfrom_connected(struct gt_sock *);
+
+struct gt_sock *gt_so_lookup_connected(struct htable_bucket *,
+		int, be32_t, be32_t, be16_t, be16_t);
+
+int gt_so_lookup(struct gt_sock **, int, be32_t, be32_t, be16_t, be16_t);
 
 void gt_so_base_init(struct gt_sock *);
 
@@ -83,7 +93,7 @@ int gt_so_aio_recvfrom(struct file *, struct iovec *, int, struct sockaddr *, so
 
 int gt_so_recvdrain(struct file *, int);
 
-int gt_so_sendto(struct file *, const struct iovec *, int, int, be32_t, be16_t);
+int gt_so_sendto(struct file *, const struct iovec *, int, int, const struct sockaddr_in *);
 
 int gt_so_ioctl(struct file *, unsigned long, uintptr_t);
 

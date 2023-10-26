@@ -128,7 +128,7 @@ void tcp_setslowtimer(struct tcpcb *, int, u_short);
 void tcp_setdelacktimer(struct tcpcb *);
 struct tcpcb *tcp_close(struct tcpcb *);
 void tcp_ctlinput(int, int, be32_t, struct ip4_hdr *);
-int tcp_ctloutput(int, struct socket *, int, int, void *, int*);
+int tcp_ctloutput(int, struct socket *, int, int, const void *, socklen_t*);
 struct tcpcb *tcp_drop(struct tcpcb *, int);
 void tcp_drain(void);
 void tcp_fasttimo(void);
@@ -145,8 +145,8 @@ void tcp_setpersist(struct tcpcb *);
 void tcp_trace(int, int, struct tcpcb *, struct ip4_hdr *, struct tcp_hdr *, int);
 struct tcpcb *tcp_usrclosed(struct tcpcb *);
 void tcp_template(struct socket *, struct ip4_hdr *, struct tcp_hdr *);
-int tcp_connect(struct socket *so);
-int tcp_send(struct socket *so, const void *, int);
+int tcp_connect(struct socket *, const struct sockaddr_in *);
+int tcp_send(struct socket *so, const struct iovec *, int);
 int tcp_disconnect(struct socket *so);
 int tcp_listen(struct socket *so);
 void tcp_accept(struct socket *so);
@@ -159,6 +159,7 @@ void tcp_2MSL_timo(struct timer *);
 void tcp_REXMT_timo(struct timer *);
 void tcp_PERSIST_timo(struct timer *);
 void tcp_KEEP_timo(struct timer *);
+void tcp_DELACK_timo(struct timer *);
 
 #define	TCPS_HAVERCVDSYN(s) \
 	((s) == GT_TCPS_SYN_RCVD || \

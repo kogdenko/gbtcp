@@ -51,6 +51,7 @@
 
 #define IN_OK -1
 #define IN_BYPASS -2
+#define IN_DROP -3
 
 #define GT_INET_PARSER_SHIFT(in, size) \
 	do { \
