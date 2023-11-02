@@ -198,7 +198,7 @@ struct in_context {
 	uint8_t in_ipproto;
 	uint8_t in_emb_ipproto;
 	int in_th_len;
-	u_char in_events;
+	short in_events;
 	uint16_t in_tcp_win;
 	uint16_t in_len;
 	uint8_t in_tcp_flags;

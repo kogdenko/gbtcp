@@ -113,6 +113,10 @@ def log_notice(s):
 	print_log(LOG_NOTICE, s)
 
 
+def log_warning(s):
+	print_log(LOG_WARNING, s)
+
+
 def dbg(*args):
 	traceback.print_stack(limit=2)
 	print(args)

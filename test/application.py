@@ -38,6 +38,7 @@ class Application:
 	def __init__(self, transport):
 		self.transport = transport
 		self.version = None
+		self.mode = None
 		self.repo = None
 		self.proc = None
 
@@ -151,7 +152,10 @@ class nginx(Application, Application.Registered):
 
 
 	def start(self, repo, network, mode, concurrency, cpus):
-		assert(mode == Mode.SERVER)
+		self.mode = mode
+
+		if mode != Mode.SERVER:
+			return False
 
 		worker_cpu_affinity = ""
 
@@ -213,6 +217,7 @@ class nginx(Application, Application.Registered):
 		cmd = "nginx -c %s" % nginx_conf_path
 		self.proc = repo.start_process(cmd, network, mode, self.transport)
 		self.after_start(repo)
+		return True
 
 
 class gbtcp_base_helloworld(Application):
@@ -236,6 +241,7 @@ class gbtcp_base_helloworld(Application):
 
 
 	def start(self, repo, network, mode, concurrency, cpus):
+		self.mode = mode
 		self.repo = repo
 		self.configure_network(True, network, mode, concurrency, cpus)
 
@@ -253,6 +259,7 @@ class gbtcp_base_helloworld(Application):
 
 		self.proc = repo.start_process(cmd, network, mode, self.transport)
 		self.after_start(repo)
+		return True
 
 
 class gbtcp_epoll_helloworld(gbtcp_base_helloworld, Application.Registered):
@@ -292,6 +299,7 @@ class con_gen(Application, Application.Registered):
 
 
 	def start(self, repo, network, mode, concurrency, cpus):
+		self.mode = mode
 		self.configure_network(False, network, mode, concurrency, cpus)
 
 		cmd = self.get_name()
@@ -338,6 +346,7 @@ class con_gen(Application, Application.Registered):
 
 		self.proc = start_process(cmd)
 		self.after_start(repo)
+		return True
 
 
 	def stop(self):

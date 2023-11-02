@@ -60,8 +60,9 @@ def print_report(status, rep, app, concurrency, cpu_load):
 	else:
 		pps = 0
 
-	report += ("%s/%s: c=%d, CPU=%s, %.2f mpps ... %s " % (
+	report += ("%s/%s/%s: c=%d, CPU=%s, %.2f mpps ... %s " % (
 			app.transport.value,
+			app.mode.value,
 			app.get_name(),
 			concurrency,
 			str(cpu_load),
@@ -206,6 +207,14 @@ class Client:
 		return self.calibration_pps - pps < self.calibration_pps * 0.1
 
 
+	def start_local_app(self, local, cpus):
+		s = local.start(self.repo, self.network, self.mode, self.concurrency, cpus)
+		if not s:
+			log_warning(("Local app (%s) do not support %s mode" %
+					(local.get_name(), local.mode.value)))
+		return s
+
+
 	def do_rep(self, local, test_id, cpus):
 		skipped_key = (str(self.remote_transport) + "_" +
 				str(local.transport) + "_" +
@@ -214,22 +223,25 @@ class Client:
 
 		if skipped_n_cpus and len(cpus) > skipped_n_cpus:
 			self.tests_skipped += 1
-			return
+			return Status.SKIPPED, None
 
 		self.do_cooling()
 
 		if self.mode == Mode.SERVER:
-			local.start(self.repo, self.network, self.mode, self.concurrency, cpus)
+			if not self.start_local_app(local, cpus):
+				return Status.SKIPPED, None
 			# Wait until client network interface is up
 			time.sleep(2)
 
+		# TODO: Wait for reply from server, that app started and ready
 		self.send_req(get_peer_mode(self.mode), self.remote_transport, self.remote,
 				self.concurrency)
 
 		if self.mode == Mode.CLIENT:
 			# Wait until server network interface is up
 			time.sleep(2)
-			local.start(self.repo, self.network, self.mode, self.concurrency, cpus)
+			if not self.start_local_app(local, cpus):
+				return Status.SKIPPED, None
 
 		time.sleep(2)
 		top = Top(cpus, self.duration - 2)
@@ -288,12 +300,13 @@ class Client:
 			self.tests_failed += 1
 			rep = None
 			status = Status.ERROR
+			pps = None
 
 		print_report(status, rep, local, self.concurrency, top.load)
 
 		self.start_cooling()
 
-		return status
+		return status, pps
 
 
 	def do_run(self):
@@ -301,7 +314,11 @@ class Client:
 
 		local = application.create(self.local, self.local_transport)
 		remote = application.create(self.remote, self.remote_transport)
-		assert(not remote.is_gbtcp())
+		if remote.is_gbtcp():
+			log_warning(("Remote app (%s/%s) should not use gbtcp. "
+				"Please change remote app or transport") %
+				(remote.transport.value, remote.get_name()))
+			return []
 
 		if self.dry_run:
 			test_id = None
@@ -334,11 +351,15 @@ class Client:
 
 		self.interface.set_channels(cpus)
 
+		pps = []
 		for _ in range (0, self.n_reps - n_passed):
 			for _ in range (0, self.n_tries):
-				status = self.do_rep(local, test_id, cpus)
-				if status != Status.FAILED:
+				rep_status, rep_pps = self.do_rep(local, test_id, cpus)
+				if rep_status != Status.ERROR:
+					pps.append(rep_pps)
+				if rep_status != Status.FAILED:
 					break
+		return pps
 
 
 def calibration(c):
@@ -378,8 +399,8 @@ def bronze(c):
 	c.concurrency = 5000
 	for app in [EPOLL_HELLOWORLD, NGINX]:
 		c.local = app
-		for i in range(1, len(c.cpus)):
-			c.n_cpus = i
+		for i in range(0, len(c.cpus)):
+			c.n_cpus = i + 1
 			c.do_run()
 
 
@@ -396,9 +417,40 @@ def custom(c):
 	app = EPOLL_HELLOWORLD
 	for mode in [Mode.SERVER, Mode.CLIENT]:
 		c.local = app
-		for i in range(1, len(c.cpus) - 1):
-			c.n_cpus = i
-			c.do_run()
+		for i in range(0, len(c.cpus)):
+			c.n_cpus = i + 1
+			pps = c.do_run()
+
+
+def alive(c):
+	dry_run = c.dry_run
+	c.dry_run = True
+
+	c.n_reps = 1
+	c.n_tries = 1
+	c.cooling = 10
+	c.duration = 10
+	c.remote_transport = Transport.NETMAP
+	c.local_transport = Transport.NETMAP
+	c.concurrency = 100
+	c.n_cpus = 1
+	c.remote = CON_GEN
+
+	tests = {}
+	tests[Mode.CLIENT] = [EPOLL_HELLOWORLD]
+	tests[Mode.SERVER] = [EPOLL_HELLOWORLD, NGINX]
+
+	for c.mode, apps in tests.items():
+		for c.local in apps:
+			pps = c.do_run()
+			if not len(pps):
+				return False
+			for x in pps:
+				if x < 100000:
+					return False
+
+	c.dry_run = dry_run
+	return True
 
 
 def silver():
@@ -424,6 +476,9 @@ def main():
 
 	ap.add_argument("--bronze", action="store_true", help="Run bronze tests")
 	ap.add_argument("--custom", action="store_true", help="Run custom tests")
+	ap.add_argument("--alive", action="store_true", help="Run alive tests")
+
+	ap.add_argument("--dry-run", action="store_true", help="Don't store test results")
 
 	args = ap.parse_args()
 
@@ -435,14 +490,26 @@ def main():
 	c = Client(args.i, args.connect)
 
 	c.set_cpus(args.cpu)
+	c.dry_run = args.dry_run
 
 	if args.custom:
 		custom(c)
+
 	if args.bronze:
 		bronze(c)
+
+	if args.alive:
+		if alive(c):
+			return 0
+		else:
+			return 1
 
 	return c.tests_failed == 0
 
 
 if __name__ == "__main__":
-	main()
+	try:
+		code = main()
+	except KeyboardInterrupt as exc:
+		code = 2
+	sys.exit(code)

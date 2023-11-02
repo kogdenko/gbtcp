@@ -94,6 +94,7 @@ epoll_entry_handler(void *aio_ptr, int fd, short revents)
 
 	e = container_of(aio_ptr, struct epoll_entry, epe_aio);
 	e->epe_revents |= revents & e->epe_filter;
+
 	if (e->epe_revents & POLLNVAL) {
 		epoll_entry_free(e);
 		return;

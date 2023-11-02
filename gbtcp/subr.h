@@ -7,12 +7,12 @@
 #include "gbtcp.h"
 
 #ifdef __linux__
-  #define GT_POLLRDHUP POLLRDHUP
-  #define GT_TCP_CORK TCP_CORK
-  #define gt_qsort_r qsort_r
+#define GT_POLLRDHUP POLLRDHUP
+#define GT_TCP_CORK TCP_CORK
+#define gt_qsort_r qsort_r
 #else // __linux__
-  #define GT_POLLRDHUP 0
-  #define GT_TCP_CORK TCP_NOPUSH
+#define GT_POLLRDHUP 0
+#define GT_TCP_CORK TCP_NOPUSH
 typedef cpuset_t cpu_set_t;
 void gt_qsort_r(void *, size_t, size_t, int (*compar)(const void *, const void *, void *), void *);
 #endif // __linux__

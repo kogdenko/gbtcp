@@ -365,14 +365,16 @@ on_event(struct worker *worker, int eq_fd, const union connection *cp, short rev
 
 	case STATE_CLIENT:
 		closed = 0;
-		if (revents & POLLERR) {
-			closed = 1;
-		} else {
+		if (revents & POLLIN) {
 			rc = read_record(cp->conn_fd, g_buf, sizeof(g_buf), &len);
 			if (rc <= 0) {
 				closed = 1;
 			}
 		}
+		if (revents & POLLERR) {
+			closed = 1;
+		}
+
 		if (g_Cflag || closed) {
 			close(cp->conn_fd);
 			worker->wrk_reqs++;
