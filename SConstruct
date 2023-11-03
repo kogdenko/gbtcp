@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-only
 
+# pip install numpy psutil
+
 import platform
 import shutil
 import subprocess
@@ -41,21 +43,6 @@ def system(cmd, failure_tollerance=False):
 
 	return rc, out, err
 
-def get_gbtcp_git_tag():
-	cmd = "git describe --tags --always"
-	rc, out, _ = system(cmd)
-	assert(rc == 0)
-	return out.strip()
-
-	#cmd = "git log -1 --format=%H"
-	#commit = system(cmd)[1].strip()
-	#assert(len(commit) == 40)
-	#return commit
-
-#def add_target(target, source, env):
-#	 env.Append(CPPPATH = ['.'])
-#	 #target.append(str(target[0]))
-#	 return target, source
 
 def add_have(var, varname):
 	s = "#define " + varname + " "
@@ -67,14 +54,12 @@ def add_have(var, varname):
 	return s
 
 def configure(target, source, env):
-	git_tag = get_gbtcp_git_tag()
-
 	f = open(str(target[0]), 'w')
 	s = ""
 	s += "#ifndef GBTCP_CONFIG_H\n"
 	s += "#define GBTCP_CONFIG_H\n"
 	s += "\n"
-	s += ("#define GT_GIT_TAG \"%s\"\n" % git_tag)
+	s += ("#define GT_VERSION \"0.3.0\"\n")
 	s += add_have(HAVE_XDP, "GT_HAVE_XDP")
 	s += add_have(HAVE_NETMAP, "GT_HAVE_NETMAP")
 	s += add_have(HAVE_VALE, "GT_HAVE_VALE")
@@ -97,18 +82,16 @@ def libgbtcp_library(orig, srcs):
 	return env.SharedLibrary('bin/libgbtcp.so', srcs)
 
 def aio_helloworld_program(orig):
-	ldflags = ['-Lbin', '-lgbtcptools']
 	env = orig.Clone()
-	env.Append(LINKFLAGS = flags_to_string(ldflags))
+	env.Append(LIBS = "gbtcptools")
 	prog = env.Program('bin/gbtcp-aio-helloworld',
 		'tools/gbtcp-aio-helloworld/main.c')
 	Requires(prog, libgbtcptools)
 	Requires(prog, libgbtcp)
 
 def epoll_helloworld_program(orig):
-	ldflags = ['-Lbin', '-lgbtcptools']
 	env = orig.Clone()
-	env.Append(LINKFLAGS = flags_to_string(ldflags))
+	env.Append(LIBS = "gbtcptools")
 	prog = env.Program('bin/gbtcp-epoll-helloworld',
 		'tools/gbtcp-epoll-helloworld/main.c')
 	Requires(prog, libgbtcptools)
@@ -149,11 +132,10 @@ AddOption('--without-xdp', action='store_true',
 AddOption('--with-bsd44', action='store_true',
 	help="Use BSD 4.4 tcp/ip stack implementation", default=False)
 
-shutil.copy('./tools/pre-commit', '.git/hooks/')
-
 PLATFORM = platform.system()
 
-g_env = Environment(CC = COMPILER)
+g_env = Environment(CC = COMPILER,
+        LIBPATH = "bin")
 g_env.Append(CPPPATH = ['.'])
 
 bld = Builder(action = configure)#, emitter = add_target)
@@ -273,12 +255,14 @@ libgbtcptools = g_env.SharedLibrary('bin/libgbtcptools.so', [
 	])
 
 # Programs
-ldflags.append('-Lbin')
-ldflags.append('-lgbtcp')
+#ldflags.append('-Lbin')
+#ldflags.append('-lgbtcp')
 
 g_env_gbtcp = Environment(CC = COMPILER,
 	CCFLAGS = flags_to_string(cflags),
 	LINKFLAGS = flags_to_string(ldflags),
+    LIBPATH = "bin",
+    LIBS = ["gbtcp"]
 )
 
 g_env_gbtcp.Append(CPPPATH = ['.'])

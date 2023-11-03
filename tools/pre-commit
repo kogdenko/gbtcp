@@ -1,8 +1,0 @@
-#!/usr/bin/sh
-# SPDX-License-Identifier: GPL-2.0
-
-#sqlite3 ./test/data.sqlite3 .schema > ./test/schema.sqlite3
-#git add ./test/schema.sqlite3
-
-#mysqldump --no-data gbtcp > ./test/schema.mysql
-#git add ./test/schema.mysql

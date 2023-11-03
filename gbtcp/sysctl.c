@@ -1045,9 +1045,9 @@ gt_sysctl(const char *path, char *old, const char *new)
 }
 
 int
-gt_get_git_tag(char *git_tag, int size)
+gt_get_version(char *version, int size)
 {
-	return snprintf(git_tag, size, "%s", GT_GIT_TAG);
+	return snprintf(version, size, "%s", GT_VERSION);
 }
 
 int

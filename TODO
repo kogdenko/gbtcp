@@ -1,0 +1,2 @@
+- epool-helloworld - Do not create separate process for master, use 1 worker as a master
+- Need to create /usr/local/gbtcp/sock  and pid - remove it

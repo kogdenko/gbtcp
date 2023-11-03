@@ -84,7 +84,7 @@ main(int argc, char **argv)
 			return EXIT_SUCCESS;
 		case 'v':
 			printf("version: 0.5.1\n");
-			gt_get_git_tag(buf, sizeof(buf));
+			gt_get_version(buf, sizeof(buf));
 			printf("gbtcp: %s\n", buf);
 			gt_get_build_config(buf, sizeof(buf));
 			printf("config: %s\n", buf);

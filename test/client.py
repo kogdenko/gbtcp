@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import math
+import psutil
 import errno
 import getopt
 import socket
@@ -484,8 +485,9 @@ def main():
 
 	set_log_level(args.stdout, args.syslog)
 
-	for app in application.Application.registered():
-		system("killall -9 %s" % app.get_name(), LOG_DEBUG, True)
+	for proc in psutil.process_iter():
+		if proc.name() in application.Application.registered():
+			proc.kill()
 
 	c = Client(args.i, args.connect)
 

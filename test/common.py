@@ -85,6 +85,7 @@ def print_log(level, s):
 
 	if level <= g_log_level_stdout:
 		print(str(datetime.datetime.now()) + ": " + s)
+		sys.stdout.flush()
 	if level <= g_log_level_syslog:
 		syslog(s)
 
