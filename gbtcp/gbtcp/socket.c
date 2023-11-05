@@ -10,7 +10,6 @@
 #include "../socket.h"
 #include "socket.h"
 
-#define so_state so_base.sobase_state
 #define so_file so_base.sobase_file
 #define so_bind_list so_base.sobase_bind_list
 #define so_connect_list so_base.sobase_connect_list
@@ -51,6 +50,7 @@ struct sock {
 	union {
 		uint64_t so_flags;
 		struct {
+			u_int so_state : 8;
 			u_int so_err : 4;
 			u_int so_is_attached : 1;
 			u_int so_processing : 1;
@@ -439,37 +439,14 @@ gt_gbtcp_so_nread(struct file *fp)
 int
 gt_gbtcp_so_socket(struct file **fpp, int fd, int domain, int type, int proto)
 {
-	int so_fd;
 	struct sock *so;
 
-	if (domain != AF_INET) {
-		// ipv4 only
-		return -ENOTSUP;
-	}
-	switch (type) {
-	case SOCK_STREAM:
-		if (proto != 0 && proto != IPPROTO_TCP) {
-			return -EINVAL;
-		}
-		proto = IPPROTO_TCP;
-		break;
-	case SOCK_DGRAM:
-		if (proto != 0 && proto != IPPROTO_UDP) {
-			return -EINVAL;
-		}
-		proto = IPPROTO_UDP;
-		// break; TODO: repair UDP
-	default:
-		return -ENOTSUP;
-	}
 	so = so_new(fd, proto);
 	if (so == NULL) {
 		return -ENOMEM;
 	}
-	so->so_referenced = 1;
-	so_fd = so_get_fd(so);
 	*fpp = &so->so_file;
-	return so_fd;
+	return 0;
 }
 
 int
@@ -573,7 +550,6 @@ gt_gbtcp_so_accept(struct file **fpp, struct file *lfp)
 	so->so_acceptor = NULL;
 	GT_DLIST_REMOVE(so, so_accept_list);
 	lso->so_acceptq_len--;
-	so->so_referenced = 1;
 	fd = so_get_fd(so);
 	*fpp = &so->so_file;
 	tcpstat.tcps_accepts++;
@@ -586,7 +562,6 @@ gt_gbtcp_so_close(struct file *fp)
 	struct sock *so;
 
 	so = (struct sock *)fp;
-	so->so_referenced = 0;
 
 	// close() can be called from controller
 	so->so_sid = current->p_sid;
@@ -917,17 +892,6 @@ gt_gbtcp_so_setsockopt(struct file *fp, int level, int optname,
 	}
 
 	return -ENOPROTOOPT;
-}
-
-int
-gt_gbtcp_so_getsockname(struct file *fp, struct sockaddr *addr, socklen_t *addrlen)
-{
-	int rc;
-	struct sock *so;
-
-	so = (struct sock *)fp;
-	rc = gt_set_sockaddr(addr, addrlen, so->so_laddr, so->so_lport);
-	return rc;
 }
 
 int
@@ -1712,8 +1676,7 @@ gt_tcp_send(struct sock *so, const struct iovec *iov, int iovcnt, int flags)
 	if (so->so_sfin) {
 		return -EPIPE;
 	}
-	if (so->so_state == GT_TCPS_SYN_SENT ||
-	    so->so_state == GT_TCPS_SYN_RCVD) {
+	if (so->so_state == GT_TCPS_SYN_SENT || so->so_state == GT_TCPS_SYN_RCVD) {
 		return -EAGAIN;
 	} else if (!tcps_is_connected(so->so_state)) {
 		return -EPIPE;
@@ -2407,8 +2370,8 @@ sock_tx(struct route_entry *r, struct dev_pkt *pkt, struct sock *so)
 }
 
 static void
-tcp_tx_data(struct route_entry *r, struct dev_pkt *pkt,
-	struct sock *so, uint8_t tcp_flags, u_int len)
+tcp_tx_data(struct route_entry *r, struct dev_pkt *pkt, struct sock *so,
+		uint8_t tcp_flags, u_int len)
 {
 	int delack, sndwinup, total_len;
 	struct tcp_fill_info tcb;

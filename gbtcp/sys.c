@@ -873,8 +873,10 @@ sys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *to, const sigs
 			GT_ERR(SYS, -rc, "ppoll() failed");
 		}
 	} else {
-		GT_DBG(SYS, 0, "ppoll() return '%s'",
-				log_add_pollfds_revents(fds, nfds));
+		if (nfds) {
+			GT_DBG(SYS, 0, "ppoll() return '%s'",
+					log_add_pollfds_revents(fds, nfds));
+		}
 	}
 	return rc;
 }

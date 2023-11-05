@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-4-Clause
 
 #include "types.h"
 #include "socket.h"
@@ -33,7 +34,7 @@ tcp_template(struct socket *so, struct ip4_hdr *ip, struct tcp_hdr *th)
 	}
 	th->th_seq = 0;
 	th->th_ack = 0;
-	th->th_data_off = 5;
+	th->th_data_off = sizeof(struct tcp_hdr) << 2;
 	th->th_flags = 0;
 	th->th_win_size = 0;
 	th->th_cksum = 0;
@@ -99,7 +100,7 @@ tcp_respond(struct socket *so, struct ip4_hdr *ip_rcv, struct tcp_hdr *th_rcv,
 		th->th_win_size = 0;
 	} else {
 		tp = sototcpcb(so);
-		win = so->so_rcv_hiwat;
+		win = so->so_rcv.sb_hiwat;
 		th->th_win_size = htons((u_short)(win >> tp->rcv_scale));
 	}
 	ip->ih_total_len = sizeof(*ip) + sizeof(*th);
@@ -115,10 +116,16 @@ tcp_respond(struct socket *so, struct ip4_hdr *ip_rcv, struct tcp_hdr *th_rcv,
 void
 tcp_attach(struct socket *so)
 {
+	int i;
 	struct tcpcb *tp;
 
 	tp = sototcpcb(so);
 	memset(tp, 0, sizeof(*tp));
+
+	for (i = 0; i < ARRAY_SIZE(tp->t_timer); ++i) {
+		timer_init(tp->t_timer + i);
+	}
+
 	tp->t_maxseg = TCP_MSS;
 	tp->t_flags = 0;
 	if (1) {//(current->t_tcp_do_wscale) {

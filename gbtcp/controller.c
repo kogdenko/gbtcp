@@ -135,6 +135,7 @@ controller_lock_service(struct service *s)
 	rc = spinlock_trylock(&s->p_lock);
 	if (rc == 0) {
 		GT_ERR(CONTROLLER, 0, "Sevice DEADLOCK, pid=%d", s->p_pid);
+		assert(0);
 		exit(69);
 	}
 }

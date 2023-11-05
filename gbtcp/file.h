@@ -50,6 +50,7 @@ int file_alloc3(struct file **, int, int);
 #define file_alloc(fpp, type) file_alloc3(fpp, 0, type)
 void file_free(struct file *);
 void file_free_rcu(struct file *);
+void file_open(struct file *);
 void file_close(struct file *);
 int file_fcntl(struct file *, int, uintptr_t);
 int file_ioctl(struct file *, unsigned long, uintptr_t);

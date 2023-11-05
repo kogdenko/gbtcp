@@ -69,12 +69,12 @@ gt_fork(void)
 	int rc;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_fork()");
+	GT_NOTICE(API, 0, "gt_fork() enter");
 	rc = service_fork();
 	if (rc < 0) {
 		GT_ERR(API, -rc, "gt_fork() failed");
 	} else {
-		GT_INFO(API, 0, "gt_fork() return pid=%d", rc);
+		GT_NOTICE(API, 0, "gt_fork() return pid=%d", rc);
 	}
 	API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -89,7 +89,7 @@ gt_socket(int domain, int type, int proto)
 	API_LOCK;
 	flags = SOCK_TYPE_FLAGS(type);
 	type_noflags = SOCK_TYPE_NOFLAGS(type);
-	GT_INFO(API, 0, "gt_socket('%s', '%s')",
+	GT_DBG(API, 0, "gt_socket('%s', '%s') enter",
 			log_add_socket_type(type_noflags),
 			log_add_socket_flags(flags));
 	rc = gt_so_socket(&fp, domain, type_noflags, flags, proto);
@@ -98,7 +98,7 @@ gt_socket(int domain, int type, int proto)
 				log_add_socket_type(type_noflags),
 				log_add_socket_flags(flags));
 	} else {
-		GT_INFO(API, 0, "gt_socket(%s, %s) return fd=%d",
+		GT_INFO(API, 0, "gt_socket(%s, %s) return fd:%d",
 				log_add_socket_type(type_noflags),
 				log_add_socket_flags(flags), rc);
 	}
@@ -149,16 +149,15 @@ gt_connect(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	int rc;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_connect(fd=%d, '%s')",
+	GT_DBG(API, 0, "gt_connect(fd=%d, '%s') enter",
 			fd, log_add_sockaddr(addr, addrlen));
 	rc = gt_connect_locked(fd, addr, addrlen);
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_connect(fd=%d, '%s') failed",
 				fd, log_add_sockaddr(addr, addrlen));
 	} else {
-		GT_INFO(API, 0, "gt_connect(fd=%d, '%s') return '%s'",
-				fd, log_add_sockaddr(addr, addrlen),
-				log_add_sockaddr(addr, addrlen));
+		GT_INFO(API, 0, "gt_connect(fd=%d, '%s') ok",
+				fd, log_add_sockaddr(addr, addrlen));
 	}
 	API_UNLOCK;
 	GT_API_RETURN(rc);
@@ -192,7 +191,7 @@ gt_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	int rc;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_bind(fd=%d, '%s')", fd, log_add_sockaddr(addr, addrlen));
+	GT_DBG(API, 0, "gt_bind(fd=%d, '%s') enter", fd, log_add_sockaddr(addr, addrlen));
 	rc = gt_bind_locked(fd, addr, addrlen);
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_bind(fd=%d, '%s') failed",
@@ -212,7 +211,7 @@ gt_listen(int fd, int backlog)
 	struct file *fp;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_listen(lfd=%d)", fd);
+	GT_DBG(API, 0, "gt_listen(lfd=%d) enter", fd);
 	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
 		rc = gt_so_listen(fp, backlog);
@@ -254,7 +253,7 @@ gt_accept4(int lfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 	int rc;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_accept4(lfd=%d, '%s')", lfd, log_add_socket_flags(flags));
+	GT_DBG(API, 0, "gt_accept4(lfd=%d, '%s') enter", lfd, log_add_socket_flags(flags));
 	rc = gt_accept4_locked(lfd, addr, addrlen, flags);
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_accept4(lfd=%d, '%s') failed",
@@ -273,7 +272,7 @@ gt_shutdown(int fd, int how)
 	int rc;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_shutdown(fd=%d, '%s')", fd, log_add_shutdown_how(how));
+	GT_DBG(API, 0, "gt_shutdown(fd=%d, '%s') enter", fd, log_add_shutdown_how(how));
 	rc = -ENOTSUP;
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_shutdown(fd=%d, '%s') failed",
@@ -293,7 +292,7 @@ gt_close(int fd)
 	struct file *fp;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_close(fd=%d)", fd);
+	GT_DBG(API, 0, "gt_close(fd=%d) enter", fd);
 	rc = file_get(fd, &fp);
 	if (rc == 0) {
 		file_close(fp);
@@ -345,7 +344,7 @@ gt_readv(int fd, const struct iovec *iov, int iovcnt)
 	ssize_t rc;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_readv(fd=%d, %d)", fd, iovec_accum_len(iov, iovcnt));
+	GT_DBG(API, 0, "gt_readv(fd=%d, %d) enter", fd, iovec_accum_len(iov, iovcnt));
 	rc = gt_recvfrom_locked(fd, iov, iovcnt, 0, NULL, NULL);
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_readv(fd=%d, %d) failed",
@@ -376,7 +375,7 @@ gt_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *addr, soc
 	iov.iov_base = buf;
 	iov.iov_len = len;
 	API_LOCK;
-	GT_INFO(API, 0, "gt_recvfrom(fd=%d, %zu)", fd, len);
+	GT_DBG(API, 0, "gt_recvfrom(fd=%d, %zu) enter", fd, len);
 	rc = gt_recvfrom_locked(fd, &iov, 1, flags, addr, addrlen);
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_recvfrom(fd=%d, %zu) failed", fd, len);
@@ -444,7 +443,7 @@ gt_writev(int fd, const struct iovec *iov, int iovcnt)
 	ssize_t rc;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_writev(fd=%d, %d)", fd, iovec_accum_len(iov, iovcnt));
+	GT_DBG(API, 0, "gt_writev(fd=%d, %d) enter", fd, iovec_accum_len(iov, iovcnt));
 	rc = gt_send_locked(fd, iov, iovcnt, 0, NULL, 0);
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_writev(fd=%d, %d) failed",
@@ -476,7 +475,7 @@ gt_sendto(int fd, const void *buf, size_t len, int flags,
 	iov.iov_base = (void *)buf;
 	iov.iov_len = len;
 	API_LOCK;
-	GT_INFO(API, 0, "gt_sendto(fd=%d, %zu)", fd, len);
+	GT_DBG(API, 0, "gt_sendto(fd=%d, %zu) enter", fd, len);
 	rc = gt_send_locked(fd, &iov, 1, flags, dest_addr, addrlen);
 	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_sendto(fd=%d, %zu) failed", fd, len);
@@ -497,7 +496,7 @@ gt_sendmsg(int fd, const struct msghdr *msg, int flags)
 	API_LOCK;
 	iov = msg->msg_iov;
 	iovcnt = msg->msg_iovlen;
-	GT_INFO(API, 0, "gt_sendmsg(fd=%d, %d)", fd, iovec_accum_len(iov, iovcnt));
+	GT_DBG(API, 0, "gt_sendmsg(fd=%d, %d) enter", fd, iovec_accum_len(iov, iovcnt));
 	if (msg->msg_flags != 0 || msg->msg_controllen != 0) {
 		rc = -ENOTSUP;
 	} else {
@@ -522,7 +521,7 @@ gt_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
 	struct file *fp;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_getsockopt(fd=%d, '%s', '%s')",
+	GT_DBG(API, 0, "gt_getsockopt(fd=%d, '%s', '%s') enter",
 			fd, log_add_sockopt_level(level),
 			log_add_sockopt_optname(level, optname));
 	rc = gt_so_get(fd, &fp);
@@ -553,7 +552,7 @@ gt_setsockopt(int fd, int level, int optname, const void *optval, socklen_t optl
 	struct file *fp;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_setsockopt(fd=%d, '%s', '%s')",
+	GT_DBG(API, 0, "gt_setsockopt(fd=%d, '%s', '%s') enter",
 			fd, log_add_sockopt_level(level),
 			log_add_sockopt_optname(level, optname));
 	rc = gt_so_get(fd, &fp);
@@ -580,7 +579,7 @@ gt_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 	struct file *fp;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_getpeername(fd=%d)", fd);
+	GT_DBG(API, 0, "gt_getpeername(fd=%d) enter", fd);
 	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
 		rc = gt_so_getpeername(fp, addr, addrlen);
@@ -601,7 +600,7 @@ gt_fcntl(int fd, int cmd, uintptr_t arg)
 	struct file *fp;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_fcntl(fd=%d, '%s')", fd, log_add_fcntl_cmd(cmd));
+	GT_DBG(API, 0, "gt_fcntl(fd=%d, '%s') enter", fd, log_add_fcntl_cmd(cmd));
 	rc = file_get(fd, &fp);
 	if (rc == 0) {
 		rc = file_fcntl(fp, cmd, arg);
@@ -624,7 +623,7 @@ gt_ioctl(int fd, unsigned long req, uintptr_t arg)
 	struct file *fp;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_ioctl(fd=%d, '%s')",
+	GT_DBG(API, 0, "gt_ioctl(fd=%d, '%s') enter",
 			fd, log_add_ioctl_req(req, arg));
 	rc = file_get(fd, &fp);
 	if (rc == 0) {
@@ -653,7 +652,7 @@ gt_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 		to = timeout_ms * NSEC_MSEC;
 	}
 	API_LOCK;
-	GT_DBG(API, 0, "gt_poll(to=%d, '%s')",
+	GT_DBG(API, 0, "gt_poll(to=%d, '%s') enter",
 			timeout_ms, log_add_pollfds_events(fds, nfds));
 	rc = u_poll(fds, nfds, to, NULL);
 	if (rc < 0) {
@@ -722,7 +721,7 @@ gt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 	int rc;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_sigprocmask('%s')", log_add_sigprocmask_how(how));
+	GT_DBG(API, 0, "gt_sigprocmask('%s') enter", log_add_sigprocmask_how(how));
 	rc = service_sigprocmask(how, set, oldset);
 	if (rc < 0) {
 		GT_WARN(API, -rc, "gt_sigprocmask('%s') failed", log_add_sigprocmask_how(how));
@@ -740,7 +739,7 @@ gt_aio_cancel(int fd)
 	struct file *fp;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_aio_cancel(fd=%d)", fd);
+	GT_DBG(API, 0, "gt_aio_cancel(fd=%d) enter", fd);
 	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
 		file_aio_cancel(&fp->fl_aio);
@@ -761,7 +760,7 @@ gt_aio_set(int fd, gt_aio_f fn)
 	struct file *fp;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_aio_set(fd=%d)", fd);
+	GT_DBG(API, 0, "gt_aio_set(fd=%d) enter", fd);
 	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
 		file_aio_add(fp, &fp->fl_aio, fn);
@@ -782,7 +781,7 @@ gt_aio_recvfrom(int fd, struct iovec *iov, int flags, struct sockaddr *addr, soc
 	struct file *fp;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_aio_recvfrom(fd=%d)", fd);
+	GT_DBG(API, 0, "gt_aio_recvfrom(fd=%d) enter", fd);
 	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
 		rc = gt_so_aio_recvfrom(fp, iov, flags, addr, addrlen);
@@ -803,7 +802,7 @@ gt_recvdrain(int fd, size_t cnt)
 	struct file *fp;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_aio_recvfrain(fd=%d)", fd);
+	GT_DBG(API, 0, "gt_aio_recvfrain(fd=%d) enter", fd);
 	rc = gt_so_get(fd, &fp);
 	if (rc == 0) {
 		rc = gt_so_recvdrain(fp, cnt);
@@ -825,14 +824,14 @@ gt_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
 	int rc;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_clone('%s')",
+	GT_NOTICE(API, 0, "gt_clone('%s') enter",
 			log_add_clone_flags(flags));
 	rc = service_clone(fn, child_stack, flags, arg, ptid, tls, ctid);
 	if (rc < 0) {
-		GT_INFO(API, -rc, "gt_clone('%s') failed",
+		GT_ERR(API, -rc, "gt_clone('%s') failed",
 				log_add_clone_flags(flags));
 	} else {
-		GT_INFO(API, 0, "gt_clone('%s') return pid=%d",
+		GT_NOTICE(API, 0, "gt_clone('%s') return pid=%d",
 				log_add_clone_flags(flags), rc);
 	}
 	API_UNLOCK;
@@ -845,7 +844,7 @@ gt_epoll_create1(int flags)
 	int rc, fd;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_epoll_create1()");
+	GT_DBG(API, 0, "gt_epoll_create1() enetr");
 	rc = sys_epoll_create1(EPOLL_CLOEXEC);
 	if (rc >= 0) {
 		fd = rc;
@@ -869,7 +868,7 @@ gt_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 	int rc;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_epoll_ctl(ep_fd=%d, '%s', fd=%d, '%s')",
+	GT_DBG(API, 0, "gt_epoll_ctl(ep_fd=%d, '%s', fd=%d, '%s') enter",
 			ep_fd, log_add_epoll_op(op), fd,
 			log_add_epoll_event_events(event->events));
 	rc = u_epoll_ctl(ep_fd, op, fd, event);
@@ -899,7 +898,7 @@ gt_epoll_pwait(int ep_fd, struct epoll_event *events, int maxevents,
 		to = timeout_ms * NSEC_MSEC;
 	}
 	API_LOCK;
-	GT_DBG(API, 0, "gt_epoll_pwait(ep_fd=%d)", ep_fd);
+	GT_DBG(API, 0, "gt_epoll_pwait(ep_fd=%d) enter", ep_fd);
 	rc = u_epoll_pwait(ep_fd, events, maxevents, to, sigmask);
 	if (rc < 0) {
 		GT_DBG(API, -rc, "gt_epoll_pwait(ep_fd=%d) failed", ep_fd);
@@ -916,7 +915,7 @@ gt_kqueue()
 	int rc, fd;
 
 	API_LOCK;
-	GT_INFO(API, 0, "gt_kqueue()");
+	GT_DBG(API, 0, "gt_kqueue() enter");
 	rc = (*sys_kqueue_fn)();
 	if (rc == -1) {
 		rc = -errno;

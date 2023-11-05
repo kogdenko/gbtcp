@@ -38,6 +38,20 @@ static const char *tcptimers[] = {
 	[TCPT_2MSL] = "2MSL"
 };
 
+static const char *tcpstates[GT_TCPS_MAX_STATES] = {
+	[GT_TCPS_CLOSED] = "CLOSED",
+	[GT_TCPS_LISTEN] = "LISTEN",
+	[GT_TCPS_SYN_SENT] = "SYN_SENT",
+	[GT_TCPS_SYN_RCVD] = "SYN_RCVD",
+	[GT_TCPS_ESTABLISHED] = "ESTABLISHED",
+	[GT_TCPS_CLOSE_WAIT] = "CLOSE_WAIT",
+	[GT_TCPS_FIN_WAIT_1] = "FIN_WAIT1",
+	[GT_TCPS_CLOSING] = "CLOSING",
+	[GT_TCPS_LAST_ACK] = "LAST_ACK",
+	[GT_TCPS_FIN_WAIT_2] = "FIN_WAIT2",
+	[GT_TCPS_TIME_WAIT] = "TIME_WAIT",
+};
+
 /*
  * Tcp debug routines
  */
@@ -75,7 +89,7 @@ tcp_trace(int act, int ostate, struct tcpcb *tp, struct ip4_hdr *ip, struct tcp_
 		if (act == TA_OUTPUT) {
 			seq = ntohl(seq);
 			ack = ntohl(ack);
-			len -= (sizeof(*ip) + (th->th_data_off << 2));
+			len -= (sizeof(*ip) + TCP_HDR_LEN(th->th_data_off));
 		}
 		if (len) {
 			printf("[%u..%u)", seq, seq + len);

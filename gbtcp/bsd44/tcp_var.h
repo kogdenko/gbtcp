@@ -20,7 +20,6 @@ struct socket;
 struct tcpcb {
 	short	t_state;		/* state of this connection */
 	struct timer t_timer[TCPT_NTIMERS];	/* tcp timers */
-	struct timer t_timer_delack;
 	short	t_rxtshift;		/* log(2) of rexmt exp. backoff */
 	short	t_rxtcur;		/* current retransmit value */
 	short	t_dupacks;		/* consecutive dup acks recd */

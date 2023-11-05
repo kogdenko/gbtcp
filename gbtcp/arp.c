@@ -498,10 +498,13 @@ arp_resolve(struct route_entry *r, struct dev_pkt *pkt)
 	struct gt_module_arp *mod;
 
 	mod = gt_module_get(GT_MODULE_ARP);
+
 	ifp = r->rt_ifp;
 	next_hop = route_get_next_hop4(r);
+
 	h = arp_hash(next_hop);
 	b = htable_bucket_get(&mod->arp_htable, h);
+
 	// Fast path
 	GT_DLIST_FOREACH_RCU(e, &b->htb_head, ae_list) {
 		state = READ_ONCE(e->ae_state);
@@ -512,8 +515,7 @@ arp_resolve(struct route_entry *r, struct dev_pkt *pkt)
 			if (state == ARP_STALE) {
 				break;
 			}
-		} else if (state == ARP_REACHABLE ||
-		           state == ARP_PROBE) {
+		} else if (state == ARP_REACHABLE || state == ARP_PROBE) {
 			arp_set_eh(e, ifp, pkt->pkt_data);
 			route_transmit(ifp, pkt);
 			return;
@@ -521,6 +523,7 @@ arp_resolve(struct route_entry *r, struct dev_pkt *pkt)
 			break;
 		}
 	}
+
 	HTABLE_BUCKET_LOCK(b);
 	arp_resolve_slow(ifp, b, next_hop, pkt);
 	HTABLE_BUCKET_UNLOCK(b);

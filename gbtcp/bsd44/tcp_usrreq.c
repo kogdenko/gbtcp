@@ -26,9 +26,10 @@ tcp_connect(struct socket *so, const struct sockaddr_in *faddr_in)
 	if (rc) {
 		goto out;
 	}
+
 	/* Compute window scaling to request.  */
 	while (tp->request_r_scale < TCP_MAX_WINSHIFT &&
-			(TCP_MAXWIN << tp->request_r_scale) < so->so_rcv_hiwat) {
+			(TCP_MAXWIN << tp->request_r_scale) < so->so_rcv.sb_hiwat) {
 		tp->request_r_scale++;
 	}
 	soisconnecting(so);
@@ -38,10 +39,13 @@ tcp_connect(struct socket *so, const struct sockaddr_in *faddr_in)
 	tcp_sendseqinit(tp, h);
 	tcp_output(tp);
 
+	rc = -EINPROGRESS;
+
 out:
 	if ((so->so_options & SO_OPTION(SO_DEBUG))) {
 		tcp_trace(TA_USER, ostate, tp, NULL, NULL, PRU_CONNECT);
 	}
+
 	return rc;
 }
 
@@ -191,24 +195,30 @@ tcp_abort(struct socket *so)
 	tcp_drop(tp, ECONNABORTED);
 }
 
+#define TCP_CTL_VALIDATE(type) \
+	if (*optlen < sizeof(type)) { \
+		return -EINVAL; \
+	} \
+	*optlen = sizeof(type);
+
 int
 tcp_ctloutput(int op, struct socket *so, int level, int optname,
 		const void *optval, socklen_t *optlen)
 {
 	struct tcpcb *tp;
+	struct tcp_info *tcpi;
 	int i;
 
 	tp = sototcpcb(so);
 	if (level != IPPROTO_TCP) {
 		return -ENOTSUP;
 	}
+
 	switch (op) {
 	case PRCO_SETOPT:
 		switch (optname) {
 		case TCP_NODELAY:
-			if (*optlen < sizeof(int)) {
-				return -EINVAL;
-			}
+			TCP_CTL_VALIDATE(int);
 			if (*((int *)optval)) {
 				tp->t_flags |= TF_NODELAY;
 			} else {
@@ -217,9 +227,7 @@ tcp_ctloutput(int op, struct socket *so, int level, int optname,
 			break;
 
 		case TCP_MAXSEG:
-			if (*optlen < sizeof(int)) {
-				return -EINVAL;
-			}
+			TCP_CTL_VALIDATE(int);
 			i = *((int *)optval);
 			if (i > 0 && i <= tp->t_maxseg) {
 				tp->t_maxseg = i;
@@ -228,28 +236,36 @@ tcp_ctloutput(int op, struct socket *so, int level, int optname,
 			}
 			break;
 
+
 		default:
 			return -ENOPROTOOPT;	
 		}
 		break;
 
 	case PRCO_GETOPT:
-		if (*optlen < sizeof(int)) {
-			return -EINVAL;
-		}
-		*optlen = sizeof(int);
 		switch (optname) {
 		case TCP_NODELAY:
+			TCP_CTL_VALIDATE(int);
 			*((int *)optval) = tp->t_flags & TF_NODELAY;
 			break;
+
 		case TCP_MAXSEG:
+			TCP_CTL_VALIDATE(int);
 			*((int *)optval) = tp->t_maxseg;
 			break;
+
+		case TCP_INFO:
+			TCP_CTL_VALIDATE(struct tcp_info);
+			tcpi = (struct tcp_info *)optval;
+			tcpi->tcpi_state = tp->t_state;
+			break;
+
 		default:
 			return -ENOPROTOOPT;
 		}
 		break;
 	}
+
 	return 0;
 }
 

@@ -90,9 +90,7 @@ log_is_enabled(int module_id, int level, int debug)
 			thresh = scope->lgs_level;
 		}
 	}
-	if (!(level <= thresh)) {
-		printf("logdiabled\n");
-	}
+//	if (level > thresh) printf("DISABLED\n");
 	return level <= thresh;
 }
 
@@ -118,7 +116,7 @@ log_vprintf(int level, const char *func, int errnum, const char *fmt, va_list ap
 	}
 	syslog(level, "%s", strbuf_cstr(&sb));
 
-	//printf("%s\n", strbuf_cstr(&sb));
+	printf("%s\n", strbuf_cstr(&sb));
 }
 
 void
@@ -131,34 +129,6 @@ log_printf(int level, const char *func, int err, const char *fmt, ...)
 	va_end(ap);
 }
 
-void
-log_hexdump_ascii(uint8_t *data, int count)
-{
-	int i, j, k, x, ch;
-	char buf[LOG_BUFSIZ];
-	struct strbuf sb;
-	strbuf_init(&sb, buf, sizeof(buf));
-	for (i = 0; i < count;) {
-		x = i;
-		for (j = 0; j < 8; ++j) {
-			for (k = 0; k < 2; ++k) {
-				if (i < count) {
-					strbuf_addf(&sb, "%02hhx", data[i]);
-					i++;
-				} else {
-					strbuf_add(&sb, STRSZ("  "));
-				}
-			}
-			strbuf_add(&sb, STRSZ(" "));
-		}
-		strbuf_add(&sb, STRSZ(" "));
-		for (j = x; j < i; ++j) {
-			ch = data[j];
-			strbuf_add_ch(&sb, isprint(ch) ? ch : '.');
-		}
-		strbuf_add(&sb, STRSZ("\n"));
-	}
-}
 
 void
 log_buf_init(void)

@@ -130,6 +130,34 @@ strbuf_addf(struct strbuf *sb, const char *fmt, ...)
 }
 
 void
+strbuf_hexdump_ascii(struct strbuf *sb, const void *data, int count)
+{
+	int i, j, k, savei, ch;
+
+	for (i = 0; i < count;) {
+		savei = i;
+		for (j = 0; j < 8; ++j) {
+			for (k = 0; k < 2; ++k) {
+				if (i < count) {
+					ch = ((const u_char *)data)[i];
+					strbuf_addf(sb, "%02hhx", ch);
+					i++;
+				} else {
+					strbuf_add(sb, STRSZ("  "));
+				}
+			}
+			strbuf_add(sb, STRSZ(" "));
+		}
+		strbuf_add(sb, STRSZ(" "));
+		for (j = savei; j < i; ++j) {
+			ch = ((const u_char *)data)[j];
+			strbuf_add_ch(sb, isprint(ch) ? ch : '.');
+		}
+		strbuf_add(sb, STRSZ("\n"));
+	}
+}
+
+void
 strbuf_add_eth_addr(struct strbuf *sb, struct eth_addr *a)
 {
 	strbuf_addf(sb, "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",

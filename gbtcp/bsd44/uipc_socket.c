@@ -6,6 +6,11 @@
 #include "tcp_var.h"
 #include "udp_var.h"
 
+#define so_proto so_base.sobase_proto
+
+// do we have to send all at once on a socket?
+#define	sosendallatonce(so) ((so)->so_proto == IPPROTO_UDP)
+
 uint32_t tcp_now = 1;
 
 static struct socket *
@@ -35,9 +40,13 @@ somalloc(int fd)
 	if (rc) {
 		return NULL;
 	}
-	so = (struct socket *)fp;
+
+	so = gt_fptoso(fp);
+
+	gt_so_base_init(&so->so_base);
 
 	so->so_head = 0;
+	so->so_state = 0;
 	gt_dlist_init(so->so_q + 0);
 	gt_dlist_init(so->so_q + 1);
 	so->so_events = 0;
@@ -47,7 +56,8 @@ somalloc(int fd)
 	so->inp_lport = 0;
 	so->inp_fport = 0;
 	sbinit(&so->so_snd, 8 * 1024);
-	so->so_rcv_hiwat = 8 * 1024;
+	sbinit(&so->so_rcv, 8 * 1024);
+
 	return so;
 }
 
@@ -116,7 +126,7 @@ sofree(struct socket *so)
 {
 /*	const char *cp = "ss=";
 
-	printf("%p: sofree: %s, ", so, f);
+	printf("sofree: %p, ", so);
 	prss(SS_NOFDREF);
 	prss(SS_ISCONNECTED);
 	prss(SS_ISCONNECTING);
@@ -132,6 +142,7 @@ sofree(struct socket *so)
 		// Don't free if referenced
 		return;
 	}
+
 	if ((so->so_state & (SS_ISTXPENDING|
 	                     SS_ISPROCESSING|
 	                     SS_ISCONNECTING|
@@ -140,9 +151,11 @@ sofree(struct socket *so)
 	                     SS_ISATTACHED))) {
 		return;
 	}
+
 	if (so->so_head) {
 		soqremque(so);
 	}
+
 	sbrelease(&so->so_snd);
 	sorflush(so);
 	sowakeup(so, POLLNVAL);
@@ -167,7 +180,6 @@ gt_bsd44_so_close(struct file *fp)
 	if (so->so_state & SS_NOFDREF) {
 		return -EINVAL;
 	}
-	so->so_state |= SS_NOFDREF;
 
 	if (so->so_options & SO_OPTION(SO_ACCEPTCONN)) {
 		for (i = 0; i < ARRAY_SIZE(so->so_q); ++i) {
@@ -185,6 +197,7 @@ gt_bsd44_so_close(struct file *fp)
 		rc = -ENOTSUP;//udp_disconnect(so);
 	}
 
+	so->so_state |= SS_NOFDREF;
 	sofree(so);
 
 	return rc;
@@ -196,7 +209,7 @@ soabort(struct socket *so)
 	if (so->so_proto == IPPROTO_TCP) {
 		tcp_abort(so);
 	} else {
-		udp_abort(so);
+		//udp_abort(so);
 	}
 }
 
@@ -273,6 +286,7 @@ sosend(struct socket *so, const struct iovec *iov, int iovcnt,
 	}
 	if ((so->so_state & SS_ISCONNECTED) == 0) {
 		if (so->so_proto == IPPROTO_TCP) {
+			gt_dbg("notconn");
 			return -ENOTCONN;
 		} else if (dest_addr == NULL) {
 			return -EDESTADDRREQ;
@@ -303,6 +317,7 @@ sosend(struct socket *so, const struct iovec *iov, int iovcnt,
 	return rc;
 }
 
+/*
 int
 bsd_shutdown(struct socket *so, int how)
 {
@@ -317,7 +332,7 @@ bsd_shutdown(struct socket *so, int how)
 		}
 	}
 	return 0;
-}
+}*/
 
 void
 sorflush(struct socket *so)
@@ -334,7 +349,7 @@ gt_bsd44_so_setsockopt(struct file *fp, int level, int optname,
 	struct socket *so;
 
 	so = gt_fptoso(fp);
-
+	
 	if (level != SOL_SOCKET) {
 		if (so->so_proto == IPPROTO_TCP) {
 			rc = tcp_ctloutput(PRCO_SETOPT, so, level, optname, optval, &optlen);
@@ -357,6 +372,10 @@ gt_bsd44_so_setsockopt(struct file *fp, int level, int optname,
 		somodopt(so, optname, linger->l_onoff);
 		break;
 
+	case SO_REUSEADDR:
+	case SO_REUSEPORT:
+		break;
+
 	case SO_DEBUG:
 	case SO_KEEPALIVE:
 		somodopt(so, optname, *((const int *)optval));
@@ -367,7 +386,7 @@ gt_bsd44_so_setsockopt(struct file *fp, int level, int optname,
 		break;
 
 	case SO_RCVBUF:
-		so->so_rcv_hiwat = *((const int *)optval);
+		so->so_rcv.sb_hiwat = *((const int *)optval);
 		break;
 
 	case SO_SNDLOWAT:
@@ -401,6 +420,7 @@ gt_bsd44_so_getsockopt(struct file *fp, int level, int optname, void *optval, so
 		}
 		return rc;
 	}
+
 	if (*optlen < sizeof(int)) {
 		return -EINVAL;
 	}
@@ -426,6 +446,10 @@ gt_bsd44_so_getsockopt(struct file *fp, int level, int optname, void *optval, so
 		*((int *)optval) = so->so_proto ? SOCK_STREAM : SOCK_DGRAM;
 		break;
 
+	case SO_PROTOCOL:
+		*((int *)optval) = so->so_proto;
+		break;
+
 	case SO_ERROR:
 		*((int *)optval) = so->so_error;
 		so->so_error = 0;
@@ -436,7 +460,7 @@ gt_bsd44_so_getsockopt(struct file *fp, int level, int optname, void *optval, so
 		break;
 
 	case SO_RCVBUF:
-		*((int *)optval) = so->so_rcv_hiwat;
+		*((int *)optval) = so->so_rcv.sb_hiwat;
 		break;
 
 	case SO_SNDLOWAT:
@@ -515,7 +539,9 @@ soisdisconnecting(struct socket *so)
 
 	//events = POLLIN|POLLOUT;
 	events = soevents(so);
-	sowakeup(so, events);
+	if (events != 0) {
+		sowakeup(so, events);
+	}
 	so->so_state &= ~SS_ISCONNECTING;
 	so->so_state |= (SS_ISDISCONNECTING|SS_CANTRCVMORE|SS_CANTSENDMORE);
 }
@@ -571,10 +597,11 @@ sowakeup(struct socket *so, short events)
 {
 	assert(events);
 
-	if (so->so_state & SS_ISPROCESSING) {
-		so->so_events |= events;
-	} else {
+	so->so_events |= events;
+
+	if ((so->so_state & SS_ISPROCESSING) == 0) {
 		file_wakeup(&so->so_base.sobase_file, so->so_events);
+		so->so_events = 0;
 	}
 }
 
@@ -731,8 +758,7 @@ sbrelease(struct sockbuf *sb)
 }
 
 static void
-sbwrite(struct sockbuf *sb, struct sockbuf_chunk *pos,
-        const void *src, int cnt)
+sbwrite(struct sockbuf *sb, struct sockbuf_chunk *pos, const void *src, int cnt)
 {
 	int n, rem, space;
 	u_char *data;
@@ -825,7 +851,6 @@ sbdrop(struct sockbuf *sb, int len)
 			break;
 		}
 	}
-//	return off;
 }
 
 void
@@ -941,17 +966,20 @@ gt_bsd44_so_get_err(struct file *fp)
 }
 
 int
-gt_bsd44_so_getsockname(struct file *, struct sockaddr *, socklen_t *)
+gt_bsd44_so_getpeername(struct file *fp, struct sockaddr *addr, socklen_t * addrlen)
 {
-	assert(0);
-	return -ENOTSUP;
-}
+	int rc;
+	struct socket *so;
 
-int
-gt_bsd44_so_getpeername(struct file *, struct sockaddr *, socklen_t *)
-{
-	assert(0);
-	return -ENOTSUP;
+	so = gt_fptoso(fp);
+
+	if ((so->so_state & (SS_ISCONNECTED|SS_ISCONNECTING)) == 0) {
+		return -ENOTCONN;
+	}
+
+	rc = gt_set_sockaddr(addr, addrlen, so->so_base.sobase_faddr, so->so_base.sobase_fport);
+
+	return rc;
 }
 
 int
@@ -974,12 +1002,12 @@ gt_bsd44_so_tx_flush(void)
 		for (;;) {
 			rc = route_get_tx_packet(r.rt_ifp, &pkt, TX_CAN_REDIRECT);
 			if (rc) {
-				return;
+				return 0;
 			}
+
 			rc = tcp_output_real(&r, &pkt, so);
-			if (rc >= 0) {
-				dev_put_tx_packet(&pkt);
-			}
+			dev_put_tx_packet(&pkt);
+
 			if (rc <= 0) {
 				GT_DLIST_REMOVE(so, so_txlist);
 				so->so_state &= ~SS_ISTXPENDING;
@@ -995,38 +1023,92 @@ gt_bsd44_so_tx_flush(void)
 short
 gt_bsd44_so_get_events(struct file *fp)
 {
-	assert(0);
-	return 0;
+	struct socket *so;
+
+	so = gt_fptoso(fp);
+	return soevents(so);
 }
 
 int
 gt_bsd44_so_nread(struct file *fp)
 {
-	assert(0);
-	return 0;
+	struct socket *so;
+
+	so = gt_fptoso(fp);
+
+	return so->so_rcv.sb_cc;
 }
 
 int
 gt_bsd44_so_recvfrom(struct file *fp, const struct iovec *iov, int iovcnt,
 		int flags, struct sockaddr *addr, socklen_t *addrlen)
 {
-	assert(0);
-	return 0;
+	int i, len, rc;
+	struct sockbuf *sb;
+	struct socket *so;
+
+	so = gt_fptoso(fp);
+
+	if (so->so_error) {
+		rc = -so->so_error;
+		so->so_error = 0;
+		return rc;
+	}
+
+	if ((so->so_state & (SS_ISCONNECTED|SS_ISCONNECTING)) == 0) {
+		return -ENOTCONN;
+	}
+
+	sb = &so->so_rcv;
+
+	rc = 0;
+	for (i = 0; i < iovcnt; ++i) {
+		if (!sb->sb_cc) {
+			break;
+		}
+
+		len = MIN(sb->sb_cc, iov[i].iov_len);
+
+		sbcopy(sb, 0, len, iov[i].iov_base);
+		sbdrop(sb, len);
+
+		rc += len;
+	}
+
+	if (rc == 0) {
+		return -EAGAIN;
+	} else {
+		return rc;
+	}
 }
 
 int
 gt_bsd44_so_aio_recvfrom(struct file *fp, struct iovec *iov, int flags,
 		struct sockaddr *addr, socklen_t *addrlen)
 {
-	assert(0);
-	return 0;
+	return -ENOTSUP;
 }
 
 int
 gt_bsd44_so_recvdrain(struct file *fp, int len)
 {
-	assert(0);
-	return 0;
+	int cc;
+	struct socket *so;
+
+	so = gt_fptoso(fp);
+
+	if (so->so_error) {
+		return -so->so_error;
+	}
+
+	if ((so->so_state & SS_ISCONNECTED) == 0) {
+		return -ENOTCONN;
+	}
+
+	cc = so->so_rcv.sb_cc;
+	sbdrop(&so->so_rcv, len);
+
+	return cc - so->so_rcv.sb_cc;
 }
 
 int
@@ -1034,3 +1116,10 @@ gt_bsd44_so_ioctl(struct file *fp, unsigned long request, uintptr_t arg)
 {
 	return -ENOTSUP;
 }
+
+int
+gt_bsd44_so_struct_size(void)
+{
+	return sizeof(struct socket);
+}
+

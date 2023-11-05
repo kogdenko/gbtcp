@@ -29,5 +29,6 @@ int gt_bsd44_so_aio_recvfrom(struct file *, struct iovec *, int,
 		struct sockaddr *, socklen_t *);
 int gt_bsd44_so_recvdrain(struct file *, int);
 int gt_bsd44_so_ioctl(struct file *, unsigned long, uintptr_t);
+int gt_bsd44_so_struct_size(void);
 
 #endif

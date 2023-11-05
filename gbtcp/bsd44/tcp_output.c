@@ -142,7 +142,7 @@ tcp_output_real(struct route_entry *r, struct dev_pkt *pkt, struct socket *so)
 	if (SEQ_LT(tp->snd_nxt + len, tp->snd_una + so->so_snd.sb_cc)) {
 		flags &= ~GT_TCPF_FIN;
 	}
-	win = so->so_rcv_hiwat;
+	win = so->so_rcv.sb_hiwat;
 
 	/*
 	 * Sender silly window avoidance.  If connection is idle
@@ -186,7 +186,7 @@ tcp_output_real(struct route_entry *r, struct dev_pkt *pkt, struct socket *so)
 
 		if (adv >= (long) (2 * tp->t_maxseg))
 			goto send;
-		if (2 * adv >= (long) so->so_rcv_hiwat)
+		if (2 * adv >= (long) so->so_rcv.sb_hiwat)
 			goto send;
 	}
 
@@ -238,6 +238,7 @@ tcp_output_real(struct route_entry *r, struct dev_pkt *pkt, struct socket *so)
 	/*
 	 * No reason to send a segment, just return.
 	 */
+	printf("No reason to send a segment, just return.\n");
 	return -ENOBUFS;
 
 send:
@@ -384,14 +385,14 @@ send:
 	th->th_ack = htonl(tp->rcv_nxt);
 	if (optlen) {
 		memcpy((th + 1), opt, optlen);
-		th->th_data_off = (sizeof(struct tcp_hdr) + optlen) >> 2;
+		th->th_data_off = (sizeof(struct tcp_hdr) + optlen) << 2;
 	}
 	th->th_flags = flags;
 	/*
 	 * Calculate receive window.  Don't shrink window,
 	 * but avoid silly window syndrome.
 	 */
-	if (win < (long)(so->so_rcv_hiwat / 4) && win < (long)tp->t_maxseg) {
+	if (win < (long)(so->so_rcv.sb_hiwat / 4) && win < (long)tp->t_maxseg) {
 		win = 0;
 	}
 	if (win > (long)TCP_MAXWIN << tp->rcv_scale) {
@@ -474,7 +475,7 @@ send:
 	}
 	tp->last_ack_sent = tp->rcv_nxt;
 	tp->t_flags &= ~(TF_ACKNOW|TF_DELACK);
-	timer_cancel(&tp->t_timer_delack);
+	timer_cancel(tp->t_timer + TCPT_DELACK);
 	ip_output(r, pkt, ip);
 	return sendalot;
 }

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BSD-4-Clause
+
 #include "socket.h"
 #include "ip.h"
 #include "in_pcb.h"

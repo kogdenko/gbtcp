@@ -17,7 +17,8 @@ tcp_DELACK_timo(struct timer *timer)
 {
 	struct tcpcb *tp;
 
-	tp = container_of(timer, struct tcpcb, t_timer_delack);
+	tp = container_of(timer, struct tcpcb, t_timer[TCPT_DELACK]);
+
 	if (tp->t_flags & TF_DELACK) {
 		tp->t_flags &= ~TF_DELACK;
 		tp->t_flags |= TF_ACKNOW;
@@ -30,7 +31,7 @@ void
 tcp_setdelacktimer(struct tcpcb *tp)
 {
 	tp->t_flags |= TF_DELACK;
-	timer_set(&tp->t_timer_delack, 200 * NSEC_MSEC, GT_MODULE_SOCKET, TCPT_DELACK);
+	timer_set(&tp->t_timer[TCPT_DELACK], 200 * NSEC_MSEC, GT_MODULE_SOCKET, TCPT_DELACK);
 }
 
 /*
@@ -44,7 +45,7 @@ tcp_canceltimers(struct tcpcb *tp)
 	for (i = 0; i < TCPT_NTIMERS; i++) {
 		timer_cancel(tp->t_timer + i);
 	}
-	timer_cancel(&tp->t_timer_delack);
+	timer_cancel(&tp->t_timer[TCPT_DELACK]);
 }
 
 int tcp_backoff[TCP_MAXRXTSHIFT + 1] =

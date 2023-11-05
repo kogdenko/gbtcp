@@ -14,6 +14,7 @@ union connection {
 };
 
 static int g_lflag;
+static int g_dflag;
 static struct sockaddr_in g_addr;
 static int g_Cflag;
 static char g_http[512];
@@ -21,6 +22,20 @@ static int g_http_len;
 static __thread char g_buf[2048];
 
 static void on_event(struct worker *, int, const union connection *, short);
+
+static void
+set_so_debug(int fd)
+{
+	int rc, opt;
+	socklen_t optlen;
+
+	opt = 1;
+	optlen = sizeof(opt);
+	rc = setsockopt(fd, SOL_SOCKET, SO_DEBUG, &opt, optlen);
+	if (rc == -1) {
+		die(errno, "setsockopt(fd:%d, SOL_SOCKET, SO_DEBUG) failed", fd);
+	}
+}
 
 static int
 sys_socket(int domain, int type, int protocol)
@@ -252,6 +267,9 @@ server(int eq_fd)
 	union connection conn;
 
 	fd = sys_socket(AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0);
+	if (g_dflag) {
+		set_so_debug(fd);
+	}
 	o = 1;
 	sys_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &o, sizeof(o));
 	sys_setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &o, sizeof(o));
@@ -270,6 +288,9 @@ client(struct worker *worker, int eq_fd)
 	union connection conn;
 
 	fd = sys_socket(AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0);
+	if (g_dflag) {
+		set_so_debug(fd);
+	}
 	conn.conn_u64 = 0;
 	conn.conn_fd = fd;
 	rc = sys_connect(fd, &g_addr);
@@ -301,7 +322,7 @@ clientn(struct worker *worker, int eq_fd)
 static void
 on_event(struct worker *worker, int eq_fd, const union connection *cp, short revents)
 {
-	int rc, fin, len, listen_fd, closed;
+	int rc, fd, fin, len, listen_fd, closed;
 	union connection new_conn;
 
 	switch (cp->conn_state) {
@@ -312,7 +333,11 @@ on_event(struct worker *worker, int eq_fd, const union connection *cp, short rev
 			if (rc < 0) {
 				break;
 			}
-			new_conn.conn_fd = rc;
+			fd = rc;
+			if (g_dflag) {
+				set_so_debug(fd);
+			}
+			new_conn.conn_fd = fd;
 			new_conn.conn_state = STATE_SERVER;
 			event_queue_ctl(eq_fd, 1, &new_conn, 0);
 			worker->wrk_conns++;
@@ -442,7 +467,7 @@ main(int argc, char **argv)
 	assert(sizeof(union connection) == sizeof(uint64_t));
 	nflag = 0;
 	port = 80;
-	while ((opt = getopt(argc, argv, "hvp:lc:n:Ca:t")) != -1) {
+	while ((opt = getopt(argc, argv, "hvdp:lc:n:Ca:t")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
@@ -450,6 +475,9 @@ main(int argc, char **argv)
 		case 'v':
 			printf("version: 0.5.1\n");
 			return 0;
+		case 'd':
+			g_dflag = 1;
+			break;
 		case 'p':
 			port = strtoul(optarg, NULL, 10);
 			break;

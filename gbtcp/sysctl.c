@@ -352,8 +352,8 @@ sysctl_node_find(const char *path, struct sysctl_node **pnode, char **ptail)
 
 static int
 sysctl_node_add(const char *path, int mode,
-	void *udata, void (*free_fn)(void *), sysctl_f fn,
-	struct sysctl_node **pnode)
+		void *udata, void (*free_fn)(void *), sysctl_f fn,
+		struct sysctl_node **pnode)
 {
 	int i, rc, name_len, path_len, path_iovcnt;
 	char *name;
@@ -425,8 +425,8 @@ sysctl_node_del(struct sysctl_node *node)
 
 static int
 sysctl_process_node(struct sysctl_conn *cp,
-	struct sysctl_node *node, char *tail, int loader,
-	const char *new, struct strbuf *out)
+		struct sysctl_node *node, char *tail, int loader,
+		const char *new, struct strbuf *out)
 {
 	int rc;
 
@@ -438,6 +438,7 @@ sysctl_process_node(struct sysctl_conn *cp,
 			} else {
 				return -EACCES;
 			}
+
 		case SYSCTL_LD:
 			if (loader == 0) {
 				if (cp == NULL) {
@@ -447,15 +448,18 @@ sysctl_process_node(struct sysctl_conn *cp,
 				}
 			}
 			break;
+
 		case SYSCTL_WR:
 			if (loader) {
 				return 0;
 			}
 			break;
+
 		default:
 			assert(!"unknown mode");
 		}
 	}
+
 	if (node->scn_is_list) {
 		rc = sysctl_list_handler(node, tail, new, out);
 	} else if (node->scn_fn == NULL) {
@@ -493,8 +497,7 @@ sysctl_list_handler(struct sysctl_node *node, const char *tail,
 }
 
 static int
-sysctl_branch_handler(struct sysctl_node *node, const char *tail,
-	struct strbuf *out)
+sysctl_branch_handler(struct sysctl_node *node, const char *tail, struct strbuf *out)
 {
 	int tail_len;
 	struct sysctl_node *x, *first, *last;
@@ -522,7 +525,7 @@ sysctl_branch_handler(struct sysctl_node *node, const char *tail,
 
 static int
 sysctl_handler(struct sysctl_conn *cp, struct sysctl_node *node,
-	const char *new, struct strbuf *out)
+		const char *new, struct strbuf *out)
 {
 	int rc, off;
 	char *old;
@@ -530,8 +533,7 @@ sysctl_handler(struct sysctl_conn *cp, struct sysctl_node *node,
 	off = out->sb_len;
 	rc = (*node->scn_fn)(cp, node->scn_udata, new, out);
 	if (rc < 0) {
-		GT_ERR(SYSCTL, -rc, "sysctl '%s' handler failed",
-			log_add_sysctl_node(node));
+		GT_ERR(SYSCTL, -rc, "sysctl '%s' handler failed", log_add_sysctl_node(node));
 		return rc;
 	}
 	if (off < out->sb_cap) {
@@ -967,8 +969,7 @@ sysctl_recv_rpl(int fd, char *old)
 	sysctl_split_msg(t, old);
 	if (t[1].iov_len) {
 		errnum = strtoul(t[1].iov_base, &ptr, 10);
-		if (strcmp(t[0].iov_base, "error") ||
-		    errnum == 0 || *ptr != '\0') {
+		if (strcmp(t[0].iov_base, "error") || errnum == 0 || *ptr != '\0') {
 			return -EPROTO;
 		} else {
 			return errnum;

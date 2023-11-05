@@ -68,7 +68,7 @@ struct socket {
 	struct gt_sock so_base;
 
 	uint32_t so_options;		/* from socket call, see socket.h */
-	u_char	so_proto;
+	u_short	so_state;
 	short   so_events;
 	u_short	so_error;		/* error affecting connection */
 	short	so_linger;		/* time to linger while closing */
@@ -79,7 +79,6 @@ struct socket {
 
 	struct sockbuf so_snd;
 	struct sockbuf so_rcv;
-	int so_rcv_hiwat;
 	struct gt_dlist so_txlist;
 	struct tcpcb inp_ppcb;
 };
@@ -118,9 +117,6 @@ struct socket {
  */
 #define	sbspace(sb) ((long)(sb)->sb_hiwat - (sb)->sb_cc)
 
-/* do we have to send all at once on a socket? */
-#define	sosendallatonce(so) ((so)->so_proto == IPPROTO_UDP)
-
 
 #define soisopt(so, optname) (((so)->so_options & SO_OPTION(optname)) ? 1 : 0)
 #define sosetopt(so, optname) ((so)->so_options |= SO_OPTION(optname))
@@ -158,9 +154,7 @@ void sbdrop(struct sockbuf *sb, int len);
 void sbcopy(struct sockbuf *, int, int, u_char *);
 void soabort(struct socket *so);
 int sosend(struct socket *, const struct iovec *, int, const struct sockaddr_in *);
-void sbdroprecord(struct sockbuf *sb);
 void socantrcvmore(struct socket *so);
-int sbappendaddr(struct sockbuf *, struct sockaddr *, const void *, int);
 void soisconnected(struct socket *so);
 void somodopt(struct socket *, int, int);
 

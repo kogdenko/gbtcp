@@ -215,19 +215,15 @@ tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 		return IN_DROP;
 	}
 
-	/*
-	 * Checksum extended TCP header and data.
-	 */
+	// Checksum extended TCP header and data.	
 	if (!gt_tcp_validate_cksum(ip, th, ip->ih_total_len)) {
 		tcpstat.tcps_rcvbadsum++;
 		goto drop;
 	}
 
-	/*
-	 * Check that TCP offset makes sense,
-	 * pull out TCP options and adjust length.
-	 */
-	off = th->th_data_off << 2;
+	// Check that TCP offset makes sense,
+	// pull out TCP options and adjust length.
+	off = TCP_HDR_LEN(th->th_data_off);
 	if (off < sizeof(struct tcp_hdr) || off > ip->ih_total_len) {
 		tcpstat.tcps_rcvbadoff++;
 		goto drop;
@@ -240,22 +236,19 @@ tcp_input(struct route_if *ifp, struct ip4_hdr *ip, int iphlen, int eth_flags)
 		optp = (u_char *)(th + 1);
 	}
 
-	/*
-	 * Convert TCP protocol specific fields to host format.
-	 */
+	//Convert TCP protocol specific fields to host format.
 	NTOHL(th->th_seq);
 	NTOHL(th->th_ack);
 	NTOHS(th->th_win_size);
 	NTOHS(th->th_urgent_ptr);
 
-	/*
-	 * Locate pcb for segment.
-	 */
+	// Locate pcb for segment.
 findpcb:
 	again = 0;
 	datlen = 0;
 	rc = in_pcblookup(&so, IPPROTO_TCP,
 			ip->ih_daddr, ip->ih_saddr, th->th_dport, th->th_sport);
+
 	if (rc >= 0) {
 		return rc;
 	}
@@ -326,7 +319,7 @@ findpcb:
 		/* Compute proper scaling value from buffer space
 		 */
 		while (tp->request_r_scale < TCP_MAX_WINSHIFT &&
-				TCP_MAXWIN << tp->request_r_scale < so->so_rcv_hiwat) {
+				TCP_MAXWIN << tp->request_r_scale < so->so_rcv.sb_hiwat) {
 			tp->request_r_scale++;
 		}
 	}
@@ -352,7 +345,7 @@ findpcb:
 	 * Receive window is amount of space in rcv queue,
 	 * but not less than advertised window.
 	 */
-	rcv_wnd = MAX(so->so_rcv_hiwat, (int)(tp->rcv_adv - tp->rcv_nxt));
+	rcv_wnd = MAX(so->so_rcv.sb_hiwat, (int)(tp->rcv_adv - tp->rcv_nxt));
 
 	switch (tp->t_state) {
 
@@ -934,7 +927,7 @@ step6:
 				tcp_setdelacktimer(tp);
 			} else {
 				tp->t_flags &= ~TF_DELACK;
-				timer_cancel(&tp->t_timer_delack);
+				timer_cancel(tp->t_timer + TCPT_DELACK);
 				tp->t_flags |= TF_ACKNOW;
 			}
 			tp->rcv_nxt += ip->ih_total_len;
@@ -945,6 +938,9 @@ step6:
 				datlen = ip->ih_total_len;
 				sbappend(&so->so_rcv, dat, datlen);
 				sowakeup(so, POLLIN);
+			}
+			if (flags & GT_TCPF_FIN) {
+				sowakeup(so, GT_POLLRDHUP);
 			}
 		} else {
 			tcpstat.tcps_rcvoopack++;

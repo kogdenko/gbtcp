@@ -222,7 +222,7 @@ epoll_read_triggered(struct epoll *ep, epoll_event_t *buf, int cnt)
 		}
 		epoll_get_event(e, fp, buf + n);
 		n++;
-		GT_DBG(EPOLL, 0, "Epoll event trigger: fd=%d, events=%s",
+		GT_INFO(EPOLL, 0, "epoll: read triggered: fd:%d, events:%s",
 				e->epe_fd, log_add_poll_events(e->epe_revents));
 		e->epe_revents = 0;
 		if (e->epe_flags & EPOLL_FLAG_ET) {

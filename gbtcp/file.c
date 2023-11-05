@@ -172,6 +172,12 @@ file_free_rcu(struct file *fp)
 }
 
 void
+file_open(struct file *fp)
+{
+	fp->fl_referenced = 1;
+}
+
+void
 file_close(struct file *fp)
 {
 	if (fp->fl_referenced) {

@@ -72,6 +72,7 @@
 #define GT_SYSCTL_SOCKET_CONNECTED_LIST "socket.connected.list"
 #define GT_SYSCTL_SOCKET_CONNECTED_SIZE "socket.connected.size"
 #define GT_SYSCTL_SOCKET_BINDED_LIST "socket.binded.list"
+#define GT_SYSCTL_SOCKET_IMPL "socket.impl"
 #define GT_SYSCTL_ARP_ADD "arp.add"
 #define GT_SYSCTL_ARP_DEL "arp.del"
 #define GT_SYSCTL_ARP_LIST "arp.list"

@@ -23,7 +23,6 @@ struct gt_sock {
 	be16_t sobase_lport;
 	be16_t sobase_fport;
 	uint8_t sobase_proto;
-	uint8_t sobase_state;
 };
 
 struct gt_module_socket {

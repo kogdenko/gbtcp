@@ -149,6 +149,12 @@ netmap_dev_transmit(struct dev_pkt *pkt)
 	struct netmap_slot *dst;
 	struct netmap_ring *txr;
 
+	/*u_char buf[65536];
+	struct strbuf sb;
+	strbuf_init(&sb, buf, sizeof(buf));
+	strbuf_hexdump_ascii(&sb, pkt->pkt_data, pkt->pkt_len);
+	printf("packet:\n%s\n", strbuf_cstr(&sb));*/
+
 	txr = pkt->pkt_txr;
 	assert(txr != NULL);
 	dst = txr->slot + txr->cur;
