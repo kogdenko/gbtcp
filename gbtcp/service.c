@@ -293,7 +293,7 @@ service_get_by_sid(u_int sid)
 	return shared->shm_services + sid;
 }
 
-#if GT_HAVE_VALE
+#ifdef GT_HAVE_VALE
 static int
 service_init_shared_redirect_dev(struct service *s)
 {

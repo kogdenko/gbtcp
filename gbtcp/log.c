@@ -116,7 +116,7 @@ log_vprintf(int level, const char *func, int errnum, const char *fmt, va_list ap
 	}
 	syslog(level, "%s", strbuf_cstr(&sb));
 
-	printf("%s\n", strbuf_cstr(&sb));
+	//printf("%s\n", strbuf_cstr(&sb));
 }
 
 void

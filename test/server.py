@@ -33,7 +33,7 @@ class Server:
 		app = application.create(application_name, transport)
 		assert(not app.is_gbtcp())
 	
-		app.start(self.repo, self.network, mode, concurrency, self.cpus)
+		app.start(self.repo, self.network, mode, None, concurrency, self.cpus)
 	
 		time.sleep(3)	
 		top = Top(self.cpus, duration - 4)

@@ -84,8 +84,8 @@ class CheckTest:
 
 
 	def run(self):
-		proc = self.client.repo.start_process(self.client.repo.path + '/bin/' + self.name,
-				None, None)
+		path = self.client.repo.path + '/bin/' + self.name
+		proc = self.client.repo.start_process(path, None, None, None, Transport.NATIVE)
 		if wait_process(proc)[0] == 0:
 			self.client.tests_passed += 1
 			status = Status.PASSED
@@ -133,6 +133,7 @@ class Client:
 
 
 		self.remote_transport = Transport.NETMAP
+		self.impl = Impl.GBTCP
 		self.dry_run = False
 		self.cpus = []
 		self.duration = TEST_DURATION_DEFAULT
@@ -209,7 +210,7 @@ class Client:
 
 
 	def start_local_app(self, local, cpus):
-		s = local.start(self.repo, self.network, self.mode, self.concurrency, cpus)
+		s = local.start(self.repo, self.network, self.mode, self.impl, self.concurrency, cpus)
 		if not s:
 			log_warning(("Local app (%s) do not support %s mode" %
 					(local.get_name(), local.mode.value)))
@@ -441,14 +442,15 @@ def alive(c):
 	tests[Mode.CLIENT] = [EPOLL_HELLOWORLD]
 	tests[Mode.SERVER] = [EPOLL_HELLOWORLD, NGINX]
 
-	for c.mode, apps in tests.items():
-		for c.local in apps:
-			pps = c.do_run()
-			if not len(pps):
-				return False
-			for x in pps:
-				if x < 100000:
+	for c.impl in [Impl.GBTCP, Impl.BSD44]:
+		for c.mode, apps in tests.items():
+			for c.local in apps:
+				pps = c.do_run()
+				if not len(pps):
 					return False
+				for x in pps:
+					if x < 100000:
+						return False
 
 	c.dry_run = dry_run
 	return True

@@ -676,6 +676,8 @@ gt_so_accept(struct file **fpp, struct file *lfp,
 		if (flags & SOCK_NONBLOCK) {
 			(*fpp)->fl_blocked = 0;
 		}
+
+		rc = file_get_fd(*fpp);
 	}
 
 	return rc;

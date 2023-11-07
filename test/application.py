@@ -151,7 +151,7 @@ class nginx(Application, Application.Registered):
 		return self.wait_process()
 
 
-	def start(self, repo, network, mode, concurrency, cpus):
+	def start(self, repo, network, mode, impl, concurrency, cpus):
 		self.mode = mode
 
 		if mode != Mode.SERVER:
@@ -215,7 +215,7 @@ class nginx(Application, Application.Registered):
 			f.write(nginx_conf)
 
 		cmd = "nginx -c %s" % nginx_conf_path
-		self.proc = repo.start_process(cmd, network, mode, self.transport)
+		self.proc = repo.start_process(cmd, network, mode, impl, self.transport)
 		self.after_start(repo)
 		return True
 
@@ -240,7 +240,7 @@ class gbtcp_base_helloworld(Application):
 		return self.wait_process()
 
 
-	def start(self, repo, network, mode, concurrency, cpus):
+	def start(self, repo, network, mode, impl, concurrency, cpus):
 		self.mode = mode
 		self.repo = repo
 		self.configure_network(True, network, mode, concurrency, cpus)
@@ -257,7 +257,7 @@ class gbtcp_base_helloworld(Application):
 			cmd += " -c %d" % concurrency
 			cmd += " " + str(network.server)
 
-		self.proc = repo.start_process(cmd, network, mode, self.transport)
+		self.proc = repo.start_process(cmd, network, mode, impl, self.transport)
 		self.after_start(repo)
 		return True
 
@@ -298,7 +298,7 @@ class con_gen(Application, Application.Registered):
 		return ifstat.CongenIfstat()
 
 
-	def start(self, repo, network, mode, concurrency, cpus):
+	def start(self, repo, network, mode, impl, concurrency, cpus):
 		self.mode = mode
 		self.configure_network(False, network, mode, concurrency, cpus)
 

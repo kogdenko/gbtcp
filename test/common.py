@@ -46,6 +46,11 @@ class Driver(Enum):
 	IXGBE = "ixgbe"
 
 
+class Impl(Enum):
+	GBTCP = "gbtcp"
+	BSD44 = "bsd44"
+
+
 class EnvVar(Enum):
 	LD_LIBRARY_PATH = "LD_LIBRARY_PATH"
 	LD_PRELOAD = "LD_PRELOAD"
@@ -730,11 +735,12 @@ class Repository:
 		self.interface = interface
 
 
-	def write_config(self, network, mode, transport):
+	def write_config(self, network, mode, impl, transport):
 		assert(self.interface)
 		config = ""
 		config += "dev.transport=%s\n" % transport.value
 		config += "route.if.add=%s\n" % self.interface.name
+		config += "socket.impl=%s\n" % impl.value
 		if mode == Mode.CLIENT:
 			config += "arp.add=%s,%s\n" % (network.server, network.gw_mac)
 		else:
@@ -744,11 +750,11 @@ class Repository:
 			f.write(config)
 
 
-	def start_process(self, cmd, network, mode, transport=Transport.NATIVE):
+	def start_process(self, cmd, network, mode, impl, transport):
 		e = os.environ.copy()
 		e[EnvVar.LD_LIBRARY_PATH.value] = self.path + "/bin"
 		if transport != Transport.NATIVE:
-			self.write_config(network, mode, transport)
+			self.write_config(network, mode, impl, transport)
 			e[EnvVar.LD_PRELOAD.value] = os.path.normpath(self.path + "/bin/libgbtcp.so")
 			e[EnvVar.GBTCP_CONF.value] = self.config_path
 		return start_process(cmd, e)

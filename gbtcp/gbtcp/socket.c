@@ -531,7 +531,6 @@ gt_gbtcp_so_listen(struct file *fp, int backlog)
 int
 gt_gbtcp_so_accept(struct file **fpp, struct file *lfp)
 {
-	int fd;
 	struct sock *so, *lso;
 
 	lso = (struct sock *)lfp;
@@ -550,10 +549,9 @@ gt_gbtcp_so_accept(struct file **fpp, struct file *lfp)
 	so->so_acceptor = NULL;
 	GT_DLIST_REMOVE(so, so_accept_list);
 	lso->so_acceptq_len--;
-	fd = so_get_fd(so);
 	*fpp = &so->so_file;
 	tcpstat.tcps_accepts++;
-	return fd;
+	return 0;
 }
 
 int

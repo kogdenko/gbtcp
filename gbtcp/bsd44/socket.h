@@ -75,7 +75,6 @@ struct socket {
 
 	struct	socket *so_head;	/* back pointer to accept socket */
 	struct	gt_dlist so_q[2];	/* queue of partial/incoming connections */
-#define so_ql so_q[0]
 
 	struct sockbuf so_snd;
 	struct sockbuf so_rcv;
@@ -138,7 +137,7 @@ void soaccept(struct socket *so);
 
 int sodisconnect(struct socket *so);
 void sofree(struct socket *);
-void soqremque(struct socket *so);
+int soqremque(struct socket *so, int q);
 void sbrelease(struct sockbuf *sb);
 void sorflush(struct socket *so);
 void soisconnecting(struct socket *so);

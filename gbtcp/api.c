@@ -297,7 +297,7 @@ gt_close(int fd)
 	if (rc == 0) {
 		file_close(fp);
 	}
-	if (rc == 0) {
+	if (rc < 0) {
 		GT_INFO(API, -rc, "gt_close(fd=%d) failed", fd);
 	} else {
 		GT_INFO(API, 0, "gt_close(fd=%d) ok", fd);

@@ -56,8 +56,9 @@ in_pcbdetach(struct socket *so)
 	if (so->so_state & SS_ISATTACHED) {
 		so->so_state &= ~SS_ISATTACHED;
 		gt_so_rmfrom_connected(&so->so_base);
-		sofree(so);
 	}
+
+	sofree(so);
 
 	return 0;
 }

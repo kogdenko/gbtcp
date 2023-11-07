@@ -58,7 +58,7 @@ then
 	exit $RC
 fi
 
-scons
+scons --with-bsd44
 RC=$?
 if [ $RC -ne 0 ];
 then

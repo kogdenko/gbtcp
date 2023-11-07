@@ -1054,19 +1054,19 @@ gt_get_version(char *version, int size)
 int
 gt_get_build_config(char *config, int size)
 {
-#if GT_HAVE_XDP
+#ifdef GT_HAVE_XDP
 #define HAVE_XDP " GT_HAVE_XDP"
 #else // GT_HAVE_XDP
 #define HAVE_XDP ""
 #endif // GT_HAVE_XDP
 
-#if GT_HAVE_NETMAP
+#ifdef GT_HAVE_NETMAP
 #define HAVE_NETMAP " GT_HAVE_NETMAP"
 #else // GT_HAVE_NETMAP
 #define HAVE_NETMAP ""
 #endif // GT_HAVE_NETMAP
 
-#if GT_HAVE_VALE
+#ifdef GT_HAVE_VALE
 #define HAVE_VALE " GT_HAVE_VALE"
 #else // GT_HAVE_VAL
 #define HAVE_VALE ""

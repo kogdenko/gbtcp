@@ -9,7 +9,6 @@
 #include "tcp.h"
 #include "tcp_timer.h"
 #include "tcp_var.h"
-#include "if_ether.h"
 
 /*
  * Create template to be used to send tcp packets on a connection.
@@ -83,7 +82,7 @@ tcp_respond(struct socket *so, struct ip4_hdr *ip_rcv, struct tcp_hdr *th_rcv,
 		return;
 	}
 
-	ip = (struct ip4_hdr *)(pkt.pkt_data + sizeof(struct ether_header));
+	ip = (struct ip4_hdr *)(pkt.pkt_data + sizeof(struct eth_hdr));
 	th = (struct tcp_hdr *)(ip + 1);
 	tcp_template(so, ip, th);
 	if (so == NULL) {

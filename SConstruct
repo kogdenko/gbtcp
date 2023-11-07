@@ -45,13 +45,12 @@ def system(cmd, failure_tollerance=False):
 
 
 def add_have(var, varname):
-	s = "#define " + varname + " "
 	if var:
-		s += "1"
+		s = "#define " + varname + "\n"
 	else:
-		s += "0"
-	s += "\n"
+		s = ""
 	return s
+
 
 def configure(target, source, env):
 	f = open(str(target[0]), 'w')

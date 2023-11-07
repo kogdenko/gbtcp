@@ -26,15 +26,12 @@ static void on_event(struct worker *, int, const union connection *, short);
 static void
 set_so_debug(int fd)
 {
-	int rc, opt;
+	int opt;
 	socklen_t optlen;
 
 	opt = 1;
 	optlen = sizeof(opt);
-	rc = setsockopt(fd, SOL_SOCKET, SO_DEBUG, &opt, optlen);
-	if (rc == -1) {
-		die(errno, "setsockopt(fd:%d, SOL_SOCKET, SO_DEBUG) failed", fd);
-	}
+	setsockopt(fd, SOL_SOCKET, SO_DEBUG, &opt, optlen);
 }
 
 static int
@@ -442,6 +439,7 @@ usage(void)
 		"\tOptions:\n"
 		"\t-h              Print this help\n"
 		"\t-v              Show version\n"
+		"\t-d              Enable SO_DEBUG on all sockets\n"
 		"\t-p port         Port number (default: 80)\n"
 		"\t-l              Listen incoming connections\n"
 		"\t-c concurrency  Number of parallel connections (default: 1)\n"

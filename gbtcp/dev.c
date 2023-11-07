@@ -8,11 +8,11 @@
 #include "mod.h"
 #include "service.h"
 
-#if GT_HAVE_NETMAP
+#ifdef GT_HAVE_NETMAP
 extern struct dev_ops netmap_dev_ops;
 #endif // GT_HAVE_NETMAP
 
-#if GT_HAVE_XDP
+#ifdef GT_HAVE_XDP
 extern struct dev_ops xdp_dev_ops;
 #endif // GT_HAVE_XDP
 
@@ -46,10 +46,10 @@ const char *
 dev_transport_str(int transport)
 {
 	switch (transport) {
-#if GT_HAVE_NETMAP
+#ifdef GT_HAVE_NETMAP
 	case DEV_TRANSPORT_NETMAP: return "netmap";
 #endif // GT_HAVE_NETMAP
-#if GT_HAVE_XDP
+#ifdef GT_HAVE_XDP
 	case DEV_TRANSPORT_XDP: return "xdp";
 #endif // GT_HAVE_XDP
 	default: return NULL;
@@ -59,12 +59,12 @@ dev_transport_str(int transport)
 int
 dev_transport_from_str(const char *s)
 {
-#if GT_HAVE_NETMAP
+#ifdef GT_HAVE_NETMAP
 	if (!strcmp(s, "netmap")) {
 		return DEV_TRANSPORT_NETMAP;
 	}
 #endif // GT_HAVE_NETMAP
-#if GT_HAVE_XDP
+#ifdef GT_HAVE_XDP
 	if (!strcmp(s, "xdp")) {
 		return DEV_TRANSPORT_XDP;
 	}
@@ -82,12 +82,12 @@ static void
 dev_set_ops(struct dev *dev, int transport)
 {
 	dev->dev_ops = NULL;
-#if GT_HAVE_NETMAP
+#ifdef GT_HAVE_NETMAP
 	if (transport == DEV_TRANSPORT_NETMAP) {
 		dev->dev_ops = &netmap_dev_ops;
 	}
 #endif // GT_HAVE_NETMAP
-#if GT_HAVE_XDP
+#ifdef GT_HAVE_XDP
 	if (transport == DEV_TRANSPORT_XDP) {
 		dev->dev_ops = &xdp_dev_ops;
 	}
