@@ -61,8 +61,11 @@ def print_report(status, rep, app, concurrency, cpu_load):
 	else:
 		pps = 0
 
-	report += ("%s/%s/%s: c=%d, CPU=%s, %.2f mpps ... %s " % (
-			app.transport.value,
+	report += app.transport.value
+	if app.impl != None:
+		report += "/" + app.impl.value
+
+	report += ("/%s/%s: c=%d, CPU=%s, %.2f mpps ... %s " % (	
 			app.mode.value,
 			app.get_name(),
 			concurrency,
@@ -320,7 +323,7 @@ class Client:
 			log_warning(("Remote app (%s/%s) should not use gbtcp. "
 				"Please change remote app or transport") %
 				(remote.transport.value, remote.get_name()))
-			return []
+			return Status.ERROR, []
 
 		if self.dry_run:
 			test_id = None
@@ -354,14 +357,26 @@ class Client:
 		self.interface.set_channels(cpus)
 
 		pps = []
+		status = Status.SKIPPED
 		for _ in range (0, self.n_reps - n_passed):
 			for _ in range (0, self.n_tries):
 				rep_status, rep_pps = self.do_rep(local, test_id, cpus)
-				if rep_status != Status.ERROR:
+				if rep_status == Status.PASSED:
+					if status == Status.SKIPPED:
+						status = Status.PASSED
 					pps.append(rep_pps)
-				if rep_status != Status.FAILED:
-					break
-		return pps
+				elif rep_status == Status.SKIPPED:
+					pass
+				elif rep_status == Status.ERROR:
+					status = Status.ERROR
+				elif rep_status == Status.FAILED:
+					if status != Status.ERROR:
+						status = Status.FAILED
+					pps.append(rep_pps)
+				else:
+					assert(0)
+	
+		return status, pps
 
 
 def calibration(c):
@@ -411,17 +426,22 @@ def custom(c):
 	c.cooling = 10
 	c.duration = 10
 
+#	c.remote_transport = Transport.NATIVE
+#	c.remote = EPOLL_HELLOWORLD
+
 	c.remote_transport = Transport.NETMAP
-	c.local_transport = Transport.NETMAP
-	c.mode = Mode.SERVER
 	c.remote = CON_GEN #EPOLL_HELLOWORLD
-	c.concurrency = 5000
-	app = EPOLL_HELLOWORLD
-	for mode in [Mode.SERVER, Mode.CLIENT]:
-		c.local = app
-		for i in range(0, len(c.cpus)):
-			c.n_cpus = i + 1
-			pps = c.do_run()
+
+	c.local_transport = Transport.NETMAP
+	c.concurrency = 10000
+	c.local = EPOLL_HELLOWORLD
+	#c.mode = Mode.CLIENT
+	c.mode = Mode.SERVER
+
+	c.n_cpus = 1
+	#c.impl = Impl.BSD44
+	while True:
+		c.do_run()
 
 
 def alive(c):
@@ -445,9 +465,10 @@ def alive(c):
 	for c.impl in [Impl.GBTCP, Impl.BSD44]:
 		for c.mode, apps in tests.items():
 			for c.local in apps:
-				pps = c.do_run()
-				if not len(pps):
+				status, pps = c.do_run()
+				if status == Status.ERROR or not len(pps):
 					return False
+
 				for x in pps:
 					if x < 100000:
 						return False

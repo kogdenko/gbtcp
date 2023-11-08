@@ -614,12 +614,12 @@ service_attach(void)
 	if (rc) {
 		goto err;
 	}
-	GT_ERR(SERVICE, 0, "Service attached");
+	GT_ERR(SERVICE, 0, "service %d attached", current->p_sid);
 	spinlock_unlock(&service_attach_lock);
 	return 0;
 err:
 	service_detach();
-	GT_ERR(SERVICE, -rc, "Failed to attach service");
+	GT_ERR(SERVICE, -rc, "attaching service failed");
 	spinlock_unlock(&service_attach_lock);
 	return rc;
 }
@@ -627,6 +627,9 @@ err:
 static void
 service_detach(void)
 {
+	int sid;
+
+	sid = current->p_sid;
 	service_deinit_private();
 	sys_close(service_sysctl_fd);
 	service_sysctl_fd = -1;
@@ -639,7 +642,7 @@ service_detach(void)
 		current_sigprocmask_set = 0;
 		sys_sigprocmask(SIG_SETMASK, &current_sigprocmask, NULL);
 	}
-	GT_NOTICE(SERVICE, 0, "Service detached");
+	GT_NOTICE(SERVICE, 0, "Service %d detached", sid);
 }
 
 static void
@@ -790,16 +793,18 @@ service_update_rss_bindings(void)
 int
 service_validate_rss(struct route_if *ifp, be32_t laddr, be32_t faddr, be16_t lport, be16_t fport)
 {
-	int i, sid, rss_qid;
+	int i, sid, rss_qid, has_rssq;
 	uint32_t h;
 
 	if (ifp->rif_rss_queue_num == 1) {
 		return 1;
 	}
 	rss_qid = -1;
+	has_rssq = 0;
 	for (i = 0; i < ifp->rif_rss_queue_num; ++i) {
 		sid = READ_ONCE(shared->shm_rss_table[i]);
 		if (sid == current->p_sid) {
+			has_rssq = 1;
 			if (rss_qid == -1) {
 				h = rss_hash4(laddr, faddr, lport, fport, ifp->rif_rss_key);
 				rss_qid = h % ifp->rif_rss_queue_num;
@@ -808,6 +813,10 @@ service_validate_rss(struct route_if *ifp, be32_t laddr, be32_t faddr, be16_t lp
 				return 1;
 			}
 		}
+	}
+	if (!has_rssq) {
+		gt_dbg("No rssq!!! %d", current->p_sid);
+		assert(0);
 	}
 	return 0;
 }

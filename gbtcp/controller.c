@@ -134,7 +134,8 @@ controller_lock_service(struct service *s)
 
 	rc = spinlock_trylock(&s->p_lock);
 	if (rc == 0) {
-		GT_ERR(CONTROLLER, 0, "Sevice DEADLOCK, pid=%d", s->p_pid);
+		GT_ERR(CONTROLLER, 0, "service %d deadlock occured, most likely process %d died",
+				s->p_sid, s->p_pid);
 		assert(0);
 		exit(69);
 	}
@@ -197,12 +198,10 @@ controller_sched_alg(struct service **ppick, struct service **pkick)
 	for (i = 1; i <= sid_max; ++i) {
 		s = shared->shm_services + i;
 		if (s->p_pid) {
-			if (pick == NULL ||
-			    pick->p_rss_nq > s->p_rss_nq) {
+			if (pick == NULL || pick->p_rss_nq > s->p_rss_nq) {
 				pick = s;
 			}
-			if (kick == NULL ||
-			    kick->p_rss_nq < s->p_rss_nq) {
+			if (kick == NULL || kick->p_rss_nq < s->p_rss_nq) {
 				kick = s;
 			}
 		}
@@ -214,11 +213,12 @@ controller_sched_alg(struct service **ppick, struct service **pkick)
 		kick = current;
 	} else {
 		if (kick->p_rss_nq <= pick->p_rss_nq + 1 &&
-		    kick->p_start_time >= pick->p_start_time) {
-			// do not preempt
+		    		kick->p_start_time >= pick->p_start_time) {
+			// Do not preempt
 			kick = pick;
 		}
 	}
+
 	if (ppick != NULL) {
 		*ppick = pick;
 	}
@@ -228,25 +228,21 @@ controller_sched_alg(struct service **ppick, struct service **pkick)
 }
 
 static void
-set_rss_binding(u_int rss_qid, int sid)
+set_rss_binding(u_int rssq, int sid)
 {
 	int old_sid;
 
-	assert(rss_qid < GT_RSS_NQ_MAX);
+	assert(rssq < GT_RSS_NQ_MAX);
 	assert(sid == SERVICE_ID_INVALID || sid < GT_SERVICES_MAX);
-	old_sid = shared->shm_rss_table[rss_qid];
+	old_sid = shared->shm_rss_table[rssq];
 	if (old_sid == sid) {
 		return;
 	}
-	if (old_sid != SERVICE_ID_INVALID) {
-		GT_NOTICE(CONTROLLER, 0, "Unbind tx/rx queue (%d) from service (pid=%d)",
-			rss_qid, shared->shm_services[old_sid].p_pid);
-	}
 	if (sid != SERVICE_ID_INVALID) {
-		GT_NOTICE(CONTROLLER, 0, "Bind tx/rx queue (%d) to service (pid=%d)",
-			rss_qid, shared->shm_services[sid].p_pid);
+		GT_NOTICE(CONTROLLER, 0, "Bind rssq %d to service %d (pid:%d)",
+				rssq, sid, shared->shm_services[sid].p_pid);
 	}
-	WRITE_ONCE(shared->shm_rss_table[rss_qid], sid);
+	WRITE_ONCE(shared->shm_rss_table[rssq], sid);
 }
 
 static void
@@ -256,11 +252,11 @@ controller_sched_balance(void)
 	struct service *pick, *kick;
 
 	controller_sched_alg(&pick, &kick);
-	if (pick == current ||
-	    pick == kick ||
-	    kick->p_rss_nq == 0) {
+
+	if (pick == current || pick == kick ||  kick->p_rss_nq == 0) {
 		return;
 	}
+
 	for (i = 0; i < shared->shm_rss_table_size; ++i) {
 		if (shared->shm_rss_table[i] == kick->p_sid) {
 			set_rss_binding(i, pick->p_sid);
@@ -280,7 +276,7 @@ controller_del_service(struct service *s)
 	struct sockaddr_un a;
 	struct service *new;
 
-	GT_NOTICE(CONTROLLER, 0, "Delete service (pid=%d)", s->p_pid);
+	GT_NOTICE(CONTROLLER, 0, "delete service; sid:%d, pid:%d", s->p_sid, s->p_pid);
 	sid = s->p_sid;
 	rss_nq = s->p_rss_nq;
 	controller_check_service_deadlock(s);
@@ -314,13 +310,18 @@ controller_del_service(struct service *s)
 static void
 controller_add_service(struct service *s, int pid, struct sysctl_conn *cp)
 {
-	int fd;
+	int rc, fd;
 
 	assert(s != current);
 	fd = sysctl_conn_fd(cp);
-	GT_NOTICE(CONTROLLER, 0, "Add service process (pid=%d), fd=%d", pid, fd);
-	service_init_shared(s, pid, fd);
-	sid_max = MAX(sid_max, s->p_sid);
+	rc = service_init_shared(s, pid, fd);
+	if (rc == 0) {
+		sid_max = MAX(sid_max, s->p_sid);
+		GT_NOTICE(CONTROLLER, 0, "add service; sid:%d, pid:%d", s->p_sid, pid);
+		controller_sched_balance();
+	} else {
+		GT_ERR(CONTROLLER, -rc, "adding service failed; pid:%d", pid);
+	}
 }
 
 static void
@@ -442,7 +443,7 @@ sysctl_controller_service_list_next(void *udata, const char *ident, struct strbu
 
 static int
 sysctl_controller_service_list(void *udata, const char *ident,
-	const char *new, struct strbuf *out)
+		const char *new, struct strbuf *out)
 {
 	int i;
 	u_int okpps;
@@ -592,7 +593,7 @@ gt_controller_init(int daemonize)
 	GT_NOTICE(CONTROLLER, 0, "Controller initialized");
 	return 0;
 err:
-	GT_ERR(CONTROLLER, -rc, "Controller initialization failed");
+	GT_ERR(CONTROLLER, -rc, "controller initialization failed");
 	gt_controller_deinit();
 	return rc;
 }
@@ -602,7 +603,7 @@ gt_controller_deinit(void)
 {
 	int pid;
 
-	GT_NOTICE(CONTROLLER, 0, "Controller shutdown");
+	GT_NOTICE(CONTROLLER, 0, "controller shutdown");
 	pid = getpid();
 	controller_unbind(pid);
 	if (current != NULL) {

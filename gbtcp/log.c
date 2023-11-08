@@ -109,14 +109,17 @@ log_vprintf(int level, const char *func, int errnum, const char *fmt, va_list ap
 	struct strbuf sb;
 
 	strbuf_init(&sb, buf, sizeof(buf));
-	strbuf_addf(&sb, "%s: ", func);
+	if (0) {
+		strbuf_addf(&sb, "%s: ", func);
+	}
 	strbuf_vaddf(&sb, fmt, ap);
 	if (errnum) {
 		log_fill_errnum(&sb, errnum);
 	}
 	syslog(level, "%s", strbuf_cstr(&sb));
 
-	//printf("%s\n", strbuf_cstr(&sb));
+	// TODO: sysctl set log ouput destination syslog/stdout
+	//printf("[%d] %s\n", (int)getpid(), strbuf_cstr(&sb));
 }
 
 void

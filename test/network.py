@@ -46,6 +46,12 @@ class Network:
 
 	def reset_routing(self):
 		system("ip a flush dev %s" % self.interface.name)
+
+		# Add some route table entry to mitigate flush error:
+		# Error: ipv4: FIB table does not exist.
+		# Flush terminated
+		system("ip r a dev %s 1.1.1.1/32" % self.interface.name)
+
 		system("ip r flush dev %s" % self.interface.name)
 
 

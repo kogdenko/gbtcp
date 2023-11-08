@@ -35,10 +35,16 @@ class Application:
 		return self.proc.pid
 
 
+	def set_impl(self, impl):
+		if self.transport != Transport.NATIVE:
+			self.impl = impl
+
+
 	def __init__(self, transport):
 		self.transport = transport
 		self.version = None
 		self.mode = None
+		self.impl = None
 		self.repo = None
 		self.proc = None
 
@@ -153,6 +159,7 @@ class nginx(Application, Application.Registered):
 
 	def start(self, repo, network, mode, impl, concurrency, cpus):
 		self.mode = mode
+		self.set_impl(impl)
 
 		if mode != Mode.SERVER:
 			return False
@@ -242,6 +249,7 @@ class gbtcp_base_helloworld(Application):
 
 	def start(self, repo, network, mode, impl, concurrency, cpus):
 		self.mode = mode
+		self.set_impl(impl)
 		self.repo = repo
 		self.configure_network(True, network, mode, concurrency, cpus)
 

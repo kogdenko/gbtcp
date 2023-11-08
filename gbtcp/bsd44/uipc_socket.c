@@ -124,6 +124,9 @@ gt_bsd44_so_listen(struct file *fp, int backlog)
 void
 sofree(struct socket *so)
 {
+	int q;
+	struct socket *lso;
+
 /*	const char *cp = "ss=";
 
 	printf("sofree: %p, ", so);
@@ -162,9 +165,17 @@ sofree(struct socket *so)
 		return;
 	}
 
-	if (so->so_head == NULL) {
+	if (so->so_options & SO_OPTION(SO_ACCEPTCONN)) {
+		for (q = 0; q < ARRAY_SIZE(so->so_q); ++q) {
+			if (!gt_dlist_is_empty(so->so_q + q)) {
+				return;
+			}
+		}
+	} else if (so->so_head != NULL) {
+		lso = so->so_head;
 		soqremque(so, 0);
 		soqremque(so, 1);
+		sofree(lso);
 	}
 
 	sbrelease(&so->so_snd);
@@ -182,7 +193,7 @@ sofree(struct socket *so)
 int
 gt_bsd44_so_close(struct file *fp)
 {
-	int i, rc;
+	int q, rc;
 	struct gt_dlist *head;
 	struct socket *so, *aso, *tmp;
 
@@ -193,9 +204,9 @@ gt_bsd44_so_close(struct file *fp)
 	}
 
 	if (so->so_options & SO_OPTION(SO_ACCEPTCONN)) {
-		for (i = 0; i < ARRAY_SIZE(so->so_q); ++i) {
-			head = so->so_q + i;
-			GT_DLIST_FOREACH_SAFE(aso, head, so_q[i], tmp) {
+		for (q = 0; q < ARRAY_SIZE(so->so_q); ++q) {
+			head = so->so_q + q;
+			GT_DLIST_FOREACH_SAFE(aso, head, so_q[q], tmp) {
 				soabort(aso);
 			}
 		}
@@ -285,7 +296,6 @@ sosend(struct socket *so, const struct iovec *iov, int iovcnt,
 	}
 	if ((so->so_state & SS_ISCONNECTED) == 0) {
 		if (so->so_proto == IPPROTO_TCP) {
-			gt_dbg("notconn");
 			return -ENOTCONN;
 		} else if (dest_addr == NULL) {
 			return -EDESTADDRREQ;
@@ -519,6 +529,7 @@ void
 soisconnected(struct socket *so)
 {
 	struct socket *head;
+
 	so->so_state &= ~(SS_ISCONNECTING|SS_ISDISCONNECTING);
 	so->so_state |= SS_ISCONNECTED;
 	head = so->so_head;
@@ -560,8 +571,17 @@ soisdisconnected(struct socket *so)
 int
 soreadable(struct socket *so)
 {
-	return so->so_rcv.sb_cc || (so->so_state & SS_CANTRCVMORE) ||
-			!gt_dlist_is_empty(so->so_q + 1);
+	if (so->so_rcv.sb_cc || (so->so_state & SS_CANTRCVMORE)) {
+		return 1;
+	}
+
+	if (so->so_options & SO_OPTION(SO_ACCEPTCONN)) {
+		if (!gt_dlist_is_empty(so->so_q + 1)) {
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 int
@@ -615,7 +635,6 @@ somodopt(struct socket *so, int optname, int optval)
 	}
 }
 
-
 struct socket *
 sonewconn(struct socket *head)
 {
@@ -630,9 +649,8 @@ sonewconn(struct socket *head)
 	soclropt(so, SO_ACCEPTCONN);
 	so->so_linger = head->so_linger;
 	so->so_state = head->so_state | SS_NOFDREF | SS_ISCONNECTING;
-	if (so->so_proto == IPPROTO_TCP) {
-		tcp_attach(so);
-	}
+	assert(so->so_proto == IPPROTO_TCP);
+	tcp_attach(so);
 	soqinsque(head, so, 0);
 	return so;
 }
@@ -642,20 +660,26 @@ soqinsque(struct socket *head, struct socket *so, int q)
 {
 	assert(so->so_head == NULL);
 	so->so_head = head;
+
 	GT_DLIST_INSERT_HEAD(head->so_q + q, so, so_q[q]);
 }
 
 int
 soqremque(struct socket *so, int q)
 {
-	if (so->so_head == NULL || gt_dlist_is_empty(so->so_q + q)) {
+	if (so->so_head == NULL) {
 		return 0;
-	} else {
-		GT_DLIST_REMOVE(so, so_q[q]);
-		so->so_head = NULL;
-		gt_dlist_init(so->so_q + q);
-		return 1;
 	}
+
+	if (gt_dlist_is_empty(so->so_q + q)) {
+		assert(!gt_dlist_is_empty(so->so_q + (1 - q)));
+		return 0;
+	}
+
+	GT_DLIST_REMOVE(so, so_q[q]);
+	so->so_head = NULL;
+	gt_dlist_init(so->so_q + q);
+	return 1;
 }
 
 /*

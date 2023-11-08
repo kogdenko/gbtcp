@@ -21,7 +21,13 @@
 #define so_lport so_base.sobase_lport
 #define so_fport so_base.sobase_fport
 
-#if 0
+#define LOG_DBG(fmt, ...) \
+	do { \
+		log_buf_init(); \
+		gt_dbg(fmt, ##__VA_ARGS__); \
+	} while (0)
+
+#if 1
 #define TCP_DBG(fmt, ...) \
 	do { \
 		log_buf_init(); \
@@ -1321,11 +1327,7 @@ tcp_rcv_LISTEN(struct sock *lso, struct in_context *in,
 			ntoh16(so->so_fport),
 			in->in_tcp_seq,
 			so_get_fd(lso), so_get_fd(so));
-		/*dbg("theend [%s] fport=%u, seq=%u, ack=%u, tos=%u",
-			log_add_tcp_flags(so->so_base.sobase_proto, in->in_tcp_flags),
-			ntoh16(so->so_fport), in->in_tcp_seq, in->in_tcp_ack,
-			in->in_ih->ih_tos);
-		abort();*/
+		//abort();
 		tcpstat.tcps_badsyn++;
 		tcp_reset(so, in);
 		return;
@@ -1437,6 +1439,11 @@ tcp_rcv_open(struct sock *so, struct in_context *in)
 {
 	int rc;
 
+	if (so->so_state == GT_TCPS_CLOSED) {
+		tcpstat.tcps_rcvafterclose++;
+		return;
+	}
+
 	if (in->in_tcp_flags & GT_TCPF_RST) {
 		// TODO: check seq
 		tcpstat.tcps_drops++;
@@ -1448,6 +1455,7 @@ tcp_rcv_open(struct sock *so, struct in_context *in)
 		}
 		return;
 	}
+
 	if (so->so_rsyn) {
 		rc = tcp_is_in_order(so, in);
 		if (rc == 0) {
@@ -1455,6 +1463,7 @@ tcp_rcv_open(struct sock *so, struct in_context *in)
 			return;
 		}
 	}
+
 	if (in->in_tcp_flags & GT_TCPF_ACK) {
 		rc = tcp_process_ack(so, in);
 		if (rc) {
@@ -1463,20 +1472,22 @@ tcp_rcv_open(struct sock *so, struct in_context *in)
 		so->so_rwnd = in->in_tcp_win;
 		so->so_rwnd_max = MAX(so->so_rwnd_max, so->so_rwnd);
 	}
+
 	switch (so->so_state) {
 	case GT_TCPS_SYN_SENT:
 		tcp_rcv_SYN_SENT(so, in);
 		return;
+
 	case GT_TCPS_CLOSED:
-		tcpstat.tcps_rcvafterclose++;
-		return;
 	case GT_TCPS_SYN_RCVD:
 		break;
+
 	default:
 		assert(so->so_rsyn);
 		tcp_rcv_established(so, in);
 		break;
 	}
+
 	if (so->so_sfin_acked == 0) {
 		tcp_into_sndq(so);
 	}

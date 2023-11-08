@@ -50,7 +50,8 @@ sys_socket(int domain, int type, int protocol)
 static void
 connect_failed(int errnum, struct sockaddr_in *addr)
 {
-	die(errnum, "connect(%s:%hu) failed", inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));
+	errorf(errnum, "connect(%s:%hu) failed",
+			inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));
 }
 
 static int
@@ -62,10 +63,25 @@ sys_connect(int fd, struct sockaddr_in *addr)
 	if (rc == -1) {
 		assert(errno);
 		rc = -errno;
-		if (errno != EINPROGRESS) {
-			connect_failed(errno, addr);
+		if (rc != -EINPROGRESS) {
+			connect_failed(-rc, addr);
 		}
 	}
+	return rc;
+}
+
+static int
+sys_getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
+{
+	int rc;
+
+	rc = getsockopt(sockfd, level, optname, optval, optlen);
+	if (rc == -1) {
+		assert(errno);
+		rc = -errno;
+		errorf(-rc, "getsokopt() failed");
+	}
+
 	return rc;
 }
 
@@ -319,7 +335,8 @@ clientn(struct worker *worker, int eq_fd)
 static void
 on_event(struct worker *worker, int eq_fd, const union connection *cp, short revents)
 {
-	int rc, fd, fin, len, listen_fd, closed;
+	int rc, fd, fin, len, listen_fd, closed, errnum;
+	socklen_t optlen;
 	union connection new_conn;
 
 	switch (cp->conn_state) {
@@ -369,13 +386,18 @@ on_event(struct worker *worker, int eq_fd, const union connection *cp, short rev
 
 	case STATE_CONNECT:
 		if (revents & POLLERR) {
-			connect_failed(0, &g_addr);
-			break;
+			optlen = sizeof(errnum);
+			rc = sys_getsockopt(cp->conn_fd, SOL_SOCKET, SO_ERROR, &errnum, &optlen);
+			if (rc < 0) {
+				errnum = 0;
+			}
+			connect_failed(errnum, &g_addr);
+			rc = -EINVAL;
+		} else {
+			rc = write_record(cp->conn_fd, g_http, g_http_len);
 		}
-		rc = write_record(cp->conn_fd, g_http, g_http_len);
 		if (rc < 0) {
 			close(cp->conn_fd);
-			worker->wrk_reqs++;
 			worker->wrk_conns--;
 			clientn(worker, eq_fd);
 		} else {

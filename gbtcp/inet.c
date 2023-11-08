@@ -372,12 +372,16 @@ gt_ip4_validate_cksum(struct ip4_hdr *ih)
 	uint16_t save_cksum, cksum;
 
 	save_cksum = ih->ih_cksum;
+	if (save_cksum == 0) {
+		save_cksum = 0xffff;
+	}
 	ih->ih_cksum = 0;
 
 	valid = 1;
 	if (curmod->inet_cksum_offload_rx == 0) {
 		cksum = ip4_calc_cksum(ih);
 		if (cksum != save_cksum) {
+			gt_dbg("bad ip cksum %hu, %hu", cksum, save_cksum);
 			valid = 0;
 		}
 	}

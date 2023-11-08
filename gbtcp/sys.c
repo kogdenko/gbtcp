@@ -147,7 +147,7 @@ sys_fork(void)
 		assert(rc);
 		GT_ERR(SYS, -rc, "fork() failed");
 	} else {
-		GT_NOTICE(SYS, 0, "fork() return pid=%d", rc);
+		GT_NOTICE(SYS, 0, "fork() return pid:%d", rc);
 	}
 	return rc;
 }
@@ -185,7 +185,7 @@ sys_fopen(FILE **file, const char *path, const char *mode)
 		GT_ERR(SYS, -rc, "fopen('%s', '%s') failed", path, mode);
 	} else {
 		rc = 0;
-		GT_INFO(SYS, 0, "fopen(%s', '%s') return file=%p", path, mode, *file);
+		GT_INFO(SYS, 0, "fopen(%s', '%s') return file:%p", path, mode, *file);
 	}
 	return rc;
 }
@@ -202,7 +202,7 @@ sys_opendir(DIR **pdir, const char *name)
 		GT_ERR(SYS, -rc, "opendir('%s') failed", name);
 	} else {
 		rc = 0;
-		GT_INFO(SYS, 0, "opendir('%s') return dir=%p", name, *pdir);
+		GT_INFO(SYS, 0, "opendir('%s') return dir:%p", name, *pdir);
 	}
 	return 0;
 }
@@ -216,9 +216,9 @@ sys_stat(const char *path, struct stat *buf)
 	if (rc == -1) {
 		rc = -errno;
 		assert(errno);
-		GT_ERR(SYS, -rc, "failed; path='%s'", path);
+		GT_ERR(SYS, -rc, "failed; path:'%s'", path);
 	} else {
-		GT_INFO(SYS, 0, "ok; path='%s'", path);
+		GT_INFO(SYS, 0, "ok; path:'%s'", path);
 	}
 	return rc;
 }*/
@@ -232,9 +232,9 @@ sys_fstat(int fd, struct stat *buf)
 	if (rc == -1) {
 		rc = -errno;
 		assert(errno);
-		GT_ERR(SYS, -rc, "fstat(fd=%d') failed", fd);
+		GT_ERR(SYS, -rc, "fstat(fd:%d') failed", fd);
 	} else {
-		GT_INFO(SYS, 0, "fstat(fd='%d') ok", fd);
+		GT_INFO(SYS, 0, "fstat(fd:%d) ok", fd);
 	}
 	return rc;
 }
@@ -270,10 +270,10 @@ sys_chown(const char *path, uid_t owner, gid_t group)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "chown('%s', uid=%d, gid=%d) failed",
+		GT_ERR(SYS, -rc, "chown('%s', uid:%d, gid:%d) failed",
 				path, owner, group);
 	} else {
-		GT_INFO(SYS, 0, "chown('%s', uid=%d, gid=%d) ok",
+		GT_INFO(SYS, 0, "chown('%s', uid:%d, gid:%d) ok",
 				path, owner, group);
 	}
 	return rc;
@@ -288,10 +288,10 @@ sys_fchown(int fd, uid_t owner, gid_t group)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "fchown(fd=%d, uid=%d, gid=%d) failed",
+		GT_ERR(SYS, -rc, "fchown(fd:%d, uid:%d, gid:%d) failed",
 				fd, owner, group);
 	} else {
-		GT_INFO(SYS, 0, "fchown(fd=%d, uid=%d, gid=%d) ok",
+		GT_INFO(SYS, 0, "fchown(fd:%d, uid:%d, gid:%d) ok",
 				fd, owner, group);
 	}
 	return rc;
@@ -322,9 +322,9 @@ sys_fchmod(int fd, mode_t mode)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "fchmod(fd=%d, '%o') failed", fd, mode);
+		GT_ERR(SYS, -rc, "fchmod(fd:%d, '%o') failed", fd, mode);
 	} else {
-		GT_INFO(SYS, 0, "fchmod(fd=%d, '%o') ok", fd, mode);
+		GT_INFO(SYS, 0, "fchmod(fd:%d, '%o') ok", fd, mode);
 	}
 	return rc; 
 }
@@ -342,11 +342,11 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
-			GT_ERR(SYS, -rc, "ftruncate(fd=%d, %jd) failed",
+			GT_ERR(SYS, -rc, "ftruncate(fd:%d, %jd) failed",
 					fd, (intmax_t)off);
 		}
 	} else {
-		GT_INFO(SYS, 0, "ftruncate(fd=%d, %jd) ok",
+		GT_INFO(SYS, 0, "ftruncate(fd:%d, %jd) ok",
 				fd, (intmax_t)off);
 	}
 	return rc;
@@ -415,7 +415,7 @@ sys_pipe(int pipefd[2])
 		assert(rc);
 		GT_ERR(SYS, -rc, "pipe() failed");
 	} else {
-		GT_INFO(SYS, 0, "pipe() return rfd=%d, wfd=%d", pipefd[0], pipefd[1]);
+		GT_INFO(SYS, 0, "pipe() return rfd:%d, wfd:%d", pipefd[0], pipefd[1]);
 	}
 	return rc;
 }
@@ -436,7 +436,7 @@ sys_socket(int domain, int type, int protocol)
 				log_add_socket_type(type_noflags),
 				log_add_socket_flags(flags));
 	} else {
-		GT_INFO(SYS, 0, "socket('%s', '%s', '%s') return fd=%d",
+		GT_INFO(SYS, 0, "socket('%s', '%s', '%s') return fd:%d",
 				log_add_socket_domain(domain),
 				log_add_socket_type(type_noflags),
 				log_add_socket_flags(flags), rc);
@@ -473,10 +473,10 @@ sys_bind(int fd, const struct sockaddr *addr, socklen_t addrlen)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc < 0);
-		GT_ERR(SYS, -rc, "bind(fd=%d, '%s') failed",
+		GT_ERR(SYS, -rc, "bind(fd:%d, '%s') failed",
 				fd, log_add_sockaddr(addr, addrlen));
 	} else {
-		GT_INFO(SYS, 0, "bind(fd=%d, '%s') ok",
+		GT_INFO(SYS, 0, "bind(fd:%d, '%s') ok",
 				fd, log_add_sockaddr(addr, addrlen));	
 	}
 	return rc;
@@ -491,9 +491,9 @@ sys_listen(int fd, int backlog)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc < 0);
-		GT_ERR(SYS, -rc, "listen(fd=%d, %d) failed", fd, backlog);
+		GT_ERR(SYS, -rc, "listen(fd:%d, %d) failed", fd, backlog);
 	} else {
-		GT_INFO(SYS, 0, "listen(fd=%d, %d) ok", fd, backlog);
+		GT_INFO(SYS, 0, "listen(fd:%d, %d) ok", fd, backlog);
 	}
 	return rc;
 }
@@ -508,10 +508,10 @@ sys_accept4(int fd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 		rc = -errno;
 		assert(rc);
 		if (rc != -EAGAIN) {
-			GT_ERR(SYS, -rc, "accept(fd=%d) failed", fd);
+			GT_ERR(SYS, -rc, "accept(fd:%d) failed", fd);
 		}
 	} else {
-		GT_INFO(SYS, 0, "accept(fd=%d) return newfd=%d", fd, rc);
+		GT_INFO(SYS, 0, "accept(fd:%d) return newfd:%d", fd, rc);
 	}
 	return rc;
 }
@@ -525,10 +525,10 @@ sys_shutdown(int fd, int how)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "shutdown(fd=%d, '%s') failed",
+		GT_ERR(SYS, -rc, "shutdown(fd:%d, '%s') failed",
 				fd, log_add_shutdown_how(how));
 	} else {
-		GT_INFO(SYS, 0, "shutdown(fd=%d, '%s') ok",
+		GT_INFO(SYS, 0, "shutdown(fd:%d, '%s') ok",
 				fd, log_add_shutdown_how(how)); 
 	}
 	return rc;
@@ -546,9 +546,9 @@ sys_close(int fd)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc < 0);
-		GT_ERR(SYS, -rc, "close(fd=%d) failed", fd);
+		GT_ERR(SYS, -rc, "close(fd:%d) failed", fd);
 	} else {
-		GT_INFO(SYS, 0, "close(fd=%d) ok", fd);
+		GT_INFO(SYS, 0, "close(fd:%d) ok", fd);
 	}
 	return rc;
 }
@@ -566,10 +566,10 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else if (rc != -EAGAIN) {
-			GT_ERR(SYS, -rc, "read(fd=%d) failed", fd);
+			GT_ERR(SYS, -rc, "read(fd:%d) failed", fd);
 		}
 	} else {
-		GT_INFO(SYS, 0, "read(fd=%d) return %zd", fd, rc);
+		GT_INFO(SYS, 0, "read(fd:%d) return %zd", fd, rc);
 	}
 	return rc;
 }
@@ -591,10 +591,10 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else if (rc != -EAGAIN) {
-			GT_ERR(SYS, -rc, "recv(fd=%d) failed", fd);
+			GT_ERR(SYS, -rc, "recv(fd:%d) failed", fd);
 		}
 	} else {
-		GT_INFO(SYS, 0, "recv(fd=%d) return %zd", fd, rc);
+		GT_INFO(SYS, 0, "recv(fd:%d) return %zd", fd, rc);
 	}
 	return rc;
 }
@@ -616,10 +616,10 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else if (rc != -EAGAIN) {
-			GT_ERR(SYS, -rc, "recvmsg(fd=%d) failed", fd);
+			GT_ERR(SYS, -rc, "recvmsg(fd:%d) failed", fd);
 		}
 	} else {
-		GT_INFO(SYS, 0, "recvmsg(fd=%d) return %zd", fd, rc);
+		GT_INFO(SYS, 0, "recvmsg(fd:%d) return %zd", fd, rc);
 	}
 	return rc;
 }
@@ -637,10 +637,10 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else if (rc == -EAGAIN) {
-			GT_ERR(SYS, -rc, "write(fd=%d) failed", fd);
+			GT_ERR(SYS, -rc, "write(fd:%d) failed", fd);
 		}
 	} else {
-		GT_INFO(SYS, 0, "write(fd=%d) return %zd", fd, rc);
+		GT_INFO(SYS, 0, "write(fd:%d) return %zd", fd, rc);
 	}
 	return rc;
 }
@@ -662,10 +662,10 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else  if (rc != -EAGAIN) {
-			GT_ERR(SYS, -rc, "send(fd=%d) failed", fd);
+			GT_ERR(SYS, -rc, "send(fd:%d) failed", fd);
 		}
 	} else {
-		GT_INFO(SYS, 0, "send(fd=%d) return %zd", fd, rc);
+		GT_INFO(SYS, 0, "send(fd:%d) return %zd", fd, rc);
 	}
 	return rc;
 }
@@ -684,10 +684,10 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else if (rc != -EAGAIN) {
-			GT_ERR(SYS, -rc, "sendto(fd=%d) failed", fd);
+			GT_ERR(SYS, -rc, "sendto(fd:%d) failed", fd);
 		}
 	} else {
-		GT_INFO(SYS, 0, "sendto(fd=%d) return %zd", fd, rc);
+		GT_INFO(SYS, 0, "sendto(fd:%d) return %zd", fd, rc);
 	}
 	return rc;
 }
@@ -707,9 +707,9 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		}
-		GT_ERR(SYS, -rc, "sendmsg(fd=%d) failed", fd);
+		GT_ERR(SYS, -rc, "sendmsg(fd:%d) failed", fd);
 	} else {
-		GT_INFO(SYS, -rc, "sendmsg(fd=%d) return %zd", fd, rc);
+		GT_INFO(SYS, -rc, "sendmsg(fd:%d) return %zd", fd, rc);
 	}
 	return rc;
 }
@@ -727,9 +727,9 @@ sys_dup(int fd)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc < 0);
-		GT_ERR(SYS, -rc, "dup(fd=%d) failed", fd);
+		GT_ERR(SYS, -rc, "dup(fd:%d) failed", fd);
 	} else {
-		GT_INFO(SYS, 0, "dup(fd=%d) return newfd=%d", fd, rc);
+		GT_INFO(SYS, 0, "dup(fd:%d) return newfd:%d", fd, rc);
 	}
 	return rc;
 }
@@ -747,11 +747,11 @@ sys_getsockopt(int fd, int level, int optname, void *optval, socklen_t *optlen)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "getsockopt(fd=%d, '%s', '%s') failed",
+		GT_ERR(SYS, -rc, "getsockopt(fd:%d, '%s', '%s') failed",
 				fd, log_add_sockopt_level(level),
 				log_add_sockopt_optname(level, optname));
 	} else {
-		GT_INFO(SYS, 0, "getsockopt(fd=%d, '%s', '%s') ok",
+		GT_INFO(SYS, 0, "getsockopt(fd:%d, '%s', '%s') ok",
 				fd, log_add_sockopt_level(level),
 				log_add_sockopt_optname(level, optname));
 	}
@@ -767,11 +767,11 @@ sys_setsockopt(int fd, int level, int optname, void *optval, socklen_t optlen)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "setsockopt(fd=%d, '%s', '%s') failed",
+		GT_ERR(SYS, -rc, "setsockopt(fd:%d, '%s', '%s') failed",
 				fd, log_add_sockopt_level(level),
 				log_add_sockopt_optname(level, optname));
 	} else {
-		GT_INFO(SYS, 0, "setsockopt(fd=%d, '%s', '%s') ok",
+		GT_INFO(SYS, 0, "setsockopt(fd:%d, '%s', '%s') ok",
 				fd, log_add_sockopt_level(level),
 				log_add_sockopt_optname(level, optname));
 	}
@@ -789,9 +789,9 @@ sys_getpeername(int fd, struct sockaddr *addr, socklen_t *addrlen)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "getpeername(fd=%d) failed", fd);
+		GT_ERR(SYS, -rc, "getpeername(fd:%d) failed", fd);
 	} else {
-		GT_INFO(SYS, 0, "getpeername(fd=%d) return '%s'",
+		GT_INFO(SYS, 0, "getpeername(fd:%d) return '%s'",
 				fd, log_add_sockaddr(addr, *addrlen));
 	}
 	return rc;
@@ -810,10 +810,10 @@ sys_fcntl(int fd, int cmd, uintptr_t arg)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "fcntl(fd=%d, '%s') failed",
+		GT_ERR(SYS, -rc, "fcntl(fd:%d, '%s') failed",
 				fd, log_add_fcntl_cmd(cmd));
 	} else {
-		GT_INFO(SYS, 0, "fcntl(fd=%d, '%s') ok",
+		GT_INFO(SYS, 0, "fcntl(fd:%d, '%s') ok",
 				fd, log_add_fcntl_cmd(cmd));
 	}
 	return rc;
@@ -828,10 +828,10 @@ sys_ioctl(int fd, u_long req, uintptr_t arg)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "ioctl(fd=%d, '%s') failed",
+		GT_ERR(SYS, -rc, "ioctl(fd:%d, '%s') failed",
 				fd, log_add_ioctl_req(req, arg));
 	} else {
-		GT_INFO(SYS, 0, "ioctl(fd=%d, '%s') ok",
+		GT_INFO(SYS, 0, "ioctl(fd:%d, '%s') ok",
 				fd, log_add_ioctl_req(req, arg));
 	}
 	return rc;
@@ -850,10 +850,10 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
-			GT_ERR(SYS, -rc, "flock(fd=%d) failed", fd);
+			GT_ERR(SYS, -rc, "flock(fd:%d) failed", fd);
 		}
 	} else {
-		GT_INFO(SYS, 0, "flock(fd=%d) ok", fd);
+		GT_INFO(SYS, 0, "flock(fd:%d) ok", fd);
 	}
 	return rc;
 }
@@ -945,9 +945,9 @@ sys_kill(int pid, int sig)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "kill(pid=%d, %d) failed", pid, sig);
+		GT_ERR(SYS, -rc, "kill(pid:%d, %d) failed", pid, sig);
 	} else {
-		GT_INFO(SYS, 0, "kill(pid=%d, %d) ok", pid, sig);
+		GT_INFO(SYS, 0, "kill(pid:%d, %d) ok", pid, sig);
 	}
 	return rc;
 }
@@ -961,9 +961,9 @@ sys_waitpid(pid_t pid, int *status, int options)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "waitpid(pid=%d) failed", (int)pid);
+		GT_ERR(SYS, -rc, "waitpid(pid:%d) failed", (int)pid);
 	} else {
-		GT_INFO(SYS, 0, "waitpid(pid=%d) ok", (int)pid);
+		GT_INFO(SYS, 0, "waitpid(pid:%d) ok", (int)pid);
 	}
 	return rc;
 }
@@ -1041,10 +1041,10 @@ sys_mmap(void **res, void *addr, size_t size, int prot, int flags, int fd, off_t
 	if (ptr == MAP_FAILED) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "mmap(fd=%d, %zu) failed", fd, size);
+		GT_ERR(SYS, -rc, "mmap(fd:%d, %zu) failed", fd, size);
 	} else {
 		rc = 0;
-		GT_INFO(SYS, 0, "mmap(fd=%d, %zu) return %p", fd, size, ptr);
+		GT_INFO(SYS, 0, "mmap(fd:%d, %zu) return %p", fd, size, ptr);
 		if (res != NULL) {
 			*res = ptr;
 		}
@@ -1146,9 +1146,9 @@ sys_epoll_create1(int flags)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "epoll_create1() failed;");
+		GT_ERR(SYS, -rc, "epoll_create1() failed");
 	} else {
-		GT_INFO(SYS, 0, "epoll_create1() return ep_fd=%d", rc);
+		GT_INFO(SYS, 0, "epoll_create1() return ep_fd:%d", rc);
 	}
 	return rc;
 }
@@ -1167,10 +1167,10 @@ restart:
 		if (rc == -EINTR) {
 			goto restart;
 		} else {
-			GT_ERR(SYS, -rc, "epoll_pwait(ep_fd=%d) failed", ep_fd);
+			GT_ERR(SYS, -rc, "epoll_pwait(ep_fd:%d) failed", ep_fd);
 		}
 	} else {
-		GT_DBG(SYS, 0, "epoll_pwait(ep_fd=%d) ok", ep_fd);
+		GT_DBG(SYS, 0, "epoll_pwait(ep_fd:%d) ok", ep_fd);
 	}
 	return rc;
 }
@@ -1184,10 +1184,10 @@ sys_epoll_ctl(int ep_fd, int op, int fd, struct epoll_event *event)
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_ERR(SYS, -rc, "epoll_ctl(ep_fd=%d, 0x%x, fd=%d) failed",
+		GT_ERR(SYS, -rc, "epoll_ctl(ep_fd:%d, 0x%x, fd=%d) failed",
 				ep_fd, op, fd);
 	} else {
-		GT_INFO(SYS, 0, "epoll_ctl(ep_fd=%d, 0x%x, fd=%d) ok",
+		GT_INFO(SYS, 0, "epoll_ctl(ep_fd:%d, 0x%x, fd=%d) ok",
 				ep_fd, op, fd);
 	}
 	return rc;
@@ -1221,7 +1221,7 @@ sys_kqueue()
 		assert(rc);
 		GT_ERR(SYS, -rc, "kqueue() failed");
 	} else {
-		GT_INFO(SYS, 0, "kqueue() return kq_fd=%d", rc);
+		GT_INFO(SYS, 0, "kqueue() return kq_fd:%d", rc);
 	}
 	return rc;
 }
@@ -1237,9 +1237,9 @@ sys_kevent(int kq, const struct kevent *changelist, int nchanges,
 	if (rc == -1) {
 		rc = -errno;
 		assert(rc);
-		GT_DBG(SYS, -rc, "kevent(kq_fd=%d) failed", kq);
+		GT_DBG(SYS, -rc, "kevent(kq_fd:%d) failed", kq);
 	} else {
-		GT_DBG(SYS, 0, "kevent(kq_fd=%d) ok", kq);
+		GT_DBG(SYS, 0, "kevent(kq_fd:%d) ok", kq);
 	}
 	return rc;
 }

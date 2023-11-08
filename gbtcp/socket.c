@@ -644,6 +644,7 @@ gt_so_bind_ephemeral(struct gt_sock *so, be32_t faddr, be16_t fport)
 		HTABLE_BUCKET_UNLOCK(b);
 	}
 
+	gt_dbg("NOADDRESSES");
 	return -EADDRINUSE;
 }
 

@@ -44,6 +44,14 @@ def system(cmd, failure_tollerance=False):
 	return rc, out, err
 
 
+def set_build_output(env):
+	env['CCCOMSTR'] = "CC $TARGET"
+	env['SHCCCOMSTR'] = "CC $TARGET"
+	env['LINKCOMSTR'] = "LINK $TARGET"
+	env['SHLINKCOMSTR'] = "LINK $TARGET"
+
+
+
 def add_have(var, varname):
 	if var:
 		s = "#define " + varname + "\n"
@@ -69,8 +77,10 @@ def configure(target, source, env):
 	f.close()
 	return None
 
+
 def flags_to_string(flags):
 	return ' ' + ' '.join(flags)
+
 
 def libgbtcp_library(orig, srcs):
 	cflags = [
@@ -78,7 +88,9 @@ def libgbtcp_library(orig, srcs):
 	]
 	env = orig.Clone()
 	env.Append(CFLAGS = flags_to_string(cflags))
+
 	return env.SharedLibrary('bin/libgbtcp.so', srcs)
+
 
 def aio_helloworld_program(orig):
 	env = orig.Clone()
@@ -88,12 +100,14 @@ def aio_helloworld_program(orig):
 	Requires(prog, libgbtcptools)
 	Requires(prog, libgbtcp)
 
+
 def epoll_helloworld_program(orig):
 	env = orig.Clone()
 	env.Append(LIBS = "gbtcptools")
 	prog = env.Program('bin/gbtcp-epoll-helloworld',
 		'tools/gbtcp-epoll-helloworld/main.c')
 	Requires(prog, libgbtcptools)
+
 
 cflags = [
 	'-g',
@@ -133,8 +147,8 @@ AddOption('--with-bsd44', action='store_true',
 
 PLATFORM = platform.system()
 
-g_env = Environment(CC = COMPILER,
-        LIBPATH = "bin")
+g_env = Environment(CC = COMPILER, LIBPATH = "bin")
+set_build_output(g_env)
 g_env.Append(CPPPATH = ['.'])
 
 bld = Builder(action = configure)#, emitter = add_target)
@@ -187,7 +201,6 @@ if GetOption('with_bsd44'):
 		'gbtcp/bsd44/if_ether.c',
 		#'gbtcp/bsd44/udp_usrreq.c',
 		'gbtcp/bsd44/ip_input.c',
-#		'gbtcp/bsd44/glue.c',
 		'gbtcp/bsd44/in_pcb.c',
 		'gbtcp/bsd44/tcp_input.c',
 		'gbtcp/bsd44/tcp_output.c',
@@ -244,6 +257,7 @@ g_env.Append(LINKFLAGS = flags_to_string(ldflags))
 
 libgbtcp = libgbtcp_library(g_env, srcs)
 
+
 g_env.Install(lib_path, libgbtcp)
 g_env.Alias('install', lib_path)
 
@@ -258,11 +272,13 @@ libgbtcptools = g_env.SharedLibrary('bin/libgbtcptools.so', [
 #ldflags.append('-lgbtcp')
 
 g_env_gbtcp = Environment(CC = COMPILER,
-	CCFLAGS = flags_to_string(cflags),
-	LINKFLAGS = flags_to_string(ldflags),
-    LIBPATH = "bin",
-    LIBS = ["gbtcp"]
+		CCFLAGS = flags_to_string(cflags),
+		LINKFLAGS = flags_to_string(ldflags),
+		LIBPATH = "bin",
+		LIBS = ["gbtcp"]
 )
+
+set_build_output(g_env_gbtcp)
 
 g_env_gbtcp.Append(CPPPATH = ['.'])
 
