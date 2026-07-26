@@ -1,0 +1,260 @@
+// SPDX-License-Identifier: LGPL-2.1-only
+
+#ifndef GBTCP_GBTCP_H
+#define GBTCP_GBTCP_H
+
+#include <netinet/in.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#ifdef __linux__
+#include <netinet/tcp.h>
+#include <sys/epoll.h>
+#else
+#include <sys/event.h>
+#include <sys/time.h>
+#endif
+
+#ifdef __linux__
+#define GT_TCPS_CLOSED TCP_CLOSE
+#define GT_TCPS_LISTEN TCP_LISTEN
+#define GT_TCPS_SYN_SENT TCP_SYN_SENT
+#define GT_TCPS_SYN_RCVD TCP_SYN_RECV
+#define GT_TCPS_ESTABLISHED TCP_ESTABLISHED
+#define GT_TCPS_CLOSE_WAIT TCP_CLOSE_WAIT
+#define GT_TCPS_FIN_WAIT_1 TCP_FIN_WAIT1
+#define GT_TCPS_CLOSING TCP_CLOSING
+#define GT_TCPS_LAST_ACK TCP_LAST_ACK
+#define GT_TCPS_FIN_WAIT_2 TCP_FIN_WAIT2
+#define GT_TCPS_TIME_WAIT TCP_TIME_WAIT
+#define GT_TCPS_MAX_STATES (TCP_CLOSING + 1)
+#else // __linux__
+#define GT_TCPS_CLOSED TCPS_CLOSED
+#define GT_TCPS_LISTEN TCPS_LISTEN
+#define GT_TCPS_SYN_SENT TCPS_SYN_SENT
+#define GT_TCPS_SYN_RCVD TCPS_SYN_RECEIVED
+#define GT_TCPS_ESTABLISHED TCPS_ESTABLISHED
+#define GT_TCPS_CLOSE_WAIT TCPS_CLOSE_WAIT
+#define GT_TCPS_FIN_WAIT_1 TCPS_FIN_WAIT_1
+#define GT_TCPS_CLOSING TCPS_CLOSING
+#define GT_TCPS_LAST_ACK TCPS_LAST_ACK
+#define GT_TCPS_FIN_WAIT_2 TCPS_FIN_WAIT_2
+#define GT_TCPS_TIME_WAIT TCPS_TIME_WAIT
+#define GT_TCPS_MAX_STATES TCP_NSTATES
+#endif // __linux__
+
+#define GT_SYSCTL_BUFSIZ 4096
+#define GT_RSS_NQ_MAX 32
+#define GT_SERVICES_MAX 128
+#define GT_FIRST_FD (FD_SETSIZE >> 1)
+#define GT_GROUP_NAME "gbtcp"
+
+#define GT_SYSCTL_FILE_NOFILE "file.nofile"
+#define GT_SYSCTL_DEV_TRANSPORT "dev.transport"
+#define GT_SYSCTL_ROUTE "route"
+#define GT_SYSCTL_ROUTE_RSS_QID "route.rss.qid"
+#define GT_SYSCTL_ROUTE_IF_LIST "route.if.list"
+#define GT_SYSCTL_ROUTE_IF_ADD "route.if.add"
+#define GT_SYSCTL_ROUTE_IF_DEL "route.if.del"
+#define GT_SYSCTL_ROUTE_ADDR_LIST "route.addr.list"
+#define GT_SYSCTL_ROUTE_ROUTE_LIST "route.route.list"
+#define GT_SYSCTL_TCP "tcp"
+#define GT_SYSCTL_TCP_FIN_TIMEOUT "tcp.fin_timeout"
+#define GT_SYSCTL_TCP_TIME_WAIT_TIMEOUT "tcp.time_wait_timeout"
+#define GT_SYSCTL_SOCKET "socket"
+#define GT_SYSCTL_SOCKET_CONNECTED_LIST "socket.connected.list"
+#define GT_SYSCTL_SOCKET_CONNECTED_SIZE "socket.connected.size"
+#define GT_SYSCTL_SOCKET_BINDED_LIST "socket.binded.list"
+#define GT_SYSCTL_SOCKET_IMPL "socket.impl"
+#define GT_SYSCTL_ARP_ADD "arp.add"
+#define GT_SYSCTL_ARP_DEL "arp.del"
+#define GT_SYSCTL_ARP_LIST "arp.list"
+#define GT_SYSCTL_CONTROLLER_SERVICE_LIST "controller.service.list"
+#define GT_SYSCTL_INET_CKSUM_OFFLOAD_RX "inet.cksum.offload.rx"
+#define GT_SYSCTL_INET_CKSUM_OFFLOAD_TX "inet.cksum.offload.tx"
+
+// clang-format off
+#define GT_X_TCP_STAT(x) \
+	x(sndtotal) \
+	x(sndpack) \
+	x(sndbyte) \
+	x(sndrexmitpack) \
+	x(sndrexmitbyte) \
+	x(sndacks) \
+	x(delack) \
+	x(sndurg) \
+	x(sndprobe) \
+	x(sndwinup) \
+	x(sndctrl) \
+	x(rcvtotal) \
+	x(rcvackpack) \
+	x(rcvackbyte) \
+	x(rcvdupack) \
+	x(rcvacktoomuch) \
+	x(rcvpack) \
+	x(rcvbyte) \
+	x(rcvduppack) \
+	x(rcvdupbyte) \
+	x(pawsdrop) \
+	x(rcvpartduppack) \
+	x(rcvpartdupbyte) \
+	x(rcvpackafterwin) \
+	x(rcvbyteafterwin) \
+	x(rcvwinprobe) \
+	x(rcvwinupd) \
+	x(rcvbadsum) \
+	x(rcvbadoff) \
+	x(rcvshort) \
+	x(rcvoopack) \
+	x(rcvoobyte) \
+	x(rcvafterclose) \
+	x(rcvmemdrop) \
+	x(connattempt) \
+	x(accepts) \
+	x(badsyn) \
+	x(listendrop) \
+	x(connects) \
+	x(closed) \
+	x(drops) \
+	x(conndrops) \
+	x(rttupdated) \
+	x(segstimed) \
+	x(rexmttimeo) \
+	x(timeoutdrop) \
+	x(persisttimeo) \
+	x(keeptimeo) \
+	x(keepprobe) \
+	x(keepdrops) \
+	x(predack) \
+	x(preddat) \
+
+#define GT_X_UDP_STAT(x) \
+	x(ipackets) \
+	x(hdrops) \
+	x(badlen) \
+	x(badsum) \
+	x(nosum) \
+	x(noport) \
+	x(fullsock) \
+	x(opackets) \
+
+#define GT_X_IP_STAT(x) \
+	x(total) \
+	x(badsum) \
+	x(toosmall) \
+	x(tooshort) \
+	x(toolong) \
+	x(badhlen) \
+	x(badlen) \
+	x(badvers) \
+	x(fragments) \
+	x(fragdropped) \
+	x(delivered) \
+	x(bypassed) \
+	x(noproto) \
+	x(localout) \
+	x(noroute) \
+	x(fragmented) \
+	x(cantfrag) \
+
+#define GT_X_ICMP_STAT(x) \
+	x(badcode) \
+	x(tooshort) \
+	x(checksum) \
+	x(badlen) \
+	x(reflect) \
+	x(error) \
+
+#define GT_X_ARP_STAT(x) \
+	x(txrequests) \
+	x(txreplies) \
+	x(txrepliesdropped) \
+	x(rxrequests) \
+	x(rxreplies) \
+	x(received) \
+	x(dropped) \
+	x(bypassed) \
+	x(filtered) \
+	x(timeouts) \
+	x(dupips) \
+	x(toosmall) \
+	x(badhrd) \
+	x(badpro) \
+	x(badhlen) \
+	x(badplen) \
+	x(badaddr) \
+	x(badop)
+// clang-format on
+
+typedef void (*gt_aio_f)(void *, int, short);
+
+extern __thread int gt_errno;
+
+void gt_init(void);
+pid_t gt_fork(void);
+int gt_socket(int, int, int);
+int gt_connect(int, const struct sockaddr *, socklen_t);
+int gt_bind(int, const struct sockaddr *, socklen_t);
+int gt_listen(int, int);
+int gt_accept4(int, struct sockaddr *, socklen_t *, int);
+int gt_shutdown(int, int);
+int gt_close(int);
+ssize_t gt_read(int, void *, size_t);
+ssize_t gt_readv(int, const struct iovec *, int);
+ssize_t gt_recv(int, void *, size_t, int);
+ssize_t gt_recvfrom(int, void *, size_t, int, struct sockaddr *, socklen_t *);
+ssize_t gt_recvmsg(int, struct msghdr *, int);
+ssize_t gt_write(int, const void *, size_t);
+ssize_t gt_writev(int, const struct iovec *, int);
+ssize_t gt_send(int, const void *, size_t, int);
+ssize_t gt_sendto(int, const void *, size_t, int, const struct sockaddr *,
+		  socklen_t);
+ssize_t gt_sendmsg(int, const struct msghdr *, int);
+int gt_getsockopt(int, int, int, void *, socklen_t *);
+int gt_setsockopt(int, int, int, const void *, socklen_t);
+int gt_getpeername(int, struct sockaddr *, socklen_t *);
+int gt_fcntl(int, int, uintptr_t);
+int gt_ioctl(int, unsigned long, uintptr_t);
+int gt_poll(struct pollfd *, nfds_t, int);
+int gt_ppoll(struct pollfd *, nfds_t, const struct timespec *,
+	     const sigset_t *);
+unsigned int gt_sleep(unsigned int);
+int gt_sigprocmask(int, const sigset_t *, sigset_t *);
+
+int gt_aio_cancel(int);
+int gt_aio_set(int, gt_aio_f);
+ssize_t gt_aio_recvfrom(int, struct iovec *, int, struct sockaddr *,
+			socklen_t *);
+ssize_t gt_recvdrain(int, size_t);
+int gt_sysctl(const char *, char *, const char *);
+int gt_get_version(char *, int);
+
+#ifdef __linux__
+int gt_clone(int (*)(void *), void *, int, void *, void *, void *, void *);
+int gt_epoll_create1(int);
+int gt_epoll_ctl(int, int, int, struct epoll_event *);
+int gt_epoll_pwait(int, struct epoll_event *, int, int, const sigset_t *);
+#else // __linux__
+int gt_kqueue(void);
+int gt_kevent(int, const struct kevent *, int, struct kevent *, int,
+	      const struct timespec *);
+#endif // __linux__
+
+void gt_dbg5(const char *, u_int, const char *, int, const char *, ...)
+	__attribute__((format(printf, 5, 6)));
+
+void gt_dbg_hexdump_ascii5(const char *file, uint32_t line, const char *func,
+			   void *buf, size_t buf_size);
+
+#define gt_dbg(fmt, ...) \
+	gt_dbg5(__FILE__, __LINE__, __func__, 0, fmt, ##__VA_ARGS__)
+
+#define gt_dbg_hexdump_ascii(buf, buf_size) \
+	gt_dbg_hexdump_ascii5(__FILE__, __LINE__, __func__, buf, buf_size)
+
+#endif // GBTCP_GBTCP_H

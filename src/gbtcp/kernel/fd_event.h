@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: LGPL-2.1-only
+
+#ifndef GBTCP_FD_EVENT_H
+#define GBTCP_FD_EVENT_H
+
+#include <gbtcp/kernel/list.h>
+#include <gbtcp/kernel/subr.h>
+#include <gbtcp/kernel/timer.h>
+
+// The system must periodically read from netmap RX rings,
+// otherwise packets will be dropped.
+#define FD_EVENT_TIMEOUT_MIN (20 * GT_NSEC_PER_USEC)
+#define FD_EVENT_TIMEOUT_MAX (60 * GT_NSEC_PER_USEC)
+
+typedef int (*fd_event_f)(void *, short, struct gt_dlist *);
+
+struct fd_event {
+	short fde_fd;
+	short fde_ref_cnt;
+	short fde_events;
+	short fde_id;
+	fd_event_f fde_fn;
+	void *fde_udata;
+};
+
+struct fd_poll {
+	uint64_t fdp_to;
+	int fdp_n_events;
+	int fdp_n_added;
+	int fdp_throttled; // For repeted `rxtx` call
+	struct pollfd fdp_pfds[FD_SETSIZE];
+	struct fd_event *fdp_events[FD_SETSIZE];
+};
+
+extern int fd_poll_epoch;
+
+void clean_fd_events(void);
+void wait_for_fd_events2(int, uint64_t);
+#define check_fd_events() wait_for_fd_events2(0, 0)
+#define wait_for_fd_events() wait_for_fd_events2(1, GT_TIMER_EXPIRE_MIN)
+
+int fd_event_add(struct fd_event **, int, void *, fd_event_f);
+void fd_event_del(struct fd_event *);
+void fd_event_set(struct fd_event *, short);
+void fd_event_clear(struct fd_event *, short);
+int fd_event_is_set(struct fd_event *, short);
+
+struct gt_deferred_entry;
+
+typedef void (*gt_deferred_f)(struct gt_deferred_entry *de);
+
+struct gt_deferred_entry {
+	struct gt_dlist deferred_link;
+	gt_deferred_f deferred_fn;
+};
+void gt_deferred_init(struct gt_deferred_entry *de);
+void gt_deferred_add(struct gt_dlist *deferred, struct gt_deferred_entry *de,
+		     gt_deferred_f fn);
+void gt_deferred_cancel(struct gt_deferred_entry *de);
+
+void fd_poll_init(struct fd_poll *);
+int fd_poll_add3(struct fd_poll *, int, short);
+#define fd_poll_add(p, pfd) fd_poll_add3(p, (pfd)->fd, (pfd)->events)
+int fd_poll_wait(struct fd_poll *, const sigset_t *);
+
+#endif // GBTCP_FD_EVENT_H

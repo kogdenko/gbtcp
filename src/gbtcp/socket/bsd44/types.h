@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: BSD-4-Clause
+
+#ifndef GBTCP_BSD44_TYPES_H
+#define GBTCP_BSD44_TYPES_H
+
+#include <stdint.h>
+
+#include <gbtcp/kernel/global.h>
+#include <gbtcp/kernel/list.h>
+#include <gbtcp/kernel/subr.h>
+#include <gbtcp/kernel/timer.h>
+#include <gbtcp/kernel/worker.h>
+
+typedef unsigned char u_char;
+typedef unsigned short u_short;
+
+#define M_BCAST 0x0100 /* send/received as link-level broadcast */
+#define M_MCAST 0x0200 /* send/received as link-level multicast */
+
+#define PRU_DETACH 1 /* detach protocol from up */
+#define PRU_BIND 2 /* bind socket to address */
+#define PRU_LISTEN 3 /* listen for connection */
+#define PRU_CONNECT 4 /* establish connection to peer */
+#define PRU_ACCEPT 5 /* accept connection from peer */
+#define PRU_DISCONNECT 6 /* disconnect from peer */
+#define PRU_SHUTDOWN 7 /* won't send any more data */
+#define PRU_SEND 9 /* send this data */
+#define PRU_ABORT 10 /* abort (fast DISCONNECT, DETATCH) */
+/* begin for protocols internal use */
+#define PRU_FASTTIMO 18 /* 200ms timeout */
+#define PRU_SLOWTIMO 19 /* 500ms timeout */
+
+#define PRU_NREQ 21
+
+#define PRCO_GETOPT 0
+#define PRCO_SETOPT 1
+
+#define PR_SLOWHZ 2 /* 2 slow timeouts per second */
+#define PR_FASTHZ 5 /* 5 fast timeouts per second */
+
+/*
+ * Values for pr_flags.
+ * PR_ADDR requires PR_ATOMIC;
+ * PR_ADDR and PR_CONNREQUIRED are mutually exclusive.
+ */
+#define PR_ATOMIC 0x01 /* exchange atomic messages only */
+#define PR_ADDR 0x02 /* addresses given with messages */
+#define PR_CONNREQUIRED 0x04 /* connection required by protocol */
+#define PR_WANTRCVD 0x08 /* want PRU_RCVD calls */
+#define PR_RIGHTS 0x10 /* passes capabilities */
+
+#define TCP_NSTATES 11
+
+#define NTOHS(x) ((x) = ntohs((short)(x)))
+#define NTOHL(x) ((x) = ntohl((long)(x)))
+
+extern uint32_t tcp_now;
+extern u_char etherbroadcastaddr[6];
+
+#endif // GBTCP_BSD44_TYPES_H

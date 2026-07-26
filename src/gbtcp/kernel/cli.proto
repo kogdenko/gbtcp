@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package gt;
+
+message CliCompletion {
+	string path = 1;
+	string input = 2;
+};
+
+message CliCompletionReply {
+	repeated string matches = 1;
+};
+
+message CliCommandDump {
+	string input = 1;
+};
+
+message CliCommandDetails {
+	string output = 1;
+	uint32 marker = 2;
+};

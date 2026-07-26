@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package gt;
+
+import "gbtcp/kernel/inet.proto";
+
+message SocketDump {
+	bool listening = 1;
+};
+
+message SocketDetails {
+	uint32 fd = 1;
+	uint32 pid = 2;
+	uint32 proto = 3;
+	uint32 tcp_state = 4;
+	ip4_address src_addr = 5;
+	ip4_address dst_addr = 6;
+	uint32 src_port = 7;
+	uint32 dst_port = 8;
+};
+
+message TestIp {
+	ip4_address src_addr = 1;
+};
+
+message TestIpReply {
+};

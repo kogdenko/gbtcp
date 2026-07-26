@@ -1,0 +1,9 @@
+option('without-xdp', type: 'boolean', value: false, description:
+	'Do not use of XDP')
+option('without-netmap', type: 'boolean', value: false, description:
+	'Do not use of netmap')
+option('without-netmap-vale', type: 'boolean', value: false, description:
+	'Do not use of netmap vale switch')
+option('without-bsd44', type: 'boolean', value: false, description:
+	'Do not use of 4.4BSD tcp/ip stack')
+

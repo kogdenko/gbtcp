@@ -50,11 +50,22 @@ LD_PRELOAD=./bin/libgbtcp.so nginx -c /etc/nginx.conf
 ```
 
 ## Notes
+* I persanally use --no-ext-drivers flag wnen compiling netmap
+
 * LD_PRELOAD cannot be used with setuid
 
-* Run tcpdump. tcpdump must be started after netmap application
+* To monitor packets received by netmap application one should use specified
+
+libpcap library https://github.com/luigirizzo/netmap-libpcap
+
+tcpdump should be started after netmap application
 ```bash
-LD_PRELOAD=libpcap.so.1.6.0-PRE-GIT tcpdump -Snni 'netmap:eth2^/rt'
+LD_PRELOAD=libpcap.so.1.6.0-PRE-GIT tcpdump -Snni 'netmap:eth2/rt'
+```
+
+* Run gdb with LD_PRELOAD
+```bash
+gdb --args env LD_PRELOAD=./bin/libgbtcp.so nginx -c /etc/nginx.conf
 ```
 
 * For maximal performance set scaling_governor

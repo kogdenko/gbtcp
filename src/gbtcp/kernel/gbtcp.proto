@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package gt;
+
+message WorkerAdd {
+	uint32 pid = 1;
+	uint32 tid = 2;
+};
+
+message WorkerAddReply {
+};
+
+message ModuleLoad {
+	string name = 1;
+};
+
+message ModuleLoadReply {
+};
+
+message WorkerModuleLoad {
+	string name = 1;
+};
+
+message WorkerModuleLoadReply {
+};
+
+message WorkerUpdate {
+};
+
+message WorkerUpdateReply {
+};

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package gt;
+
+message eth_address {
+	bytes eth_bytes = 1;
+};
+
+message ip4_address {
+	uint32 ip4_u32 = 1;
+};
+
+message get_stat {
+	string proto_name = 1;
+	string stat_name = 2;
+	bool zero = 3;
+};
+
+message get_stat_reply {
+	uint64 counter = 1;
+};

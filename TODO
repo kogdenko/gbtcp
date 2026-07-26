@@ -1,0 +1,34 @@
++ epool-helloworld: Do not create separate process for master, use 1 worker as a master
+++ Use gbtcp without the `socket` module
+!! Some kind of paket processing node graph
+!!! Implement `gt_module_register_function`
++++++ Refactor memory managment to allocate shared memory for vector data
+++++++ Move to mm.c
+++++++ Heap for sys_malloc()
+
+- Implement l2fwd
+++ Just module main.c
+-- Multiworker
++++ Worker is a thread
+++++ Create `gt_process` and `gt_thread` structures
+
+- Get rid of sys_malloc()
+
+- Need to create /usr/local/gbtcp/sock  and pid - get rid of it
+
+=== REFACTORING ===
++ Full mm refactor
+++ analog posix_memalign
+++ slab counters
+++ function order
+
+- Worker refactor
+++ utility is not a worker
+++ update rss binding via api
+++ local worker works via api too
+-- controller_sched_balnace move to socket module
++++ create `worker_function`
+++++ refactor module function
+-- refactor mod.c....
+++ refactor gt_allocator() and sh_cache() shoulf not be called every time
+-- refacrot rx - rx should return gt_function (as in VPP)

@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package gt;
+
+import "gbtcp/kernel/inet.proto";
+
+message IpLinkAdd {
+	string dev = 1;
+	uint32 io = 2;
+};
+
+message IpLinkAddReply {
+};
+
+message IpLinkDump {
+	string dev = 1;
+};
+
+message IpLinkDetails {
+	string dev = 1;
+	uint32 ifindex = 2;
+
+	uint32 flags = 3;
+	eth_address hwaddr = 4;
+
+	uint64 rx_pkts = 5;
+	uint64 rx_drop = 6;
+	uint64 rx_bytes = 7;
+
+	uint64 tx_pkts = 8;
+	uint64 tx_drop = 9;
+	uint64 tx_bytes = 10;
+};

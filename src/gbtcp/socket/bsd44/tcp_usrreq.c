@@ -1,0 +1,343 @@
+// SPDX-License-Identifier: BSD-4-Clause
+
+#include <gbtcp/socket/bsd44/in_pcb.h>
+#include <gbtcp/socket/bsd44/ip.h>
+#include <gbtcp/socket/bsd44/ip_var.h>
+#include <gbtcp/socket/bsd44/socket.h>
+#include <gbtcp/socket/bsd44/tcp.h>
+#include <gbtcp/socket/bsd44/tcp_timer.h>
+#include <gbtcp/socket/bsd44/tcp_var.h>
+
+// Initiate connection to peer.
+// Enter SYN_SENT state, and mark socket as connecting.
+// Start keep-alive timer, and seed output sequence space.
+// Send initial segment on connection.
+int
+tcp_connect(struct socket *so, const struct sockaddr_in *faddr_in)
+{
+	struct tcpcb *tp;
+	uint32_t h;
+	int rc, ostate;
+
+	tp = sototcpcb(so);
+	ostate = tp->t_state;
+
+	rc = in_pcbconnect(so, faddr_in, &h);
+	if (rc) {
+		goto out;
+	}
+
+	/* Compute window scaling to request.  */
+	while (tp->request_r_scale < TCP_MAX_WINSHIFT &&
+	       (TCP_MAXWIN << tp->request_r_scale) < so->so_rcv.sb_hiwat) {
+		tp->request_r_scale++;
+	}
+	soisconnecting(so);
+	tcpstat.tcps_connattempt++;
+	tp->t_state = GT_TCPS_SYN_SENT;
+	tcp_setslowtimer(tp, TCPT_KEEP, TCPTV_KEEP_INIT);
+	tcp_sendseqinit(tp, h);
+	tcp_output(tp);
+
+	rc = -EINPROGRESS;
+
+out:
+	if ((so->so_options & SO_OPTION(SO_DEBUG))) {
+		tcp_trace(TA_USER, ostate, tp, NULL, NULL, PRU_CONNECT);
+	}
+
+	return rc;
+}
+
+/*
+ * Initiate disconnect from peer.
+ * If connection never passed embryonic stage, just drop;
+ * else if don't need to let data drain, then can just drop anyways,
+ * else have to begin TCP shutdown process: mark socket disconnecting,
+ * drain unread data, state switch to reflect user close, and
+ * send segment (e.g. FIN) to peer.  Socket will be really disconnected
+ * when peer sends FIN and acks ours.
+ */
+int
+tcp_disconnect(struct socket *so)
+{
+	struct tcpcb *tp;
+	int ostate;
+
+	tp = sototcpcb(so);
+	ostate = tp->t_state;
+	if (tp->t_state < GT_TCPS_ESTABLISHED) {
+		tp = tcp_close(tp);
+	} else if ((so->so_options & SO_OPTION(SO_LINGER)) &&
+		   so->so_linger == 0) {
+		tp = tcp_drop(tp, 0);
+	} else {
+		soisdisconnecting(so);
+		tp = tcp_usrclosed(tp);
+		if (tp) {
+			tcp_output(tp);
+		}
+	}
+	if (tp != NULL && (so->so_options & SO_OPTION(SO_DEBUG))) {
+		tcp_trace(TA_USER, ostate, tp, NULL, NULL, PRU_DISCONNECT);
+	}
+	return 0;
+}
+
+/*
+ * Prepare to accept connections.
+ */
+int
+tcp_listen(struct socket *so)
+{
+	struct tcpcb *tp;
+	int ostate, error;
+
+	tp = sototcpcb(so);
+	ostate = tp->t_state;
+	error = 0;
+	if (so->inp_lport == 0) {
+		error = EADDRINUSE;
+		goto out;
+	}
+	if (tp->t_state == GT_TCPS_LISTEN) {
+		goto out;
+	}
+	if (tp->t_state != GT_TCPS_CLOSED) {
+		error = EINVAL;
+	} else {
+		tp->t_state = GT_TCPS_LISTEN;
+	}
+out:
+	if (so->so_options & SO_OPTION(SO_DEBUG)) {
+		tcp_trace(TA_USER, ostate, tp, NULL, NULL, PRU_LISTEN);
+	}
+	return error;
+}
+
+void
+tcp_accept(struct socket *so)
+{
+	struct tcpcb *tp;
+
+	tp = sototcpcb(so);
+	if (so->so_options & SO_OPTION(SO_DEBUG)) {
+		tcp_trace(TA_USER, tp->t_state, tp, NULL, NULL, PRU_ACCEPT);
+	}
+}
+
+/*
+ * Do a send by putting data in output queue.
+ * Possibly send more data.
+ */
+int
+tcp_send(struct socket *so, const struct iovec *iov, int iovcnt)
+{
+	int i, rc, len, ostate;
+	struct tcpcb *tp;
+
+	tp = sototcpcb(so);
+	ostate = tp->t_state;
+
+	len = 0;
+	for (i = 0; i < iovcnt; ++i) {
+		rc = sbappend(&so->so_snd, iov[i].iov_base, iov[i].iov_len);
+		if (rc < 0) {
+			if (!len) {
+				return rc;
+			}
+			break;
+		}
+		len += rc;
+	}
+
+	if (len > 0) {
+		tcp_output(tp);
+	}
+
+	if ((so->so_options & SO_OPTION(SO_DEBUG))) {
+		tcp_trace(TA_USER, ostate, tp, NULL, NULL, PRU_SEND);
+	}
+
+	return len;
+}
+
+/*
+ * Mark the connection as being incapable of further output.
+ */
+void
+tcp_shutdown(struct socket *so)
+{
+	int ostate;
+	struct tcpcb *tp;
+
+	tp = sototcpcb(so);
+	ostate = tp->t_state;
+
+	socantsendmore(so);
+	tp = tcp_usrclosed(tp);
+	if (tp) {
+		tcp_output(tp);
+	}
+
+	if ((so->so_options & SO_OPTION(SO_DEBUG))) {
+		tcp_trace(TA_USER, ostate, tp, NULL, NULL, PRU_SHUTDOWN);
+	}
+}
+
+void
+tcp_abort(struct socket *so)
+{
+	struct tcpcb *tp;
+	tp = sototcpcb(so);
+	tcp_drop(tp, ECONNABORTED);
+}
+
+#define TCP_CTL_VALIDATE(type) \
+	if (*optlen < sizeof(type)) { \
+		return -EINVAL; \
+	} \
+	*optlen = sizeof(type);
+
+int
+tcp_ctloutput(int op, struct socket *so, int level, int optname,
+	      const void *optval, socklen_t *optlen)
+{
+	struct tcpcb *tp;
+	struct tcp_info *tcpi;
+	int i;
+
+	tp = sototcpcb(so);
+	if (level != IPPROTO_TCP) {
+		return -ENOTSUP;
+	}
+
+	switch (op) {
+	case PRCO_SETOPT:
+		switch (optname) {
+		case TCP_NODELAY:
+			TCP_CTL_VALIDATE(int);
+			if (*((int *)optval)) {
+				tp->t_flags |= TF_NODELAY;
+			} else {
+				tp->t_flags &= ~TF_NODELAY;
+			}
+			break;
+
+		case TCP_MAXSEG:
+			TCP_CTL_VALIDATE(int);
+			i = *((int *)optval);
+			if (i > 0 && i <= tp->t_maxseg) {
+				tp->t_maxseg = i;
+			} else {
+				return -EINVAL;
+			}
+			break;
+
+		default:
+			return -ENOPROTOOPT;
+		}
+		break;
+
+	case PRCO_GETOPT:
+		switch (optname) {
+		case TCP_NODELAY:
+			TCP_CTL_VALIDATE(int);
+			*((int *)optval) = tp->t_flags & TF_NODELAY;
+			break;
+
+		case TCP_MAXSEG:
+			TCP_CTL_VALIDATE(int);
+			*((int *)optval) = tp->t_maxseg;
+			break;
+
+		case TCP_INFO:
+			TCP_CTL_VALIDATE(struct tcp_info);
+			tcpi = (struct tcp_info *)optval;
+			tcpi->tcpi_state = tp->t_state;
+			break;
+
+		default:
+			return -ENOPROTOOPT;
+		}
+		break;
+	}
+
+	return 0;
+}
+
+/*
+ * User issued close, and wish to trail through shutdown states:
+ * if never received SYN, just forget it.  If got a SYN from peer,
+ * but haven't sent FIN, then go to FIN_WAIT_1 state to send peer a FIN.
+ * If already got a FIN from peer, then almost done; go to LAST_ACK
+ * state.  In all other cases, have already sent FIN to peer (e.g.
+ * after PRU_SHUTDOWN), and just have to play tedious game waiting
+ * for peer to send FIN or not respond to keep-alives, etc.
+ * We can let the user exit from the close as soon as the FIN is acked.
+ */
+struct tcpcb *
+tcp_usrclosed(struct tcpcb *tp)
+{
+	struct socket *so;
+
+	switch (tp->t_state) {
+	case GT_TCPS_CLOSED:
+	case GT_TCPS_LISTEN:
+	case GT_TCPS_SYN_SENT:
+		tp->t_state = GT_TCPS_CLOSED;
+		tp = tcp_close(tp);
+		break;
+
+	case GT_TCPS_SYN_RCVD:
+	case GT_TCPS_ESTABLISHED:
+		tp->t_state = GT_TCPS_FIN_WAIT_1;
+		break;
+
+	case GT_TCPS_CLOSE_WAIT:
+		tp->t_state = GT_TCPS_LAST_ACK;
+		break;
+	}
+	if (tp && tp->t_state >= GT_TCPS_FIN_WAIT_2) {
+		so = tcpcbtoso(tp);
+		soisdisconnected(so);
+	}
+	return (tp);
+}
+
+void
+tcp_rcvseqinit(struct tcpcb *tp, uint32_t irs)
+{
+	tp->rcv_adv = tp->rcv_nxt = irs + 1;
+}
+
+void
+tcp_sendseqinit(struct tcpcb *tp, uint32_t h)
+{
+	uint32_t iss;
+
+	/* Must not overlap in 2 minutes (MSL)
+	 * Increment 1 seq at 16 ns (like in Linux) */
+	iss = h + (uint32_t)(nanoseconds >> 6);
+	tp->snd_una = tp->snd_nxt = tp->snd_max = tp->snd_wl2 = iss;
+}
+
+void
+tcp_setslowtimer(struct tcpcb *tp, int timer, u_short timo)
+{
+	uint64_t expire;
+
+	expire = timo * GT_NSEC_PER_SEC / PR_SLOWHZ;
+	tcp_settimer(tp, timer, expire);
+}
+
+void
+tcp_settimer(struct tcpcb *tp, int timer, uint64_t timo)
+{
+	if (tp->t_state == GT_TCPS_CLOSED) {
+		return;
+	}
+
+	gt_timer_set_fn(tp->t_timer + timer, timo,
+			gt_so_main->so_bsd44_timer_fn[timer]);
+}

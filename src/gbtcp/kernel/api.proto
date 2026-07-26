@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package gt;
+
+message ApiEcho {
+	uint32 seq = 1;
+	string data = 2;
+};
+
+message ApiEchoReply {
+	uint32 seq = 1;
+	string data = 2;
+};
+
+message ApiEchoDump {
+	string data = 1;
+	uint32 n_details = 2;
+};
+
+message ApiEchoDetails {
+	string data = 1;
+};

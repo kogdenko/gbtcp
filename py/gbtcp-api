@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import json
+import importlib
+
+import argparse
+
+from collections import OrderedDict
+
+from gbtcp.api import APIClient
+
+from google.protobuf.json_format import MessageToDict
+from google.protobuf.descriptor import FieldDescriptor
+
+from google.protobuf import message_factory
+
+def message_to_dict(msg):
+    proto_dict = MessageToDict(msg,
+        always_print_fields_with_no_presence=True,
+        preserving_proto_field_name=True,
+        use_integers_for_enums=True)
+
+    res = OrderedDict()
+
+    for field in msg.DESCRIPTOR.fields:
+        field_name = field.name
+
+        if field.type == FieldDescriptor.TYPE_MESSAGE:
+
+            value = getattr(msg, field_name)
+
+            if field.label == FieldDescriptor.LABEL_REPEATED:
+                res[field_name] = [message_to_dict(value)]
+            else:
+                if hasattr(value, "to_string"):
+                    res[field_name] = value.to_string()
+                else:
+                    res[field_name] = message_to_dict(value)
+        else:
+            res[field_name] = proto_dict[field_name]
+
+    return res
+
+def dict_to_message(data_dict, message_class):
+    msg = message_class()
+    for field_name, value in data_dict.items():
+        if field_name in msg.DESCRIPTOR.fields_by_name:
+            field = msg.DESCRIPTOR.fields_by_name[field_name]
+            if field.type == FieldDescriptor.TYPE_MESSAGE:
+                field_class = message_factory.GetMessageClass(field.message_type)
+                if hasattr(field_class, "from_string"):
+                    field_msg = field_class.from_string(field_class, value)
+                else:
+                    assert(isinstance(value, dict))
+                    field_msg = dict_to_message(value, field_class)
+                getattr(msg, field_name).CopyFrom(field_msg)
+            elif field.label == field.LABEL_REPEATED:
+                assert(0)
+            else:
+                setattr(msg, field_name, value) 
+    return msg
+
+def get_info(api, msg):
+    info = api.dict.get(msg)
+    if info == None:
+        print(f"API `{msg}` not registered")
+        sys.exit(2)
+    return info
+
+def _message_to_dict(msg):
+    res = message_to_dict(msg)
+    res = {"_msg": type(msg).__name__} | res
+    return res
+
+def print_message(msg):
+    if type(msg) == list:
+        res = []
+        for e in msg:
+            res.append(_message_to_dict(e))
+    else:
+        res = _message_to_dict(msg)
+
+    json_str = json.dumps(res, indent=4)
+    print(json_str)
+
+def valid_filepath(path):
+    if not os.path.exists(path):
+        raise argparse.ArgumentTypeError(f"File '{path}' does not exist")
+    return os.path.abspath(path)
+
+def main():
+    parser = argparse.ArgumentParser(description="gbtcp API json client")
+
+    parser.add_argument('-l', action='store_true', default=False,
+        help="List all available APIs")
+    parser.add_argument('-t', type=str, metavar='api',
+        help="Print API template")
+    parser.add_argument('-f', type=valid_filepath, metavar="filepath",
+        help="Execute API from file")
+    parser.add_argument('--api-sock-path', type=valid_filepath, metavar='filepath',
+        help="Specify path to server unix socket")
+
+    args = parser.parse_args()
+
+    try:
+        api = APIClient(args.api_sock_path)
+    except Exception as e:
+        print(e)
+        return 1
+
+    if args.l:
+        for name in api.dict.keys():
+            print(name)
+        return 0
+
+    if args.t:
+        info = get_info(api, args.t)
+
+        msg = info.rq()
+        print_message(msg)
+        return 0
+
+    if args.f:
+        with open(args.f, 'r') as f:
+            json_str = f.read()
+        try:
+            data_dict = json.loads(json_str)
+        except Exception as e:
+            print("Failed to load json:")
+            print(e)
+            return 4
+
+        msg = data_dict.get("_msg")
+        if msg == None:
+            print("`_msg` field required")
+            return 3
+
+        info = get_info(api, msg)
+
+        try:
+            rq = dict_to_message(data_dict, info.rq)
+        except Exception as e:
+            print("Failed to create message from json:")
+            print(e)
+            return 4
+
+        try:
+            rp = api.exec(rq)
+        except Exception as e:
+            print(e)
+            return 5
+
+        print_message(rp)
+
+    return 0
+
+if __name__ == "__main__":
+    code = main()
+    sys.exit(code)
